@@ -4,14 +4,14 @@ import type { FlarexMetadataDatabase } from "../src/deployments";
 import type { FlarexMetadataTransaction } from
   "../src/metadataTransaction";
 import {
-  FrameworkSchemaArtifactControlSessionCleanupDefect,
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-  makeFrameworkSchemaArtifactControlConnectionIdentity,
-  startFrameworkSchemaArtifactControlDeadline,
-  type FrameworkSchemaArtifactControlInitialSettlement,
-  type FrameworkSchemaArtifactControlRecoverySettlement,
-  type FrameworkSchemaArtifactControlSessionDriver,
-} from "../src/frameworkSchema/artifact/controlSession";
+  CatalogControlSessionCleanupDefect,
+  CatalogControlSessionResourceIssue,
+  makeCatalogControlConnectionIdentity,
+  startCatalogControlDeadline,
+  type CatalogControlInitialSettlement,
+  type CatalogControlRecoverySettlement,
+  type CatalogControlSessionDriver,
+} from "../src/catalogControlSession";
 
 export type ScriptedInitialSettlement =
   | "commit"
@@ -30,13 +30,13 @@ export interface ScriptedControlSessionPlan {
   readonly cleanupCause?: unknown;
   readonly quarantineCause?: unknown;
   readonly resolutionCause?: Cause.Cause<
-    FrameworkSchemaArtifactControlSessionResourceIssue
+    CatalogControlSessionResourceIssue
   >;
   readonly beforeRecoveryEffect?: Effect.Effect<void, never, never>;
 }
 
 export interface ScriptedControlSessionFixture {
-  readonly driver: FrameworkSchemaArtifactControlSessionDriver;
+  readonly driver: CatalogControlSessionDriver;
   readonly events: string[];
   readonly initialTransaction: FlarexMetadataTransaction;
   readonly recoveryTransaction: FlarexMetadataTransaction;
@@ -51,22 +51,22 @@ export function makeScriptedControlSessionFixture(
   const initialTransaction = transactionIdentity("initial");
   const recoveryTransaction = transactionIdentity("recovery");
   const initialConnectionIdentity =
-    makeFrameworkSchemaArtifactControlConnectionIdentity();
+    makeCatalogControlConnectionIdentity();
   const recoveryConnectionIdentity =
-    makeFrameworkSchemaArtifactControlConnectionIdentity();
+    makeCatalogControlConnectionIdentity();
   let recoveryRuns = 0;
 
   const driver = Object.freeze({
     runReadEffect: <Value, Failure>(
       _input: Parameters<
-        FrameworkSchemaArtifactControlSessionDriver["runReadEffect"]
+        CatalogControlSessionDriver["runReadEffect"]
       >[0],
       work: (
         database: FlarexMetadataDatabase,
       ) => Effect.Effect<Value, Failure, never>,
     ): Effect.Effect<
       Value,
-      Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+      Failure | CatalogControlSessionResourceIssue,
       never
     > => {
       events.push("read");
@@ -74,12 +74,12 @@ export function makeScriptedControlSessionFixture(
     },
     runInitialTransactionEffect: <Value, Failure>(
       input: Parameters<
-        FrameworkSchemaArtifactControlSessionDriver[
+        CatalogControlSessionDriver[
           "runInitialTransactionEffect"
         ]
       >[0],
       restore: Parameters<
-        FrameworkSchemaArtifactControlSessionDriver[
+        CatalogControlSessionDriver[
           "runInitialTransactionEffect"
         ]
       >[1],
@@ -87,7 +87,7 @@ export function makeScriptedControlSessionFixture(
         transaction: FlarexMetadataTransaction,
       ) => Effect.Effect<Value, Failure, never>,
     ): Effect.Effect<
-      FrameworkSchemaArtifactControlInitialSettlement<Value, Failure>,
+      CatalogControlInitialSettlement<Value, Failure>,
       never,
       never
     > => Effect.gen(function* () {
@@ -108,7 +108,7 @@ export function makeScriptedControlSessionFixture(
               kind: "callbackCleanupFailed" as const,
               callbackCause: callback.cause,
               cleanupCause: Cause.die(
-                new FrameworkSchemaArtifactControlSessionCleanupDefect({
+                new CatalogControlSessionCleanupDefect({
                   phase: plan.cleanupPhase ?? "rollback",
                   cause: plan.cleanupCause,
                 }),
@@ -130,7 +130,7 @@ export function makeScriptedControlSessionFixture(
 
       events.push("initial:commitUncertain", "recovery:deadline");
       const recoveryDeadline = yield*
-        startFrameworkSchemaArtifactControlDeadline(
+        startCatalogControlDeadline(
           "recovery",
           input.recoveryTimeoutMilliseconds,
         );
@@ -153,7 +153,7 @@ export function makeScriptedControlSessionFixture(
     }),
     runRecoveryTransactionEffect: <Value, Failure>(
       input: Parameters<
-        FrameworkSchemaArtifactControlSessionDriver[
+        CatalogControlSessionDriver[
           "runRecoveryTransactionEffect"
         ]
       >[0],
@@ -161,7 +161,7 @@ export function makeScriptedControlSessionFixture(
         transaction: FlarexMetadataTransaction,
       ) => Effect.Effect<Value, Failure, never>,
     ): Effect.Effect<
-      FrameworkSchemaArtifactControlRecoverySettlement<Value, Failure>,
+      CatalogControlRecoverySettlement<Value, Failure>,
       never,
       never
     > => Effect.gen(function* () {
@@ -214,7 +214,7 @@ export function makeScriptedControlSessionFixture(
         value: callback.value,
       });
     }),
-  } satisfies FrameworkSchemaArtifactControlSessionDriver);
+  } satisfies CatalogControlSessionDriver);
 
   return Object.freeze({
     driver,
@@ -228,8 +228,8 @@ export function makeScriptedControlSessionFixture(
 function resourceIssue(
   phase: "begin",
   cause: unknown,
-): FrameworkSchemaArtifactControlSessionResourceIssue {
-  return new FrameworkSchemaArtifactControlSessionResourceIssue({
+): CatalogControlSessionResourceIssue {
+  return new CatalogControlSessionResourceIssue({
     phase,
     cause,
   });

@@ -1,6 +1,8 @@
 import { Data } from "effect";
 import type { Effect, Option } from "effect";
-import type { RelationalTableIdentity } from "../relationalSchema/model";
+import type {
+  RelationalTableIdentity,
+} from "flarex-protocol/internal/relational-schema";
 
 export class RelationalTransactionError extends Data.TaggedError(
   "RelationalTransactionError",

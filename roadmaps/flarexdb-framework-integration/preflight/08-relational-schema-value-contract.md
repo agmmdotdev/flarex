@@ -67,7 +67,7 @@ pinned source snapshot or a synthetic fixture.
 
 ## Admission And Normalization
 
-[`policy.ts`](../../../packages/persistence-postgres/src/relationalSchema/policy.ts)
+[`policy.ts`](../../../packages/flarex-protocol/src/relational-schema/policy.ts)
 owns the pure `Result` normalizer. It:
 
 - rejects non-plain, accessor-backed, sparse, oversized, malformed, duplicate,

@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Result } from "effect";
 
 import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artifact/admission";
-import { makeFrameworkSchemaArtifactControlSessionStarter } from "../src/frameworkSchema/artifact/controlSession";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../src/frameworkSchema/artifact/postgresControlSession";
+import { makeCatalogControlSessionStarter } from "../src/catalogControlSession";
+import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogControlSession";
 import { makeFrameworkSchemaArtifactRepository, prepareFrameworkSchemaArtifactAdmission } from "../src/frameworkSchema/artifact/repository";
 import type { PostgresFrameworkMigrationOptions } from "../src/migrationCoordination/postgresTarget";
 import { makePostgresFrameworkMigrationFixtureTarget, frameworkMigrationFixturePool } from "./frameworkMigrationPostgresFixture";
@@ -37,9 +37,9 @@ export async function createNativeCoordinatorFixture(
   }));
   const repositoryResult = makeFrameworkSchemaArtifactRepository({
     controlDb: persistence.drizzle,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({
+    controlSessionStarter: makeCatalogControlSessionStarter({
       controlDb: persistence.drizzle,
-      driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(persistence.pool),
+      driver: makePostgresCatalogControlSessionDriver(persistence.pool),
     }),
     readTimeoutMilliseconds: 10_000, attemptTimeoutMilliseconds: 10_000,
     recoveryTimeoutMilliseconds: 10_000, lockTimeoutMilliseconds: 2_000,

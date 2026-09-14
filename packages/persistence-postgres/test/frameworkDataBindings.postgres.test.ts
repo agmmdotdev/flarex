@@ -6,8 +6,8 @@ import {
 } from "./postgresHelpers";
 import { createApplicationNativeMutationPostgresFixture } from "./fixtures/applicationNativeMutationTestFixture";
 import { makePostgresFrameworkMigrationFixtureTarget } from "./frameworkMigrationPostgresFixture";
-import { makeFrameworkSchemaArtifactControlSessionStarter } from "../src/frameworkSchema/artifact/controlSession";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../src/frameworkSchema/artifact/postgresControlSession";
+import { makeCatalogControlSessionStarter } from "../src/catalogControlSession";
+import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogControlSession";
 import { makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
 import { exerciseBindingLifecycle } from "./frameworkDataBindingTestSupport";
 import {
@@ -63,9 +63,9 @@ describe.skipIf(postgresUrl === null)(
           makeFrameworkSchemaArtifactRepository({
             controlDb: target.drizzle,
             controlSessionStarter:
-              makeFrameworkSchemaArtifactControlSessionStarter({
+              makeCatalogControlSessionStarter({
                 controlDb: target.drizzle,
-                driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(
+                driver: makePostgresCatalogControlSessionDriver(
                   target.pool,
                 ),
               }),

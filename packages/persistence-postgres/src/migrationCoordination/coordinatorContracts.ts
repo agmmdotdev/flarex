@@ -12,7 +12,9 @@ import type {
   RestoredFrameworkSchemaAvailabilityHead,
   RestoredFrameworkSchemaReadiness,
 } from "../frameworkSchema/installation/storedMetadataRestoration";
-import type { RelationalSchemaError } from "../relationalSchema/errors";
+import type {
+  RelationalSchemaError,
+} from "flarex-protocol/internal/relational-schema";
 import type { RelationalPhysicalValueError } from "../relationalSchema/physical/errors";
 import type { FrameworkMigrationValueError } from "./errors";
 import type { FrameworkMigrationBaseInstallation } from "./model";

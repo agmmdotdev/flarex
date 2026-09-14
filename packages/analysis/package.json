@@ -19,7 +19,8 @@
     "./internal/private-sha256-v1": "./src/privateSha256V1.ts",
     "./internal/system-test/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
     "./internal/system-test/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts",
-    "./internal/system-test/private-analyzer-verification-v1": "./src/privateAnalyzerVerificationV1.ts"
+    "./internal/system-test/private-analyzer-verification-v1": "./src/privateAnalyzerVerificationV1.ts",
+    "./internal/logical-schema-candidate": "./src/logicalSchemaCandidate.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

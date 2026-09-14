@@ -1,9 +1,9 @@
 import { Effect, Result } from "effect";
 
 import {
-  FrameworkSchemaArtifactControlSessionDeadlineIssue,
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-} from "./controlSession";
+  CatalogControlSessionDeadlineIssue,
+  CatalogControlSessionResourceIssue,
+} from "../../catalogControlSession";
 import {
   FrameworkSchemaArtifactError,
   FrameworkSchemaArtifactInvariantDefect,
@@ -38,8 +38,8 @@ type FrameworkSchemaArtifactReadWorkFailure =
 
 type FrameworkSchemaArtifactReadFailure =
   | FrameworkSchemaArtifactReadWorkFailure
-  | FrameworkSchemaArtifactControlSessionDeadlineIssue
-  | FrameworkSchemaArtifactControlSessionResourceIssue;
+  | CatalogControlSessionDeadlineIssue
+  | CatalogControlSessionResourceIssue;
 
 /** Private exact-identity artifact point read. */
 export const getFrameworkSchemaArtifactEffect = Effect.fn(
@@ -132,14 +132,14 @@ function mapReadFailure(
       reason: "unexpectedReadFailure",
     });
   }
-  if (failure instanceof FrameworkSchemaArtifactControlSessionDeadlineIssue) {
+  if (failure instanceof CatalogControlSessionDeadlineIssue) {
     return FrameworkSchemaArtifactError.readResourceFailure(
       identity,
       artifactPresent ? "reconstructArtifact" : activeQueryStage,
       failure,
     );
   }
-  if (failure instanceof FrameworkSchemaArtifactControlSessionResourceIssue) {
+  if (failure instanceof CatalogControlSessionResourceIssue) {
     return FrameworkSchemaArtifactError.readResourceFailure(
       identity,
       activeQueryStage,

@@ -12,7 +12,7 @@ import { rowsFromDriverExecuteResult } from "../../driverExecuteResult";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import { deployments } from "../../schema";
-import type { FrameworkSchemaArtifactControlDecision } from "./controlSession";
+import type { CatalogControlDecision } from "../../catalogControlSession";
 import {
   FrameworkSchemaArtifactError,
   FrameworkSchemaArtifactInvariantDefect,
@@ -22,7 +22,7 @@ import type { FrameworkSchemaArtifact } from "./model";
 import { MAX_FRAMEWORK_SCHEMA_ARTIFACT_DEPENDENCIES } from "./policy";
 import {
   type FrameworkSchemaArtifactAdmissionEvidence,
-  type FrameworkSchemaArtifactControlTransaction,
+  type CatalogControlTransaction,
   type FrameworkSchemaArtifactRepository,
   withFrameworkSchemaArtifactRawControlTransactionEffect,
 } from "./repository";
@@ -70,10 +70,10 @@ export const runLockedFrameworkSchemaArtifactAdmissionEffect = Effect.fn(
   "FrameworkSchemaArtifactRepository.admitLocked",
 )(function* (
   repository: FrameworkSchemaArtifactRepository,
-  transaction: FrameworkSchemaArtifactControlTransaction,
+  transaction: CatalogControlTransaction,
   input: FrameworkSchemaArtifactLockedAdmissionInput,
 ): Effect.fn.Return<
-  FrameworkSchemaArtifactControlDecision<FrameworkSchemaArtifact>,
+  CatalogControlDecision<FrameworkSchemaArtifact>,
   FrameworkSchemaArtifactError
 > {
   return yield* withFrameworkSchemaArtifactRawControlTransactionEffect(

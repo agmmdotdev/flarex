@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
-import { normalizeRelationalSchema } from "@flarex/persistence-postgres/internal/relational-schema-values";
+import {
+  normalizeRelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
 import { dmlSchemaOrigins, lowerDmlSchema } from "../src/schema/lower";
 import type { SchemaColumn, SchemaTable } from "../src/schema/model";
 

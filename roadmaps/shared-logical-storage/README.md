@@ -8,8 +8,9 @@ shared foundations, existing safeguards and safe refusal, not a general upgrade
 or data-conversion engine. This boundary supersedes earlier wording that made
 full migration/ownership transitions prerequisites for core completion.
 
-Status: accepted development-phase architecture replacement; implementation
-pending. The owner chooses generic physical storage with logical Application,
+Status: accepted development-phase architecture replacement; the first
+[candidate-admission slice](./02-candidate-admission.md) is under validation.
+Shared row execution and later gates remain pending. The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
 
@@ -113,8 +114,10 @@ profiles are Flarex decisions, not claims about Convex physical storage.
 
 Current row/index/unique/edge kernels, core settlement/recovery, private framework
 operations and source-preserved module/workflow tests provide the starting point.
-No gate below is completed by this documentation change. Existing PGlite and
-Postgres tests remain evidence only for their actual current implementation.
+The first candidate-admission implementation composes native producer outputs
+through the shared catalog; it is under validation and does not complete GLS2.
+Existing PGlite and Postgres tests remain evidence only for their actual current
+implementation.
 
 ## Known Gaps And Limitations
 

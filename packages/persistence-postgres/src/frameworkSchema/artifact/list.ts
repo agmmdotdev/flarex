@@ -6,9 +6,9 @@ import type { FlarexMetadataDatabase } from "../../deployments";
 import { detachDriverRows } from "../../detachDriverRows";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
 import {
-  FrameworkSchemaArtifactControlSessionDeadlineIssue,
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-} from "./controlSession";
+  CatalogControlSessionDeadlineIssue,
+  CatalogControlSessionResourceIssue,
+} from "../../catalogControlSession";
 import {
   FrameworkSchemaArtifactError,
   FrameworkSchemaArtifactInvariantDefect,
@@ -43,8 +43,8 @@ interface StoredFrameworkSchemaArtifactIdentityRow {
 
 type FrameworkSchemaArtifactListFailure =
   | FrameworkSchemaArtifactError
-  | FrameworkSchemaArtifactControlSessionDeadlineIssue
-  | FrameworkSchemaArtifactControlSessionResourceIssue;
+  | CatalogControlSessionDeadlineIssue
+  | CatalogControlSessionResourceIssue;
 
 /** Private bounded identity-only artifact discovery. */
 export const listFrameworkSchemaArtifactIdentitiesEffect = Effect.fn(

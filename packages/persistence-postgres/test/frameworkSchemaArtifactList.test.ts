@@ -4,10 +4,10 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-  makeFrameworkSchemaArtifactControlSessionStarter,
-  type FrameworkSchemaArtifactControlSessionDriver,
-} from "../src/frameworkSchema/artifact/controlSession";
+  CatalogControlSessionResourceIssue,
+  makeCatalogControlSessionStarter,
+  type CatalogControlSessionDriver,
+} from "../src/catalogControlSession";
 import { FrameworkSchemaArtifactError } from
   "../src/frameworkSchema/artifact/errors";
 import { listFrameworkSchemaArtifactIdentitiesEffect } from
@@ -249,7 +249,7 @@ describe("private framework schema artifact identity listing", () => {
   it("projects control-session acquisition failure at the list boundary", async () => {
     const foreignCause = new Error("acquisition failed");
     const cleanupCause = new Error("quarantine failed");
-    const issue = new FrameworkSchemaArtifactControlSessionResourceIssue({
+    const issue = new CatalogControlSessionResourceIssue({
       phase: "acquire",
       cause: foreignCause,
       cleanupCause,
@@ -546,25 +546,25 @@ describe("private framework schema artifact identity listing", () => {
 
 interface MakeListRepositoryOptions {
   readonly onSessionRun?: () => void;
-  readonly readFailure?: FrameworkSchemaArtifactControlSessionResourceIssue;
+  readonly readFailure?: CatalogControlSessionResourceIssue;
 }
 
 function makeListRepository(
   controlDb: FlarexMetadataDatabase,
   options: MakeListRepositoryOptions = {},
 ): FrameworkSchemaArtifactRepository {
-  const runReadEffect: FrameworkSchemaArtifactControlSessionDriver[
+  const runReadEffect: CatalogControlSessionDriver[
     "runReadEffect"
   ] = <Value, Failure>(
     _input: Parameters<
-      FrameworkSchemaArtifactControlSessionDriver["runReadEffect"]
+      CatalogControlSessionDriver["runReadEffect"]
     >[0],
     work: (
       database: FlarexMetadataDatabase,
     ) => Effect.Effect<Value, Failure, never>,
   ) => Effect.suspend<
     Value,
-    Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+    Failure | CatalogControlSessionResourceIssue,
     never
   >(() => {
     options.onSessionRun?.();
@@ -581,10 +581,10 @@ function makeListRepository(
     runRecoveryTransactionEffect: () => Effect.die(
       "Identity-list fixture must not start recovery.",
     ),
-  } satisfies FrameworkSchemaArtifactControlSessionDriver);
+  } satisfies CatalogControlSessionDriver);
   const result = makeFrameworkSchemaArtifactRepository({
     controlDb,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({
+    controlSessionStarter: makeCatalogControlSessionStarter({
       controlDb,
       driver,
     }),

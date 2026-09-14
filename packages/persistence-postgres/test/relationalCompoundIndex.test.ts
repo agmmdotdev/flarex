@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { encodeCanonicalJson } from "flarex-protocol/json";
-import { normalizeRelationalSchema } from "../src/relationalSchema/policy";
+import {
+  normalizeRelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
 import { captureRelationalSchemaArtifact, authenticateStoredRelationalSchemaArtifactEffect } from "../src/relationalSchema/artifact";
 import { captureRelationalPhysicalLayout, verifyStoredRelationalPhysicalValue } from "../src/relationalSchema/physical/canonical";
 import { FRAMEWORK_VALUE_LOCATOR, frameworkTargetNamespace, currencySchemaInput } from "./frameworkMigrationValueFixtures";

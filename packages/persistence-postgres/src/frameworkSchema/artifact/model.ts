@@ -1,3 +1,4 @@
+import type { SchemaLineageId } from "flarex-protocol/internal/schema-source";
 import type { Brand } from "effect";
 import type { JsonObject } from "flarex-protocol/json";
 
@@ -14,11 +15,6 @@ export type FrameworkSchemaOwner =
 export type FrameworkSchemaArtifactOwner = Exclude<
   FrameworkSchemaOwner,
   "application"
->;
-
-export type FrameworkSchemaLineageId = Brand.Branded<
-  string,
-  "FlarexDB/FrameworkSchemaLineageId"
 >;
 
 export type FrameworkSchemaCapabilityId = Brand.Branded<
@@ -49,7 +45,7 @@ export type FrameworkSchemaArtifactCanonicalJson = Brand.Branded<
 export interface FrameworkSchemaArtifactCoordinate {
   readonly deploymentId: string;
   readonly owner: FrameworkSchemaArtifactOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
 }
 
 export interface FrameworkSchemaArtifactIdentity
@@ -88,7 +84,7 @@ export interface FrameworkSchemaArtifactFrame {
   readonly version: typeof FRAMEWORK_SCHEMA_ARTIFACT_VERSION;
   readonly deploymentId: string;
   readonly owner: FrameworkSchemaArtifactOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly payloadCodec: FrameworkSchemaArtifactCodec;
   readonly provenance: JsonObject;
   readonly capabilities: readonly FrameworkSchemaCapabilityId[];

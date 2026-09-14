@@ -42,8 +42,9 @@ import type {
   RelationalPhysicalLayout,
   RelationalPhysicalTable,
 } from "../src/relationalSchema/physical/model";
-import type { RelationalTableIdentity } from
-  "../src/relationalSchema/model";
+import type {
+  RelationalTableIdentity,
+} from "flarex-protocol/internal/relational-schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   createSuccessfulTerminalPlanValues,

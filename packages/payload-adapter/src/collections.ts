@@ -157,6 +157,7 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
     Object.freeze({ kind: "table", validator: Object.freeze({ isFlarexValidator: true, json: table.definition.documentType }), indexes: Object.freeze([]) }),
   ]))), relations, writePolicies: verified.policies });
   const compiled = Object.freeze({ configuration: verified.policies.configuration, schemaDefinition,
+    logicalDefinition: Object.freeze({ kind: "documents" as const, tables: schema.tables, indexes: schema.indexes, relations }),
     contentIdentity: Object.freeze({ configSha256, provenanceSha256 }),
     // New owned objects on every call; native sanitation cannot mutate compiler evidence.
     createNativeCollections: () => definitions.map(nativeCollection) });

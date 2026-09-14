@@ -10,15 +10,15 @@ import {
 import type { FrameworkSchemaArtifactRepository as RootRepository } from
   "../src";
 // @ts-expect-error The private session dependency must stay absent from the root.
-import type { FrameworkSchemaArtifactControlSessionStarter as RootStarter } from
+import type { CatalogControlSessionStarter as RootStarter } from
   "../src";
 import * as persistenceRoot from "../src";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
-  makeFrameworkSchemaArtifactControlSessionStarter,
-  type FrameworkSchemaArtifactControlSessionDriver,
-  type FrameworkSchemaArtifactControlSessionStarter,
-} from "../src/frameworkSchema/artifact/controlSession";
+  makeCatalogControlSessionStarter,
+  type CatalogControlSessionDriver,
+  type CatalogControlSessionStarter,
+} from "../src/catalogControlSession";
 import { FrameworkSchemaArtifactRepositoryConfigurationError } from
   "../src/frameworkSchema/artifact/errors";
 import {
@@ -41,7 +41,7 @@ const INERT_CONTROL_SESSION_DRIVER = Object.freeze({
     Effect.die("inert control-session driver"),
   runRecoveryTransactionEffect: () =>
     Effect.die("inert control-session driver"),
-} satisfies FrameworkSchemaArtifactControlSessionDriver);
+} satisfies CatalogControlSessionDriver);
 
 describe("private framework schema artifact repository composition", () => {
   it("returns a typed, fresh, frozen, and opaque repository identity", () => {
@@ -197,7 +197,7 @@ describe("private framework schema artifact repository composition", () => {
       databasePropertyReads += 1;
     });
     const controlSessionStarter = observedIdentity<
-      FrameworkSchemaArtifactControlSessionStarter
+      CatalogControlSessionStarter
     >(() => {
       starterPropertyReads += 1;
     });
@@ -372,7 +372,7 @@ describe("private framework schema artifact repository composition", () => {
       "./src/frameworkSchema/artifact/repository.ts",
     );
     expect(exportTargets).not.toContain(
-      "./src/frameworkSchema/artifact/controlSession.ts",
+      "./src/catalogControlSession.ts",
     );
   });
 });
@@ -438,9 +438,9 @@ function databaseIdentity(): FlarexMetadataDatabase {
 function controlSessionStarterIdentity(
   controlDb: FlarexMetadataDatabase = databaseIdentity(),
 ):
-  FrameworkSchemaArtifactControlSessionStarter
+  CatalogControlSessionStarter
 {
-  return makeFrameworkSchemaArtifactControlSessionStarter({
+  return makeCatalogControlSessionStarter({
     controlDb,
     driver: INERT_CONTROL_SESSION_DRIVER,
   });

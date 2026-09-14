@@ -163,7 +163,8 @@ export function decodeEnsureStableTableIdentityInputResult(
   return decodeStableTableIdentityNameResult(input);
 }
 
-const ensureStableTableIdentityInTransactionEffect = Effect.fn(
+/** Internal catalog composition; the caller owns settlement of this transaction. */
+export const ensureStableTableIdentityInTransactionEffect = Effect.fn(
   "StableTableCatalog.ensureInTransaction",
 )(function* (
   tx: StableTableCatalogTransaction,

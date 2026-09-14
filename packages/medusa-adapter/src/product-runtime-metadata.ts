@@ -8,7 +8,8 @@ import type { CommerceRelations, CommerceRelation } from "./commerce-relations";
 import { Product, ProductOption, ProductOptionValue, ProductVariant, ProductImage, ProductTag, ProductType, ProductCollection, ProductCategory, ProductVariantProductImage } from "@medusajs/product/models";
 import { buildModuleResourceEventName, camelToSnakeCase, CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { productModels, type captureProductSchema } from "./product-schema";
+import { type captureProductSchema } from "./product-schema";
+import { productModels } from "./product-definition";
 
 export type ProductMetadata = Effect.Success<ReturnType<typeof captureProductSchema>>["metadata"]["frame"];
 type Table = ProductMetadata["tables"][number];

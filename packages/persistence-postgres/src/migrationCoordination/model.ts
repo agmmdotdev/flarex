@@ -16,7 +16,9 @@ import type {
   RelationalPhysicalNamespaceProfile,
   RelationalPhysicalTable,
 } from "../relationalSchema/physical/model";
-import type { RelationalSchemaOwner } from "../relationalSchema/model";
+import type {
+  RelationalSchemaOwner,
+} from "flarex-protocol/internal/relational-schema";
 import type {
   CanonicalNonNegativeInt64,
   FrameworkMigrationAttemptId,

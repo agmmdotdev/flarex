@@ -16,10 +16,10 @@ import {
   copyCapturedFrameworkSchemaArtifactEvidence,
 } from "../src/frameworkSchema/artifact/canonical";
 import {
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-  makeFrameworkSchemaArtifactControlSessionStarter,
-  type FrameworkSchemaArtifactControlSessionDriver,
-} from "../src/frameworkSchema/artifact/controlSession";
+  CatalogControlSessionResourceIssue,
+  makeCatalogControlSessionStarter,
+  type CatalogControlSessionDriver,
+} from "../src/catalogControlSession";
 import {
   FrameworkSchemaArtifactError,
 } from "../src/frameworkSchema/artifact/errors";
@@ -191,7 +191,7 @@ describe("private framework schema artifact point read", () => {
   it("preserves a complete control-session resource issue at the active stage", async () => {
     const foreignCause = new Error("acquisition failed");
     const cleanupCause = new Error("quarantine failed");
-    const issue = new FrameworkSchemaArtifactControlSessionResourceIssue({
+    const issue = new CatalogControlSessionResourceIssue({
       phase: "acquire",
       cause: foreignCause,
       cleanupCause,
@@ -450,7 +450,7 @@ describe("private framework schema artifact point read", () => {
         identity: artifact.identity,
       });
       expect(error.cause).toMatchObject({
-        _tag: "FrameworkSchemaArtifactControlSessionDeadlineIssue",
+        _tag: "CatalogControlSessionDeadlineIssue",
         deadlineKind: "read",
         phase: "read",
       });
@@ -482,7 +482,7 @@ describe("private framework schema artifact point read", () => {
     );
 
     expect(failure).toMatchObject({
-      _tag: "FrameworkSchemaArtifactControlSessionDeadlineIssue",
+      _tag: "CatalogControlSessionDeadlineIssue",
       deadlineKind: "read",
       phase: "read",
     });
@@ -514,7 +514,7 @@ describe("private framework schema artifact point read", () => {
 interface MakeReadRepositoryOptions {
   readonly events?: string[];
   readonly onSessionRun?: () => void;
-  readonly readFailure?: FrameworkSchemaArtifactControlSessionResourceIssue;
+  readonly readFailure?: CatalogControlSessionResourceIssue;
   readonly readTimeoutMilliseconds?: number;
 }
 
@@ -522,18 +522,18 @@ function makeReadRepository(
   controlDb: FlarexMetadataDatabase,
   options: MakeReadRepositoryOptions = {},
 ): FrameworkSchemaArtifactRepository {
-  const runReadEffect: FrameworkSchemaArtifactControlSessionDriver[
+  const runReadEffect: CatalogControlSessionDriver[
     "runReadEffect"
   ] = <Value, Failure>(
     _input: Parameters<
-      FrameworkSchemaArtifactControlSessionDriver["runReadEffect"]
+      CatalogControlSessionDriver["runReadEffect"]
     >[0],
     work: (
       database: FlarexMetadataDatabase,
     ) => Effect.Effect<Value, Failure, never>,
   ) => Effect.suspend<
     Value,
-    Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+    Failure | CatalogControlSessionResourceIssue,
     never
   >(() => {
     options.onSessionRun?.();
@@ -553,10 +553,10 @@ function makeReadRepository(
     runRecoveryTransactionEffect: () => Effect.die(
       "Point-read fixture must not start recovery.",
     ),
-  } satisfies FrameworkSchemaArtifactControlSessionDriver);
+  } satisfies CatalogControlSessionDriver);
   const result = makeFrameworkSchemaArtifactRepository({
     controlDb,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({
+    controlSessionStarter: makeCatalogControlSessionStarter({
       controlDb,
       driver,
     }),

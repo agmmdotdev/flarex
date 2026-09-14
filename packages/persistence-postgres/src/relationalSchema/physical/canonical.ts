@@ -36,7 +36,7 @@ import {
   type RelationalSchema,
   type RelationalTableDefinition,
   type RelationalTableIdentity,
-} from "../model";
+} from "flarex-protocol/internal/relational-schema";
 import { readCapturedRelationalSchemaArtifactSchema } from "../artifact";
 import {
   hasCapturedRelationalPhysicalLayout,

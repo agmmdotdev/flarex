@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { captureProductSchema } from "../src/product-schema";
+import { productSchemaInput, productModels } from "../src/product-definition";
 import {
-  captureProductSchema,
-  productSchemaInput,
-  productModels,
-} from "../src/product-schema";
-import { normalizeRelationalSchema } from "@flarex/persistence-postgres/internal/relational-schema-values";
+  normalizeRelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
 import { authenticateStoredRelationalSchemaArtifactEffect } from "../../persistence-postgres/src/relationalSchema/artifact";
 
 const compiled = () =>

@@ -8,12 +8,12 @@ import {
   copyCapturedFrameworkSchemaArtifactEvidence,
 } from "../src/frameworkSchema/artifact/canonical";
 import {
-  makeFrameworkSchemaArtifactControlSessionStarter,
-} from "../src/frameworkSchema/artifact/controlSession";
+  makeCatalogControlSessionStarter,
+} from "../src/catalogControlSession";
 import type { FrameworkSchemaArtifact } from
   "../src/frameworkSchema/artifact/model";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from
-  "../src/frameworkSchema/artifact/postgresControlSession";
+import { makePostgresCatalogControlSessionDriver } from
+  "../src/postgresCatalogControlSession";
 import { getFrameworkSchemaArtifactEffect } from
   "../src/frameworkSchema/artifact/read";
 import {
@@ -88,9 +88,9 @@ function makePostgresReadRepository(
   const controlDb: FlarexMetadataDatabase = persistence.drizzle;
   return Result.getOrThrow(makeFrameworkSchemaArtifactRepository({
     controlDb,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({
+    controlSessionStarter: makeCatalogControlSessionStarter({
       controlDb,
-      driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(
+      driver: makePostgresCatalogControlSessionDriver(
         persistence.pool,
       ),
     }),

@@ -20,7 +20,9 @@ import type {
   RelationalPhysicalLayout,
   RelationalPhysicalTable,
 } from "../relationalSchema/physical/model";
-import type { RelationalTableIdentity } from "../relationalSchema/model";
+import type {
+  RelationalTableIdentity,
+} from "flarex-protocol/internal/relational-schema";
 import {
   capturedAuthorityForAttempt,
   capturedAuthorityForStepReceipt,

@@ -1,5 +1,7 @@
 import type { DatabaseColumn, DatabaseForeignKey, DatabaseIndex, DatabaseTable } from "@medusajs/drizzle/schema";
-import type { RelationalSchema } from "@flarex/persistence-postgres/internal/relational-schema-values";
+import type {
+  RelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
 
 type ColumnBase = Readonly<Pick<DatabaseColumn, "name" | "nullable" | "primaryKey" | "generated">> & {
   readonly options?: {

@@ -27,7 +27,9 @@ import {
 } from "../relationalSchema/physical/model";
 import { MAX_RELATIONAL_PHYSICAL_ASSIGNMENTS } from
   "../relationalSchema/physical/storedValidation";
-import type { RelationalSchemaOwner } from "../relationalSchema/model";
+import type {
+  RelationalSchemaOwner,
+} from "flarex-protocol/internal/relational-schema";
 import {
   MAX_FRAMEWORK_MIGRATION_LEDGER_CANONICAL_BYTES,
   MAX_FRAMEWORK_MIGRATION_PLAN_CANONICAL_BYTES,

@@ -6,23 +6,23 @@ import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import { copyCapturedFrameworkSchemaArtifactEvidence } from "./canonical";
 import {
-  hasFrameworkSchemaArtifactControlSessionComposition,
-  failFrameworkSchemaArtifactControlDeadline,
-  remainingFrameworkSchemaArtifactControlMilliseconds,
-  runFrameworkSchemaArtifactControlEffect,
-  runFrameworkSchemaArtifactControlInitialReadEffect,
-  runFrameworkSchemaArtifactControlReadEffect,
-  startFrameworkSchemaArtifactControlDeadline,
-  withFrameworkSchemaArtifactRawControlSessionTransactionEffect,
-  type FrameworkSchemaArtifactControlSessionDeadlineIssue,
-  type FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
-  type FrameworkSchemaArtifactControlSessionResourceIssue,
-  type FrameworkSchemaArtifactControlSessionStarter,
-  type FrameworkSchemaArtifactControlSessionTransaction,
-  type FrameworkSchemaArtifactControlDeadline,
-  type FrameworkSchemaArtifactControlDecision,
-  type FrameworkSchemaArtifactControlResult,
-} from "./controlSession";
+  hasCatalogControlSessionComposition,
+  failCatalogControlDeadline,
+  remainingCatalogControlMilliseconds,
+  runCatalogControlEffect,
+  runCatalogControlInitialReadEffect,
+  runCatalogControlReadEffect,
+  startCatalogControlDeadline,
+  withCatalogRawControlSessionTransactionEffect,
+  type CatalogControlSessionDeadlineIssue,
+  type CatalogControlSessionDecisionUncertainIssue,
+  type CatalogControlSessionResourceIssue,
+  type CatalogControlSessionStarter,
+  type CatalogControlSessionTransaction,
+  type CatalogControlDeadline,
+  type CatalogControlDecision,
+  type CatalogControlResult,
+} from "../../catalogControlSession";
 import {
   FrameworkSchemaArtifactError,
   FrameworkSchemaArtifactInvariantDefect,
@@ -41,8 +41,8 @@ const preparedFrameworkSchemaArtifactAdmissionBrand: unique symbol = Symbol(
 const frameworkSchemaArtifactRepositoryBrand: unique symbol = Symbol(
   "FlarexDB/FrameworkSchemaArtifactRepository",
 );
-const frameworkSchemaArtifactControlTransactionBrand: unique symbol = Symbol(
-  "FlarexDB/FrameworkSchemaArtifactControlTransaction",
+const catalogControlTransactionBrand: unique symbol = Symbol(
+  "FlarexDB/CatalogControlTransaction",
 );
 const MAXIMUM_FRAMEWORK_SCHEMA_ARTIFACT_TIMEOUT_MILLISECONDS = 60_000;
 
@@ -80,15 +80,15 @@ export interface MakeFrameworkSchemaArtifactRepositoryInput
 {
   readonly controlDb: FlarexMetadataDatabase;
   readonly controlSessionStarter:
-    FrameworkSchemaArtifactControlSessionStarter;
+    CatalogControlSessionStarter;
 }
 
 export interface FrameworkSchemaArtifactRepository {
   readonly [frameworkSchemaArtifactRepositoryBrand]: true;
 }
 
-export interface FrameworkSchemaArtifactControlTransaction {
-  readonly [frameworkSchemaArtifactControlTransactionBrand]: true;
+export interface CatalogControlTransaction {
+  readonly [catalogControlTransactionBrand]: true;
 }
 
 export interface FrameworkSchemaArtifactRepositoryReadWork<
@@ -124,11 +124,11 @@ export interface FrameworkSchemaArtifactRepositoryAdmissionWork<
     preparation: Preparation,
   ) => Effect.Effect<Option.Option<Value>, Failure, never>;
   readonly runLockedEffect: (
-    transaction: FrameworkSchemaArtifactControlTransaction,
+    transaction: CatalogControlTransaction,
     preparation: Preparation,
     attempt: "initial" | "recovery",
   ) => Effect.Effect<
-    FrameworkSchemaArtifactControlDecision<Value>,
+    CatalogControlDecision<Value>,
     Failure,
     never
   >;
@@ -154,11 +154,11 @@ interface PreparedFrameworkSchemaArtifactAdmissionState
 interface FrameworkSchemaArtifactRepositoryState {
   readonly controlDb: FlarexMetadataDatabase;
   readonly controlSessionStarter:
-    FrameworkSchemaArtifactControlSessionStarter;
+    CatalogControlSessionStarter;
   readonly timeoutPolicy: FrameworkSchemaArtifactRepositoryTimeoutPolicy;
 }
 
-interface FrameworkSchemaArtifactControlTransactionState {
+interface CatalogControlTransactionState {
   readonly repository: FrameworkSchemaArtifactRepository;
   readonly rawTransaction: FlarexMetadataTransaction;
   active: boolean;
@@ -172,9 +172,9 @@ const frameworkSchemaArtifactRepositoryStates = new WeakMap<
   object,
   FrameworkSchemaArtifactRepositoryState
 >();
-const frameworkSchemaArtifactControlTransactionStates = new WeakMap<
+const catalogControlTransactionStates = new WeakMap<
   object,
-  FrameworkSchemaArtifactControlTransactionState
+  CatalogControlTransactionState
 >();
 
 /** Construct one opaque repository identity after validating its fixed policy. */
@@ -199,7 +199,7 @@ export function makeFrameworkSchemaArtifactRepository(
 
   const controlDb = input.controlDb;
   const controlSessionStarter = input.controlSessionStarter;
-  if (!hasFrameworkSchemaArtifactControlSessionComposition(
+  if (!hasCatalogControlSessionComposition(
     controlSessionStarter,
     controlDb,
   )) {
@@ -226,14 +226,14 @@ export function makeFrameworkSchemaArtifactRepository(
  * Issue and revoke the only transaction capability accepted by locked
  * repository primitives. The raw transaction stays inside this closure.
  */
-export function withFrameworkSchemaArtifactControlTransactionEffect<
+export function withCatalogControlTransactionEffect<
   Value,
   Failure,
 >(
   repository: FrameworkSchemaArtifactRepository,
-  sessionTransaction: FrameworkSchemaArtifactControlSessionTransaction,
+  sessionTransaction: CatalogControlSessionTransaction,
   work: (
-    transaction: FrameworkSchemaArtifactControlTransaction,
+    transaction: CatalogControlTransaction,
   ) => Effect.Effect<Value, Failure, never>,
 ): Effect.Effect<Value, Failure, never> {
   return Effect.suspend(() => {
@@ -248,19 +248,19 @@ export function withFrameworkSchemaArtifactControlTransactionEffect<
       );
     }
 
-    return withFrameworkSchemaArtifactRawControlSessionTransactionEffect(
+    return withCatalogRawControlSessionTransactionEffect(
       sessionTransaction,
       repositoryState.controlSessionStarter,
       rawTransaction => Effect.suspend(() => {
-        const state: FrameworkSchemaArtifactControlTransactionState = {
+        const state: CatalogControlTransactionState = {
           repository,
           rawTransaction,
           active: true,
         };
         const transaction = Object.freeze({
-          [frameworkSchemaArtifactControlTransactionBrand]: true,
-        } satisfies FrameworkSchemaArtifactControlTransaction);
-        frameworkSchemaArtifactControlTransactionStates.set(transaction, state);
+          [catalogControlTransactionBrand]: true,
+        } satisfies CatalogControlTransaction);
+        catalogControlTransactionStates.set(transaction, state);
 
         return Effect.suspend(() => work(transaction)).pipe(
           Effect.ensuring(Effect.sync(() => {
@@ -289,8 +289,8 @@ export const runFrameworkSchemaArtifactRepositoryReadEffect = Effect.fn(
 ): Effect.Effect<
   Value,
   | Failure
-  | FrameworkSchemaArtifactControlSessionDeadlineIssue
-  | FrameworkSchemaArtifactControlSessionResourceIssue,
+  | CatalogControlSessionDeadlineIssue
+  | CatalogControlSessionResourceIssue,
   never
 > => Effect.suspend(() => {
   const repositoryState = frameworkSchemaArtifactRepositoryStates.get(
@@ -306,11 +306,11 @@ export const runFrameworkSchemaArtifactRepositoryReadEffect = Effect.fn(
 
   return Effect.gen(function* () {
     const preparation = yield* Effect.suspend(work.prepareEffect);
-    const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+    const deadline = yield* startCatalogControlDeadline(
       "read",
       repositoryState.timeoutPolicy.readTimeoutMilliseconds,
     );
-    const detached = yield* runFrameworkSchemaArtifactControlReadEffect(
+    const detached = yield* runCatalogControlReadEffect(
       repositoryState.controlSessionStarter,
       { deadline },
       database => Effect.suspend(() =>
@@ -336,11 +336,11 @@ export const runFrameworkSchemaArtifactRepositoryAdmissionEffect = Effect.fn(
     Failure
   >,
 ): Effect.Effect<
-  FrameworkSchemaArtifactControlResult<Value>,
+  CatalogControlResult<Value>,
   | Failure
-  | FrameworkSchemaArtifactControlSessionDeadlineIssue
-  | FrameworkSchemaArtifactControlSessionResourceIssue
-  | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+  | CatalogControlSessionDeadlineIssue
+  | CatalogControlSessionResourceIssue
+  | CatalogControlSessionDecisionUncertainIssue,
   never
 > => Effect.suspend(() => {
   const repositoryState = frameworkSchemaArtifactRepositoryStates.get(
@@ -356,12 +356,12 @@ export const runFrameworkSchemaArtifactRepositoryAdmissionEffect = Effect.fn(
 
   return Effect.gen(function* () {
     const preparation = yield* Effect.suspend(work.prepareEffect);
-    const initialDeadline = yield* startFrameworkSchemaArtifactControlDeadline(
+    const initialDeadline = yield* startCatalogControlDeadline(
       "initial",
       repositoryState.timeoutPolicy.attemptTimeoutMilliseconds,
     );
     const detached = yield*
-      runFrameworkSchemaArtifactControlInitialReadEffect(
+      runCatalogControlInitialReadEffect(
         repositoryState.controlSessionStarter,
         { deadline: initialDeadline },
         database => Effect.suspend(() =>
@@ -379,7 +379,7 @@ export const runFrameworkSchemaArtifactRepositoryAdmissionEffect = Effect.fn(
       });
     }
 
-    return yield* runFrameworkSchemaArtifactControlEffect(
+    return yield* runCatalogControlEffect(
       repositoryState.controlSessionStarter,
       {
         initialDeadline,
@@ -390,7 +390,7 @@ export const runFrameworkSchemaArtifactRepositoryAdmissionEffect = Effect.fn(
       },
       {
         runLockedEffect: (sessionTransaction, attempt) =>
-          withFrameworkSchemaArtifactControlTransactionEffect(
+          withCatalogControlTransactionEffect(
             repository,
             sessionTransaction,
             transaction => Effect.suspend(() =>
@@ -415,7 +415,7 @@ export function withFrameworkSchemaArtifactRawControlTransactionEffect<
   Failure,
 >(
   repository: FrameworkSchemaArtifactRepository,
-  transaction: FrameworkSchemaArtifactControlTransaction,
+  transaction: CatalogControlTransaction,
   work: (
     rawTransaction: FlarexMetadataTransaction,
   ) => Effect.Effect<Value, Failure, never>,
@@ -428,7 +428,7 @@ export function withFrameworkSchemaArtifactRawControlTransactionEffect<
         }),
       );
     }
-    const state = frameworkSchemaArtifactControlTransactionStates.get(
+    const state = catalogControlTransactionStates.get(
       transaction,
     );
     if (state === undefined) {
@@ -577,23 +577,23 @@ function snapshotFrameworkSchemaArtifactAdmissionDependencies(
 const runBoundedReconstructionEffect = Effect.fn(
   "FrameworkSchemaArtifactRepository.reconstructBounded",
 )(function*<Value, Failure>(
-  deadline: FrameworkSchemaArtifactControlDeadline,
+  deadline: CatalogControlDeadline,
   reconstructEffect: () => Effect.Effect<Value, Failure, never>,
 ): Effect.fn.Return<
   Value,
-  Failure | FrameworkSchemaArtifactControlSessionDeadlineIssue
+  Failure | CatalogControlSessionDeadlineIssue
 > {
   const remainingMilliseconds = yield*
-    remainingFrameworkSchemaArtifactControlMilliseconds(deadline, "read");
+    remainingCatalogControlMilliseconds(deadline, "read");
   const reconstructionResult = yield* Effect.raceFirst(
     Effect.result(Effect.suspend(reconstructEffect)),
     Effect.sleep(Duration.millis(remainingMilliseconds)).pipe(
       Effect.andThen(
-        failFrameworkSchemaArtifactControlDeadline(deadline, "read"),
+        failCatalogControlDeadline(deadline, "read"),
       ),
     ),
   );
-  yield* remainingFrameworkSchemaArtifactControlMilliseconds(
+  yield* remainingCatalogControlMilliseconds(
     deadline,
     "read",
   );

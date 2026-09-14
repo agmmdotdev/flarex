@@ -2,7 +2,9 @@ import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { model } from "@medusajs/utils/dml/model";
-import { normalizeRelationalSchema } from "@flarex/persistence-postgres/internal/relational-schema-values";
+import {
+  normalizeRelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
 import { decodeCompiledDml } from "../src/schema/compiled";
 import { lowerDmlSchema } from "../src/schema/lower";
 import { decodeExactNumeric, encodeExactNumeric } from "../src/exact-numeric";

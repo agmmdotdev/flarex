@@ -9,8 +9,8 @@ import { makeFrameworkMigrationFixtureTarget } from "./frameworkMigrationFixture
 import { makeFrameworkInstaller } from "../src/migrationCoordination/installer";
 import { prepareFrameworkSchemaArtifactAdmission, makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
 import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artifact/admission";
-import { makeFrameworkSchemaArtifactControlSessionStarter } from "../src/frameworkSchema/artifact/controlSession";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../src/frameworkSchema/artifact/postgresControlSession";
+import { makeCatalogControlSessionStarter } from "../src/catalogControlSession";
+import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogControlSession";
 import { makeDataBindingHost, dataBindingActivationRequest, type DataBindingHost, type DataBindingHostInput } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { makeCommerceHost, makeLocalCommerceHost, type LocalCommerceEventPolicy, type LocalCommerceDelivery, type CommerceHostInput } from "../src/commerceTransaction/host";
@@ -58,7 +58,7 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   const prepared = await runEffect(prepare(base.fixture.deploymentId, { physicalLocator: snapshot.physicalLocator, targetNamespace: snapshot.namespace }));
   const descriptor = await runEffect(requireCommerceProfile(prepared.profile));
   const repository = "pool" in persistence ? Result.getOrThrow(makeFrameworkSchemaArtifactRepository({ controlDb: persistence.drizzle,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(persistence.pool) }),
+    controlSessionStarter: makeCatalogControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresCatalogControlSessionDriver(persistence.pool) }),
     readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
   await runEffect(admitFrameworkSchemaArtifactEffect(repository, Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(descriptor.artifact))));
   const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, base.target);

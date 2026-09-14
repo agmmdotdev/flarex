@@ -15,22 +15,22 @@ import { describe, expect, it } from "vitest";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { rowsFromDriverExecuteResult } from "../src/driverExecuteResult";
 import {
-  FrameworkSchemaArtifactControlSessionCleanupDefect,
-  FrameworkSchemaArtifactControlSessionDeadlineIssue,
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-  makeFrameworkSchemaArtifactControlConnectionIdentity,
-  makeFrameworkSchemaArtifactControlSessionStarter,
-  runFrameworkSchemaArtifactControlEffect,
-  startFrameworkSchemaArtifactControlDeadline,
-  type FrameworkSchemaArtifactControlRestore,
-} from "../src/frameworkSchema/artifact/controlSession";
+  CatalogControlSessionCleanupDefect,
+  CatalogControlSessionDeadlineIssue,
+  CatalogControlSessionResourceIssue,
+  makeCatalogControlConnectionIdentity,
+  makeCatalogControlSessionStarter,
+  runCatalogControlEffect,
+  startCatalogControlDeadline,
+  type CatalogControlRestore,
+} from "../src/catalogControlSession";
 import {
-  makePostgresFrameworkSchemaArtifactControlSessionDriver,
-} from "../src/frameworkSchema/artifact/postgresControlSession";
+  makePostgresCatalogControlSessionDriver,
+} from "../src/postgresCatalogControlSession";
 import { postgresUrl } from "./postgresHelpers";
 
 type ControlPool = Parameters<
-  typeof makePostgresFrameworkSchemaArtifactControlSessionDriver
+  typeof makePostgresCatalogControlSessionDriver
 >[0];
 type ConnectCallback = Parameters<ControlPool["connect"]>[0];
 
@@ -65,7 +65,7 @@ interface FakeQueryResult {
   readonly rows: readonly QueryResultRow[];
 }
 
-const restoreInterruptibility: FrameworkSchemaArtifactControlRestore =
+const restoreInterruptibility: CatalogControlRestore =
   effect => effect;
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
@@ -73,7 +73,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
   it("rejects an invalid quarantine-drain timeout at construction", () => {
     const pool = queuedPool([], []);
     for (const timeout of [0, -1, 60_001, 1.5, Number.NaN]) {
-      expect(() => makePostgresFrameworkSchemaArtifactControlSessionDriver(
+      expect(() => makePostgresCatalogControlSessionDriver(
         pool,
         { quarantineDrainTimeoutMilliseconds: timeout },
       )).toThrow(
@@ -85,13 +85,13 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
   it("runs callbacks with the enclosing Effect clock context", async () => {
     const events: string[] = [];
     const client = fakePoolClient("clock", events);
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
 
     const observed = await Effect.runPromise(Effect.gen(function* () {
       yield* TestClock.adjust("1234 millis");
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "read",
         1_000,
       );
@@ -111,7 +111,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("first", events, {
       delayedQuery: delayed,
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -176,7 +176,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       useForeignPromise,
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -207,7 +207,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     if (settlement.kind === "notCommitted") {
       const failure = Result.getOrThrow(Cause.findError(settlement.cause));
       expect(failure).toMatchObject({
-        _tag: "FrameworkSchemaArtifactControlSessionResourceIssue",
+        _tag: "CatalogControlSessionResourceIssue",
         phase: "callback",
         cause: queryFailure,
       });
@@ -230,12 +230,12 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         "select stalled_user_query": stalled,
       },
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
 
     const settlement = await Effect.runPromise(Effect.gen(function* () {
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "initial",
         20,
       );
@@ -273,7 +273,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     if (settlement.kind === "notCommitted") {
       expect(settlement.cause.reasons.filter(Cause.isFailReason).some(reason =>
         reason.error instanceof
-          FrameworkSchemaArtifactControlSessionResourceIssue &&
+          CatalogControlSessionResourceIssue &&
         reason.error.cause === queryFailure
       )).toBe(true);
     }
@@ -286,7 +286,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("initial-command", events, {
       commitCommand: "ROLLBACK",
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -316,11 +316,11 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("recovery-command", events, {
       commitCommand: "ROLLBACK",
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
-      startFrameworkSchemaArtifactControlDeadline("recovery", 1_000),
+      startCatalogControlDeadline("recovery", 1_000),
     );
 
     const settlement = await Effect.runPromise(
@@ -329,7 +329,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
           deadline,
           lockTimeoutMilliseconds: 700,
           excludedConnectionIdentity:
-            makeFrameworkSchemaArtifactControlConnectionIdentity(),
+            makeCatalogControlConnectionIdentity(),
         },
         () => Effect.succeed("existing"),
       ),
@@ -349,7 +349,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("initial-rollback-command", events, {
       rollbackCommand: "COMMIT",
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
@@ -372,7 +372,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         .toBe(callbackFailure);
       expect(settlement.cleanupCause.reasons.filter(Cause.isDieReason).some(
         reason => reason.defect instanceof
-          FrameworkSchemaArtifactControlSessionCleanupDefect &&
+          CatalogControlSessionCleanupDefect &&
           reason.defect.phase === "rollback",
       )).toBe(true);
     }
@@ -388,11 +388,11 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       rollbackCommand: "COMMIT",
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
-      startFrameworkSchemaArtifactControlDeadline("recovery", 1_000),
+      startCatalogControlDeadline("recovery", 1_000),
     );
 
     const settlementPromise = Effect.runPromise(
@@ -401,7 +401,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
           deadline,
           lockTimeoutMilliseconds: 700,
           excludedConnectionIdentity:
-            makeFrameworkSchemaArtifactControlConnectionIdentity(),
+            makeCatalogControlConnectionIdentity(),
         },
         transaction => Effect.sync(() => {
           void Promise.resolve(
@@ -423,12 +423,12 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       expect(settlement.resolution.cause.reasons
         .filter(Cause.isFailReason)
         .some(reason => reason.error instanceof
-          FrameworkSchemaArtifactControlSessionResourceIssue &&
+          CatalogControlSessionResourceIssue &&
           reason.error.cause === queryFailure)).toBe(true);
       expect(settlement.resolution.cause.reasons
         .filter(Cause.isFailReason)
         .some(reason => reason.error instanceof
-          FrameworkSchemaArtifactControlSessionResourceIssue &&
+          CatalogControlSessionResourceIssue &&
           reason.error.phase === "rollback")).toBe(true);
     }
     expect(events).toContain("recovery-rollback-command:query:rollback");
@@ -443,13 +443,13 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       settleDelayedOnDestroy: false,
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
       { quarantineDrainTimeoutMilliseconds: 5 },
     );
 
     const settlement = await Effect.runPromise(Effect.gen(function* () {
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "initial",
         20,
       );
@@ -485,7 +485,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     if (settlement.kind === "callbackCleanupFailed") {
       expect(settlement.cleanupCause.reasons.filter(Cause.isDieReason).some(
         reason => reason.defect instanceof
-          FrameworkSchemaArtifactControlSessionCleanupDefect &&
+          CatalogControlSessionCleanupDefect &&
           reason.defect.phase === "quarantine",
       )).toBe(true);
     }
@@ -500,13 +500,13 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       settleDelayedOnDestroy: false,
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
       { quarantineDrainTimeoutMilliseconds: 5 },
     );
 
     const settlement = await Effect.runPromise(Effect.gen(function* () {
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "recovery",
         20,
       );
@@ -516,7 +516,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
             deadline,
             lockTimeoutMilliseconds: 20,
             excludedConnectionIdentity:
-              makeFrameworkSchemaArtifactControlConnectionIdentity(),
+              makeCatalogControlConnectionIdentity(),
           },
           transaction => Effect.sync(() => {
             void Promise.resolve(
@@ -542,7 +542,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     if (settlement.kind === "unresolved") {
       expect(settlement.resolution.cause.reasons.filter(Cause.isDieReason).some(
         reason => reason.defect instanceof
-          FrameworkSchemaArtifactControlSessionCleanupDefect &&
+          CatalogControlSessionCleanupDefect &&
           reason.defect.phase === "quarantine",
       )).toBe(true);
     }
@@ -560,9 +560,9 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       },
     };
     const client = fakePoolClient("late", events);
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(pool);
+    const driver = makePostgresCatalogControlSessionDriver(pool);
     const exit = await Effect.runPromise(Effect.gen(function* () {
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "read",
         20,
       );
@@ -578,12 +578,12 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     if (Exit.isFailure(exit)) {
       const failure = Result.getOrThrow(Cause.findError(exit.cause));
       expect(failure).toBeInstanceOf(
-        FrameworkSchemaArtifactControlSessionResourceIssue,
+        CatalogControlSessionResourceIssue,
       );
-      if (failure instanceof FrameworkSchemaArtifactControlSessionResourceIssue) {
+      if (failure instanceof CatalogControlSessionResourceIssue) {
         expect(failure.phase).toBe("acquire");
         expect(failure.cause).toBeInstanceOf(
-          FrameworkSchemaArtifactControlSessionDeadlineIssue,
+          CatalogControlSessionDeadlineIssue,
         );
       }
     }
@@ -603,13 +603,13 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       delayedQuery: delayed,
       settleDelayedOnDestroy: false,
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
 
     let operationSettled = false;
     const exitPromise = Effect.runPromise(Effect.gen(function* () {
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "read",
         20,
       );
@@ -649,11 +649,11 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const events: string[] = [];
     const finalizerDefect = new Error("read callback finalizer failed");
     const client = fakePoolClient("read-interrupt", events);
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
-      startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+      startCatalogControlDeadline("read", 1_000),
     );
     const controller = new AbortController();
 
@@ -691,7 +691,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       releaseFailure: destroy => destroy ? destroyFailure : undefined,
       settleDelayedOnDestroy: false,
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
       {
         get lifecycleFault() {
@@ -705,7 +705,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       },
     );
     const deadline = await Effect.runPromise(
-      startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+      startCatalogControlDeadline("read", 1_000),
     );
     const controller = new AbortController();
 
@@ -727,7 +727,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         .filter(Cause.isDieReason)
         .map(reason => reason.defect)
         .find(defect => defect instanceof
-          FrameworkSchemaArtifactControlSessionCleanupDefect);
+          CatalogControlSessionCleanupDefect);
       expect(cleanupDefect).toMatchObject({
         phase: "quarantine",
       });
@@ -760,7 +760,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         emitEndOnDestroy: true,
         runtimeBackendKeyData: { processId: 731, secretKey: -913 },
       });
-      const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+      const driver = makePostgresCatalogControlSessionDriver(
         queuedPool([client], events, {
           host: "127.0.0.1",
           port: address.port,
@@ -768,7 +768,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         { quarantineDrainTimeoutMilliseconds: 20 },
       );
       const deadline = await Effect.runPromise(
-        startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+        startCatalogControlDeadline("read", 1_000),
       );
       const controller = new AbortController();
 
@@ -792,7 +792,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
           .filter(Cause.isDieReason)
           .map(reason => reason.defect)
           .find(defect => defect instanceof
-            FrameworkSchemaArtifactControlSessionCleanupDefect);
+            CatalogControlSessionCleanupDefect);
         expect(cleanupDefect).toMatchObject({ phase: "quarantine" });
       }
       expect(events).toContain("cancel-stall:release:true");
@@ -825,7 +825,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       emitEndOnDestroy: true,
       runtimeBackendKeyData: { processId: 947, secretKey: 1_127 },
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events, {
         host: "127.0.0.1",
         port: address.port,
@@ -833,7 +833,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       { quarantineDrainTimeoutMilliseconds: 500 },
     );
     const deadline = await Effect.runPromise(
-      startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+      startCatalogControlDeadline("read", 1_000),
     );
     const controller = new AbortController();
 
@@ -855,7 +855,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     if (Exit.isFailure(exit)) {
       expect(exit.cause.reasons.filter(Cause.isDieReason).some(reason =>
         reason.defect instanceof
-          FrameworkSchemaArtifactControlSessionCleanupDefect &&
+          CatalogControlSessionCleanupDefect &&
         reason.defect.phase === "quarantine"
       )).toBe(true);
     }
@@ -870,7 +870,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       emitEndOnDestroy: true,
       runtimeBackendKeyData: { processId: 1_013, secretKey: -1_219 },
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events, {
         host: "127.0.0.1",
         port: 1,
@@ -879,7 +879,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       { quarantineDrainTimeoutMilliseconds: 500 },
     );
     const deadline = await Effect.runPromise(
-      startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+      startCatalogControlDeadline("read", 1_000),
     );
     const controller = new AbortController();
 
@@ -903,7 +903,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         reason => reason.defect,
       );
       expect(defects.some(defect => defect instanceof
-        FrameworkSchemaArtifactControlSessionCleanupDefect &&
+        CatalogControlSessionCleanupDefect &&
         defect.phase === "quarantine"
       )).toBe(true);
       expect(Cause.pretty(exit.cause)).toContain(
@@ -922,11 +922,11 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
         throw new Error("observer installation failed");
       },
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
-      startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+      startCatalogControlDeadline("read", 1_000),
     );
 
     const exit = await Effect.runPromiseExit(driver.runReadEffect(
@@ -946,11 +946,11 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const client = fakePoolClient("read", events, {
       releaseFailure: destroy => destroy ? undefined : releaseCause,
     });
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await Effect.runPromise(
-      startFrameworkSchemaArtifactControlDeadline("read", 1_000),
+      startCatalogControlDeadline("read", 1_000),
     );
 
     const exit = await Effect.runPromiseExit(driver.runReadEffect(
@@ -969,7 +969,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const first = fakePoolClient("first", events);
     const second = fakePoolClient("second", events);
     let faulted = false;
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([first, first, second], events),
       {
         lifecycleFault: ({ phase, edge, client }) => {
@@ -1024,17 +1024,17 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const events: string[] = [];
     const finalizerDefect = new Error("callback finalizer failed");
     const client = fakePoolClient("interrupt", events);
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
     );
     const deadline = await initialDeadline();
     const controller = new AbortController();
     const controlDb = Object.freeze({}) as unknown as FlarexMetadataDatabase;
-    const starter = makeFrameworkSchemaArtifactControlSessionStarter({
+    const starter = makeCatalogControlSessionStarter({
       controlDb,
       driver,
     });
-    const operation = runFrameworkSchemaArtifactControlEffect(
+    const operation = runCatalogControlEffect(
       starter,
       {
         initialDeadline: deadline,
@@ -1074,7 +1074,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const finalizerGate = deferred<void>();
     const finalizerDefect = new Error("deadline callback finalizer failed");
     const client = fakePoolClient("deadline", events);
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([client], events),
       {
         lifecycleFault: ({ phase, edge }) => {
@@ -1085,18 +1085,18 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       },
     );
     const controlDb = Object.freeze({}) as unknown as FlarexMetadataDatabase;
-    const starter = makeFrameworkSchemaArtifactControlSessionStarter({
+    const starter = makeCatalogControlSessionStarter({
       controlDb,
       driver,
     });
 
     const exit = await Effect.runPromise(Effect.gen(function* () {
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "initial",
         20,
       );
       const fiber = yield* Effect.forkChild(
-        runFrameworkSchemaArtifactControlEffect(
+        runCatalogControlEffect(
           starter,
           {
             initialDeadline: deadline,
@@ -1128,9 +1128,9 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       )).toContain(finalizerDefect);
       expect(exit.cause.reasons.filter(Cause.isFailReason).some(reason =>
         reason.error instanceof
-          FrameworkSchemaArtifactControlSessionResourceIssue &&
+          CatalogControlSessionResourceIssue &&
         reason.error.cause instanceof
-          FrameworkSchemaArtifactControlSessionDeadlineIssue
+          CatalogControlSessionDeadlineIssue
       )).toBe(true);
     }
     expect(events.at(-1)).toBe("deadline:release:true");
@@ -1143,7 +1143,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const first = fakePoolClient("recovery-first", events);
     const second = fakePoolClient("recovery-second", events);
     let faulted = false;
-    const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+    const driver = makePostgresCatalogControlSessionDriver(
       queuedPool([first, second], events),
       {
         lifecycleFault: ({ phase, edge, client }) => {
@@ -1159,18 +1159,18 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       },
     );
     const controlDb = Object.freeze({}) as unknown as FlarexMetadataDatabase;
-    const starter = makeFrameworkSchemaArtifactControlSessionStarter({
+    const starter = makeCatalogControlSessionStarter({
       controlDb,
       driver,
     });
 
     const exit = await Effect.runPromise(Effect.gen(function* () {
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "initial",
         1_000,
       );
       const fiber = yield* Effect.forkChild(
-        runFrameworkSchemaArtifactControlEffect(
+        runCatalogControlEffect(
           starter,
           {
             initialDeadline: deadline,
@@ -1228,11 +1228,11 @@ describePostgres("PostgreSQL framework artifact control-session server proof", (
       `);
       const baselineRow = baseline.rows[0];
       if (baselineRow === undefined) throw new Error("Missing baseline probe.");
-      const driver = makePostgresFrameworkSchemaArtifactControlSessionDriver(
+      const driver = makePostgresCatalogControlSessionDriver(
         pool,
       );
       const readDeadline = await Effect.runPromise(
-        startFrameworkSchemaArtifactControlDeadline("read", 5_000),
+        startCatalogControlDeadline("read", 5_000),
       );
       const readProbe = await Effect.runPromise(driver.runReadEffect(
         { deadline: readDeadline },
@@ -1323,7 +1323,7 @@ function postgresProbe(
 }
 
 async function initialDeadline(timeoutMilliseconds = 1_000) {
-  return Effect.runPromise(startFrameworkSchemaArtifactControlDeadline(
+  return Effect.runPromise(startCatalogControlDeadline(
     "initial",
     timeoutMilliseconds,
   ));

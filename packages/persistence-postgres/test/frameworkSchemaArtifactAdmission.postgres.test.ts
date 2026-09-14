@@ -18,20 +18,20 @@ import {
   copyCapturedFrameworkSchemaArtifactEvidence,
 } from "../src/frameworkSchema/artifact/canonical";
 import {
-  FrameworkSchemaArtifactControlSessionDeadlineIssue,
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-  makeFrameworkSchemaArtifactControlSessionStarter,
-  type FrameworkSchemaArtifactControlDeadlineKind,
-  type FrameworkSchemaArtifactControlSessionPhase,
-} from "../src/frameworkSchema/artifact/controlSession";
+  CatalogControlSessionDeadlineIssue,
+  CatalogControlSessionResourceIssue,
+  makeCatalogControlSessionStarter,
+  type CatalogControlDeadlineKind,
+  type CatalogControlSessionPhase,
+} from "../src/catalogControlSession";
 import { FrameworkSchemaArtifactError } from
   "../src/frameworkSchema/artifact/errors";
 import type {
   FrameworkSchemaArtifact,
   FrameworkSchemaArtifactCaptureInput,
 } from "../src/frameworkSchema/artifact/model";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from
-  "../src/frameworkSchema/artifact/postgresControlSession";
+import { makePostgresCatalogControlSessionDriver } from
+  "../src/postgresCatalogControlSession";
 import {
   makeFrameworkSchemaArtifactRepository,
   prepareFrameworkSchemaArtifactAdmission,
@@ -954,9 +954,9 @@ function makePostgresArtifactRepository(
     DEFAULT_POSTGRES_ARTIFACT_TIMEOUT_POLICY;
   return Result.getOrThrow(makeFrameworkSchemaArtifactRepository({
     controlDb,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({
+    controlSessionStarter: makeCatalogControlSessionStarter({
       controlDb,
-      driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(
+      driver: makePostgresCatalogControlSessionDriver(
         options.controlPool ?? persistence.pool,
         options.controlSessionOptions,
       ),
@@ -966,7 +966,7 @@ function makePostgresArtifactRepository(
 }
 
 type PostgresArtifactControlPool = Parameters<
-  typeof makePostgresFrameworkSchemaArtifactControlSessionDriver
+  typeof makePostgresCatalogControlSessionDriver
 >[0];
 
 type PostgresArtifactControlPoolConnect = Parameters<
@@ -974,7 +974,7 @@ type PostgresArtifactControlPoolConnect = Parameters<
 >[0];
 
 type PostgresArtifactControlSessionOptions = NonNullable<Parameters<
-  typeof makePostgresFrameworkSchemaArtifactControlSessionDriver
+  typeof makePostgresCatalogControlSessionDriver
 >[1]>;
 
 interface PostgresArtifactRepositoryTestOptions {
@@ -1587,9 +1587,9 @@ async function expectPostgresArtifactRecoveryDeadline(): Promise<void> {
             Cause.isFailReason,
           ).map(reason => reason.error).filter(
             (issue): issue is
-              FrameworkSchemaArtifactControlSessionResourceIssue =>
+              CatalogControlSessionResourceIssue =>
               issue instanceof
-                FrameworkSchemaArtifactControlSessionResourceIssue,
+                CatalogControlSessionResourceIssue,
           );
           expect(initialIssues).toHaveLength(1);
           expect(initialIssues[0]?.phase).toBe("commit");
@@ -1603,9 +1603,9 @@ async function expectPostgresArtifactRecoveryDeadline(): Promise<void> {
             Cause.isFailReason,
           ).map(reason => reason.error).filter(
             (issue): issue is
-              FrameworkSchemaArtifactControlSessionResourceIssue =>
+              CatalogControlSessionResourceIssue =>
               issue instanceof
-                FrameworkSchemaArtifactControlSessionResourceIssue,
+                CatalogControlSessionResourceIssue,
           );
           expect(recoveryIssues).toHaveLength(1);
           const recoveryIssue = recoveryIssues[0];
@@ -1614,7 +1614,7 @@ async function expectPostgresArtifactRecoveryDeadline(): Promise<void> {
           }
           expect(recoveryIssue.phase).toBe("callback");
           expect(recoveryIssue.cause).toBeInstanceOf(
-            FrameworkSchemaArtifactControlSessionDeadlineIssue,
+            CatalogControlSessionDeadlineIssue,
           );
           expect(recoveryIssue.cause).toMatchObject({
             deadlineKind: "recovery",
@@ -1753,7 +1753,7 @@ async function expectPostgresArtifactOptimisticReconstructionDeadline():
         stage: "reconstructArtifact",
       });
       expect(failure.cause).toBeInstanceOf(
-        FrameworkSchemaArtifactControlSessionDeadlineIssue,
+        CatalogControlSessionDeadlineIssue,
       );
       expect(failure.cause).toMatchObject({
         deadlineKind: "initial",
@@ -2045,22 +2045,22 @@ function expectSingleFrameworkArtifactFailure(
 
 function expectControlSessionDeadlineCause(
   failure: FrameworkSchemaArtifactError,
-  resourcePhase: FrameworkSchemaArtifactControlSessionPhase,
-  deadlineKind: FrameworkSchemaArtifactControlDeadlineKind,
-  deadlinePhase: FrameworkSchemaArtifactControlSessionPhase,
+  resourcePhase: CatalogControlSessionPhase,
+  deadlineKind: CatalogControlDeadlineKind,
+  deadlinePhase: CatalogControlSessionPhase,
 ): void {
   expect(failure.cause).toBeInstanceOf(
-    FrameworkSchemaArtifactControlSessionResourceIssue,
+    CatalogControlSessionResourceIssue,
   );
   if (
     !(failure.cause instanceof
-      FrameworkSchemaArtifactControlSessionResourceIssue)
+      CatalogControlSessionResourceIssue)
   ) {
     throw new Error("Expected a control-session resource issue.");
   }
   expect(failure.cause.phase).toBe(resourcePhase);
   expect(failure.cause.cause).toBeInstanceOf(
-    FrameworkSchemaArtifactControlSessionDeadlineIssue,
+    CatalogControlSessionDeadlineIssue,
   );
   expect(failure.cause.cause).toMatchObject({
     deadlineKind,

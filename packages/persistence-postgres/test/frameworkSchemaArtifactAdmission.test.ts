@@ -16,8 +16,8 @@ import {
   captureFrameworkSchemaArtifact,
   copyCapturedFrameworkSchemaArtifactEvidence,
 } from "../src/frameworkSchema/artifact/canonical";
-import { FrameworkSchemaArtifactControlSessionResourceIssue } from
-  "../src/frameworkSchema/artifact/controlSession";
+import { CatalogControlSessionResourceIssue } from
+  "../src/catalogControlSession";
 import { FrameworkSchemaArtifactError } from
   "../src/frameworkSchema/artifact/errors";
 import type {
@@ -596,11 +596,11 @@ describe("private framework schema artifact admission", () => {
         stage: "readArtifact",
       });
       expect(error.cause).toBeInstanceOf(
-        FrameworkSchemaArtifactControlSessionResourceIssue,
+        CatalogControlSessionResourceIssue,
       );
       if (
         !(error.cause instanceof
-          FrameworkSchemaArtifactControlSessionResourceIssue)
+          CatalogControlSessionResourceIssue)
       ) {
         throw new Error("Expected a control-session resource issue.");
       }

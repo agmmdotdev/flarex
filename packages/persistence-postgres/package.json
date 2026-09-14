@@ -142,7 +142,8 @@
     "./internal/system-test/application-relation-query-fixture": "./src/test/applicationRelationQuerySystemTestFixture.ts",
     "./internal/system-test/task-system-run-attempt-fixture": "./test/taskSystemRunAttemptStoreTestSupport.ts",
     "./internal/system-test/task-system-run-creation-fixture": "./test/taskSystemRunCreationTestSupport.ts",
-    "./internal/system-test/applicationPointQuerySnapshotV1": "./src/applicationPointQuerySnapshotV1.ts"
+    "./internal/system-test/applicationPointQuerySnapshotV1": "./src/applicationPointQuerySnapshotV1.ts",
+    "./internal/logical-schema-admission": "./src/logicalSchemaAdmission.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

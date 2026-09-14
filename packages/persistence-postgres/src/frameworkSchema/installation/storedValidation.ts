@@ -12,8 +12,9 @@ import {
 import {
   isStoredRelationalPhysicalCapability,
 } from "../../relationalSchema/physical/storedValidation";
-import { MAX_RELATIONAL_SCHEMA_CAPABILITIES } from
-  "../../relationalSchema/policy";
+import {
+  MAX_RELATIONAL_SCHEMA_CAPABILITIES,
+} from "flarex-protocol/internal/relational-schema";
 import {
   FRAMEWORK_SCHEMA_AVAILABILITY_HEAD_FORMAT,
   FRAMEWORK_SCHEMA_AVAILABILITY_HEAD_VERSION,

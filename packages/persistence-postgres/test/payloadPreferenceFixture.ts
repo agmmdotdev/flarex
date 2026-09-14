@@ -9,8 +9,8 @@ import { capturePayloadPreferenceProfile } from "../src/payloadPreferences/bindi
 import { makeFrameworkInstaller } from "../src/migrationCoordination/installer";
 import { prepareFrameworkSchemaArtifactAdmission, makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
 import { admitFrameworkSchemaArtifactEffect } from "../src/frameworkSchema/artifact/admission";
-import { makeFrameworkSchemaArtifactControlSessionStarter } from "../src/frameworkSchema/artifact/controlSession";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../src/frameworkSchema/artifact/postgresControlSession";
+import { makeCatalogControlSessionStarter } from "../src/catalogControlSession";
+import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogControlSession";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "./frameworkSchemaArtifactAdmissionTestSupport";
 import { runEffect } from "./effectTestRuntime";
 
@@ -19,7 +19,7 @@ export async function installPayloadPreferenceFixture(persistence: PGliteFlarexP
   target: FrameworkSchemaTarget, deploymentId: string) {
   const profile = await runEffect(capturePayloadPreferenceProfile(deploymentId));
   const repository = "pool" in persistence ? Result.getOrThrow(makeFrameworkSchemaArtifactRepository({ controlDb: persistence.drizzle,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(persistence.pool) }),
+    controlSessionStarter: makeCatalogControlSessionStarter({ controlDb: persistence.drizzle, driver: makePostgresCatalogControlSessionDriver(persistence.pool) }),
     readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000, lockTimeoutMilliseconds: 2000 })) : makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence).repository;
   await runEffect(admitFrameworkSchemaArtifactEffect(repository, Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(profile.artifact))));
   const migrationTarget = await makeFrameworkMigrationFixtureTarget(persistence, target);

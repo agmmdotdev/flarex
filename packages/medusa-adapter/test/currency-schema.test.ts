@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { Currency } from "@medusajs/currency/models";
 import { model } from "@medusajs/utils/dml/model";
-import { normalizeRelationalSchema, captureRelationalSchemaArtifact } from "@flarex/persistence-postgres/internal/relational-schema-values";
+import {
+  captureRelationalSchemaArtifact,
+} from "@flarex/persistence-postgres/internal/relational-schema-values";
+import {
+  normalizeRelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
 import { captureCurrencySchema, currencySourceProvenance, translateCurrencySchema } from "../src/currency-schema";
 import expectedInput from "./currency-input.json";
 

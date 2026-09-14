@@ -10,7 +10,9 @@ import {
   FRAMEWORK_SCHEMA_TARGET_NAMESPACE_VERSION,
 } from "../../migrationCoordination/targetNamespace";
 import type { JsonObject } from "flarex-protocol/json";
-import { hasExactNumericCompanionDefaults } from "../exactNumeric";
+import {
+  hasExactNumericCompanionDefaults,
+} from "flarex-protocol/internal/relational-schema";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import {
   MAX_RELATIONAL_SCHEMA_CAPABILITIES,
@@ -18,7 +20,7 @@ import {
   MAX_RELATIONAL_SCHEMA_DEFINITIONS_PER_TABLE,
   MAX_RELATIONAL_SCHEMA_REFERENCE_COLUMNS,
   MAX_RELATIONAL_SCHEMA_TABLES,
-} from "../policy";
+} from "flarex-protocol/internal/relational-schema";
 import {
   RELATIONAL_PHYSICAL_ISOLATION_PROFILE,
   RELATIONAL_PHYSICAL_LAYOUT_FORMAT,

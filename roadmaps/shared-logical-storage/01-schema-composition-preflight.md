@@ -1,7 +1,8 @@
 # Shared Schema Composition And Candidate Admission Preflight
 
-Status: proposed implementation contract; source investigation is complete for
-this first slice, but implementation approval and runtime work are pending.
+Status: approved implementation contract; candidate admission is under validation.
+The source observations below describe the pre-implementation baseline; the
+[implementation note](./02-candidate-admission.md) owns the resulting contract.
 This is the first part of GLS2, not completion of GLS1's whole-system inventory
 or of the shared-storage redesign.
 
@@ -40,7 +41,7 @@ index support, runtime Link enforcement or publication-lock replacement.
 | [Semantic manifest](../../packages/flarex-protocol/src/schema-manifest.ts), [table bindings](../../packages/persistence-postgres/src/schemaManifestTableBindings.ts), [index bindings](../../packages/persistence-postgres/src/schemaManifestAppSchemaBindings.ts) | Table definitions require `namespace: app`; binding assembly writes that value for tables and indexes. | Generalize the actual admission/binding owner, not just the SQL namespace check. Preserve already allocated IDs and collision/exclusion behavior. |
 | [Catalog tables](../../packages/persistence-postgres/src/schema.ts) | `fx_control_table` already keys identity by deployment/table ID and names by deployment/namespace/logical name. Namespace labels alone carry no producer or write authority. | Reuse that stable identity owner. Explicitly bind schema provenance and policy; never infer authorization from a namespace. |
 | [Product capture](../../packages/medusa-adapter/src/product-schema.ts), [DML lowering](../../packages/medusa-adapter/src/schema/lower.ts) | Ten native Product models produce thirteen tables including implicit pivots, then a relational artifact and physical layout/profile. | Separate native semantic capture from the physical artifact destination so the shared candidate consumes the full output without acquiring physical layout authority. |
-| [Framework artifact model](../../packages/persistence-postgres/src/frameworkSchema/artifact/model.ts) and [relational value model](../../packages/persistence-postgres/src/relationalSchema/model.ts) | Framework artifacts exclude Application; relational identities include owner/lineage/local names and target physical installation. | Reuse canonical/dependency guarantees where appropriate, but do not simply add Application to an owner union and keep a second logical catalog. |
+| [Framework artifact model](../../packages/persistence-postgres/src/frameworkSchema/artifact/model.ts) and [relational value model](../../packages/flarex-protocol/src/relational-schema/model.ts) | Framework artifacts exclude Application; relational identities include owner/lineage/local names and target physical installation. | Reuse canonical/dependency guarantees where appropriate, but do not simply add Application to an owner union and keep a second logical catalog. |
 
 The executing Product compiler comes from the workspace `@medusajs/drizzle`
 package and native model exports. The [pinned source receipt](../../third_party/medusa/SOURCE.json)

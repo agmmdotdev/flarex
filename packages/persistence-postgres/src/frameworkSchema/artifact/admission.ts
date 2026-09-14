@@ -1,11 +1,11 @@
 import { Effect, Option, Result } from "effect";
 
 import {
-  FrameworkSchemaArtifactControlSessionDeadlineIssue,
-  FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-  type FrameworkSchemaArtifactControlSessionPhase,
-} from "./controlSession";
+  CatalogControlSessionDeadlineIssue,
+  CatalogControlSessionDecisionUncertainIssue,
+  CatalogControlSessionResourceIssue,
+  type CatalogControlSessionPhase,
+} from "../../catalogControlSession";
 import {
   FrameworkSchemaArtifactError,
   FrameworkSchemaArtifactInvariantDefect,
@@ -47,9 +47,9 @@ type FrameworkSchemaArtifactAdmissionWorkFailure =
 
 type FrameworkSchemaArtifactAdmissionFailure =
   | FrameworkSchemaArtifactAdmissionWorkFailure
-  | FrameworkSchemaArtifactControlSessionDeadlineIssue
-  | FrameworkSchemaArtifactControlSessionResourceIssue
-  | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue;
+  | CatalogControlSessionDeadlineIssue
+  | CatalogControlSessionResourceIssue
+  | CatalogControlSessionDecisionUncertainIssue;
 
 type AdmissionLifecycleMode = "read" | "transaction";
 
@@ -230,7 +230,7 @@ function mapAdmissionFailure(
   }
   if (
     failure instanceof
-      FrameworkSchemaArtifactControlSessionDecisionUncertainIssue
+      CatalogControlSessionDecisionUncertainIssue
   ) {
     return FrameworkSchemaArtifactError.admissionDecisionUncertain(
       evidence.identity,
@@ -239,7 +239,7 @@ function mapAdmissionFailure(
       failure.resolutionCause,
     );
   }
-  if (failure instanceof FrameworkSchemaArtifactControlSessionDeadlineIssue) {
+  if (failure instanceof CatalogControlSessionDeadlineIssue) {
     return FrameworkSchemaArtifactError.admissionResourceFailure(
       evidence.identity,
       lifecycleStage(
@@ -252,7 +252,7 @@ function mapAdmissionFailure(
       failure,
     );
   }
-  if (failure instanceof FrameworkSchemaArtifactControlSessionResourceIssue) {
+  if (failure instanceof CatalogControlSessionResourceIssue) {
     return FrameworkSchemaArtifactError.admissionResourceFailure(
       evidence.identity,
       lifecycleStage(
@@ -287,7 +287,7 @@ function mapAdmissionFailure(
 }
 
 function lifecycleStage(
-  phase: FrameworkSchemaArtifactControlSessionPhase,
+  phase: CatalogControlSessionPhase,
   activeStage: FrameworkSchemaArtifactPersistenceStage,
   lifecycleMode: AdmissionLifecycleMode,
   activeAttempt: "initial" | "recovery",

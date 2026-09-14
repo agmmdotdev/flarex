@@ -13,16 +13,16 @@ import {
 import { makePostgresPhysicalSessionDriver } from "../src/physicalSession/postgres";
 import { flarexSchema } from "../src/schema";
 import {
-  artifactControlPhysicalErrors,
-  FrameworkSchemaArtifactControlSessionDeadlineIssue,
-} from "../src/frameworkSchema/artifact/controlSession";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../src/frameworkSchema/artifact/postgresControlSession";
+  catalogControlPhysicalErrors,
+  CatalogControlSessionDeadlineIssue,
+} from "../src/catalogControlSession";
+import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogControlSession";
 import { postgresUrl } from "./postgresHelpers";
 import { runEffect } from "./effectTestRuntime";
 
 const deadlines = makePhysicalDeadlineOperations(physicalSessionErrors);
 const artifactDeadlines = makePhysicalDeadlineOperations(
-  artifactControlPhysicalErrors,
+  catalogControlPhysicalErrors,
 );
 
 it("shares deadline mechanics while preserving each owner's error projection", async () => {
@@ -48,7 +48,7 @@ it("shares deadline mechanics while preserving each owner's error projection", a
     const reason = artifact.cause.reasons[0];
     expect(
       reason && Cause.isFailReason(reason) ? reason.error : undefined,
-    ).toBeInstanceOf(FrameworkSchemaArtifactControlSessionDeadlineIssue);
+    ).toBeInstanceOf(CatalogControlSessionDeadlineIssue);
   }
 });
 
@@ -75,7 +75,7 @@ describePostgres("physical session owner composition", () => {
       errors: physicalSessionErrors,
     });
     const artifact =
-      makePostgresFrameworkSchemaArtifactControlSessionDriver(pool);
+      makePostgresCatalogControlSessionDriver(pool);
     try {
       const observations = await runEffect(
         Effect.gen(function* () {

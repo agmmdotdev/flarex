@@ -1,7 +1,12 @@
 import { Effect, Result, Schema } from "effect";
 import { lowerDmlSchema } from "./schema/lower";
 import type { SchemaColumn, SchemaOrigins, SchemaTable } from "./schema/model";
-import { normalizeRelationalSchema, captureRelationalSchemaArtifact } from "@flarex/persistence-postgres/internal/relational-schema-values";
+import {
+  captureRelationalSchemaArtifact,
+} from "@flarex/persistence-postgres/internal/relational-schema-values";
+import {
+  normalizeRelationalSchema,
+} from "flarex-protocol/internal/relational-schema";
 
 /** Foreign parser surface; every returned member is checked before lowering. */
 export interface CurrencyDmlSource {

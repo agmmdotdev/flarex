@@ -1,19 +1,13 @@
 import type { Brand } from "effect";
-import type { JsonObject } from "flarex-protocol/json";
+import type { JsonObject } from "../json";
+import type { SchemaLineageId } from "../schema-source";
 
-import type {
-  FrameworkSchemaArtifact,
-  FrameworkSchemaArtifactOwner,
-  FrameworkSchemaLineageId,
-} from "../frameworkSchema/artifact/model";
+
 
 export const RELATIONAL_SCHEMA_FORMAT = "flarex.relational-schema";
 export const RELATIONAL_SCHEMA_FORMAT_VERSION = 1;
 
-export type RelationalSchemaOwner = Extract<
-  FrameworkSchemaArtifactOwner,
-  "medusa" | "system" | "payload"
->;
+export type RelationalSchemaOwner = "medusa" | "system" | "payload";
 
 export type RelationalTableId = Brand.Branded<
   string,
@@ -50,53 +44,53 @@ export type RelationalDefinitionSourceId = Brand.Branded<
 
 export type RelationalSchemaCoordinate = Readonly<{
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
 }> & JsonObject;
 
 export type RelationalTableIdentity = Readonly<{
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly tableId: RelationalTableId;
 }> & JsonObject;
 
 export type RelationalColumnIdentity = Readonly<{
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly tableId: RelationalTableId;
   readonly columnId: RelationalColumnId;
 }> & JsonObject;
 
 export type RelationalKeyIdentity = Readonly<{
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly tableId: RelationalTableId;
   readonly keyId: RelationalKeyId;
 }> & JsonObject;
 
 export type RelationalIndexIdentity = Readonly<{
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly tableId: RelationalTableId;
   readonly indexId: RelationalIndexId;
 }> & JsonObject;
 
 export type RelationalConstraintIdentity = Readonly<{
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly tableId: RelationalTableId;
   readonly constraintId: RelationalConstraintId;
 }> & JsonObject;
 
 export type RelationalRelationshipIdentity = Readonly<{
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly tableId: RelationalTableId;
   readonly relationshipId: RelationalRelationshipId;
 }> & JsonObject;
 
 export type RelationalPersistenceCapabilityIdentity = Readonly<{
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly capabilityId: RelationalPersistenceCapabilityId;
 }> & JsonObject;
 
@@ -268,25 +262,3 @@ export type RelationalSchema = Readonly<{
   readonly capabilities: readonly RelationalPersistenceCapability[];
 }> & JsonObject;
 
-export interface RelationalSchemaArtifactCaptureInput {
-  readonly deploymentId: unknown;
-  readonly provenance: unknown;
-  readonly schema: unknown;
-}
-
-export type RelationalSchemaArtifactProvenance =
-  | (Readonly<{
-      readonly kind: "sourceSnapshot";
-      readonly repository: string;
-      readonly revision: string;
-      readonly paths: readonly string[];
-    }> & JsonObject)
-  | (Readonly<{
-      readonly kind: "synthetic";
-      readonly fixtureId: string;
-    }> & JsonObject);
-
-export interface CapturedRelationalSchemaArtifact {
-  readonly schema: RelationalSchema;
-  readonly artifact: FrameworkSchemaArtifact;
-}

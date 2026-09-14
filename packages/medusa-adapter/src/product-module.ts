@@ -10,7 +10,7 @@ import { defineCommerceModule, CommerceModuleDefinitionError, type CommerceModul
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { captureCommerceInput } from "./commerce-input";
 import { decodeLocalEventOptions, decodeLocalEventBatch } from "./module-event-input";
-import { productModels } from "./product-schema";
+import { productModels } from "./product-definition";
 import type { ProductRuntimeMetadata, ProductEntityMetadata } from "./product-runtime-metadata";
 import { productRepository, type ProductRepositoryProfile } from "./product-repository";
 

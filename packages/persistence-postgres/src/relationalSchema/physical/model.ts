@@ -2,8 +2,10 @@ import type { JsonObject } from "flarex-protocol/json";
 
 import type {
   FrameworkSchemaArtifactIdentity,
-  FrameworkSchemaLineageId,
 } from "../../frameworkSchema/artifact/model";
+import type {
+  SchemaLineageId,
+} from "flarex-protocol/internal/schema-source";
 import type {
   FrameworkSchemaTargetNamespace,
   FrameworkSchemaTargetNamespaceFrame,
@@ -24,7 +26,7 @@ import type {
   RelationalRelationshipIdentity,
   RelationalSchemaOwner,
   RelationalTableIdentity,
-} from "../model";
+} from "flarex-protocol/internal/relational-schema";
 
 export const RELATIONAL_PHYSICAL_NAME_FORMAT =
   "flarex.relational-physical-name";
@@ -80,7 +82,7 @@ export type RelationalPhysicalNameFrame = Readonly<{
   readonly version: typeof RELATIONAL_PHYSICAL_NAME_VERSION;
   readonly deploymentId: string;
   readonly owner: RelationalSchemaOwner;
-  readonly lineageId: FrameworkSchemaLineageId;
+  readonly lineageId: SchemaLineageId;
   readonly subject: RelationalPhysicalNameSubject;
   readonly physicalNamespaceProfile: RelationalPhysicalNamespaceProfile;
 }> & JsonObject;

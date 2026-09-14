@@ -11,27 +11,27 @@ import { describe, expect, it } from "vitest";
 
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
-  FrameworkSchemaArtifactControlSessionCleanupDefect,
-  FrameworkSchemaArtifactControlSessionDeadlineIssue,
-  FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
-  makeFrameworkSchemaArtifactControlSessionStarter,
-  remainingFrameworkSchemaArtifactControlMilliseconds,
-  runFrameworkSchemaArtifactControlEffect,
-  startFrameworkSchemaArtifactControlDeadline,
-  type FrameworkSchemaArtifactControlSessionStarter,
-  type FrameworkSchemaArtifactControlSessionTransaction,
-  type FrameworkSchemaArtifactControlWork,
-} from "../src/frameworkSchema/artifact/controlSession";
+  CatalogControlSessionCleanupDefect,
+  CatalogControlSessionDeadlineIssue,
+  CatalogControlSessionDecisionUncertainIssue,
+  makeCatalogControlSessionStarter,
+  remainingCatalogControlMilliseconds,
+  runCatalogControlEffect,
+  startCatalogControlDeadline,
+  type CatalogControlSessionStarter,
+  type CatalogControlSessionTransaction,
+  type CatalogControlWork,
+} from "../src/catalogControlSession";
 import {
   makeFrameworkSchemaArtifactRepository,
-  withFrameworkSchemaArtifactControlTransactionEffect,
+  withCatalogControlTransactionEffect,
   withFrameworkSchemaArtifactRawControlTransactionEffect,
-  type FrameworkSchemaArtifactControlTransaction,
+  type CatalogControlTransaction,
   type FrameworkSchemaArtifactRepository,
 } from "../src/frameworkSchema/artifact/repository";
 import { runEffect } from "./effectTestRuntime";
 import { makeScriptedControlSessionFixture } from
-  "./frameworkSchemaArtifactControlSessionTestSupport";
+  "./catalogControlSessionTestSupport";
 
 const TIMEOUT_POLICY = Object.freeze({
   readTimeoutMilliseconds: 1_000,
@@ -43,18 +43,18 @@ const TIMEOUT_POLICY = Object.freeze({
 describe("private framework schema artifact control-session lifecycle", () => {
   it("uses one absolute Effect-clock deadline and expires sub-millisecond residue", async () => {
     const observations = await runEffect(Effect.gen(function* () {
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "read",
         10,
       );
       const atStart = yield*
-        remainingFrameworkSchemaArtifactControlMilliseconds(deadline, "read");
+        remainingCatalogControlMilliseconds(deadline, "read");
       yield* TestClock.adjust("9 millis");
       const atLastMillisecond = yield*
-        remainingFrameworkSchemaArtifactControlMilliseconds(deadline, "read");
+        remainingCatalogControlMilliseconds(deadline, "read");
       yield* TestClock.adjust("999 micros");
       const expired = yield* Effect.exit(
-        remainingFrameworkSchemaArtifactControlMilliseconds(deadline, "read"),
+        remainingCatalogControlMilliseconds(deadline, "read"),
       );
       return { atStart, atLastMillisecond, expired };
     }).pipe(Effect.provide(TestClock.layer())));
@@ -64,10 +64,10 @@ describe("private framework schema artifact control-session lifecycle", () => {
     expect(Exit.isFailure(observations.expired)).toBe(true);
     if (Exit.isFailure(observations.expired)) {
       expect(typedFailures(observations.expired.cause)[0]).toMatchObject({
-        _tag: "FrameworkSchemaArtifactControlSessionDeadlineIssue",
+        _tag: "CatalogControlSessionDeadlineIssue",
         deadlineKind: "read",
         phase: "read",
-      } satisfies Partial<FrameworkSchemaArtifactControlSessionDeadlineIssue>);
+      } satisfies Partial<CatalogControlSessionDeadlineIssue>);
     }
   });
 
@@ -117,12 +117,12 @@ describe("private framework schema artifact control-session lifecycle", () => {
     const result = await runEffect(Effect.gen(function* () {
       const entered = yield* Deferred.make<void>();
       const fixture = makeScriptedControlSessionFixture({ initial: "commit" });
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "initial",
         TIMEOUT_POLICY.attemptTimeoutMilliseconds,
       );
       const worker = yield* Effect.forkChild(
-        runFrameworkSchemaArtifactControlEffect(
+        runCatalogControlEffect(
           starterFor(fixture),
           {
             initialDeadline: deadline,
@@ -174,9 +174,9 @@ describe("private framework schema artifact control-session lifecycle", () => {
         expect(typedFailures(exit.cause)).toContain(domainFailure);
         const cleanupDefect = defects(exit.cause).find(
           (value): value is
-            FrameworkSchemaArtifactControlSessionCleanupDefect =>
+            CatalogControlSessionCleanupDefect =>
             value instanceof
-              FrameworkSchemaArtifactControlSessionCleanupDefect,
+              CatalogControlSessionCleanupDefect,
         );
         expect(cleanupDefect).toMatchObject({
           phase: cleanupPhase,
@@ -297,12 +297,12 @@ describe("private framework schema artifact control-session lifecycle", () => {
         ),
       });
       const starter = starterFor(fixture);
-      const deadline = yield* startFrameworkSchemaArtifactControlDeadline(
+      const deadline = yield* startCatalogControlDeadline(
         "initial",
         TIMEOUT_POLICY.attemptTimeoutMilliseconds,
       );
       const worker = yield* Effect.forkChild(
-        runFrameworkSchemaArtifactControlEffect(
+        runCatalogControlEffect(
           starter,
           {
             initialDeadline: deadline,
@@ -327,7 +327,7 @@ describe("private framework schema artifact control-session lifecycle", () => {
       expect(Cause.hasInterrupts(result.exit.cause)).toBe(true);
       expect(typedFailures(result.exit.cause).filter(
         value => value instanceof
-          FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+          CatalogControlSessionDecisionUncertainIssue,
       )).toHaveLength(1);
     }
     expect(result.events.at(-1)).toBe("recovery:quarantine");
@@ -339,15 +339,15 @@ describe("private framework schema artifact control-transaction authority", () =
     const fixture = makeScriptedControlSessionFixture({ initial: "commit" });
     const starter = starterFor(fixture);
     const first = makeRepository(fixture.controlDb, starter);
-    let retained: FrameworkSchemaArtifactControlTransaction | undefined;
+    let retained: CatalogControlTransaction | undefined;
     let retainedSession:
-      | FrameworkSchemaArtifactControlSessionTransaction
+      | CatalogControlSessionTransaction
       | undefined;
 
     const observed = await runControl(fixture, {
       runLockedEffect: (sessionTransaction) => {
         retainedSession = sessionTransaction;
-        return withFrameworkSchemaArtifactControlTransactionEffect(
+        return withCatalogControlTransactionEffect(
           first,
           sessionTransaction,
           (token) => {
@@ -374,7 +374,7 @@ describe("private framework schema artifact control-transaction authority", () =
       throw new Error("Expected retained session transaction.");
     }
     const closedSession = await runEffect(Effect.exit(
-      withFrameworkSchemaArtifactControlTransactionEffect(
+      withCatalogControlTransactionEffect(
         first,
         retainedSession,
         () => Effect.succeed("unexpected"),
@@ -399,7 +399,7 @@ describe("private framework schema artifact control-transaction authority", () =
     const crossSecond = makeRepository(crossFixture.controlDb, crossStarter);
     const crossResult = await runControl(crossFixture, {
       runLockedEffect: sessionTransaction =>
-        withFrameworkSchemaArtifactControlTransactionEffect(
+        withCatalogControlTransactionEffect(
           crossFirst,
           sessionTransaction,
           token => Effect.exit(
@@ -438,7 +438,7 @@ describe("private framework schema artifact control-transaction authority", () =
 
     const result = await runControl(firstFixture, {
       runLockedEffect: sessionTransaction => Effect.exit(
-        withFrameworkSchemaArtifactControlTransactionEffect(
+        withCatalogControlTransactionEffect(
           secondRepository,
           sessionTransaction,
           () => {
@@ -462,9 +462,9 @@ describe("private framework schema artifact control-transaction authority", () =
     const starter = starterFor(fixture);
     const repository = makeRepository(fixture.controlDb, starter);
     const forged = Object.freeze({}) as
-      FrameworkSchemaArtifactControlSessionTransaction;
+      CatalogControlSessionTransaction;
     const exit = await runEffect(Effect.exit(
-      withFrameworkSchemaArtifactControlTransactionEffect(
+      withCatalogControlTransactionEffect(
         repository,
         forged,
         () => Effect.succeed("unexpected"),
@@ -480,7 +480,7 @@ describe("private framework schema artifact control-transaction authority", () =
     const repository = makeRepository(fixture.controlDb, starter);
     let workCalls = 0;
     const forged = Object.freeze({}) as
-      FrameworkSchemaArtifactControlTransaction;
+      CatalogControlTransaction;
     const exit = await runEffect(Effect.exit(
       withFrameworkSchemaArtifactRawControlTransactionEffect(
         repository,
@@ -499,16 +499,16 @@ describe("private framework schema artifact control-transaction authority", () =
 
 async function runControl<Value, Failure>(
   fixture: ReturnType<typeof makeScriptedControlSessionFixture>,
-  work: FrameworkSchemaArtifactControlWork<Value, Failure>,
+  work: CatalogControlWork<Value, Failure>,
   starter = starterFor(fixture),
 ): Promise<Readonly<{ status: "created" | "existing"; value: Value }>> {
   const deadline = await runEffect(
-    startFrameworkSchemaArtifactControlDeadline(
+    startCatalogControlDeadline(
       "initial",
       TIMEOUT_POLICY.attemptTimeoutMilliseconds,
     ),
   );
-  return runEffect(runFrameworkSchemaArtifactControlEffect(
+  return runEffect(runCatalogControlEffect(
     starter,
     {
       initialDeadline: deadline,
@@ -521,15 +521,15 @@ async function runControl<Value, Failure>(
 
 async function runControlExit<Value, Failure>(
   fixture: ReturnType<typeof makeScriptedControlSessionFixture>,
-  work: FrameworkSchemaArtifactControlWork<Value, Failure>,
+  work: CatalogControlWork<Value, Failure>,
 ) {
   const deadline = await runEffect(
-    startFrameworkSchemaArtifactControlDeadline(
+    startCatalogControlDeadline(
       "initial",
       TIMEOUT_POLICY.attemptTimeoutMilliseconds,
     ),
   );
-  return runEffect(Effect.exit(runFrameworkSchemaArtifactControlEffect(
+  return runEffect(Effect.exit(runCatalogControlEffect(
     starterFor(fixture),
     {
       initialDeadline: deadline,
@@ -542,15 +542,15 @@ async function runControlExit<Value, Failure>(
 
 function starterFor(
   fixture: ReturnType<typeof makeScriptedControlSessionFixture>,
-): FrameworkSchemaArtifactControlSessionStarter {
-  return makeFrameworkSchemaArtifactControlSessionStarter({
+): CatalogControlSessionStarter {
+  return makeCatalogControlSessionStarter({
     controlDb: fixture.controlDb,
     driver: fixture.driver,
   });
 }
 
-function createdWork(): FrameworkSchemaArtifactControlWork<string, never> {
-  const work: FrameworkSchemaArtifactControlWork<string, never> = {
+function createdWork(): CatalogControlWork<string, never> {
+  const work: CatalogControlWork<string, never> = {
     runLockedEffect: (_transaction, attempt) => Effect.succeed(
       Object.freeze({ kind: "created" as const, value: attempt }),
     ),
@@ -577,7 +577,7 @@ function expectDecisionUncertain(
   if (Exit.isFailure(exit)) {
     const failure = typedFailures(exit.cause).find(
       value => value instanceof
-        FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+        CatalogControlSessionDecisionUncertainIssue,
     );
     expect(failure).toMatchObject({
       stage,
@@ -589,7 +589,7 @@ function expectDecisionUncertain(
 
 function makeRepository(
   controlDb: FlarexMetadataDatabase,
-  starter: FrameworkSchemaArtifactControlSessionStarter,
+  starter: CatalogControlSessionStarter,
 ): FrameworkSchemaArtifactRepository {
   return Result.getOrThrow(makeFrameworkSchemaArtifactRepository({
     controlDb,

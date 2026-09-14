@@ -17,8 +17,8 @@ import type { FrameworkSchemaArtifact as RootFrameworkSchemaArtifact } from
 // @ts-expect-error Framework artifact identities must remain private.
 import type { FrameworkSchemaArtifactIdentity as RootArtifactIdentity } from
   "../src";
-// @ts-expect-error Framework lineage brands must remain private.
-import type { FrameworkSchemaLineageId as RootLineageId } from "../src";
+// @ts-expect-error Shared source lineage brands must remain absent from the root.
+import type { SchemaLineageId as RootLineageId } from "flarex-protocol";
 // @ts-expect-error Framework capability brands must remain private.
 import type { FrameworkSchemaCapabilityId as RootCapabilityId } from "../src";
 // @ts-expect-error Framework codec brands must remain private.
@@ -50,8 +50,10 @@ import type {
   FrameworkSchemaArtifactReplayClassification,
   FrameworkSchemaArtifactSha256,
   FrameworkSchemaCapabilityId,
-  FrameworkSchemaLineageId,
 } from "../src/frameworkSchema/artifact/model";
+import type {
+  SchemaLineageId,
+} from "flarex-protocol/internal/schema-source";
 import {
   classifyFrameworkSchemaArtifactReplay,
   compareFrameworkSchemaArtifactIdentities,
@@ -73,7 +75,7 @@ type PublicArtifactExport = Extract<
 >;
 
 type ArtifactStringBrand =
-  | FrameworkSchemaLineageId
+  | SchemaLineageId
   | FrameworkSchemaCapabilityId
   | FrameworkSchemaArtifactCodecFormat
   | FrameworkSchemaArtifactSha256
@@ -122,13 +124,13 @@ describe("private framework schema artifacts", () => {
     expectTypeOf<PublicArtifactExport>().toEqualTypeOf<never>();
     expectTypeOf<PlainStringIsArtifactStringBrand>().toEqualTypeOf<false>();
     expectTypeOf<PlainNumberIsCodecVersion>().toEqualTypeOf<false>();
-    expectTypeOf<FrameworkSchemaLineageId>()
+    expectTypeOf<SchemaLineageId>()
       .not.toMatchTypeOf<FrameworkSchemaCapabilityId>();
-    expectTypeOf<FrameworkSchemaLineageId>()
+    expectTypeOf<SchemaLineageId>()
       .not.toMatchTypeOf<FrameworkSchemaArtifactCodecFormat>();
-    expectTypeOf<FrameworkSchemaLineageId>()
+    expectTypeOf<SchemaLineageId>()
       .not.toMatchTypeOf<FrameworkSchemaArtifactSha256>();
-    expectTypeOf<FrameworkSchemaLineageId>()
+    expectTypeOf<SchemaLineageId>()
       .not.toMatchTypeOf<FrameworkSchemaArtifactCanonicalJson>();
     expectTypeOf<FrameworkSchemaCapabilityId>()
       .not.toMatchTypeOf<FrameworkSchemaArtifactCodecFormat>();

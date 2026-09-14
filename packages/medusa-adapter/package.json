@@ -7,7 +7,8 @@
     "./internal/currency-schema": "./src/currency-schema.ts",
     "./internal/currency": "./src/currency-service.ts",
     "./internal/currency-profile": "./src/currency-contract.ts",
-    "./internal/product-schema": "./src/product-schema.ts"
+    "./internal/product-schema": "./src/product-schema.ts",
+    "./internal/product-definition": "./src/product-definition.ts"
   },
   "dependencies": {
     "@flarex/utils": "workspace:*",
@@ -23,7 +24,8 @@
     "@medusajs/drizzle": "workspace:*",
     "@medusajs/workflows-sdk": "workspace:*",
     "@medusajs/core-flows": "workspace:*",
-    "@medusajs/pricing": "workspace:*"
+    "@medusajs/pricing": "workspace:*",
+    "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
     "@medusajs/deps": "workspace:*",

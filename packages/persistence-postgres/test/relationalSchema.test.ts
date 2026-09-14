@@ -12,19 +12,19 @@ import {
 import type { RelationalSchema as RootRelationalSchema } from "../src";
 import { captureRelationalSchemaArtifact } from
   "../src/relationalSchema/artifact";
-import { RelationalSchemaError } from
-  "../src/relationalSchema/errors";
+import {
+  RelationalSchemaError,
+} from "flarex-protocol/internal/relational-schema";
 import type {
   RelationalColumnId,
   RelationalPersistenceCapabilityId,
   RelationalSchema,
   RelationalTableId,
-} from "../src/relationalSchema/model";
+} from "flarex-protocol/internal/relational-schema";
 import {
   MAX_RELATIONAL_SCHEMA_DECODE_UNITS,
   normalizeRelationalSchema,
-} from
-  "../src/relationalSchema/policy";
+} from "flarex-protocol/internal/relational-schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 type PublicRelationalSchemaExport = Extract<

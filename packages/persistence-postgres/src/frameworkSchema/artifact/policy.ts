@@ -26,9 +26,11 @@ import {
   type FrameworkSchemaArtifactReplayClassification,
   type FrameworkSchemaArtifactSha256,
   type FrameworkSchemaCapabilityId,
-  type FrameworkSchemaLineageId,
   type ListFrameworkSchemaArtifactIdentitiesInput,
 } from "./model";
+import {
+  type SchemaLineageId,
+} from "flarex-protocol/internal/schema-source";
 
 export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_COMMON_IDENTITY_UTF8_BYTES = 1_024;
 export const MAX_FRAMEWORK_SCHEMA_ARTIFACT_CAPABILITIES = 256;
@@ -78,7 +80,7 @@ const OWNER_ORDINAL = {
   system: 2,
 } as const satisfies Record<FrameworkSchemaArtifactOwner, number>;
 
-const brandLineageId = Brand.nominal<FrameworkSchemaLineageId>();
+const brandLineageId = Brand.nominal<SchemaLineageId>();
 const brandCapabilityId = Brand.nominal<FrameworkSchemaCapabilityId>();
 const brandCodecFormat = Brand.nominal<FrameworkSchemaArtifactCodecFormat>();
 const brandCodecVersion =
@@ -359,7 +361,7 @@ function decodeDependencies(
   containing: Readonly<{
     readonly deploymentId: string;
     readonly owner: FrameworkSchemaArtifactOwner;
-    readonly lineageId: FrameworkSchemaLineageId;
+    readonly lineageId: SchemaLineageId;
   }>,
 ): Result.Result<
   readonly FrameworkSchemaArtifactIdentity[],

@@ -18,8 +18,10 @@ import {
   FRAMEWORK_SCHEMA_ARTIFACT_FORMAT,
   FRAMEWORK_SCHEMA_ARTIFACT_VERSION,
   type FrameworkSchemaArtifactOwner,
-  type FrameworkSchemaLineageId,
 } from "./model";
+import {
+  type SchemaLineageId,
+} from "flarex-protocol/internal/schema-source";
 import {
   MAX_FRAMEWORK_SCHEMA_ARTIFACT_CANONICAL_BYTES,
   MAX_FRAMEWORK_SCHEMA_ARTIFACT_COMMON_IDENTITY_UTF8_BYTES,
@@ -65,7 +67,7 @@ export const fxControlFrameworkSchemaArtifacts = pgTable(
       .$type<FrameworkSchemaArtifactOwner>()
       .notNull(),
     lineageId: collatedText("lineage_id")
-      .$type<FrameworkSchemaLineageId>()
+      .$type<SchemaLineageId>()
       .notNull(),
     artifactSha256: bytea("artifact_sha256").notNull(),
     frameFormat: collatedText("frame_format")
@@ -143,11 +145,11 @@ export const fxControlFrameworkSchemaArtifactDependencies = pgTable(
       .$type<FrameworkSchemaArtifactOwner>()
       .notNull(),
     artifactLineageId: collatedText("artifact_lineage_id")
-      .$type<FrameworkSchemaLineageId>()
+      .$type<SchemaLineageId>()
       .notNull(),
     dependencyOrdinal: integer("dependency_ordinal").notNull(),
     dependencyLineageId: collatedText("dependency_lineage_id")
-      .$type<FrameworkSchemaLineageId>()
+      .$type<SchemaLineageId>()
       .notNull(),
   },
   table => [

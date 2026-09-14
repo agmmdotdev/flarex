@@ -2,12 +2,13 @@ import { Effect, Exit, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-  makeFrameworkSchemaArtifactControlSessionStarter,
-  startFrameworkSchemaArtifactControlDeadline,
-  type FrameworkSchemaArtifactControlInitialSettlement,
-  type FrameworkSchemaArtifactControlSessionDriver,
-} from "../src/frameworkSchema/artifact/controlSession";
+  CatalogControlSessionResourceIssue,
+  makeCatalogControlSessionStarter,
+  startCatalogControlDeadline,
+  type CatalogControlInitialSettlement,
+  type CatalogControlSessionDriver,
+  type CatalogControlSessionStarter,
+} from "../src/catalogControlSession";
 import {
   makeFrameworkSchemaArtifactRepository,
   type FrameworkSchemaArtifactRepository,
@@ -29,6 +30,7 @@ export interface PGliteFrameworkSchemaArtifactAdmissionFixtureOptions {
 }
 
 export interface PGliteFrameworkSchemaArtifactAdmissionFixture {
+  readonly controlSessionStarter: CatalogControlSessionStarter;
   readonly repository: FrameworkSchemaArtifactRepository;
   readonly events: readonly string[];
   readonly isTransactionActive: () => boolean;
@@ -54,18 +56,18 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
   const driver = Object.freeze({
     runReadEffect: <Value, Failure>(
       _input: Parameters<
-        FrameworkSchemaArtifactControlSessionDriver["runReadEffect"]
+        CatalogControlSessionDriver["runReadEffect"]
       >[0],
       work: (
         database: FlarexMetadataDatabase,
       ) => Effect.Effect<Value, Failure, never>,
     ): Effect.Effect<
       Value,
-      Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+      Failure | CatalogControlSessionResourceIssue,
       never
     > => Effect.suspend<
       Value,
-      Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+      Failure | CatalogControlSessionResourceIssue,
       never
     >(() => {
       readRuns += 1;
@@ -76,7 +78,7 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
       ) {
         events.push("read:acquireFailed");
         return Effect.fail(
-          new FrameworkSchemaArtifactControlSessionResourceIssue({
+          new CatalogControlSessionResourceIssue({
             phase: "acquire",
             cause: options.failPostSettlementReadAcquisition.cause,
           }),
@@ -90,12 +92,12 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
       "FrameworkSchemaArtifactPGliteTestControlSession.initialTransaction",
     )(function* <Value, Failure>(
       input: Parameters<
-        FrameworkSchemaArtifactControlSessionDriver[
+        CatalogControlSessionDriver[
           "runInitialTransactionEffect"
         ]
       >[0],
       restore: Parameters<
-        FrameworkSchemaArtifactControlSessionDriver[
+        CatalogControlSessionDriver[
           "runInitialTransactionEffect"
         ]
       >[1],
@@ -103,7 +105,7 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
         transaction: FlarexMetadataTransaction,
       ) => Effect.Effect<Value, Failure, never>,
     ): Effect.fn.Return<
-      FrameworkSchemaArtifactControlInitialSettlement<Value, Failure>,
+      CatalogControlInitialSettlement<Value, Failure>,
       never,
       never
     > {
@@ -138,7 +140,7 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
       transactionActive = false;
       if (options.uncertainAfterCommit !== undefined) {
         const recoveryDeadline = yield*
-          startFrameworkSchemaArtifactControlDeadline(
+          startCatalogControlDeadline(
             "recovery",
             input.recoveryTimeoutMilliseconds,
           );
@@ -164,14 +166,12 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
     runRecoveryTransactionEffect: () => Effect.die(
       "PGlite admission fixture does not model settlement recovery.",
     ),
-  } satisfies FrameworkSchemaArtifactControlSessionDriver);
+  } satisfies CatalogControlSessionDriver);
 
+  const controlSessionStarter = makeCatalogControlSessionStarter({ controlDb, driver });
   const repositoryResult = makeFrameworkSchemaArtifactRepository({
     controlDb,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({
-      controlDb,
-      driver,
-    }),
+    controlSessionStarter,
     readTimeoutMilliseconds: 5_000,
     attemptTimeoutMilliseconds: 5_000,
     recoveryTimeoutMilliseconds: 5_000,
@@ -180,6 +180,7 @@ export function makePGliteFrameworkSchemaArtifactAdmissionFixture(
   if (Result.isFailure(repositoryResult)) throw repositoryResult.failure;
 
   return Object.freeze({
+    controlSessionStarter,
     repository: repositoryResult.success,
     events,
     isTransactionActive: () => transactionActive,

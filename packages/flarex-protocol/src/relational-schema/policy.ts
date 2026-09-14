@@ -42,10 +42,8 @@ import {
   type RelationalTableId,
   type RelationalTableIdentity,
 } from "./model";
-import type { FrameworkSchemaLineageId } from
-  "../frameworkSchema/artifact/model";
-import { MAX_FRAMEWORK_SCHEMA_ARTIFACT_JSON_NODES } from
-  "../frameworkSchema/artifact/policy";
+import type { SchemaLineageId } from "../schema-source";
+
 
 export const MAX_RELATIONAL_SCHEMA_ID_UTF8_BYTES = 512;
 export const MAX_RELATIONAL_SCHEMA_TABLES = 128;
@@ -53,22 +51,14 @@ export const MAX_RELATIONAL_SCHEMA_COLUMNS_PER_TABLE = 256;
 export const MAX_RELATIONAL_SCHEMA_DEFINITIONS_PER_TABLE = 256;
 export const MAX_RELATIONAL_SCHEMA_CAPABILITIES = 256;
 export const MAX_RELATIONAL_SCHEMA_REFERENCE_COLUMNS = 32;
-// Definitions consume one unit and nested identity references consume their own
-// unit. Every unit expands to at most 16 framework-artifact JSON nodes. The
-// retained headroom covers the relational root and outer artifact frame.
-const MAX_RELATIONAL_SCHEMA_OUTPUT_NODES_PER_DECODE_UNIT = 16;
-const RELATIONAL_SCHEMA_OUTER_ARTIFACT_NODE_HEADROOM = 6_144;
-export const MAX_RELATIONAL_SCHEMA_DECODE_UNITS = Math.floor(
-  (MAX_FRAMEWORK_SCHEMA_ARTIFACT_JSON_NODES -
-    RELATIONAL_SCHEMA_OUTER_ARTIFACT_NODE_HEADROOM) /
-    MAX_RELATIONAL_SCHEMA_OUTPUT_NODES_PER_DECODE_UNIT,
-);
+// Bound semantic capture independently of any physical artifact envelope.
+export const MAX_RELATIONAL_SCHEMA_DECODE_UNITS = 16_000;
 
 const UTF8 = new TextEncoder();
 const EXACT_NUMERIC = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?$/;
 const POSTGRES_INTEGER_MINIMUM = -2_147_483_648;
 const POSTGRES_INTEGER_MAXIMUM = 2_147_483_647;
-const brandLineageId = Brand.nominal<FrameworkSchemaLineageId>();
+const brandLineageId = Brand.nominal<SchemaLineageId>();
 const brandTableId = Brand.nominal<RelationalTableId>();
 const brandColumnId = Brand.nominal<RelationalColumnId>();
 const brandKeyId = Brand.nominal<RelationalKeyId>();

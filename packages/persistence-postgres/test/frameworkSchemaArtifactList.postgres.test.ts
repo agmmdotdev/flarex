@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
-  makeFrameworkSchemaArtifactControlSessionStarter,
-} from "../src/frameworkSchema/artifact/controlSession";
+  makeCatalogControlSessionStarter,
+} from "../src/catalogControlSession";
 import { listFrameworkSchemaArtifactIdentitiesEffect } from
   "../src/frameworkSchema/artifact/list";
 import type {
@@ -15,8 +15,8 @@ import type {
 } from "../src/frameworkSchema/artifact/model";
 import { decodeFrameworkSchemaArtifactListInputResult } from
   "../src/frameworkSchema/artifact/policy";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from
-  "../src/frameworkSchema/artifact/postgresControlSession";
+import { makePostgresCatalogControlSessionDriver } from
+  "../src/postgresCatalogControlSession";
 import { makeFrameworkSchemaArtifactRepository } from
   "../src/frameworkSchema/artifact/repository";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -35,7 +35,7 @@ const DEFAULT_TIMEOUT_MILLISECONDS = 5_000;
 const PLAN_ARTIFACT_COUNT = 20_000;
 
 type ArtifactControlPool = Parameters<
-  typeof makePostgresFrameworkSchemaArtifactControlSessionDriver
+  typeof makePostgresCatalogControlSessionDriver
 >[0];
 
 interface ExecutedArtifactListQuery {
@@ -290,9 +290,9 @@ function makePostgresListRepository(
     : makeObservedArtifactControlPool(persistence, observations);
   return Result.getOrThrow(makeFrameworkSchemaArtifactRepository({
     controlDb,
-    controlSessionStarter: makeFrameworkSchemaArtifactControlSessionStarter({
+    controlSessionStarter: makeCatalogControlSessionStarter({
       controlDb,
-      driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(pool),
+      driver: makePostgresCatalogControlSessionDriver(pool),
     }),
     readTimeoutMilliseconds: DEFAULT_TIMEOUT_MILLISECONDS,
     attemptTimeoutMilliseconds: DEFAULT_TIMEOUT_MILLISECONDS,

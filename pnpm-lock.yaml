@@ -617,6 +617,12 @@ importers:
       '@flarex/function-runtime':
         specifier: workspace:*
         version: link:../function-runtime
+      '@flarex/medusa-adapter':
+        specifier: workspace:*
+        version: link:../medusa-adapter
+      '@flarex/payload-adapter':
+        specifier: workspace:*
+        version: link:../payload-adapter
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../persistence-postgres
@@ -642,6 +648,9 @@ importers:
         specifier: workspace:*
         version: link:../flarex-protocol
     devDependencies:
+      '@flarex/application-schema-definition':
+        specifier: workspace:*
+        version: link:../application-schema-definition
       '@flarex/declarative-materializer':
         specifier: workspace:*
         version: link:../declarative-materializer
@@ -864,6 +873,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.112
+      flarex-protocol:
+        specifier: workspace:*
+        version: link:../flarex-protocol
     devDependencies:
       '@medusajs/deps':
         specifier: workspace:*

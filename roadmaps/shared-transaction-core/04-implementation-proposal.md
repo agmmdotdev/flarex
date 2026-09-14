@@ -42,7 +42,7 @@ excluded connection identity; deciding what an outcome means stays with callers.
 - Switch `relationalTransaction/session.ts` directly to the neutral driver,
   deadline and resource result. It currently borrows only the initial-transaction
   operation; do not accidentally compose artifact recovery into framework work.
-- Refactor `frameworkSchema/artifact/postgresControlSession.ts` into artifact
+- Refactor `postgresCatalogControlSession.ts` into artifact
   composition/projection over the same physical implementation. Adapt
   `controlSession.ts` and `repository.ts` where generic physical types/deadlines
   currently cross the artifact boundary.

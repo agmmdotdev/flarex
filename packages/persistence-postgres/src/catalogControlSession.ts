@@ -1,7 +1,7 @@
 import {
   makePhysicalDeadlineOperations,
   type PhysicalDeadline,
-} from "../../physicalSession/deadline";
+} from "./physicalSession/deadline";
 import type {
   PhysicalDeadlineKind,
   PhysicalSessionPhase,
@@ -16,52 +16,52 @@ import type {
   PhysicalRecoveryTransactionInput,
   PhysicalSessionDriver,
   PhysicalSessionErrors,
-} from "../../physicalSession/model";
+} from "./physicalSession/model";
 import { Cause, Data, Effect, Exit } from "effect";
 
-import type { FlarexMetadataDatabase } from "../../deployments";
-import type { FlarexMetadataTransaction } from "../../metadataTransaction";
+import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 
-const frameworkSchemaArtifactControlSessionStarterBrand: unique symbol = Symbol(
-  "FlarexDB/FrameworkSchemaArtifactControlSessionStarter",
+const catalogControlSessionStarterBrand: unique symbol = Symbol(
+  "FlarexDB/CatalogControlSessionStarter",
 );
-const frameworkSchemaArtifactControlSessionTransactionBrand: unique symbol =
-  Symbol("FlarexDB/FrameworkSchemaArtifactControlSessionTransaction");
+const catalogControlSessionTransactionBrand: unique symbol =
+  Symbol("FlarexDB/CatalogControlSessionTransaction");
 
-export type FrameworkSchemaArtifactControlDeadlineKind = PhysicalDeadlineKind;
-export type FrameworkSchemaArtifactControlSessionPhase = PhysicalSessionPhase;
-export class FrameworkSchemaArtifactControlSessionDeadlineIssue extends Data.TaggedError(
-  "FrameworkSchemaArtifactControlSessionDeadlineIssue",
+export type CatalogControlDeadlineKind = PhysicalDeadlineKind;
+export type CatalogControlSessionPhase = PhysicalSessionPhase;
+export class CatalogControlSessionDeadlineIssue extends Data.TaggedError(
+  "CatalogControlSessionDeadlineIssue",
 )<{
-  readonly deadlineKind: FrameworkSchemaArtifactControlDeadlineKind;
-  readonly phase: FrameworkSchemaArtifactControlSessionPhase;
+  readonly deadlineKind: CatalogControlDeadlineKind;
+  readonly phase: CatalogControlSessionPhase;
 }> {}
 
-export class FrameworkSchemaArtifactControlSessionResourceIssue extends Data.TaggedError(
-  "FrameworkSchemaArtifactControlSessionResourceIssue",
+export class CatalogControlSessionResourceIssue extends Data.TaggedError(
+  "CatalogControlSessionResourceIssue",
 )<{
-  readonly phase: FrameworkSchemaArtifactControlSessionPhase;
+  readonly phase: CatalogControlSessionPhase;
   readonly cause: unknown;
   readonly cleanupCause?: unknown;
 }> {}
 
-export class FrameworkSchemaArtifactControlSessionDecisionUncertainIssue extends Data.TaggedError(
-  "FrameworkSchemaArtifactControlSessionDecisionUncertainIssue",
+export class CatalogControlSessionDecisionUncertainIssue extends Data.TaggedError(
+  "CatalogControlSessionDecisionUncertainIssue",
 )<{
   readonly stage: "settle" | "recover";
   readonly initialSettlementCause: unknown;
   readonly resolutionCause: unknown;
 }> {}
 
-export class FrameworkSchemaArtifactControlSessionCleanupDefect extends Data.TaggedError(
-  "FrameworkSchemaArtifactControlSessionCleanupDefect",
+export class CatalogControlSessionCleanupDefect extends Data.TaggedError(
+  "CatalogControlSessionCleanupDefect",
 )<{
   readonly phase: "rollback" | "release" | "quarantine";
   readonly cause: unknown;
 }> {}
 
-export class FrameworkSchemaArtifactControlSessionInvariantDefect extends Data.TaggedError(
-  "FrameworkSchemaArtifactControlSessionInvariantDefect",
+export class CatalogControlSessionInvariantDefect extends Data.TaggedError(
+  "CatalogControlSessionInvariantDefect",
 )<{
   readonly reason:
     | "invalidStarter"
@@ -72,68 +72,68 @@ export class FrameworkSchemaArtifactControlSessionInvariantDefect extends Data.T
     | "closedTransaction";
 }> {}
 
-export interface FrameworkSchemaArtifactControlSessionStarter {
-  readonly [frameworkSchemaArtifactControlSessionStarterBrand]: true;
+export interface CatalogControlSessionStarter {
+  readonly [catalogControlSessionStarterBrand]: true;
 }
 
-export type FrameworkSchemaArtifactControlDeadline = PhysicalDeadline;
-export type FrameworkSchemaArtifactControlConnectionIdentity =
+export type CatalogControlDeadline = PhysicalDeadline;
+export type CatalogControlConnectionIdentity =
   PhysicalConnectionIdentity;
 
 /** Opaque transaction capability issued only for one active driver callback. */
-export interface FrameworkSchemaArtifactControlSessionTransaction {
-  readonly [frameworkSchemaArtifactControlSessionTransactionBrand]: true;
+export interface CatalogControlSessionTransaction {
+  readonly [catalogControlSessionTransactionBrand]: true;
 }
 
-export type FrameworkSchemaArtifactControlDecision<Value> =
+export type CatalogControlDecision<Value> =
   | Readonly<{ readonly kind: "created"; readonly value: Value }>
   | Readonly<{ readonly kind: "existing"; readonly value: Value }>
   | Readonly<{ readonly kind: "resolveExisting" }>;
 
-export interface FrameworkSchemaArtifactControlResult<Value> {
+export interface CatalogControlResult<Value> {
   readonly status: "created" | "existing";
   readonly value: Value;
 }
 
-export type FrameworkSchemaArtifactControlSessionQuarantine =
+export type CatalogControlSessionQuarantine =
   PhysicalSessionQuarantine;
-export type FrameworkSchemaArtifactControlInitialSettlement<Value, Failure> =
+export type CatalogControlInitialSettlement<Value, Failure> =
   PhysicalInitialSettlement<
     Value,
     Failure,
-    FrameworkSchemaArtifactControlSessionResourceIssue
+    CatalogControlSessionResourceIssue
   >;
-export type FrameworkSchemaArtifactControlRecoveryResolution<Failure> =
+export type CatalogControlRecoveryResolution<Failure> =
   PhysicalRecoveryResolution<
     Failure,
-    FrameworkSchemaArtifactControlSessionResourceIssue
+    CatalogControlSessionResourceIssue
   >;
-export type FrameworkSchemaArtifactControlRecoverySettlement<Value, Failure> =
+export type CatalogControlRecoverySettlement<Value, Failure> =
   PhysicalRecoverySettlement<
     Value,
     Failure,
-    FrameworkSchemaArtifactControlSessionResourceIssue
+    CatalogControlSessionResourceIssue
   >;
-export type FrameworkSchemaArtifactControlReadInput = PhysicalReadInput;
-export type FrameworkSchemaArtifactControlRestore = PhysicalRestore;
-export type FrameworkSchemaArtifactControlInitialTransactionInput =
+export type CatalogControlReadInput = PhysicalReadInput;
+export type CatalogControlRestore = PhysicalRestore;
+export type CatalogControlInitialTransactionInput =
   PhysicalInitialTransactionInput;
-export type FrameworkSchemaArtifactControlRecoveryTransactionInput =
+export type CatalogControlRecoveryTransactionInput =
   PhysicalRecoveryTransactionInput;
-export type FrameworkSchemaArtifactControlSessionDriver =
-  PhysicalSessionDriver<FrameworkSchemaArtifactControlSessionResourceIssue>;
+export type CatalogControlSessionDriver =
+  PhysicalSessionDriver<CatalogControlSessionResourceIssue>;
 
-export interface MakeFrameworkSchemaArtifactControlSessionStarterInput {
+export interface MakeCatalogControlSessionStarterInput {
   readonly controlDb: FlarexMetadataDatabase;
-  readonly driver: FrameworkSchemaArtifactControlSessionDriver;
+  readonly driver: CatalogControlSessionDriver;
 }
 
-export interface FrameworkSchemaArtifactControlWork<Value, Failure> {
+export interface CatalogControlWork<Value, Failure> {
   readonly runLockedEffect: (
-    transaction: FrameworkSchemaArtifactControlSessionTransaction,
+    transaction: CatalogControlSessionTransaction,
     attempt: "initial" | "recovery",
   ) => Effect.Effect<
-    FrameworkSchemaArtifactControlDecision<Value>,
+    CatalogControlDecision<Value>,
     Failure,
     never
   >;
@@ -141,66 +141,66 @@ export interface FrameworkSchemaArtifactControlWork<Value, Failure> {
     database: FlarexMetadataDatabase,
   ) => Effect.Effect<
     Value,
-    Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+    Failure | CatalogControlSessionResourceIssue,
     never
   >;
 }
 
-export interface RunFrameworkSchemaArtifactControlInput {
-  readonly initialDeadline: FrameworkSchemaArtifactControlDeadline;
+export interface RunCatalogControlInput {
+  readonly initialDeadline: CatalogControlDeadline;
   readonly lockTimeoutMilliseconds: number;
   readonly recoveryTimeoutMilliseconds: number;
 }
 
-interface FrameworkSchemaArtifactControlSessionStarterState {
+interface CatalogControlSessionStarterState {
   readonly controlDb: FlarexMetadataDatabase;
-  readonly driver: FrameworkSchemaArtifactControlSessionDriver;
+  readonly driver: CatalogControlSessionDriver;
 }
 
-interface FrameworkSchemaArtifactControlSessionTransactionState {
-  readonly starter: FrameworkSchemaArtifactControlSessionStarter;
+interface CatalogControlSessionTransactionState {
+  readonly starter: CatalogControlSessionStarter;
   readonly rawTransaction: FlarexMetadataTransaction;
   active: boolean;
 }
 
 const starterStates = new WeakMap<
   object,
-  FrameworkSchemaArtifactControlSessionStarterState
+  CatalogControlSessionStarterState
 >();
 const transactionStates = new WeakMap<
   object,
-  FrameworkSchemaArtifactControlSessionTransactionState
+  CatalogControlSessionTransactionState
 >();
 
 /** Issue one opaque starter bound to one exact control database and driver. */
-export function makeFrameworkSchemaArtifactControlSessionStarter(
-  input: MakeFrameworkSchemaArtifactControlSessionStarterInput,
-): FrameworkSchemaArtifactControlSessionStarter {
+export function makeCatalogControlSessionStarter(
+  input: MakeCatalogControlSessionStarterInput,
+): CatalogControlSessionStarter {
   const starter = Object.freeze({
-    [frameworkSchemaArtifactControlSessionStarterBrand]: true,
-  } satisfies FrameworkSchemaArtifactControlSessionStarter);
+    [catalogControlSessionStarterBrand]: true,
+  } satisfies CatalogControlSessionStarter);
   starterStates.set(
     starter,
     Object.freeze({
       controlDb: input.controlDb,
       driver: input.driver,
-    } satisfies FrameworkSchemaArtifactControlSessionStarterState),
+    } satisfies CatalogControlSessionStarterState),
   );
   return starter;
 }
 
-export { makePhysicalConnectionIdentity as makeFrameworkSchemaArtifactControlConnectionIdentity } from "../../physicalSession/model";
+export { makePhysicalConnectionIdentity as makeCatalogControlConnectionIdentity } from "./physicalSession/model";
 
 /**
  * Authenticate one active callback capability before repository code can bind
  * the underlying raw transaction to its own narrower token.
  */
-export function withFrameworkSchemaArtifactRawControlSessionTransactionEffect<
+export function withCatalogRawControlSessionTransactionEffect<
   Value,
   Failure,
 >(
-  transaction: FrameworkSchemaArtifactControlSessionTransaction,
-  expectedStarter: FrameworkSchemaArtifactControlSessionStarter,
+  transaction: CatalogControlSessionTransaction,
+  expectedStarter: CatalogControlSessionStarter,
   work: (
     rawTransaction: FlarexMetadataTransaction,
   ) => Effect.Effect<Value, Failure, never>,
@@ -209,21 +209,21 @@ export function withFrameworkSchemaArtifactRawControlSessionTransactionEffect<
     const state = transactionStates.get(transaction);
     if (state === undefined) {
       return Effect.die(
-        new FrameworkSchemaArtifactControlSessionInvariantDefect({
+        new CatalogControlSessionInvariantDefect({
           reason: "invalidTransaction",
         }),
       );
     }
     if (!state.active) {
       return Effect.die(
-        new FrameworkSchemaArtifactControlSessionInvariantDefect({
+        new CatalogControlSessionInvariantDefect({
           reason: "closedTransaction",
         }),
       );
     }
     if (state.starter !== expectedStarter) {
       return Effect.die(
-        new FrameworkSchemaArtifactControlSessionInvariantDefect({
+        new CatalogControlSessionInvariantDefect({
           reason: "crossStarterTransaction",
         }),
       );
@@ -233,80 +233,80 @@ export function withFrameworkSchemaArtifactRawControlSessionTransactionEffect<
 }
 
 /** Authenticate the exact starter/control-database pair without property reads. */
-export function hasFrameworkSchemaArtifactControlSessionComposition(
+export function hasCatalogControlSessionComposition(
   starter: unknown,
   controlDb: FlarexMetadataDatabase,
-): starter is FrameworkSchemaArtifactControlSessionStarter {
+): starter is CatalogControlSessionStarter {
   if (typeof starter !== "object" || starter === null) return false;
   return starterStates.get(starter)?.controlDb === controlDb;
 }
 
 /** Artifact error identity is projected at emission; physical mechanics stay neutral. */
-export const artifactControlPhysicalErrors: PhysicalSessionErrors<
-  FrameworkSchemaArtifactControlSessionResourceIssue,
-  FrameworkSchemaArtifactControlSessionDeadlineIssue
+export const catalogControlPhysicalErrors: PhysicalSessionErrors<
+  CatalogControlSessionResourceIssue,
+  CatalogControlSessionDeadlineIssue
 > = {
   resource: (fields) =>
-    new FrameworkSchemaArtifactControlSessionResourceIssue(fields),
+    new CatalogControlSessionResourceIssue(fields),
   deadline: (fields) =>
-    new FrameworkSchemaArtifactControlSessionDeadlineIssue(fields),
+    new CatalogControlSessionDeadlineIssue(fields),
   invariant: (fields) =>
-    new FrameworkSchemaArtifactControlSessionInvariantDefect(fields),
+    new CatalogControlSessionInvariantDefect(fields),
   cleanup: (fields) =>
-    new FrameworkSchemaArtifactControlSessionCleanupDefect(fields),
+    new CatalogControlSessionCleanupDefect(fields),
 };
 const physicalDeadlines = makePhysicalDeadlineOperations(
-  artifactControlPhysicalErrors,
+  catalogControlPhysicalErrors,
 );
-export const startFrameworkSchemaArtifactControlDeadline =
+export const startCatalogControlDeadline =
   physicalDeadlines.start;
-export const remainingFrameworkSchemaArtifactControlMilliseconds =
+export const remainingCatalogControlMilliseconds =
   physicalDeadlines.remaining;
-export const failFrameworkSchemaArtifactControlDeadline =
+export const failCatalogControlDeadline =
   physicalDeadlines.fail;
 
 /** Run one bounded read through the starter-owned connection adapter. */
-export function runFrameworkSchemaArtifactControlReadEffect<Value, Failure>(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
-  input: FrameworkSchemaArtifactControlReadInput,
+export function runCatalogControlReadEffect<Value, Failure>(
+  starter: CatalogControlSessionStarter,
+  input: CatalogControlReadInput,
   work: (
     database: FlarexMetadataDatabase,
   ) => Effect.Effect<Value, Failure, never>,
 ): Effect.Effect<
   Value,
-  Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+  Failure | CatalogControlSessionResourceIssue,
   never
 > {
   return runControlReadEffect(starter, input, "read", work);
 }
 
 /** Run the optimistic admission read under its enclosing initial deadline. */
-export function runFrameworkSchemaArtifactControlInitialReadEffect<
+export function runCatalogControlInitialReadEffect<
   Value,
   Failure,
 >(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
-  input: FrameworkSchemaArtifactControlReadInput,
+  starter: CatalogControlSessionStarter,
+  input: CatalogControlReadInput,
   work: (
     database: FlarexMetadataDatabase,
   ) => Effect.Effect<Value, Failure, never>,
 ): Effect.Effect<
   Value,
-  Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+  Failure | CatalogControlSessionResourceIssue,
   never
 > {
   return runControlReadEffect(starter, input, "initial", work);
 }
 
-export type RunFrameworkSchemaArtifactControl = <Value, Failure>(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
-  input: RunFrameworkSchemaArtifactControlInput,
-  work: FrameworkSchemaArtifactControlWork<Value, Failure>,
+export type RunCatalogControl = <Value, Failure>(
+  starter: CatalogControlSessionStarter,
+  input: RunCatalogControlInput,
+  work: CatalogControlWork<Value, Failure>,
 ) => Effect.Effect<
-  FrameworkSchemaArtifactControlResult<Value>,
+  CatalogControlResult<Value>,
   | Failure
-  | FrameworkSchemaArtifactControlSessionResourceIssue
-  | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+  | CatalogControlSessionResourceIssue
+  | CatalogControlSessionDecisionUncertainIssue,
   never
 >;
 
@@ -315,17 +315,17 @@ export type RunFrameworkSchemaArtifactControl = <Value, Failure>(
  * recovery attempt. The raw transaction is supplied only to the repository's
  * closure; repository code must immediately replace it with its scoped token.
  */
-export const runFrameworkSchemaArtifactControlEffect: RunFrameworkSchemaArtifactControl =
-  Effect.fn("FrameworkSchemaArtifactControlSession.run")(
+export const runCatalogControlEffect: RunCatalogControl =
+  Effect.fn("CatalogControlSession.run")(
     <Value, Failure>(
-      starter: FrameworkSchemaArtifactControlSessionStarter,
-      input: RunFrameworkSchemaArtifactControlInput,
-      work: FrameworkSchemaArtifactControlWork<Value, Failure>,
+      starter: CatalogControlSessionStarter,
+      input: RunCatalogControlInput,
+      work: CatalogControlWork<Value, Failure>,
     ): Effect.Effect<
-      FrameworkSchemaArtifactControlResult<Value>,
+      CatalogControlResult<Value>,
       | Failure
-      | FrameworkSchemaArtifactControlSessionResourceIssue
-      | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+      | CatalogControlSessionResourceIssue
+      | CatalogControlSessionDecisionUncertainIssue,
       never
     > =>
       Effect.uninterruptibleMask((restore) =>
@@ -367,17 +367,17 @@ export const runFrameworkSchemaArtifactControlEffect: RunFrameworkSchemaArtifact
   );
 
 const runControlLifecycle = Effect.fn(
-  "FrameworkSchemaArtifactControlSession.lifecycle",
+  "CatalogControlSession.lifecycle",
 )(function* <Value, Failure>(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
-  input: RunFrameworkSchemaArtifactControlInput,
-  work: FrameworkSchemaArtifactControlWork<Value, Failure>,
-  restore: FrameworkSchemaArtifactControlRestore,
+  starter: CatalogControlSessionStarter,
+  input: RunCatalogControlInput,
+  work: CatalogControlWork<Value, Failure>,
+  restore: CatalogControlRestore,
 ): Effect.fn.Return<
-  FrameworkSchemaArtifactControlResult<Value>,
+  CatalogControlResult<Value>,
   | Failure
-  | FrameworkSchemaArtifactControlSessionResourceIssue
-  | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue
+  | CatalogControlSessionResourceIssue
+  | CatalogControlSessionDecisionUncertainIssue
 > {
   const state = yield* starterStateEffect(starter);
   yield* requireDeadlineKind(input.initialDeadline, "initial");
@@ -426,13 +426,13 @@ const runControlLifecycle = Effect.fn(
 });
 
 function resolveCommittedDecision<Value, Failure>(
-  driver: FrameworkSchemaArtifactControlSessionDriver,
-  decision: FrameworkSchemaArtifactControlDecision<Value>,
-  deadline: FrameworkSchemaArtifactControlDeadline,
-  work: FrameworkSchemaArtifactControlWork<Value, Failure>,
+  driver: CatalogControlSessionDriver,
+  decision: CatalogControlDecision<Value>,
+  deadline: CatalogControlDeadline,
+  work: CatalogControlWork<Value, Failure>,
 ): Effect.Effect<
-  FrameworkSchemaArtifactControlResult<Value>,
-  Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+  CatalogControlResult<Value>,
+  Failure | CatalogControlSessionResourceIssue,
   never
 > {
   switch (decision.kind) {
@@ -465,39 +465,39 @@ function resolveCommittedDecision<Value, Failure>(
 }
 
 function resolveInitialUncertainty<Value, Failure>(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
-  driver: FrameworkSchemaArtifactControlSessionDriver,
+  starter: CatalogControlSessionStarter,
+  driver: CatalogControlSessionDriver,
   initial: Extract<
-    FrameworkSchemaArtifactControlInitialSettlement<
-      FrameworkSchemaArtifactControlDecision<Value>,
+    CatalogControlInitialSettlement<
+      CatalogControlDecision<Value>,
       Failure
     >,
     { readonly kind: "uncertain" }
   >,
-  input: RunFrameworkSchemaArtifactControlInput,
-  work: FrameworkSchemaArtifactControlWork<Value, Failure>,
+  input: RunCatalogControlInput,
+  work: CatalogControlWork<Value, Failure>,
 ): Effect.Effect<
-  FrameworkSchemaArtifactControlResult<Value>,
+  CatalogControlResult<Value>,
   | Failure
-  | FrameworkSchemaArtifactControlSessionResourceIssue
-  | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+  | CatalogControlSessionResourceIssue
+  | CatalogControlSessionDecisionUncertainIssue,
   never
 > {
   return Effect.flatMap(
     requireDeadlineKind(initial.recoveryDeadline, "recovery"),
     (): Effect.Effect<
-      FrameworkSchemaArtifactControlResult<Value>,
+      CatalogControlResult<Value>,
       | Failure
-      | FrameworkSchemaArtifactControlSessionResourceIssue
-      | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+      | CatalogControlSessionResourceIssue
+      | CatalogControlSessionDecisionUncertainIssue,
       never
     > =>
       Effect.suspend(
         (): Effect.Effect<
-          FrameworkSchemaArtifactControlResult<Value>,
+          CatalogControlResult<Value>,
           | Failure
-          | FrameworkSchemaArtifactControlSessionResourceIssue
-          | FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+          | CatalogControlSessionResourceIssue
+          | CatalogControlSessionDecisionUncertainIssue,
           never
         > => {
           if (initial.quarantine.kind === "failed") {
@@ -539,18 +539,18 @@ function resolveInitialUncertainty<Value, Failure>(
 }
 
 const runRecovery = Effect.fn(
-  "FrameworkSchemaArtifactControlSession.runRecovery",
+  "CatalogControlSession.runRecovery",
 )(function* <Value, Failure>(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
-  driver: FrameworkSchemaArtifactControlSessionDriver,
-  deadline: FrameworkSchemaArtifactControlDeadline,
-  excludedConnectionIdentity: FrameworkSchemaArtifactControlConnectionIdentity,
+  starter: CatalogControlSessionStarter,
+  driver: CatalogControlSessionDriver,
+  deadline: CatalogControlDeadline,
+  excludedConnectionIdentity: CatalogControlConnectionIdentity,
   initialSettlementCause: unknown,
   lockTimeoutMilliseconds: number,
-  work: FrameworkSchemaArtifactControlWork<Value, Failure>,
+  work: CatalogControlWork<Value, Failure>,
 ): Effect.fn.Return<
-  FrameworkSchemaArtifactControlResult<Value>,
-  FrameworkSchemaArtifactControlSessionDecisionUncertainIssue
+  CatalogControlResult<Value>,
+  CatalogControlSessionDecisionUncertainIssue
 > {
   const recovery = yield* driver.runRecoveryTransactionEffect(
     {
@@ -609,21 +609,21 @@ const runRecovery = Effect.fn(
 });
 
 function withIssuedControlSessionTransactionEffect<Value, Failure>(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
+  starter: CatalogControlSessionStarter,
   rawTransaction: FlarexMetadataTransaction,
   work: (
-    transaction: FrameworkSchemaArtifactControlSessionTransaction,
+    transaction: CatalogControlSessionTransaction,
   ) => Effect.Effect<Value, Failure, never>,
 ): Effect.Effect<Value, Failure, never> {
   return Effect.suspend(() => {
-    const state: FrameworkSchemaArtifactControlSessionTransactionState = {
+    const state: CatalogControlSessionTransactionState = {
       starter,
       rawTransaction,
       active: true,
     };
     const transaction = Object.freeze({
-      [frameworkSchemaArtifactControlSessionTransactionBrand]: true,
-    } satisfies FrameworkSchemaArtifactControlSessionTransaction);
+      [catalogControlSessionTransactionBrand]: true,
+    } satisfies CatalogControlSessionTransaction);
     transactionStates.set(transaction, state);
     return Effect.suspend(() => work(transaction)).pipe(
       Effect.ensuring(
@@ -638,16 +638,16 @@ function withIssuedControlSessionTransactionEffect<Value, Failure>(
 const requireDeadlineKind = physicalDeadlines.requireKind;
 
 function starterStateEffect(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
+  starter: CatalogControlSessionStarter,
 ): Effect.Effect<
-  FrameworkSchemaArtifactControlSessionStarterState,
+  CatalogControlSessionStarterState,
   never,
   never
 > {
   const state = starterStates.get(starter);
   return state === undefined
     ? Effect.die(
-        new FrameworkSchemaArtifactControlSessionInvariantDefect({
+        new CatalogControlSessionInvariantDefect({
           reason: "invalidStarter",
         }),
       )
@@ -655,10 +655,10 @@ function starterStateEffect(
 }
 
 function runControlReadEffect<Value, Failure>(
-  starter: FrameworkSchemaArtifactControlSessionStarter,
-  input: FrameworkSchemaArtifactControlReadInput,
+  starter: CatalogControlSessionStarter,
+  input: CatalogControlReadInput,
   deadlineKind: Extract<
-    FrameworkSchemaArtifactControlDeadlineKind,
+    CatalogControlDeadlineKind,
     "read" | "initial"
   >,
   work: (
@@ -666,7 +666,7 @@ function runControlReadEffect<Value, Failure>(
   ) => Effect.Effect<Value, Failure, never>,
 ): Effect.Effect<
   Value,
-  Failure | FrameworkSchemaArtifactControlSessionResourceIssue,
+  Failure | CatalogControlSessionResourceIssue,
   never
 > {
   return Effect.flatMap(requireDeadlineKind(input.deadline, deadlineKind), () =>
@@ -683,10 +683,10 @@ function failDecisionUncertain(
   operationalCause?: Cause.Cause<unknown>,
 ): Effect.Effect<
   never,
-  FrameworkSchemaArtifactControlSessionDecisionUncertainIssue,
+  CatalogControlSessionDecisionUncertainIssue,
   never
 > {
-  const issue = new FrameworkSchemaArtifactControlSessionDecisionUncertainIssue(
+  const issue = new CatalogControlSessionDecisionUncertainIssue(
     {
       stage,
       initialSettlementCause,

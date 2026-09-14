@@ -9,8 +9,8 @@ import {
   makeFrameworkSchemaArtifactRepository,
   prepareFrameworkSchemaArtifactAdmission,
 } from "../../persistence-postgres/src/frameworkSchema/artifact/repository";
-import { makeFrameworkSchemaArtifactControlSessionStarter } from "../../persistence-postgres/src/frameworkSchema/artifact/controlSession";
-import { makePostgresFrameworkSchemaArtifactControlSessionDriver } from "../../persistence-postgres/src/frameworkSchema/artifact/postgresControlSession";
+import { makeCatalogControlSessionStarter } from "../../persistence-postgres/src/catalogControlSession";
+import { makePostgresCatalogControlSessionDriver } from "../../persistence-postgres/src/postgresCatalogControlSession";
 import { admitFrameworkSchemaArtifactEffect } from "../../persistence-postgres/src/frameworkSchema/artifact/admission";
 import { makePGliteFrameworkMigrationTargetEffect } from "../../persistence-postgres/test/frameworkMigrationPGliteTarget";
 import { makePostgresFrameworkMigrationFixtureTarget } from "../../persistence-postgres/test/frameworkMigrationPostgresFixture";
@@ -100,9 +100,9 @@ async function createFixture() {
           makeFrameworkSchemaArtifactRepository({
             controlDb: persistence.drizzle,
             controlSessionStarter:
-              makeFrameworkSchemaArtifactControlSessionStarter({
+              makeCatalogControlSessionStarter({
                 controlDb: persistence.drizzle,
-                driver: makePostgresFrameworkSchemaArtifactControlSessionDriver(
+                driver: makePostgresCatalogControlSessionDriver(
                   persistence.pool,
                 ),
               }),

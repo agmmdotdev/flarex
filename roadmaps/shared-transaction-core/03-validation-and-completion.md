@@ -64,7 +64,7 @@ evidence includes:
 - [Neutral composition](../../packages/persistence-postgres/test/physicalSession.test.ts):
   shared deadline mechanics, exact adapter error identities, schema separation
   and neutral resource failure without callback execution or leaked checkout.
-- [Artifact physical sessions](../../packages/persistence-postgres/test/frameworkSchemaArtifactControlSession.postgres.test.ts):
+- [Artifact physical sessions](../../packages/persistence-postgres/test/catalogControlSession.postgres.test.ts):
   read/reset, initial/recovery, drain, quarantine, late acquisition, interruption,
   full cleanup causes and exact physical identity exclusion required by R1.
 - [Native located runner](../../packages/persistence-postgres/test/postgresLocatedReadCommitted.test.ts):
