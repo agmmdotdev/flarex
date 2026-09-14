@@ -7,3 +7,4 @@ worker-configuration.d.ts
 apps/backend/.wrangler-dev.*.log
 apps/example/flarex/_generated/
 apps/example/wrangler.generated.jsonc
+work/
