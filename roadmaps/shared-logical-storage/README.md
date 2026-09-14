@@ -149,6 +149,12 @@ correcting them. Platform physical upgrades remain a distinct concern.
 
 ## First Core Composition Gate
 
+The [first implementation preflight](./01-schema-composition-preflight.md)
+maps current producer/admission owners and proposes a persisted, authenticated
+candidate-only slice. It requires implementation approval and does not complete
+GLS2 storage execution or authorize new serving/writes. The entire GLS1 inventory
+and performance baseline remain separate obligations for the later owners.
+
 GLS1 specifies the [composition contract](../../design-notes/flarexdb-shared-logical-storage.md#core-schema-composition-before-developer-apis).
 The first GLS2 deliverable proves it through private compiler outputs and
 internal admission calls, before downstream storage/index work relies on its
