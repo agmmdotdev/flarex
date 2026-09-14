@@ -27,6 +27,13 @@ Preserve intended framework behavior and trust boundaries, rather than obsolete
 mechanisms. Inventory named persistent environments and actual issued/public
 contracts before any destructive reset or identity replacement.
 
+The owner explicitly accepts breaking changes for this redesign, including
+existing API/schema/codec/identity contracts. Prefer the correct replacement
+and consumer cutover over compatibility machinery. Propose the specific breaks
+and their consequences before implementation; do not conceal them or repeatedly
+seek compatibility permission within an approved slice. Inventory durable data
+to choose its explicit disposition, not to automatically preserve old contracts.
+
 ## Why This Replaces The Former Direction
 
 The existing commerce compiler preserves real SQL columns, indexes and foreign

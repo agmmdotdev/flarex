@@ -30,6 +30,15 @@ framework behavior, exact data semantics, scope confinement and singular
 settlement; inventory actual durable/public obligations before destructive
 replacement. Existing generic families are foundations, not frozen APIs.
 
+For this shared-core redesign, the owner accepts breaking API, schema, codec,
+identity and integration-contract changes when required by the correct design.
+This overrides earlier default compatibility-preservation recommendations for
+this work. Each focused preflight must explain the proposed breaks, affected
+consumers/data, cutover and cleanup. Update callers rather than adding wrappers,
+dual paths or fallback engines. Preserve behavioral correctness and explicitly
+account for named durable data; acceptance of breaking contracts is not silent
+data-deletion authority.
+
 Declared relationships may connect Application, Payload and Medusa records in
 either direction while preserving endpoint ownership and authorization. Shared
 logical schema evolution must track those dependencies across all three, with

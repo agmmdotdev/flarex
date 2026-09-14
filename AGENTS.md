@@ -33,6 +33,31 @@ require exact decoding or migration. Do not opportunistically rename symbols,
 add dual paths, or preserve legacy code without an owner-approved slice and a
 proven compatibility obligation.
 
+## Shared Core Redesign: Breaking Changes Accepted
+
+For the Application/Payload/Medusa shared-core redesign, the owner explicitly
+accepts breaking changes and prioritizes the correct design over backward
+compatibility. This overrides default compatibility-preservation rules elsewhere
+for that work. APIs, types, internal interfaces, schemas, codecs, identities
+and integration seams may be replaced when the approved design requires it.
+
+Tell the user which contracts should break, why the replacement is better,
+which callers/data/formats are affected, and how cutover, validation and removal
+will work. Keep that inventory in the focused preflight. Do not hide breaking
+changes or ask to preserve an old contract merely because it exists. Once the
+slice is approved, necessary in-scope breaking changes need no separate
+compatibility permission; materially different core corrections still follow
+the approval rule below.
+
+Do not add compatibility wrappers, dual writes/readers, fallback engines or
+legacy APIs to avoid updating consumers. Migrate affected callers and remove
+displaced code within the coherent slice. Temporary retention requires a named
+not-yet-migrated consumer and removal gate, not a hypothetical compatibility
+obligation. Preserve intended correctness, isolation and settlement guarantees;
+breaking old contracts is not permission to weaken behavioral proofs or silently
+delete named durable data. Keep advanced migrations and developer APIs deferred
+as recorded in [shared logical storage](roadmaps/shared-logical-storage/README.md).
+
 ## Durable Architecture Invariants
 
 - Preserve the Convex developer mental model and core behavior where portable.

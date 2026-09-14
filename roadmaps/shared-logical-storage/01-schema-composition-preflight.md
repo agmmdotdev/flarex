@@ -124,21 +124,47 @@ Do not report those capabilities from this admission-only checkpoint.
 
 ## Retain, Extend, Replace And Delete Inventory
 
+Breaking changes are accepted for the redesign. Retention below is only staged
+consumer migration, not a backward-compatibility requirement. Prefer switching
+affected callers and deleting the old contract in the same coherent slice; do
+not add compatibility wrappers or a second admission path to avoid that change.
+
+### Breaking Changes To Propose Explicitly
+
+- Replace Application-only table/index admission with qualified shared logical
+  definitions. Internal callers must supply the new identity/ownership contract.
+- Replace the Payload-shaped policy bundle at the shared boundary with verified
+  producer and policy references. Payload configuration remains native evidence,
+  not a requirement imposed on Application or Medusa callers.
+- Change producer/artifact binding contracts so independently generated schemas
+  are authenticated without pretending they came from the Application source root.
+- Change Medusa capture/profile assembly so native schema compilation is separate
+  from physical layout allocation. Migrate direct consumers of that old seam.
+- Replace encoded candidate/metadata contracts where their old shape cannot
+  represent the target. Explain concrete format and stored-data effects; do not
+  silently reinterpret bytes or add a legacy decoder merely to retain old callers.
+
+These are recommended contract breaks, not claims of completed implementation.
+The implementation must report the exact changed names, formats and callers;
+any materially different core correction is presented with evidence and a
+recommendation. Breaking compatibility alone is not a reason to avoid a better
+design or to request another approval once that slice is approved.
+
 | Component | Disposition in this slice | Retirement/completion condition |
 | --- | --- | --- |
 | Application authoring, native Payload sanitation, native Product compiler/models | Retain semantic behavior; extend their private contribution seams. | All three real outputs reach the shared owner with no copied model definitions. |
 | App-only catalog binding and schema/write-owner assumptions | Replace for the new shared admission contract; migrate affected candidate producers. | No independent identity allocator or per-framework admission algorithm for the target. Preserve active supported readers until their connected cutover. |
 | Producer-local canonical/hash/identity reconstruction introduced during this work | Delete in favor of the existing authoritative codec/catalog owner. | Exact replay/corruption witnesses use the same owner as production code. |
-| Current Application V1/V2/V3 and relational artifact codecs with active consumers | Retain only for their inventoried current readers. Do not silently reinterpret serialized formats. | Retire each with its consumers; a genuinely incompatible encoded contract needs an explicit format/version decision, not opportunistic renaming. |
+| Current Application V1/V2/V3 and relational artifact codecs with active consumers | Replace affected contracts and migrate readers together. Retain only a named consumer outside the admitted cutover, never as compatibility for its own sake. | Delete the old codec with its last real consumer; explain format/identity breaks and stored-data disposition. No dual decoder or artificial version coexistence is required. |
 | Product physical layout/profile and framework installation coordinator | Retain for the current running Product/Link/Pricing baseline; the new candidate path must not call them. | Remove after shared row execution and readiness cut over those actual consumers in GLS3/GLS4; never a fallback for unsupported target semantics. |
 | Existing Application validation/build/activation and platform DDL | Retain safeguards and current authority; extend only where candidate admission requires it. | Unsupported advanced transitions remain refused; existing behavior stays covered. |
 
-No named durable environment, issued public compatibility obligation or safe
-reset target has been established by this investigation. This proposal authorizes
-no destructive reset. Before a schema edit, inventory affected current data and
-readers; use an additive metadata migration unless an exact replacement/reset
-has been separately justified. Full framework-migration table retirement remains
-GLS4/GLS6, not an excuse to delete live baseline consumers during this slice.
+No named durable environment or safe reset target has been established by this
+investigation. Before a schema edit, identify current data/readers and propose
+their explicit cutover, conversion or reset disposition. Breaking contracts are
+accepted; an additive compatibility schema is not the default design constraint.
+This proposal authorizes no unnamed destructive reset. Full framework-migration
+table retirement remains GLS4/GLS6, with staged consumers named explicitly.
 
 ## Alternatives Challenged
 
