@@ -38,3 +38,6 @@ export { EventBusTypes } from "@medusajs/types";
 export { IProductModuleService } from "@medusajs/types/product/index";
 export { CreateSalesChannelDTO, FilterableSalesChannelProps, ISalesChannelModuleService, SalesChannelDTO, UpdateSalesChannelDTO, UpsertSalesChannelDTO } from "@medusajs/types";
 export { ILinkModule, JoinerRelationship, RestoreReturn, SoftDeleteReturn } from "@medusajs/types";
+export * as FulfillmentTypes from "@medusajs/types/fulfillment/index";
+export * from "@medusajs/types/fulfillment/index";
+export { ModuleProviderExports, ModuleServiceInitializeOptions } from "@medusajs/types/modules-sdk/index";

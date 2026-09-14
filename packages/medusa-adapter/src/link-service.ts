@@ -9,6 +9,7 @@ import { commerceError, type Json } from "@flarex/persistence-postgres/internal/
 import type { captureLinkMetadata } from "./link-schema";
 import { prepareLinkRepository } from "./link-repository";
 import { withCommerceService } from "./commerce-service-bridge";
+import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { commerceDecoder } from "./commerce-decoder";
 import { captureCommerceInput } from "./commerce-input";
 
@@ -41,7 +42,7 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
   const entityName = "Link" + toPascalCase(metadata.frame.name);
   if (serviceName === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const Service = getModuleService(joiner);
-  const use = (ctx: CommerceCommandContext, work: (service: BoundLink) => Promise<unknown>) => withCommerceService(ctx, owner => {
+  const bind = (ctx: CommerceCommandContext, owner: CommercePromiseOwner) => {
     const bound = prepared.bind(ctx, owner);
     const eventBus: IEventBusModuleService = {
       emit: (input, options) => owner.run(bound.bridge.checked(bound.bridge.current(), Effect.gen(function* () {
@@ -65,6 +66,13 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
     }, create: service.create.bind(service), dismiss: service.dismiss.bind(service), list: service.list.bind(service),
       softDelete: service.softDelete.bind(service), restore: service.restore.bind(service),
     } satisfies LoadedModule & Pick<ILinkModule, "create" | "dismiss" | "list" | "softDelete" | "restore">;
+    return { bound, service: {
+      list: service.list.bind(service), listAndCount: service.listAndCount.bind(service),
+      create: service.create.bind(service), dismiss: service.dismiss.bind(service), restore: service.restore.bind(service),
+    } satisfies BoundLink["service"], loaded };
+  };
+  const use = (ctx: CommerceCommandContext, work: (service: BoundLink) => Promise<unknown>) => withCommerceService(ctx, owner => {
+    const { bound, service, loaded } = bind(ctx, owner);
     const router = new Link([loaded]);
     const endpoint = (input: unknown) => owner.run(bound.bridge.checked(ctx, Effect.gen(function* () {
       const captured = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));
@@ -87,5 +95,5 @@ export const prepareLinkService = Effect.fn("LinkAdapter.prepareService")(functi
       }))),
     };
   }, work);
-  return { use, prepared, joiner, serviceName, entityName };
+  return { use, bind, prepared, joiner, serviceName, entityName };
 });

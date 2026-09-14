@@ -1,10 +1,12 @@
 # Connected Product Shipping Profile: Preflight
 
-Status: approved; implementation remains paused at its connected native
-module, Link and workflow completion gates. The shared installation redesign
-has completed its separate bounded validation and performance gate. This refines preflight 59 B
+Status: implemented as a private connected capability. The approved
+[resource admission](./92-shipping-profile-workflow-resource-admission.md) selects
+128 calls for its four fresh profiles and trusted root; default profiles remain
+unchanged. The shared installation redesign has completed its separate bounded
+validation and performance gate. This refines preflight 59 B
 after the implemented inequality, native batch-cardinality and scalar-Link
-storage foundations. It does not activate Fulfillment or a new workflow yet.
+storage foundations. Public activation and full Fulfillment remain unadmitted.
 
 ## Outcome And Recommended Scope
 
@@ -29,9 +31,8 @@ workflow-foundations 09/10/11 and preflights 58/59/61/63 own the existing proof.
 The comparison source remains fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`
 (baseline 2.13.4), as recorded in `third_party/medusa/SOURCE.json`. It defines the
 compatibility baseline for promoted `packages/medusa-*` runtime code. The
-uncommitted Fulfillment/ShippingProfile draft has only the bounded selected-fixture
-proof described below; native provenance, complete module and connected workflow
-completion remain separate gates.
+Fulfillment/ShippingProfile implementation retains this pinned source and the
+finite selected schema and API boundary described below.
 
 Native paths below are relative to the island's `packages/` directory:
 
@@ -85,7 +86,7 @@ Deleting or soft-deleting a ShippingProfile calls native validation of
 
 Use a fresh configured schema: the existing fifteen Product/Sales Channel/Link
 tables plus `shipping_profile` and `product_shipping_profile`. Seventeen is the
-required inventory to prove, not an already compiled result. Do not rewrite an
+compiled selected inventory. Do not rewrite an
 existing installation. Product, Sales Channel and Fulfillment retain separate
 profiles; one Link profile owns exactly the two selected Link tables.
 
@@ -199,7 +200,7 @@ deadlines and stop owned resources. Reconcile durable roadmap truth and create
 one scoped implementation commit only after completion. Any newly exposed core
 defect remains a stop-and-approval boundary, not authority to glue-fix it here.
 
-## Current Installation Gate
+## Current Capability Boundary
 
 The shared installation stop is resolved by the approved
 [framework installation redesign](./76-framework-installation-core-redesign.md).
@@ -217,10 +218,30 @@ new transaction, weaker assertion or larger deadline was added. Earlier local
 restoration candidates remain withdrawn; their chronology does not describe the
 retained runtime.
 
-These remain bounded installer/adapter assertions. They do not establish the
-complete native Fulfillment test file, two-Link workflow, full module coverage,
-production routing or activation. The uncommitted connected ShippingProfile work
-must still satisfy this preflight's native construction, provenance, Link,
-workflow, failure/recovery and review gates before capability completion. Keep
-its private commerce error envelope rather than claiming the pinned test adapter's
-duplicate-name message or full Fulfillment parity.
+The connected facade creates one ShippingProfile, one Sales Channel and one to
+four simple Products, performs Sales Channel association before ShippingProfile
+association through actual native steps, reads all five pending roots and settles
+once. One native Link router owns the two selected definitions; mixed-family
+calls are refused before dispatch. Singular assignment, shared-profile reuse and
+conflicting restoration retain the existing metadata-derived constraints.
+
+The native Fulfillment constructor receives all twelve model services, the real
+provider service and one borrowed persistence adapter. Only ShippingProfile has
+a selected repository; the other models have denied repositories. The workflow
+admits creation and scalar graph reads. Its remaining pinned public module methods
+are explicit sticky refusals, checked against the native interface, so caught
+provider calls and unselected writes cannot commit earlier pending work.
+
+The two native creation/event cases preserve their executable bodies and actual
+service/emitter behavior. The original five-case source remains pinned; exact
+duplicate-message parity and the two deletion cases remain deferred. The source
+and browser closure grants neither provider execution nor additional tables.
+The private commerce error envelope, absence of hydration, fresh-installation
+requirement and public/deployment non-goals remain unchanged.
+
+The default 64-call refusal remains a rollback regression. Record 92 owns the
+approved resource selection through existing profile and root APIs, preserving
+each participant's cap, resource identity, replay, single settlement, cancellation,
+escaped-capability refusal, uncertain-outcome recovery and subscriber semantics.
+Ordinary-role PostgreSQL proves connected host serialization; the unchanged
+neutral singular-Link lane separately proves physical unique-index contention.

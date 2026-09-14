@@ -4,6 +4,34 @@ import ts from "@typescript/typescript6";
 const vitestBindings = new Set(["afterAll", "afterEach", "beforeAll", "beforeEach", "describe", "expect", "it", "test", "vi"]);
 const currencyImports = new Map([["../index", "@medusajs/currency/index"], ["../static-manifest", "@medusajs/currency/static-manifest"], ["../models", "@medusajs/currency/models"]]);
 
+/** The admitted ShippingProfile subset preserves two complete native bodies;
+ * the duplicate-message and deletion cases remain in the pinned source.
+ * @param {string} source @param {string} target */
+export function verifyShippingProfileCreateTests(source, target) {
+  const names = ["should create a new shipping profile", "should create multiple new shipping profiles"];
+  /** @param {string} text */
+  const tests = text => {
+    const file = ts.createSourceFile("shipping.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    /** @type {Map<string, string>} */
+    const bodies = new Map();
+    /** @param {ts.Node} node */
+    const visit = node => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "it") {
+        const name = node.arguments[0];
+        if (name === undefined || !ts.isStringLiteral(name) || bodies.has(name.text)) throw new Error("Invalid ShippingProfile test selection");
+        bodies.set(name.text, JSON.stringify(testPortProgram(node.getText(file) + ";")));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    return bodies;
+  };
+  const original = tests(source), selected = tests(target);
+  if (original.size !== 5 || selected.size !== names.length || names.some(name => !original.has(name) || selected.get(name) !== original.get(name))) {
+    throw new Error("Changed selected native ShippingProfile test bodies");
+  }
+}
+
 /** A marker can follow only its already-evaluated local declaration.
  * @param {ts.ExpressionStatement} node @param {string} name */
 function isUnusedResultMarker(node, name) {

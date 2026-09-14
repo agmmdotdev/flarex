@@ -58,6 +58,7 @@ export { UpsertWithReplaceConfig } from "./dal/index";
 export { MedusaContainer } from "./common/medusa-container";
 export { IModuleService } from "./modules-sdk/index";
 export * as ProductTypes from "./product/index";
+export { CreateShippingProfileDTO, IFulfillmentModuleService } from "./fulfillment/index";
 export * from "./sales-channel/index";
 export { ModulePersistenceMutationService } from "./modules-sdk/index";
 

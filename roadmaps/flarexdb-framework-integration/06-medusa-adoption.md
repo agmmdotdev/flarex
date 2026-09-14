@@ -75,15 +75,16 @@ Shared scalar-Link schema, repository, native wiring and event mechanics serve
 both the unchanged ProductSalesChannel binding and a neutral one-to-one stored
 proof. Pair identity survives soft deletion; conflicting reattach or restore
 rolls back without facts/events. Scope isolation and actual PostgreSQL unique-index
-contention are covered independently of host serialization. No core capability
-changed, and no Fulfillment or ProductShippingProfile Link is activated.
-The proposed module source closure remains broader than its
-create/scalar-read table grants; full Fulfillment remains unadmitted.
-The approved [connected ShippingProfile slice](./preflight/66-connected-product-shipping-profile.md)
-selects native create/scalar reads and two homogeneous Link families under one
-resolver in the existing atomic workflow. Its connected module, Link and workflow
-gates remain open; no Fulfillment or ProductShippingProfile activation follows
-from an installer test.
+contention are covered independently of host serialization. This foundation
+retains the existing core capability and public activation boundary.
+The implemented [connected ShippingProfile slice](./preflight/66-connected-product-shipping-profile.md)
+adds native ShippingProfile creation and scalar reads, with the real Fulfillment
+constructor but only one selected Fulfillment table. A fresh seventeen-table
+schema contains Product, Sales Channel and both homogeneous Link families under
+one native router. The private workflow creates the endpoints, associates Sales
+Channels before ShippingProfiles, reads five pending roots and settles once.
+The source closure remains broader than table/API grants; provider execution,
+deletion, hydration, full Fulfillment and public activation remain unadmitted.
 
 The [framework installation core redesign](./preflight/76-framework-installation-core-redesign.md)
 is complete within its approved bounded profiles. Persistence now owns protected
@@ -101,8 +102,17 @@ Earlier reconstruction-only candidates remain withdrawn and the narrower record
 75 proposal is superseded. Medusa's current module/Link semantics and Payload's
 structural lifecycle consumer share the corrected installer while Application
 content-schema authority remains separate. ShippingProfile retains its private
-commerce error envelope and all remaining native/provenance/connected-workflow
-completion gates.
+commerce error envelope. The two pinned native creation/event cases execute
+unchanged through the native service and emitter; exact duplicate-message parity
+and both native deletion cases remain deferred in the retained original source.
+
+ShippingProfile's approved [resource admission](./preflight/92-shipping-profile-workflow-resource-admission.md)
+selects 128 calls for four fresh named profiles and the trusted root, keeping
+one-to-four Products and every other budget unchanged. Each participant still
+caps the root. Existing default profiles, their 64-call refusal, identity/replay
+semantics and the independent ProductSalesChannel workflow remain supported.
+The native module's unselected public methods are explicit sticky refusals,
+including provider calls and empty writes caught after pending creation.
 
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result

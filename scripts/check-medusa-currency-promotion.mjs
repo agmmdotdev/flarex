@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyShippingProfileCreateTests } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -12,6 +12,7 @@ const owners = new Map([
   ["packages/medusa-currency", "@medusajs/currency"],
   ["packages/medusa-product", "@medusajs/product"],
   ["packages/medusa-sales-channel", "@medusajs/sales-channel"],
+  ["packages/medusa-fulfillment", "@medusajs/fulfillment"],
   ["packages/medusa-link-modules", "@medusajs/link-modules"],
   ["packages/medusa-core-flows", "@medusajs/core-flows"],
   ["packages/medusa-workflows-sdk", "@medusajs/workflows-sdk"],
@@ -106,6 +107,14 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     throw new Error("Unadmitted module test harness alias");
   }
   if (files.size !== promotion.files.length) throw new Error("Duplicate promotion target");
+  verifyShippingProfileCreateTests(
+    readFileSync(path.join(root, sourcePrefix + "packages/modules/fulfillment/integration-tests/__tests__/fulfillment-module-service/shipping-profile.spec.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/test/support/shipping-profile-native-tests.ts"), "utf8"),
+  );
+  verifyTestPort(
+    readFileSync(path.join(root, sourcePrefix + "packages/modules/fulfillment/integration-tests/__fixtures__/events.ts"), "utf8"),
+    readFileSync(path.join(root, "packages/medusa-adapter/test/support/shipping-profile-events-fixture.ts"), "utf8"),
+  );
   const sourceHashes = new Map(readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"), "utf8")
     .split(/\r?\n/).filter(Boolean).map((line) => ["third_party/medusa/" + line.slice(66), line.slice(0, 64)]));
   for (const file of promotion.files) {
@@ -121,6 +130,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-link-modules/src/services/dynamic-service-class.ts",
       "packages/medusa-link-modules/src/services/link-module-service.ts",
       "packages/medusa-link-modules/src/definitions/product-sales-channel.ts",
+      "packages/medusa-link-modules/src/definitions/product-shipping-profile.ts",
     ].includes(file.target)) throw new Error("Link adaptation outside its approved finite source closure");
     const owned = [...owners.keys()].some((owner) => file.target.startsWith(owner + "/"))
       || file.target === "tools/medusa/tsconfig.fork.json";

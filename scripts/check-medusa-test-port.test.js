@@ -1,6 +1,6 @@
 // @ts-check
 import { describe, expect, it } from "vitest";
-import { verifyTestPort } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyShippingProfileCreateTests } from "./check-medusa-test-port.mjs";
 
 const source = `import { runner } from "./runner";
 describe("suite", () => {
@@ -9,6 +9,17 @@ describe("suite", () => {
 });`;
 
 describe("maintained Medusa test ports", () => {
+  it("preserves exactly the two selected ShippingProfile bodies without admitting deferred tests", () => {
+    const create = 'it("should create a new shipping profile", async () => { expect(await service.create(data)).toEqual(data); });';
+    const many = 'it("should create multiple new shipping profiles", async () => { expect(await service.create([data])).toHaveLength(1); });';
+    const selected = create + many;
+    const original = selected + 'it("duplicate", () => {}); it("delete", () => {}); it("associated delete", () => {});';
+    expect(() => verifyShippingProfileCreateTests(original, selected)).not.toThrow();
+    expect(() => verifyShippingProfileCreateTests(original, selected.replace("toHaveLength(1)", "toHaveLength(0)"))).toThrow();
+    expect(() => verifyShippingProfileCreateTests(original, create)).toThrow();
+    expect(() => verifyShippingProfileCreateTests(original, selected + 'it("duplicate", () => {});')).toThrow();
+    expect(() => verifyShippingProfileCreateTests(original, selected.replace('it("should create a new', 'it.skip("should create a new'))).toThrow();
+  });
   it("permits only erased types and explicit Vitest globals around the same program", () => {
     const target = 'import { beforeEach, describe, expect, it } from "vitest";\n' + source
       .replace("const rows =", "const rows: { id: string }[] =").replace("rows[0].id", "rows[0]!.id");

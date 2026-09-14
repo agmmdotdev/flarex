@@ -60,3 +60,42 @@ export function linkEventPolicy(tableName: string, serviceName: string, entityNa
     if (remainingFacts.length || remainingLifecycle.length || expected.length) return yield* Effect.fail(commerceError("receiptMismatch"));
   }) };
 }
+
+/** Finite installation-selected Link identities, not request-selected routing.
+ * Every evidence item must belong to exactly one selected definition. */
+export function selectedLinkEventPolicy(definitions: readonly {
+  readonly tableName: string; readonly serviceName: string; readonly entityName: string;
+}[], descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]): LocalCommerceEventPolicy {
+  const selected = definitions.map(definition => ({ ...definition,
+    policy: linkEventPolicy(definition.tableName, definition.serviceName, definition.entityName, descriptor, deliver) }));
+  const valid = new Set(selected.map(item => item.tableName)).size === selected.length
+    && new Set(selected.map(item => item.serviceName)).size === selected.length
+    && new Set(selected.map(item => item.entityName)).size === selected.length;
+  const decode = Schema.decodeUnknownEffect(Schema.Struct({
+    name: Schema.String, metadata: Schema.Struct({ source: Schema.String, object: Schema.String, action: Schema.String }),
+    data: Schema.JsonObject,
+  }), { onExcessProperty: "error" });
+  const identify = Effect.fn("LinkEvents.identify")(function* (event: unknown) {
+    const message = yield* decode(yield* Effect.fromResult(captureCommerceInput(event, descriptor.resources)))
+      .pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
+    const definition = selected.find(item => item.serviceName === message.metadata.source && item.entityName === message.metadata.object);
+    if (!valid || definition === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    return { definition, message: yield* definition.policy.capture(message) };
+  });
+  return { deliver, capture: Effect.fn("LinkEvents.captureSelected")(input => identify(input).pipe(Effect.map(value => value.message))),
+    validate: Effect.fn("LinkEvents.validateSelected")(function* (events, facts, command, lifecycle = [], observations = []) {
+      if (!valid || [...facts, ...lifecycle, ...observations].some(item => !selected.some(definition => definition.tableName === item.tableId))) {
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+      const partitioned = new Map<typeof selected[number], Json[]>();
+      for (const event of events) {
+        const { definition, message } = yield* identify(event);
+        const partition = partitioned.get(definition) ?? [];
+        partition.push(message); partitioned.set(definition, partition);
+      }
+      for (const definition of selected) yield* definition.policy.validate(partitioned.get(definition) ?? [],
+        facts.filter(item => item.tableId === definition.tableName), command,
+        lifecycle.filter(item => item.tableId === definition.tableName), observations.filter(item => item.tableId === definition.tableName));
+    }),
+  };
+}

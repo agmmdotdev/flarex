@@ -1,0 +1,99 @@
+import { Effect, Schema } from "effect";
+import { createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createProductsStep } from "@medusajs/core-flows/product/create-products-step";
+import { createShippingProfilesStep } from "@medusajs/core-flows/fulfillment/create-shipping-profiles-step";
+import { createRemoteLinkStep } from "@medusajs/core-flows/common/create-remote-links-step";
+import { SimpleShippingProfileInput, type makeLocalShippingProfileCommands } from "./shipping-profile-service";
+import { createSalesChannelsStep } from "@medusajs/core-flows/sales-channel/create-sales-channels-step";
+import { associateProductsWithSalesChannelsStep } from "@medusajs/core-flows/sales-channel/associate-products-with-channels-step";
+import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
+import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { SimpleProductInput, type ProductWorkflowModule } from "./product-workflow-module";
+import { SimpleSalesChannelInput, type makeLocalSalesChannelCommands } from "./sales-channel-service";
+import type { prepareLocalProductLinks } from "./product-link-service";
+import { captureWorkflowRecord } from "./workflow/configuration";
+import { prepareWorkflowResources } from "./workflow/resources";
+import { internalModuleWorkflowEvents } from "./workflow/events";
+import { productShippingProfileResources } from "./product-shipping-profile-contract";
+import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "./workflow/host";
+
+export const ProductShippingProfileInput = Schema.Struct({
+  shippingProfile: SimpleShippingProfileInput,
+  salesChannel: SimpleSalesChannelInput,
+  products: Schema.Array(SimpleProductInput).check(Schema.isLengthBetween(1, 4)),
+});
+export const ProductShippingProfileOutput = Schema.Struct({
+  products: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String })).check(Schema.isLengthBetween(1, 4)),
+  shippingProfiles: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, type: Schema.String })).check(Schema.isLengthBetween(1, 1)),
+  shippingLinks: Schema.Array(Schema.Struct({ id: Schema.String, product_id: Schema.String, shipping_profile_id: Schema.String })).check(Schema.isLengthBetween(1, 4)),
+  salesChannels: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })).check(Schema.isLengthBetween(1, 1)),
+  links: Schema.Array(Schema.Struct({ id: Schema.String, product_id: Schema.String, sales_channel_id: Schema.String })).check(Schema.isLengthBetween(1, 4)),
+});
+
+/** Private simple creation milestone, not Medusa's full createProductsWorkflow.
+ * Native callbacks share one existing atomic root; queries see its pending rows. */
+export const productShippingProfileWorkflow = createWorkflow("create-products-with-shipping-profile", (input: WorkflowData<typeof ProductShippingProfileInput.Type>) => {
+  const profiles = createShippingProfilesStep(transform(input.shippingProfile, profile => [profile]));
+  const channels = createSalesChannelsStep({ data: transform(input.salesChannel, channel => [channel]) });
+  const products = createProductsStep(transform(input.products, products => [...products]));
+  const pairs = transform({ channels, products }, ({ channels, products }) => channels.flatMap(channel =>
+    products.map(product => ({ product_id: product.id, sales_channel_id: channel.id }))));
+  const associated = associateProductsWithSalesChannelsStep({ links: pairs });
+  // Carry the first association result to retain explicit native step ordering.
+  const profilePairs = transform({ profiles, products, associated }, ({ profiles, products }) => profiles.flatMap(profile =>
+    products.map(product => ({ product: { product_id: product.id }, fulfillment: { shipping_profile_id: profile.id } }))));
+  createRemoteLinkStep(profilePairs);
+  const ids = transform({ channels, products, profiles }, ({ channels, products, profiles }) => ({
+    products: products.map(product => product.id), channels: channels.map(channel => channel.id), profiles: profiles.map(profile => profile.id),
+  }));
+  const pendingProducts = useQueryGraphStep({ entity: "product", fields: ["id", "title"],
+    filters: { id: ids.products }, pagination: { take: 4 },
+  }).config({ name: "pending-products" });
+  const pendingChannels = useQueryGraphStep({ entity: "sales_channel", fields: ["id", "name"],
+    filters: { id: ids.channels }, pagination: { take: 1 },
+  }).config({ name: "pending-sales-channel" });
+  const pendingLinks = useQueryGraphStep({ entity: "product_sales_channels", fields: ["id", "product_id", "sales_channel_id"],
+    filters: { product_id: ids.products, sales_channel_id: ids.channels }, pagination: { take: 4 },
+  }).config({ name: "pending-product-sales-channel-links" });
+  const pendingProfiles = useQueryGraphStep({ entity: "shipping_profile", fields: ["id", "name", "type"],
+    filters: { id: ids.profiles }, pagination: { take: 1 },
+  }).config({ name: "pending-shipping-profile" });
+  const pendingShippingLinks = useQueryGraphStep({ entity: "product_shipping_profiles", fields: ["id", "product_id", "shipping_profile_id"],
+    filters: { product_id: ids.products, shipping_profile_id: ids.profiles }, pagination: { take: 4 },
+  }).config({ name: "pending-product-shipping-profile-links" });
+  return new WorkflowResponse({ products: pendingProducts.data, salesChannels: pendingChannels.data, links: pendingLinks.data,
+    shippingProfiles: pendingProfiles.data, shippingLinks: pendingShippingLinks.data });
+});
+
+export const prepareProductShippingProfileWorkflow = Effect.fn("MedusaWorkflow.prepareProductShippingProfile")(function* (input: {
+  readonly execution: AtomicWorkflowExecution;
+  readonly modules: {
+    readonly product: InstalledWorkflowModule<ProductWorkflowModule>;
+    readonly sales_channel: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>["workflow"]>;
+    readonly fulfillment: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalShippingProfileCommands>>["workflow"]>;
+    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareLocalProductLinks>>["workflow"]>;
+  };
+  readonly revision: string;
+  readonly subscribers: AtomicCommerceEvents["subscribers"];
+}) {
+  const options = yield* Effect.fromResult(captureWorkflowRecord(input));
+  const registrations = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
+  const modules = {
+    product: yield* Effect.fromResult(captureWorkflowRecord(registrations.product)),
+    sales_channel: yield* Effect.fromResult(captureWorkflowRecord(registrations.sales_channel)),
+    fulfillment: yield* Effect.fromResult(captureWorkflowRecord(registrations.fulfillment)),
+    link: yield* Effect.fromResult(captureWorkflowRecord(registrations.link)),
+  };
+  if (Object.keys(registrations).length !== 4) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const resources = yield* Effect.fromResult(prepareWorkflowResources({
+    product: { module: modules.product.module, methods: ["createProducts"], graph: true },
+    sales_channel: { module: modules.sales_channel.module, methods: ["createSalesChannels"], graph: true },
+    fulfillment: { module: modules.fulfillment.module, methods: ["createShippingProfiles"], graph: true },
+    link: { module: modules.link.module, methods: ["create"], graph: true },
+  }, true));
+  const prepared = yield* Effect.fromResult(productShippingProfileWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: productShippingProfileResources.calls, workflow: { name: "productShippingProfile", resources, prepared,
+    input: ProductShippingProfileInput, output: ProductShippingProfileOutput, events: internalModuleWorkflowEvents,
+  } });
+});

@@ -342,6 +342,56 @@
       "types": "./dist/common/simple-hash.d.ts",
       "source": "./src/common/simple-hash.ts",
       "default": "./dist/common/simple-hash.js"
+    },
+    "./common/deep-copy": {
+      "types": "./dist/common/deep-copy.d.ts",
+      "source": "./src/common/deep-copy.ts",
+      "default": "./dist/common/deep-copy.js"
+    },
+    "./common/deep-equal-obj": {
+      "types": "./dist/common/deep-equal-obj.d.ts",
+      "source": "./src/common/deep-equal-obj.ts",
+      "default": "./dist/common/deep-equal-obj.js"
+    },
+    "./common/get-set-difference": {
+      "types": "./dist/common/get-set-difference.d.ts",
+      "source": "./src/common/get-set-difference.ts",
+      "default": "./dist/common/get-set-difference.js"
+    },
+    "./common/pick-value-from-object": {
+      "types": "./dist/common/pick-value-from-object.d.ts",
+      "source": "./src/common/pick-value-from-object.ts",
+      "default": "./dist/common/pick-value-from-object.js"
+    },
+    "./common/rules": {
+      "types": "./dist/common/rules.d.ts",
+      "source": "./src/common/rules.ts",
+      "default": "./dist/common/rules.js"
+    },
+    "./fulfillment/geo-zone": {
+      "types": "./dist/fulfillment/geo-zone.d.ts",
+      "source": "./src/fulfillment/geo-zone.ts",
+      "default": "./dist/fulfillment/geo-zone.js"
+    },
+    "./fulfillment/shipping-options": {
+      "types": "./dist/fulfillment/shipping-options.d.ts",
+      "source": "./src/fulfillment/shipping-options.ts",
+      "default": "./dist/fulfillment/shipping-options.js"
+    },
+    "./fulfillment/events": {
+      "types": "./dist/fulfillment/events.d.ts",
+      "source": "./src/fulfillment/events.ts",
+      "default": "./dist/fulfillment/events.js"
+    },
+    "./dml/properties/date-time": {
+      "types": "./dist/dml/properties/date-time.d.ts",
+      "source": "./src/dml/properties/date-time.ts",
+      "default": "./dist/dml/properties/date-time.js"
+    },
+    "./dml/relations/has-one-fk": {
+      "types": "./dist/dml/relations/has-one-fk.d.ts",
+      "source": "./src/dml/relations/has-one-fk.ts",
+      "default": "./dist/dml/relations/has-one-fk.js"
     }
   },
   "license": "MIT",

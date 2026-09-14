@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./fulfillment/create-shipping-profiles-step": "./src/fulfillment/steps/create-shipping-profiles.ts",
+    "./common/create-remote-links-step": "./src/common/steps/create-remote-links.ts",
     "./product/create-products-step": "./src/product/steps/create-products.ts",
     "./sales-channel/create-sales-channels-step": "./src/sales-channel/steps/create-sales-channels.ts",
     "./sales-channel/associate-products-with-channels-step": "./src/sales-channel/steps/associate-products-with-channels.ts",

@@ -16,6 +16,7 @@
     "@flarex/persistence-postgres": "workspace:*",
     "effect": "catalog:",
     "@medusajs/product": "workspace:*",
+    "@medusajs/fulfillment": "workspace:*",
     "@medusajs/sales-channel": "workspace:*",
     "@medusajs/link-modules": "workspace:*",
     "@medusajs/modules-sdk": "workspace:*",

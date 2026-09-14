@@ -14,7 +14,7 @@ import { bindWorkflowResources, type BoundWorkflowEvent, type WorkflowEventDefin
 import { checkedCommerceValue } from "../commerce-checked-value";
 import { commerceDecoder } from "../commerce-decoder";
 
-export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy">;
+export type AtomicWorkflowHostComposition = Pick<AtomicCommerceHostInput<never>, "participants" | "commands" | "events" | "identityAndAccessPolicy" | "requestCallLimit">;
 /** The trusted database host closes its own database/session/authority inputs.
  * Only preparation data crosses this portable adapter boundary. */
 export interface AtomicWorkflowExecution {
@@ -52,6 +52,8 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
+  /** Trusted composition only; the atomic owner validates and caps this by every profile. */
+  readonly requestCallLimit?: number;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const execution = yield* Effect.fromResult(captureWorkflowRecord(options.execution));
@@ -164,7 +166,8 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   const identity = yield* Effect.fromResult(captureCommerceInput({ policy, workflow: {
     revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
   } }));
-  const host = yield* execution.prepare({ participants, commands: [command], identityAndAccessPolicy: identity, ...(events === undefined ? {} : { events }) });
+  const host = yield* execution.prepare({ participants, commands: [command], identityAndAccessPolicy: identity,
+    ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) });
   return Object.freeze({ newRequestKey: host.newRequestKey,
     run: Effect.fn("Workflow.run")((key: string, value: EncodedInput) => Effect.fromResult(captureCommerceInput(value)).pipe(
       Effect.flatMap(args => host.run(key, command, args)), Effect.flatMap(result => Effect.fromResult(decodeStoredOutput(result))),
