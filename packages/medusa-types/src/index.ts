@@ -70,3 +70,5 @@ export * as ProductCategoryWorkflow from "./workflow/product-category";
 export { ILinkModule } from "./link-modules/service";
 export { JoinerRelationship } from "./joiner/index";
 export { LoadedModule, LinkDefinition, ModuleJoinerRelationship } from "./modules-sdk/index";
+export * as PricingTypes from "./pricing/index";
+export * from "./pricing/index";

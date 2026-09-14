@@ -3,6 +3,10 @@ import { ProductLifecycleIds } from "./product-lifecycle";
 import { commerceDecoder } from "./commerce-decoder";
 
 const Id = ProductLifecycleIds.value;
+export const SimpleVariantInput = Schema.Struct({
+  id: Schema.optionalKey(Id), product_id: Id, title: Schema.String,
+  options: Schema.Record(Schema.String, Schema.String),
+});
 export const VariantSelector = Schema.Struct({ id: Id });
 export const VariantThumbnailUpdate = Schema.Struct({ thumbnail: Schema.Null });
 export const decodeVariantThumbnailUpdate = commerceDecoder(Schema.Struct({

@@ -1,9 +1,8 @@
 # Product Variant Pricing: Admission Preflight
 
-Status: approved; implementation in progress. Approval covers the ordered
-foundation and connected slices, their regression fixes, reviews, cleanup and
-scoped commits. Newly discovered authority, compatibility or
-resource-contract changes retain their separate preflight gate.
+Status: complete for the bounded private Product Variant Pricing branch and its
+shared foundation slices. Further authority, compatibility or resource-contract
+changes retain their separate preflight gate.
 
 ## Outcome and sequence
 
@@ -14,10 +13,10 @@ native Variant–PriceSet Link step, read pending results and settle once. Exist
 Product/options setup is outside this root; this is not full Product creation.
 
 Product module options/variants, Sales Channel and ShippingProfile already have
-their own completed private boundaries. The next dependency is Pricing, but
-current schema and read owners cannot yet admit its native create path. Complete
-the foundation slices first, then the connected Pricing slice. Inventory/Stock
-Location and the full native Product composer follow later focused admission.
+their own completed private boundaries. Pricing required shared schema and read
+corrections before its native create path could be admitted; those foundations
+and the connected private branch are complete. Inventory/Stock Location and the
+full native Product composer follow later focused admission.
 
 Authority remains as accepted in `design-notes/flarex-db-accepted-design.md` and
 `roadmaps/16-package-boundaries.md`: Medusa owns business/lifecycle semantics;
@@ -27,9 +26,10 @@ No universal transaction API, production route or external provider is proposed.
 ## Source and executable boundary
 
 The comparison source is fork `48d5cc675e4e8bc821e22c20c88a751acc66fb5f`, baseline
-2.13.4, recorded in `third_party/medusa/SOURCE.json`. Pricing models, module and
-steps remain comparison-only. Current Product commands, graph/read mechanics,
-Link storage and workflow host are the reusable executable owners.
+2.13.4, recorded in `third_party/medusa/SOURCE.json`. The finite Pricing model,
+service, type/utility and three-step closure is promoted with source guards.
+Product commands, graph/read mechanics, Link storage and workflow host remain
+the reusable executable owners. The full native variant composer is comparison-only.
 
 Native paths below are relative to `third_party/medusa/upstream/packages/`.
 
@@ -171,11 +171,21 @@ owners remain module-neutral and do not import Pricing or dispatch by its name.
 ## B. Connected native Pricing admission
 
 The approved
-[structural-table ownership correction](./94-commerce-structural-table-ownership.md).
+[structural-table ownership correction](./94-commerce-structural-table-ownership.md)
 provides a separate structural selection for PriceList without granting data
 capabilities. The shared issuer and binding validator retain complete FK
-confinement. The three foundation slices are complete; connected acceptance,
-resource/recovery proof and unchanged native-test admission remain in progress.
+confinement. The three foundation slices and connected private implementation
+are complete.
+
+The native three-step branch creates one to four variants and their PriceSets,
+then creates singular links using returned identities. Pending local reads retain
+numeric raw companions. The tested maximum variant/price/rule fixture, with one
+option assignment per variant, produces thirty-two row facts
+and twenty-five native event messages: Product emits four, Pricing emits twenty,
+and Link batches four attached IDs into one message. One outer owner settles
+data, facts, events and retained outcomes. The three profiles and root retain the
+approved 128-call bounds; no other resource ceiling is changed. Additional option
+assignments add pivot facts and remain subject to the existing aggregate limits.
 
 After the foundations, promote the finite native Pricing constructor/model,
 utility/type and step closure with exact provenance/browser guards. Construct
@@ -187,8 +197,8 @@ invent `clearAvailableAttributes` when no attributes cache exists.
 
 Prepare a fresh, named eighteen-table schema: existing thirteen Product tables,
 `price_set`, `price`, `price_rule`, `price_list`, and
-`product_variant_price_set`. This is the proposed FK-closed inventory, not an
-installed result. PriceList is structural-only in this branch: its service is
+`product_variant_price_set`. The private fresh installation contains exactly
+this FK-closed inventory. PriceList is structural-only in this branch: its service is
 denied and no writes are granted. PriceListRule and PricePreference remain
 source-only, with denied repositories. Retain native FK/index definitions rather
 than dropping them to reduce this inventory.
@@ -218,22 +228,31 @@ event owners. Read pending variants, PriceSets with native local price/rule data
 and the Link root before the single settlement. Root rollback covers admitted
 transactional work; no remote effect or suspended workflow is introduced.
 
-Propose an explicit 128-call ceiling for the three fresh private profiles and
-root; retain all other current resource defaults. This requires the approval of
-this record and is not inherited from ShippingProfile. Account for the full
+The approved explicit 128-call ceiling applies to the three fresh private profiles
+and root; all other current resource defaults remain. It is not inherited from
+ShippingProfile. Account for the full
 maximum input and failure/recovery envelope. If it does not fit, preserve the
 failure and return for a resource decision; do not raise limits, drop reads or
 split the commit. Existing default and ShippingProfile profiles remain unchanged.
 
 ## Compatibility, cleanup and acceptance
 
-Preserve the complete original Pricing test files as comparison evidence. The
-initial unchanged-body candidates from `price-set.spec.ts` are `should create a
+The complete original Pricing test files remain comparison evidence. The
+three admitted unchanged bodies from `price-set.spec.ts` are `should create a
 priceSet successfully`, `should create a price set with prices`, and `should take
 the later price when passing two prices with equivalent rules`. Their actual seed
-helper creates rule-bearing PriceSets and must be included in the admission
-audit. Retain executable assertions and native events, not fabricated harness
-results. Inventory other tests explicitly; this subset is not full Pricing parity.
+helper creates three PriceSets, three prices and two rules through the actual
+native service. Its executable statements and all three bodies are guarded
+against the pinned source. The other twenty-five tests in that file, and the
+remaining native Pricing suites, remain comparison-only; this subset is not full
+Pricing parity. Constructor-only PriceListRule and PricePreference models have
+denied repositories and no physical tables.
+
+Conflicting restore is characterized at the native Link-module/storage boundary.
+The full cascade router follows the retained `deleteCascade` metadata into
+unselected Product/Pricing services and is outside this profile. Workflow restore
+is explicitly refused, including caught empty calls; no cross-module cascade,
+fake loaded endpoint service or metadata bypass is introduced.
 
 | Action | Owner and retirement/completion condition |
 | --- | --- |

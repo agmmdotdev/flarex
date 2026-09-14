@@ -9,7 +9,7 @@ import { commerceInternalService } from "./commerce-module";
 import { defineCommerceModule, CommerceModuleDefinitionError, type CommerceModuleExtension } from "./module-definition";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { captureCommerceInput } from "./commerce-input";
-import { decodeLocalEventOptions, decodeLocalEventBatch } from "./product-local-events";
+import { decodeLocalEventOptions, decodeLocalEventBatch } from "./module-event-input";
 import { productModels } from "./product-schema";
 import type { ProductRuntimeMetadata, ProductEntityMetadata } from "./product-runtime-metadata";
 import { productRepository, type ProductRepositoryProfile } from "./product-repository";

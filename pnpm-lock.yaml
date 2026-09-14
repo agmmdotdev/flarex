@@ -846,6 +846,9 @@ importers:
       '@medusajs/modules-sdk':
         specifier: workspace:*
         version: link:../medusa-modules-sdk
+      '@medusajs/pricing':
+        specifier: workspace:*
+        version: link:../medusa-pricing
       '@medusajs/product':
         specifier: workspace:*
         version: link:../medusa-product
@@ -971,6 +974,21 @@ importers:
 
   packages/medusa-modules-sdk:
     dependencies:
+      '@medusajs/types':
+        specifier: workspace:*
+        version: link:../medusa-types
+      '@medusajs/utils':
+        specifier: workspace:*
+        version: link:../medusa-utils
+
+  packages/medusa-pricing:
+    dependencies:
+      '@medusajs/framework':
+        specifier: workspace:*
+        version: link:../medusa-framework
+      '@medusajs/modules-sdk':
+        specifier: workspace:*
+        version: link:../medusa-modules-sdk
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types

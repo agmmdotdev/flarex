@@ -7,7 +7,7 @@ import type { SchemaTable } from "./schema/model";
 export class LinkSchemaError extends Data.TaggedError("LinkSchemaError")<{ readonly cause: unknown }> {}
 const Name = Schema.String.check(Schema.isPattern(/^[a-zA-Z_][a-zA-Z0-9_]*$/));
 const Relationship = Schema.Struct({ serviceName: Name, foreignKey: Name, primaryKey: Name, alias: Name,
-  hasMany: Schema.optionalKey(Schema.Boolean), deleteCascade: Schema.optionalKey(Schema.Literal(false)) });
+  hasMany: Schema.optionalKey(Schema.Boolean), deleteCascade: Schema.optionalKey(Schema.Boolean) });
 const decodeDefinition = Schema.decodeUnknownEffect(Schema.Struct({
   serviceName: Name, relationships: Schema.Tuple([Relationship, Relationship]),
   databaseConfig: Schema.Struct({ tableName: Name, idPrefix: Name }),

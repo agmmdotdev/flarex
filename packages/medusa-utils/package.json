@@ -392,6 +392,41 @@
       "types": "./dist/dml/relations/has-one-fk.d.ts",
       "source": "./src/dml/relations/has-one-fk.ts",
       "default": "./dist/dml/relations/has-one-fk.js"
+    },
+    "./pricing/price-list": {
+      "types": "./dist/pricing/price-list.d.ts",
+      "source": "./src/pricing/price-list.ts",
+      "default": "./dist/pricing/price-list.js"
+    },
+    "./pricing/enums": {
+      "types": "./dist/pricing/enums.d.ts",
+      "source": "./src/pricing/enums.ts",
+      "default": "./dist/pricing/enums.js"
+    },
+    "./common/deduplicate": {
+      "types": "./dist/common/deduplicate.d.ts",
+      "source": "./src/common/deduplicate.ts",
+      "default": "./dist/common/deduplicate.js"
+    },
+    "./common/get-iso-string-from-date": {
+      "types": "./dist/common/get-iso-string-from-date.d.ts",
+      "source": "./src/common/get-iso-string-from-date.ts",
+      "default": "./dist/common/get-iso-string-from-date.js"
+    },
+    "./common/group-by": {
+      "types": "./dist/common/group-by.d.ts",
+      "source": "./src/common/group-by.ts",
+      "default": "./dist/common/group-by.js"
+    },
+    "./common/remove-nullisih": {
+      "types": "./dist/common/remove-nullisih.d.ts",
+      "source": "./src/common/remove-nullisih.ts",
+      "default": "./dist/common/remove-nullisih.js"
+    },
+    "./common/is-date": {
+      "types": "./dist/common/is-date.d.ts",
+      "source": "./src/common/is-date.ts",
+      "default": "./dist/common/is-date.js"
     }
   },
   "license": "MIT",

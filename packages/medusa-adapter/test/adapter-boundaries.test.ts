@@ -4,7 +4,7 @@ import { decodeCurrencyRead, currencyUpdateRows } from "../src/currency-input";
 import { currencyKeys } from "../src/currency-result";
 import { decodeProductRead, decodeProductFindConfig, decodeProductCreateInput } from "../src/product-service-input";
 import { decodeProductProjection, decodeProductCount } from "../src/product-value-profile";
-import { decodeLocalEventOptions, decodeLocalEventBatch } from "../src/product-local-events";
+import { decodeLocalEventOptions, decodeLocalEventBatch } from "../src/module-event-input";
 import type { CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
 
 const outcome = <A>(result: Result.Result<A, CommerceTransactionError>) => Result.match(result, {

@@ -4,10 +4,7 @@ import { commerceError, type CommerceTransactionError, type Json } from "@flarex
 import { captureCommerceInput } from "./commerce-input";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
-import { commerceDecoder } from "./commerce-decoder";
 
-export const decodeLocalEventOptions = commerceDecoder(Schema.Struct({ internal: Schema.Literal(true) }), "unadmittedEvent");
-export const decodeLocalEventBatch = commerceDecoder(Schema.Array(Schema.Json), "unadmittedEvent");
 
 const EventId = Schema.String.check(Schema.isLengthBetween(1, 256));
 const messageSchema = (maximumIds: number) => Schema.Struct({

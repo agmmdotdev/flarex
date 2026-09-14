@@ -82,6 +82,11 @@
       "types": "./dist/fulfillment/index.d.ts",
       "source": "./src/fulfillment/index.ts",
       "default": "./dist/fulfillment/index.js"
+    },
+    "./pricing/index": {
+      "types": "./dist/pricing/index.d.ts",
+      "source": "./src/pricing/index.ts",
+      "default": "./dist/pricing/index.js"
     }
   },
   "license": "MIT",

@@ -22,7 +22,8 @@
     "@medusajs/modules-sdk": "workspace:*",
     "@medusajs/drizzle": "workspace:*",
     "@medusajs/workflows-sdk": "workspace:*",
-    "@medusajs/core-flows": "workspace:*"
+    "@medusajs/core-flows": "workspace:*",
+    "@medusajs/pricing": "workspace:*"
   },
   "devDependencies": {
     "@medusajs/deps": "workspace:*",

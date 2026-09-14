@@ -41,3 +41,6 @@ export { ILinkModule, JoinerRelationship, RestoreReturn, SoftDeleteReturn } from
 export * as FulfillmentTypes from "@medusajs/types/fulfillment/index";
 export * from "@medusajs/types/fulfillment/index";
 export { ModuleProviderExports, ModuleServiceInitializeOptions } from "@medusajs/types/modules-sdk/index";
+export * as PricingTypes from "@medusajs/types/pricing/index";
+export * from "@medusajs/types/pricing/index";
+export { MedusaContainer } from "@medusajs/types";

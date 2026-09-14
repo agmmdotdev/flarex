@@ -104,11 +104,20 @@ describe("native singular Link storage", () => {
     for (const unsupported of [
       { ...definition, isReadOnlyLink: true },
       { ...definition, databaseConfig: { ...definition.databaseConfig, extraFields: {} } },
-      { ...definition, relationships: definition.relationships.map(item => ({ ...item, deleteCascade: true })) },
       { ...definition, relationships: definition.relationships.map(item => ({ ...item, foreignKey: "part_one,part_two" })) },
     ]) {
       expect(await runEffectFailure(captureLinkMetadata(unsupported))).toMatchObject({ _tag: "LinkSchemaError" });
     }
+  });
+
+  it("retains native cascade metadata without changing the physical Link identity", async () => {
+    const baseline = await runEffect(captureLinkMetadata(definition));
+    const captured = await runEffect(captureLinkMetadata({ ...definition,
+      relationships: definition.relationships.map(item => ({ ...item, deleteCascade: true })),
+    }));
+    expect(captured.joiner.relationships?.map(item => item.deleteCascade)).toEqual([true, true]);
+    expect(captured.frame).toEqual(baseline.frame);
+    expect(captured.sha256Hex).toBe(baseline.sha256Hex);
   });
 
   it("installs native active uniqueness with scope prefixes and unchanged pair identity", () => {

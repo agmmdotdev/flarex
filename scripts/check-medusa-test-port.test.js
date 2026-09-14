@@ -1,6 +1,7 @@
 // @ts-check
 import { describe, expect, it } from "vitest";
-import { verifyTestPort, verifyShippingProfileCreateTests } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowRefusals } from "./check-medusa-test-port.mjs";
+import { readFileSync } from "node:fs";
 
 const source = `import { runner } from "./runner";
 describe("suite", () => {
@@ -9,6 +10,25 @@ describe("suite", () => {
 });`;
 
 describe("maintained Medusa test ports", () => {
+  it("requires an exact refusal for every unselected native Pricing business method", () => {
+    const original = readFileSync(new URL("../third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", import.meta.url), "utf8");
+    const selected = readFileSync(new URL("../packages/medusa-adapter/src/pricing-service.ts", import.meta.url), "utf8");
+    expect(() => verifyPricingWorkflowRefusals(original, selected)).not.toThrow();
+    expect(() => verifyPricingWorkflowRefusals(original, selected.replace('"calculatePrices",', ''))).toThrow();
+    expect(() => verifyPricingWorkflowRefusals(original, selected.replace('"calculatePrices",', '"createPriceSets",'))).toThrow();
+    expect(() => verifyPricingWorkflowRefusals(original, selected.replace('"calculatePrices",', '"createPriceLists",'))).toThrow();
+  });
+  it("preserves all selected Pricing statements and the actual rule-bearing seed", () => {
+    const original = readFileSync(new URL("../third_party/medusa/upstream/packages/modules/pricing/integration-tests/__tests__/services/pricing-module/price-set.spec.ts", import.meta.url), "utf8");
+    const selected = readFileSync(new URL("../packages/medusa-adapter/test/support/pricing-native-tests.ts", import.meta.url), "utf8");
+    expect(() => verifyPricingCreateTests(original, selected)).not.toThrow();
+    for (const changed of [selected.replace('amount: 500', 'amount: 1'), selected.replace('currency_code: "CAD"', 'currency_code: "USD"'),
+      selected.replace('await service.createPriceSets(priceSets)', 'service.createPriceSets(priceSets)'),
+      selected.replace('it("should create a priceSet successfully"', 'it.skip("should create a priceSet successfully"'),
+      selected.replace('amount: 200', 'amount: 201'), selected + 'it("additional", () => {});']) {
+      expect(() => verifyPricingCreateTests(original, changed)).toThrow();
+    }
+  });
   it("preserves exactly the two selected ShippingProfile bodies without admitting deferred tests", () => {
     const create = 'it("should create a new shipping profile", async () => { expect(await service.create(data)).toEqual(data); });';
     const many = 'it("should create multiple new shipping profiles", async () => { expect(await service.create([data])).toHaveLength(1); });';

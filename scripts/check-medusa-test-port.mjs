@@ -4,6 +4,63 @@ import ts from "@typescript/typescript6";
 const vitestBindings = new Set(["afterAll", "afterEach", "beforeAll", "beforeEach", "describe", "expect", "it", "test", "vi"]);
 const currencyImports = new Map([["../index", "@medusajs/currency/index"], ["../static-manifest", "@medusajs/currency/static-manifest"], ["../models", "@medusajs/currency/models"]]);
 
+/** Preserve the admitted Pricing bodies and their complete native seed.
+ * @param {string} source @param {string} target */
+export function verifyPricingCreateTests(source, target) {
+  const names = new Set(["should create a priceSet successfully", "should create a price set with prices",
+    "should take the later price when passing two prices with equivalent rules"]);
+  /** @param {string} text */
+  const selection = text => {
+    const file = ts.createSourceFile("pricing.ts", text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+    /** @type {Map<string, string>} */
+    const bodies = new Map();
+    let count = 0;
+    /** @type {string | undefined} */
+    let seed;
+    /** @param {ts.Node} node */
+    const visit = node => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "it") {
+        count++;
+        const name = node.arguments[0];
+        if (name !== undefined && ts.isStringLiteral(name) && names.has(name.text)) {
+          if (bodies.has(name.text)) throw new Error("Duplicate native Pricing selection");
+          bodies.set(name.text, JSON.stringify(testPortProgram(node.getText(file) + ";")));
+        }
+      }
+      if (ts.isFunctionDeclaration(node) && node.name?.text === "seedPriceSetData") {
+        if (seed !== undefined || node.body === undefined) throw new Error("Invalid native Pricing seed");
+        seed = JSON.stringify(testPortProgram("async function seedPriceSetData(service) " + node.body.getText(file)));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    return { bodies, count, seed };
+  };
+  const original = selection(source), selected = selection(target);
+  if (original.count !== 28 || selected.count !== 3 || original.seed === undefined || selected.seed !== original.seed ||
+    [...names].some(name => !original.bodies.has(name) || selected.bodies.get(name) !== original.bodies.get(name)))
+    throw new Error("Changed selected native Pricing test bodies or seed");
+}
+
+/** Every native Pricing business method except createPriceSets is an explicit
+ * workflow refusal; module infrastructure fields are not business methods.
+ * @param {string} source @param {string} target */
+export function verifyPricingWorkflowRefusals(source, target) {
+  const contract = ts.createSourceFile("native.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const declaration = contract.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === "IPricingModuleService");
+  if (declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Pricing interface");
+  const methods = new Set(declaration.members.filter(ts.isMethodSignature).map(member => member.name.getText(contract)));
+  if (!methods.delete("createPriceSets") || methods.size === 0) throw new Error("Missing native Pricing creation method");
+  const adapter = ts.createSourceFile("adapter.ts", target, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const selections = adapter.statements.filter(ts.isVariableStatement).flatMap(statement => statement.declarationList.declarations)
+    .filter(node => ts.isIdentifier(node.name) && node.name.text === "pricingRefusedMethods");
+  const initializer = selections[0]?.initializer;
+  const array = initializer !== undefined && ts.isSatisfiesExpression(initializer) ? initializer.expression : initializer;
+  if (selections.length !== 1 || array === undefined || !ts.isArrayLiteralExpression(array) ||
+    array.elements.length !== methods.size || array.elements.some(value => !ts.isStringLiteral(value) || !methods.delete(value.text)) || methods.size !== 0)
+    throw new Error("Incomplete native Pricing workflow refusals");
+}
+
 /** The admitted ShippingProfile subset preserves two complete native bodies;
  * the duplicate-message and deletion cases remain in the pinned source.
  * @param {string} source @param {string} target */

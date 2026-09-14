@@ -8,7 +8,7 @@ import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
 import { ProductNamedFilters } from "./product-service-input";
 import { ProductTagUpdateData } from "./product-tag-update-input";
 import { ProductLifecycleIds } from "./product-lifecycle";
-import { VariantSelector, VariantThumbnailUpdate, VariantImagePairs } from "./product-variant-workflow-input";
+import { VariantSelector, VariantThumbnailUpdate, VariantImagePairs, SimpleVariantInput } from "./product-variant-workflow-input";
 
 export const ProductTagWorkflowInput = Schema.Array(Schema.Struct({ value: Schema.String,
   id: Schema.optionalKey(Schema.String), metadata: Schema.optionalKey(Schema.Json),
@@ -42,14 +42,17 @@ const decodeVariantListArguments = commerceDecoder(Schema.Tuple([VariantSelector
   Schema.Struct({ select: Schema.Array(Schema.String), relations: Schema.Array(Schema.String) }),
 ]), "invalidInput");
 const decodeVariantUpdateArguments = commerceDecoder(Schema.Tuple([VariantSelector, VariantThumbnailUpdate]), "invalidInput");
+const decodeCreateVariantsArguments = commerceDecoder(Schema.Tuple([Schema.Array(SimpleVariantInput).check(Schema.isMaxLength(4))]), "invalidInput");
 
 export function productWorkflowModule(source: CommerceModuleDescription,
   commands: { readonly create: CommerceCommand; readonly list: CommerceCommand; readonly retrieveCollection: CommerceCommand; readonly upsert: CommerceCommand; readonly updateCollections: CommerceCommand; readonly createTags: CommerceCommand; readonly listTags: CommerceCommand; readonly updateTagsBySelector: CommerceCommand; readonly softDeleteTags: CommerceCommand;
-    readonly listVariants: CommerceCommand; readonly updateVariantsBySelector: CommerceCommand; readonly addImageToVariant: CommerceCommand; readonly removeImageFromVariant: CommerceCommand },
-  graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string; readonly productCreated: string; readonly productUpdated: string; readonly collectionUpdated: string; readonly variantUpdated: string }) {
+    readonly createVariants: CommerceCommand; readonly listVariants: CommerceCommand; readonly updateVariantsBySelector: CommerceCommand; readonly addImageToVariant: CommerceCommand; readonly removeImageFromVariant: CommerceCommand },
+  graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string; readonly productCreated: string; readonly productUpdated: string; readonly collectionUpdated: string; readonly variantUpdated: string; readonly variantCreated: string }) {
   return Result.gen(function* () {
     const createProducts = yield* defineWorkflowMethod({ command: commands.create, arguments: decodeCreateProductsArguments,
       encode: ([products]) => products, output: decodeCreatedProducts, moduleEvents: [events.productCreated] });
+    const createProductVariants = yield* defineWorkflowMethod({ command: commands.createVariants, arguments: decodeCreateVariantsArguments,
+      encode: ([variants]) => variants, output: decodeCreatedProducts, moduleEvents: [events.variantCreated] });
     const createProductTags = yield* defineWorkflowMethod({ command: commands.createTags, arguments: decodeArguments,
       encode: ([tags]) => tags, output: decodeProductTagWorkflowResult, moduleEvents: [events.created] });
     const listProductTags = yield* defineWorkflowMethod({ command: commands.listTags, arguments: decodeListArguments,
@@ -68,7 +71,7 @@ export function productWorkflowModule(source: CommerceModuleDescription,
       encode: ([selector, update]) => ({ selector, update }), output: decodeListResult, moduleEvents: [events.variantUpdated] });
     const relationships = yield* productRelationshipWorkflowMethods(commands, events);
     return yield* defineWorkflowModule({ name: "product", source,
-      methods: { ...relationships, createProducts, createProductTags, listProductTags, updateProductTags, softDeleteProductTags, addImageToVariant, removeImageFromVariant, listProductVariants, updateProductVariants }, graph,
+      methods: { ...relationships, createProducts, createProductVariants, createProductTags, listProductTags, updateProductTags, softDeleteProductTags, addImageToVariant, removeImageFromVariant, listProductVariants, updateProductVariants }, graph,
       refusedMethods: ["deleteProductTags", "upsertProductTags", "restoreProductTags", "upsertProductVariants"] });
   });
 }

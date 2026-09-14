@@ -15,7 +15,10 @@
     "./product/batch-products-in-category": "./src/product/workflows/batch-products-in-category.ts",
     "./product/batch-link-products-collection": "./src/product/workflows/batch-link-products-collection.ts",
     "./product/batch-variant-images": "./src/product/workflows/batch-variant-images.ts",
-    "./common/use-query-graph": "./src/common/steps/use-query-graph.ts"
+    "./common/use-query-graph": "./src/common/steps/use-query-graph.ts",
+    "./product/create-product-variants-step": "./src/product/steps/create-product-variants.ts",
+    "./product/create-variant-pricing-link-step": "./src/product/steps/create-variant-pricing-link.ts",
+    "./pricing/create-price-sets-step": "./src/pricing/steps/create-price-sets.ts"
   },
   "dependencies": {
     "@medusajs/modules-sdk": "workspace:*",

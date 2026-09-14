@@ -5,6 +5,7 @@ import { ProductEvents } from "@medusajs/utils/product/events";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { fxSystemScopeClocks } from "../../../persistence-postgres/src/schema";
 import { commerceInventory } from "../../../persistence-postgres/test/commerceInventory";
+import { frameworkMigrationFixturePool } from "../../../persistence-postgres/test/frameworkMigrationPostgresFixture";
 import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
 const run = Effect.runPromise;
 const imageTable = ProductImage.parse().tableName;
@@ -80,9 +81,17 @@ describe("Product Variant boundary", () => {
     if (table === undefined) throw new Error("Missing assignment table");
     const target = quote(layout.targetNamespace.schemaName) + "." + quote(table.name);
     const pairs = [{ variant_id: "variant_a", image_id: "image_a" }, { variant_id: "variant_b", image_id: "image_b" }];
+    // Fault-injection DDL uses the existing table-owner fixture. The command,
+    // sequence witness and inventory checks retain the ordinary data connection.
+    const installerPool = "pool" in fixture.persistence
+      ? await frameworkMigrationFixturePool(fixture.persistence) : undefined;
+    const triggerDdl = async (sql: string) => {
+      if (installerPool === undefined) await fixture.persistence.exec(sql);
+      else await installerPool.query(sql);
+    };
     await fixture.persistence.exec("create sequence fx_variant_delete_attempts");
     await fixture.persistence.exec("create function fx_variant_delete_fail() returns trigger language plpgsql as $$ begin if nextval('fx_variant_delete_attempts') = 2 then raise exception 'injected assignment failure'; end if; return old; end $$");
-    await fixture.persistence.exec(`create trigger fx_variant_delete_fail before delete on ${target} for each row execute function fx_variant_delete_fail()`);
+    await triggerDdl(`create trigger fx_variant_delete_fail before delete on ${target} for each row execute function fx_variant_delete_fail()`);
     try {
       expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.removeImageFromVariant, pairs))))
         .toMatchObject({ _tag: "Failure", failure: { _tag: "CommerceTransactionError" } });
@@ -90,7 +99,7 @@ describe("Product Variant boundary", () => {
       expect(await commerceInventory(fixture)).toEqual(before);
       expect(takeProductRunnerEvents()).toEqual([]);
     } finally {
-      await fixture.persistence.exec(`drop trigger fx_variant_delete_fail on ${target}`);
+      await triggerDdl(`drop trigger fx_variant_delete_fail on ${target}`);
       await fixture.persistence.exec("drop function fx_variant_delete_fail()");
       await fixture.persistence.exec("drop sequence fx_variant_delete_attempts");
     }

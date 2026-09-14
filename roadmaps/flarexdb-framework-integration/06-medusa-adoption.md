@@ -118,13 +118,17 @@ The approved [Product Variant Pricing admission](./preflight/93-product-variant-
 starts with shared exact-numeric, compound-index and child-population prerequisites
 exposed by the pinned native PriceSet create path. Native creation rereads prices
 and rules, and Price's nullable PriceList FK retains a structural table dependency.
-The three foundation slices are implemented. The connected branch will create
-variants, PriceSets and their singular Link under one root. PriceList is required
+The three foundation slices and private connected branch are implemented. The
+branch creates one to four variants, zero to two base prices per variant and
+one string-valued rule per price, then associates native returned identities
+through singular Variant–PriceSet Links under one root. PriceList is required
 by the native FK and deliberately has no row grant. The approved
 [structural-table ownership correction](./preflight/94-commerce-structural-table-ownership.md)
 provides explicit zero-access ownership at the shared profile/binding owner.
-Pricing promotion and
-connected acceptance remain incomplete; Inventory/Stock Location and the
+The finite native closure and three unchanged test bodies retain their actual
+seed data. All three profiles and the root use the approved 128-call contract.
+The bounded private admission is complete. Price calculation,
+PriceList operations, cross-module cascades, Inventory/Stock Location and the
 complete Product composer remain subsequent admission gates.
 
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
