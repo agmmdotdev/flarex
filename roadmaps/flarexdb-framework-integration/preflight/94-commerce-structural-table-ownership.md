@@ -1,7 +1,7 @@
 # Commerce structural-table ownership
 
-Status: proposed; approval required before changing the shared profile/binding
-contract. This is the newly discovered prerequisite for preflight 93B.
+Status: complete; shared correction implemented.
+This is the structural-ownership prerequisite for preflight 93B.
 
 ## Outcome and boundary
 
@@ -18,7 +18,7 @@ binding validator in persistence-postgres. The Medusa adapter only declares the
 actual native dependency. This does not admit cross-profile FKs, a grant union,
 PriceList business operations, schema upgrades, public routing or production use.
 
-## Reproduced scenario and current disposition
+## Reproduced scenario and correction
 
 Preflight 93 requires PriceList to remain structural-only with no granted writes.
 The pinned Price model declares a nullable `price_list_id` FK to PriceList. The
@@ -26,22 +26,25 @@ schema therefore contains all four Pricing tables, but the three workflow
 profiles grant Product's thirteen tables, three writable Pricing tables and the
 Variant-PriceSet Link respectively.
 
-`frameworkSchema/binding/commerceBinding.ts`'s `validateCommerceProfileSet` builds
-its ownership map solely from `descriptor.tables`. For the Price-to-PriceList FK,
+The previous `validateCommerceProfileSet` in
+`frameworkSchema/binding/commerceBinding.ts` built its ownership map solely from
+`descriptor.tables`. For the Price-to-PriceList FK,
 the source has a Pricing owner and the target has none; the validator rejects the
 binding with `DataBindingError`, reason `unsupportedProfile`, before activation.
 The connected witness is
 `packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts`.
 
-`commerceTransaction/profile.ts` currently provides only `scalar`, `readInsert`
-and `readInsertUpdate` data capabilities. `registerCommerceSchemaProfile` is an
-installation token, not a member of an execution-profile binding. There is no
-existing zero-access ownership declaration to satisfy the required closure.
+`commerceTransaction/profile.ts` retains its `scalar`, `readInsert` and
+`readInsertUpdate` data capabilities. The local issuer now captures a separate
+structural-table identity selection; only a nonempty selection uses profile
+contract encoding 7. Empty and omitted selections retain existing encodings.
+`registerCommerceSchemaProfile` remains an installation token, not a member of
+an execution-profile binding.
 
-The connected acceptance test retains its successful-workflow expectation and
-currently fails in setup. The independent native Pricing storage tests can run
-under their single selected profile; that result is not connected activation
-proof. No core correction or broadened PriceList grant has been applied.
+The connected acceptance test retains its successful-workflow expectation.
+Structural selection participates in authenticated ownership and complete FK
+closure, while store construction still uses data capabilities alone. Pricing's
+connected acceptance and native-test admission remain preflight 93B gates.
 
 ## Recommended correction
 

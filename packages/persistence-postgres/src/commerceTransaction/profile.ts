@@ -42,6 +42,8 @@ export interface CommerceProfileState {
   readonly profileId: string;
   readonly initialization: Readonly<{ stepId: string; datasetSha256: string; expectedRowCount: number }> | null;
   readonly tables: readonly CommerceTableCapability[];
+  /** Layout ownership only; these identities never enter the scoped store. */
+  readonly structuralTables: readonly string[];
   readonly localOnly: boolean;
   readonly contractSha256: string;
   readonly resources: CommerceResources;
@@ -67,10 +69,20 @@ const LocalTableAdmission = Schema.Struct({
 });
 export type LocalCommerceTableAdmission = typeof LocalTableAdmission.Type;
 const decodeLocalTables = Schema.decodeUnknownEffect(Schema.Array(LocalTableAdmission).check(Schema.isMinLength(1), Schema.isMaxLength(16)), { onExcessProperty: "error" });
+const StructuralTableSelection = Schema.Array(Schema.String).check(Schema.isMaxLength(15));
+const decodeStructuralTables = Schema.decodeUnknownEffect(StructuralTableSelection);
+const noStructuralTables: readonly string[] = Object.freeze([]);
 const profiles = new WeakMap<object, CommerceProfileState>();
 const sameArtifactIdentity = (left: FrameworkSchemaArtifactIdentity, right: FrameworkSchemaArtifactIdentity): boolean =>
   left.deploymentId === right.deploymentId && left.owner === right.owner &&
   left.lineageId === right.lineageId && left.artifactSha256 === right.artifactSha256;
+
+/** Application FKs must stay inside one explicit owner, in either direction.
+ * Scope-authority FKs have a separate kind and do not cross profile authority. */
+export function hasConfinedCommerceTableOwnership(layout: RelationalPhysicalLayout, owners: ReadonlyMap<string, string>): boolean {
+  return layout.frame.foreignKeys.every(key => key.kind !== "foreignKey" ||
+    owners.get(key.sourceTable.tableId) === owners.get(key.targetTable.tableId));
+}
 
 /** Trusted composition only; the adapter supplies its captured actual-model descriptor.
  * This issuer is source-private and is never a command, schema-value or public API.
@@ -106,7 +118,8 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
   const primary = table.keys.find(key => key.kind === "primary");
   if (primary === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
   profiles.set(profile, Object.freeze({ artifact, layout, profileId, initialization: capturedInitialization, contractSha256: contract.sha256Hex,
-    localOnly: false, resources: defaultCommerceResources, tables: Object.freeze([Object.freeze({ tableId: table.identity.tableId, keyId: primary.identity.keyId, mode: "scalar" as const })]) }));
+    localOnly: false, resources: defaultCommerceResources, structuralTables: noStructuralTables,
+    tables: Object.freeze([Object.freeze({ tableId: table.identity.tableId, keyId: primary.identity.keyId, mode: "scalar" as const })]) }));
   return profile;
 });
 
@@ -115,6 +128,7 @@ export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerL
   artifact: FrameworkSchemaArtifact, layout: RelationalPhysicalLayout, profileId: string,
   capabilities: readonly LocalCommerceTableAdmission[],
   resourceContract?: CommerceResources,
+  structuralTableIds: readonly string[] = noStructuralTables,
 ) {
   yield* registerCommerceSchemaProfile(artifact, layout);
   const resources = resourceContract === undefined ? defaultCommerceResources : yield* Effect.fromResult(captureCommerceResources(resourceContract));
@@ -162,17 +176,30 @@ export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerL
     }));
   }
   tables.sort((left, right) => compareUtf16Strings(left.tableId, right.tableId));
+  const capturedStructural = yield* Effect.fromResult(capturePrivateJsonData(structuralTableIds, 16_384, commerceError));
+  const structuralEntries = yield* decodeStructuralTables(capturedStructural.value).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  const owners = new Map(tables.map(table => [table.tableId, profileId]));
+  if (tables.length + structuralEntries.length > 16) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  for (const tableId of structuralEntries) {
+    if (owners.has(tableId) || !layout.frame.tables.some(table => table.identity.tableId === tableId))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+    owners.set(tableId, profileId);
+  }
+  const structuralTables = Object.freeze(structuralEntries.toSorted(compareUtf16Strings));
+  if (structuralTables.length > 0 && !hasConfinedCommerceTableOwnership(layout, owners))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   const contract = yield* capturePrivateCanonicalValue({ format: "flarex.commerce-profile-contract",
-    version: resourceContract !== undefined ? 6 : tables.some(table => table.lifecycle !== undefined) ? 5 : tables.some(table => table.referenceColumns !== undefined || table.remove !== undefined) ? 4 : tables.some(table => table.mode === "readInsertUpdate") ? 3 : 2,
+    version: structuralTables.length > 0 ? 7 : resourceContract !== undefined ? 6 : tables.some(table => table.lifecycle !== undefined) ? 5 : tables.some(table => table.referenceColumns !== undefined || table.remove !== undefined) ? 4 : tables.some(table => table.mode === "readInsertUpdate") ? 3 : 2,
     artifact: { ...artifact.identity }, layoutSha256: layout.layoutSha256, profileId, initialization: null,
     localEventPolicy: "buffer-until-confirmed-commit",
+    ...(structuralTables.length === 0 ? {} : { structuralTables }),
     ...(tables.some(table => table.lifecycle !== undefined) ? { lifecycleBehavior: "observe-unchanged-restore" } : {}),
     ...(resourceContract === undefined ? {} : { resources }), tables: tables.map(table => ({ ...table })) }, 16_384,
     { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
   // SAFETY: only this registry issues the exact opaque local profile.
   const profile = Object.freeze({}) as CommerceProfile;
   profiles.set(profile, Object.freeze({ artifact, layout, profileId, initialization: null, localOnly: true, resources,
-    tables: Object.freeze(tables), contractSha256: contract.sha256Hex }));
+    tables: Object.freeze(tables), structuralTables, contractSha256: contract.sha256Hex }));
   return profile;
 });
 

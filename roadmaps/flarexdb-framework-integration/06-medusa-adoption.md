@@ -119,12 +119,11 @@ starts with shared exact-numeric, compound-index and child-population prerequisi
 exposed by the pinned native PriceSet create path. Native creation rereads prices
 and rules, and Price's nullable PriceList FK retains a structural table dependency.
 The three foundation slices are implemented. The connected branch will create
-variants, PriceSets and their singular Link under one root, but its current
-binding is blocked: PriceList is required by the native FK and deliberately has
-no row grant, while multi-profile binding requires both FK endpoints to have the
-same declared owner. The proposed
+variants, PriceSets and their singular Link under one root. PriceList is required
+by the native FK and deliberately has no row grant. The approved
 [structural-table ownership correction](./preflight/94-commerce-structural-table-ownership.md)
-must resolve this at the shared profile/binding owner. Pricing promotion and
+provides explicit zero-access ownership at the shared profile/binding owner.
+Pricing promotion and
 connected acceptance remain incomplete; Inventory/Stock Location and the
 complete Product composer remain subsequent admission gates.
 

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { requireCommerceProfile, type CommerceProfile, type CommerceProfileState } from "../../commerceTransaction/profile";
+import { hasConfinedCommerceTableOwnership, requireCommerceProfile, type CommerceProfile, type CommerceProfileState } from "../../commerceTransaction/profile";
 import { verifyCommerceInstallation } from "../../commerceTransaction/binding";
 import { installationRuntimeData } from "../installation/runtimeData";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "../installation/storedMetadataRestoration";
@@ -21,25 +21,16 @@ export const validateCommerceProfileSet = Effect.fn("CommerceBinding.validatePro
       value.layout.canonicalJson !== first.layout.canonicalJson)) {
     return yield* Effect.fail(bindingError("unsupportedProfile"));
   }
-  if (descriptors.length === 1) return;
+  if (descriptors.length === 1 && first.structuralTables.length === 0) return;
   const owners = new Map<string, string>();
   for (const descriptor of descriptors) {
     if (!descriptor.localOnly || descriptor.initialization !== null) return yield* Effect.fail(bindingError("unsupportedProfile"));
-    for (const table of descriptor.tables) {
-      if (owners.has(table.tableId)) return yield* Effect.fail(bindingError("unsupportedProfile"));
-      owners.set(table.tableId, descriptor.profileId);
+    for (const tableId of [...descriptor.tables.map(table => table.tableId), ...descriptor.structuralTables]) {
+      if (owners.has(tableId)) return yield* Effect.fail(bindingError("unsupportedProfile"));
+      owners.set(tableId, descriptor.profileId);
     }
   }
-  // Physical relationships resolve to these authenticated application-table FKs.
-  // Scope-authority FKs have a separate kind and do not cross profile authority.
-  for (const key of first.layout.frame.foreignKeys) {
-    if (key.kind !== "foreignKey") continue;
-    const source = owners.get(key.sourceTable.tableId);
-    const target = owners.get(key.targetTable.tableId);
-    if (source !== target && (source !== undefined || target !== undefined)) {
-      return yield* Effect.fail(bindingError("unsupportedProfile"));
-    }
-  }
+  if (!hasConfinedCommerceTableOwnership(first.layout, owners)) return yield* Effect.fail(bindingError("unsupportedProfile"));
 });
 
 /** Trusted value construction only. Preparation/activation revalidate authoritative evidence. */

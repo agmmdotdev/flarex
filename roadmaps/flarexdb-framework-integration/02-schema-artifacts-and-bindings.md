@@ -230,13 +230,16 @@ Activation validates the pair, so canonical identity has no digest cycle.
 
 ## Data Binding Set
 
-The private commerce multi-profile validator currently derives table ownership
-only from data grants and rejects FKs whose source and target do not share that
-owner. A structurally required table with no row capability therefore cannot
-participate in the owning profile's FK closure. The Pricing consumer exposes this
-gap through its structural-only PriceList dependency; the proposed
-[zero-access ownership correction](./preflight/94-commerce-structural-table-ownership.md)
-is pending approval. Existing closure checks remain in force.
+Private local commerce profiles can explicitly own structural tables separately
+from data grants under the approved
+[zero-access ownership contract](./preflight/94-commerce-structural-table-ownership.md).
+The issuer enforces complete FK closure for a nonempty structural selection,
+including singleton use. Binding validates ownership conflicts across both
+selections; data stores still contain only granted tables. At least one data
+grant is required, and the combined selection retains the sixteen-table bound.
+Nonempty structural selections use profile contract encoding 7; omitted and
+empty selections preserve existing digests and legacy singleton behavior.
+Trusted reverse-FK safety probes remain active without granting row access.
 
 `DataBindingSet` coordinates the artifacts required by one deployed
 application:
