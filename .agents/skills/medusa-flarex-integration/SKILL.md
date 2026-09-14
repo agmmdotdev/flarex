@@ -18,11 +18,14 @@ new capabilities, source promotion, or changes to accepted architecture.
 ## Start from the outcome and exact source
 
 This is a repository-local skill. Locate the enclosing Flarex repository root;
-all paths below are relative to that root, not this skill's directory. Inspect
-the relevant current sources:
+code paths below are relative to that root; Markdown links resolve from this
+skill's directory. Inspect the relevant current sources:
 
 - `design-notes/flarex-db-accepted-design.md` and
   `roadmaps/16-package-boundaries.md` for authority and package placement.
+- [Shared logical storage](../../../design-notes/flarexdb-shared-logical-storage.md)
+  and its [roadmap](../../../roadmaps/shared-logical-storage/README.md) for the
+  accepted three-consumer storage, relationship and schema-evolution target.
 - `roadmaps/flarexdb-framework-integration/06-medusa-adoption.md` and the owning
   focused preflight for the requested capability. For shared adapter mechanics,
   start with `preflight/47-medusa-shared-persistence-adapter.md` in that domain.
@@ -47,6 +50,32 @@ adapter test does not make it a prerequisite for the user's workflow. Integrate
 the required module, link/query boundary, and native workflow branch together
 where feasible; do not postpone all integration until standalone modules pass.
 
+## Design for Application, Payload and Medusa together
+
+The accepted target is logical tables, indexes and relationships over generic
+physical storage shared by all three consumers. Do not extend deployment-owned
+commerce table generation as the destination. The project is in development:
+core storage, relations, schema evolution and execution flows may be redesigned;
+current Application APIs and framework internals are not automatic compatibility
+obligations. Preserve actual supported semantics and inventoried durable data.
+
+Medusa records may participate in declared relationships with Application and
+Payload records in either direction. Trace supported model/extension seams,
+stable scoped endpoint identities, indexed forward/reverse access, target
+authorization, soft deletion and schema dependencies. Keep one authoritative
+reference or rich Link record. Traversal does not grant target mutation rights
+or make independent framework calls atomic. Never bypass the target owner's
+behavior or invent cross-owner cascades in an adapter.
+
+Use the roadmap's early connected proof to expose core incompatibilities before
+finishing isolated adapters. Logical evolution must share core planning,
+validation/build, progress/recovery and readiness mechanics; retain native
+compilation and business-conversion meaning. Compare the Application evolution
+owners and framework coordinator, then consolidate or redesign insufficient
+contracts. Do not preserve overlapping migration engines behind a facade.
+Platform physical migrations remain distinct. Neither shared tables nor a
+standalone Medusa test proves cross-framework relations or migration support.
+
 ## Reuse first; change the correct owner when necessary
 
 Before writing adapter logic, find the native owner of normalization, defaults,
@@ -62,8 +91,24 @@ Classify a mismatch before choosing a fix:
 | --- | --- |
 | Framework input/output or lifecycle translation | Keep a narrow Medusa adapter at the boundary. |
 | Reusable Medusa behavior coupled to an ORM, container, or host | Consider extracting the portable behavior or changing the Medusa fork's seam, instead of copying it into Flarex glue. |
-| Missing invariant or insufficient contract in a shared owner | Preserve the failing witness, identify that owner, and obtain approval for its correction. Do not compensate in the consumer. |
+| Missing invariant or insufficient contract in a shared owner | Follow the core-blocker approval procedure below. Do not compensate in the consumer. |
 | Genuine module-specific behavior | Keep a named module extension that uses the shared mechanics. |
+
+When integration exposes a Flarex core blocker, explicitly tell the user what
+failed and why the responsible owner must change. Preserve a reproducible
+witness and record expected/actual behavior in the owning roadmap. Present the
+recommended core correction, viable alternatives, affected consumers, risks,
+compatibility/removal obligations and the nearest connected validation gate.
+Ask for approval of that concrete correction before dependent implementation,
+and explain/link the applicable approval rule. Continue independent investigation.
+Do not use adapter SQL, duplicate enforcement, extra lifetimes, weakened tests,
+limit increases or fallback paths to make the integration pass.
+
+If an existing explicit core-correction approval already covers the same owner
+and contract, state that coverage and continue without asking again. General
+permission to redesign during development is not approval of every future core
+change. A materially different contract needs a revised proposal. Ordinary
+in-scope fixes and test-harness-only defects do not require repeated approval.
 
 Medusa core is not untouchable. A scoped fork change is a valid, sometimes better,
 integration solution. Explain the existing behavior, mismatch, proposed contract,

@@ -18,6 +18,11 @@ into core. Runtime optimization follows this storage decision.
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
   own the target, replacement authority and tradeoffs.
 - [Package boundaries](../16-package-boundaries.md) own dependency placement.
+- [Application evolution planner](../../packages/managed-schema/src/Planning.ts),
+  [Application apply/build composition](../../packages/persistence-postgres/src/applicationManagedSchemaApplication.ts),
+  [framework coordinator](../../packages/persistence-postgres/src/migrationCoordination/freshCoordinator.ts)
+  and [framework migration metadata](../../packages/persistence-postgres/src/migrationCoordination/schema.ts)
+  are the starting owners for logical evolution consolidation.
 - [Schema](../../packages/persistence-postgres/src/schema.ts),
   [ordered index codec](../../packages/flarex-protocol/src/ordered-index.ts),
   [index persistence](../../packages/persistence-postgres/src/appIndexEntries.ts)
@@ -110,6 +115,11 @@ Postgres tests remain evidence only for their actual current implementation.
   request evidence cost, build cost, tenant skew or shared-database contention.
 - Generic schema evolution still needs conversion/build/readiness and old-reader
   handling. No independent-schema or production performance claim is proven.
+- Cross-framework relationships, authorized reverse traversal and dependency-aware
+  evolution have not been proved as one connected Application/Payload/Medusa path.
+- Application evolution and framework structural installation remain distinct
+  implementations. Shared storage does not itself consolidate their metadata,
+  progress or activation responsibilities.
 
 ## Target Direction
 
@@ -119,24 +129,65 @@ the core schema, index and relation machinery to change. An implementation
 preflight should show representative native calls, the shared contract they
 use, the exact incompatibilities being replaced, and the paths removed.
 
+Logical evolution must converge on shared core owners across the three consumers,
+with framework-specific compilation and conversion semantics at the boundary.
+GLS1 inventories both migration metadata sets and overlapping responsibilities;
+GLS4 completes consolidated execution and dependency-aware activation. Do not
+freeze the Application APIs or preserve a separate logical migration engine to
+avoid correcting them. Platform physical upgrades remain a distinct concern.
+
+## Early Cross-Framework Proof
+
+GLS1 defines this contract, GLS2 supplies indexed endpoint access, and GLS3
+executes the connected relation proof. GLS4 adds full transition/recovery
+coverage. Do not postpone discovering dependency or activation incompatibilities
+until all individual adapters are complete. Target behavior remains unimplemented.
+
+- Create a Medusa product through its admitted service/workflow, a Payload page
+  through Local API, and an Application record through its intended execution
+  path. Declare relationships across all three and include one originating in
+  an admitted Medusa-owned extension. Do not prove only references into commerce.
+- Traverse forward and backward through admitted APIs with selective database
+  access. Prove source/target access rules, draft/soft-delete visibility, bounded
+  fan-out and refusal across two shops, even when their local IDs match.
+- Exercise concurrent reference insertion and target deletion, explicit deletion
+  and restore policies, cardinality and dangling-target refusal. A reverse index
+  must not become an independently writable source of truth.
+- Change an endpoint schema while another framework depends on it. Refuse an
+  incompatible activation; prove a supported compatible transition and backfill
+  with concurrent writes. Define cyclic-dependency disposition before activation.
+- Verify rollback, duplicate requests and uncertain-COMMIT recovery for the
+  admitted transaction profile. Where cross-owner mutation is required, use
+  each owner's behavior and an explicitly admitted composition; independent API
+  calls do not become atomic because storage is shared.
+
+Run fast PGlite semantics and ordinary-role Postgres concurrency/query-plan
+witnesses, preserving framework-native assertions. A missing core guarantee is
+a blocker to report with a proposed owner correction, not an adapter workaround.
+
 ## Next Correctness Gates
 
 | Gate | Coherent outcome | Completion evidence |
 | --- | --- | --- |
-| GLS1: contract and baseline | Inventory current three-lane schemas, query/mutation semantics, identities, constraints, profiles and retained consumers; freeze the first connected replacement contract and performance targets. | Exact source/test mappings; representative Product/Variant/Pricing/Link graph and Payload/Application calls; same-workload baseline; named durable environments and public/issued obligations distinguished from resettable fixtures. |
+| GLS1: contract and baseline | Inventory current three-lane schemas, query/mutation semantics, identities, constraints, profiles and both migration systems; freeze the first connected replacement contract and performance targets. | Exact source/test mappings; per-table and per-component retain/extend/replace/delete decisions for Application evolution and framework migration, with named consumers and retirement gates; representative Product/Variant/Pricing/Link graph and Payload/Application calls; same-workload baseline; durable/public obligations distinguished from resettable fixtures. |
 | GLS2: shared logical definitions and indexes | Implement the admitted typed values, composite/conditional indexes, unique ownership, scoped identity and query bounds in existing neutral owners; wire one real consumer from each lane. | Different deployments and logical schemas use the same physical families; exact decimals/nulls/order and active-handle uniqueness pass; actual SQL is selective; index creation means logical metadata/build work, not tenant DDL. |
 | GLS3: logical relations and atomic writes | Complete rich Link records, relationship integrity, pending state and complete shared materialization/publication for the connected workflow. | Native assertions plus parent-delete/child-insert, missing endpoint, pair/cardinality, restore/cascade, cross-scope, rollback, duplicate request and lost-COMMIT witnesses on both database lanes as applicable. |
-| GLS4: logical evolution and serving admission | Add compatible schema/index builds and data conversions through existing lifecycle owners; bind different logical schemas without physical module-table creation. | Concurrent-write backfill coverage, stale-definition refusal, crash/resume, revision-pinned readers/recovery and deliberate integrity contract; measured build and warm admission costs. |
+| GLS4: shared logical evolution and serving admission | Consolidate Application, Payload and Medusa logical planning, validation/build, progress/recovery and readiness; migrate callers off the separate framework structural migration path for business schemas and remove its displaced in-scope components. | Cross-framework dependency checks and compatible activation; concurrent-write backfill coverage, stale-definition refusal, crash/resume and revision-pinned recovery; one authority per responsibility, no parallel logical migration engine or fallback; deliberate integrity contract and measured build/warm admission costs. |
 | GLS5: concurrency and capacity | Replace coarse exclusion only after the shared invariant protocol is approved; prove bounded work and tenant fairness. | Real Postgres barriers, query plans and declared latency/resource limits; independent/conflicting workloads, many scopes/deployments, hot tenants and mixed framework traffic; hosted proof separately gated. |
-| GLS6: final retirement | Finish consumer cutover and remove displaced commerce physical storage paths plus obsolete compiler/adapter contracts. | No generated commerce DDL or fallback in the target runtime; no duplicate authoritative rows, indexes, relations or recovery engine; named retained system/lifecycle DDL users remain explicit; all owning docs reflect actual status. |
+| GLS6: final retirement | Audit complete cutover and removal of displaced commerce physical storage and framework migration systems, including obsolete metadata tables, coordinators, repositories, compiler/adapter contracts, exports and test scaffolding. | No generated commerce DDL, parallel logical migration engine or fallback; no duplicate authoritative rows, indexes, relations, progress or recovery; obsolete tables removed through the approved physical upgrade/reset policy; any retained platform/system lifecycle DDL component has a named consumer and justification; meaningful behavioral coverage and all owning docs match the replacement. |
 
 These are capability gates, not instructions to build a whole core before
 exercising consumers. GLS2/GLS3 must run real consumers as capabilities land.
 Each gate includes in-scope caller migration, obsolete-code removal, roadmap
 reconciliation and one coherent verified commit. GLS6 is the final audit, not
-permission to postpone routine cleanup. A core contract mismatch is corrected
-at its owner under the approved slice; materially different authority or public
-semantics require a focused revised decision.
+permission to postpone routine cleanup. When integration exposes a core mismatch,
+preserve the witness, identify the responsible owner, record the expected/actual
+behavior, and present a concrete correction with alternatives, compatibility,
+cleanup and validation gates. Request explicit core-correction approval before
+dependent implementation unless the existing approved slice already covers that
+exact correction. State that coverage when continuing; do not repeatedly seek
+approval for ordinary in-scope fixes. Broad development-phase redesign permission
+does not authorize every newly discovered core contract change.
 
 ## Relationship To Runtime Scalability
 

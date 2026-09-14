@@ -281,10 +281,14 @@ There is no universal source schema.
 | Payload | Payload configuration plus explicit Application table references | authenticated Application content definitions; a Payload configuration/provenance overlay; and a separate optional lifecycle artifact when physical lifecycle structures exist |
 | Medusa | normalized DML and capability evidence from the admitted Cloudflare-oriented primary-fork snapshot, configured supported module/link set, Joiner/Link configuration and explicit semantic migration intent | shared logical table/index/constraint/relation definitions plus Medusa-owned semantic migration intent |
 
-The current `@flarex/managed-schema` remains application-specific. Its
-compatibility rules must not become a large conditional planner for every
-framework. Shared artifact, installation, readiness, and activation mechanics
-may be extracted only when two real lanes prove the same contract.
+The current `@flarex/managed-schema` is application-specific. The accepted
+[evolution consolidation](./flarexdb-shared-logical-storage.md#schema-evolution-and-admission)
+starts with these owners and compares framework installation guarantees to
+establish shared logical planning, validation, builds, progress and readiness.
+Redesign insufficient contracts; do not add framework-name branches or retain
+two overlapping evolution engines behind a common facade. Native compilation
+and conversion semantics stay with each framework. Cross-framework references
+require dependency-aware schema activation and an early three-consumer proof.
 
 A neutral `RelationalSchema` contains deterministic value definitions for:
 

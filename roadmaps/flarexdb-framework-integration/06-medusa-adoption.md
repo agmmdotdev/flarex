@@ -17,6 +17,14 @@ work with retained system consumers must be inventoried before removal.
 
 ## Status And Scope
 
+The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
+is a required shared-storage integration gate: include Medusa-origin references
+as well as Application/Payload references into commerce, with indexed traversal,
+owner-preserving access, integrity and dependency-aware schema evolution. Report
+core blockers with a proposed correction and request explicit approval unless
+that exact correction is already covered; do not complete the adapter through
+workarounds. The repository Medusa skill carries this integration procedure.
+
 Status: accepted source-backed adoption sequence. The private Currency, Product
 and Sales Channel integrations execute promoted Medusa services through Flarex-owned
 installation, scoped transactions, and relational publication. Currency proves

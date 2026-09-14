@@ -17,9 +17,10 @@ work with retained system consumers must be inventoried before removal.
 
 ## Status And Scope
 
-Status: accepted authority profiles; private optional-one Payload document
-relations implemented. Commerce links and broader Payload relation behavior
-remain pending.
+Status: accepted authority profiles and cross-framework relationship target.
+Private Payload relation and Medusa Link implementations provide baseline
+evidence; the connected shared-logical Application/Payload/Medusa contract and
+coordinated schema evolution remain unimplemented.
 
 This plan owns the boundary between application/Payload document relations,
 relational foreign keys, Medusa Module Links, derived adjacency projections,
@@ -40,7 +41,8 @@ These concepts may be shared when their exact representation is proven:
 - typed change facts; and
 - atomic commit participation.
 
-Authority, lifecycle, storage, and deletion policy remain profile-owned.
+Semantic authority and lifecycle/deletion policy remain with the owning profile.
+Shared core owns storage, declared constraint enforcement and derived indexes.
 
 ## Document Relations
 
@@ -67,16 +69,16 @@ implements bounded forward population over the optional-one relation.
 Population shares the admitted CMS read request; native reverse
 identity windows do not by themselves implement Payload join totals or paging.
 
-## Relational Foreign-Key Relations
+## Logical Relational Constraints
 
-Intra-module normalized relationships may lower to physical columns, foreign
-keys, unique constraints, or pivot tables. The relational row or pivot is
-authoritative.
+The current physical-table baseline lowers intra-module relationships to columns,
+foreign keys, unique constraints or pivots. The target retains authoritative
+logical fields/pivot records and their declared guarantees over shared storage.
 
-Physical foreign keys are used only when endpoints share compatible local
-scope, installation, migration, and deletion lifecycles. The schema compiler
-must not manufacture a foreign key to an external or independently owned
-service merely because Joiner metadata connects the entities logically.
+Core must prove equivalent atomic target existence, uniqueness and deletion
+semantics. Generic physical foreign keys may protect storage identities; they
+cannot directly enforce arbitrary encoded logical fields. Joiner metadata alone
+does not admit a strong relation to a remote or independently owned service.
 
 ## Commerce Links
 
@@ -110,10 +112,10 @@ An optional derived adjacency projection may accelerate reverse lookup,
 bounded traversal, invalidation, Query integration, or sync. It is rebuilt from
 the authoritative document field, foreign-key row, pivot, or commerce-link row.
 
-The current application edge tables are fixed around application row identity,
-source-document occurrences, and document deletion semantics. Do not widen
-their identifiers or storage contract before a real commerce link proves an
-exact reusable subset.
+The current application edge tables use application row identity, source-document
+occurrences and document deletion semantics. Redesign those contracts when the
+early three-consumer proof identifies a mismatch; do not freeze them and add a
+parallel commerce relation engine. Preserve intended native relation behavior.
 
 If a commerce link table's own indexes supply all required queries and change
 facts, the adapter may omit a redundant adjacency projection. There must never
@@ -121,8 +123,12 @@ be two independently writable authorities for the same relationship.
 
 ## Cross-Domain References
 
-An application or CMS extension may reference a stable commerce identity. That
-reference is neither a Payload reverse join nor a Medusa Module Link.
+Application, Payload and admitted Medusa-owned extensions may declare references
+to one another's logical records, including indexed traversal in both directions.
+The [shared cross-framework contract](../../design-notes/flarexdb-shared-logical-storage.md#cross-framework-relationship-contract)
+owns endpoint identity, authorization, integrity and schema dependencies. A
+declaration does not automatically implement Payload reverse-join semantics or
+Medusa Module Link behavior; prove the native operation being exposed.
 
 A `CrossDomainReference` binds:
 
@@ -138,10 +144,16 @@ A `CrossDomainReference` binds:
 The source owner may change its reference value. Only the target owner may
 mutate target state.
 
-Logical validation is the initial default. A physical foreign key requires
-both endpoints to be local relational tables with deliberately coupled
-lifecycles. Document-to-commerce references normally use stable logical target
-identity plus committed change facts rather than a cross-owner physical key.
+Strong local references require atomic shared-core enforcement, including
+concurrent insertion/deletion. Committed change facts or a prior existence read
+alone do not supply that guarantee. Weak or external references require a
+separate explicit contract. Shared logical schema evolution must validate
+dependent endpoint revisions and block incompatible activation across owners.
+
+Use the [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
+before completing isolated integrations. Retain one authoritative field or Link
+record; reverse traversal uses derived indexes and preserves target access and
+lifecycle visibility. A relationship does not grant target mutation authority.
 
 ## Delete And Lifecycle Policy
 
@@ -163,7 +175,10 @@ row/link state and any required projections, facts, and outbox evidence.
 Schema-only steps instead publish fenced migration receipts and readiness
 evidence; an entire multi-step migration is not one long transaction.
 
-## First Commerce-Link Proof
+## Historical Physical Commerce-Link Proof
+
+The sequence below describes the generated-table baseline. New storage work
+follows the shared logical gates and early cross-framework proof above.
 
 After Currency and Product relational storage work:
 
@@ -192,6 +207,7 @@ After Currency and Product relational storage work:
 - Cross-owner references do not grant target mutation authority.
 - Delete, restore, and migration behavior is explicit for every profile.
 - Derived adjacency is rebuildable and cannot be written independently.
-- Current application edge identity and ordering proofs remain intact.
+- Intended Application identity and ordering behavior remains proved after any
+  approved core representation change.
 - PGlite covers deterministic behavior and genuine PostgreSQL proves
   constraints, locking, and concurrent link operations.

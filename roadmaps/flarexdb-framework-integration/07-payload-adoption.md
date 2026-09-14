@@ -21,6 +21,14 @@ limited compiler/query support is baseline evidence, not complete indexing.
 
 ## Status And Scope
 
+The [early cross-framework proof](../shared-logical-storage/README.md#early-cross-framework-proof)
+is a required shared-storage integration gate: use real Payload Local API calls
+with Application/Medusa references, indexed forward/reverse access, visibility,
+integrity and dependency-aware schema evolution. Report core blockers with a
+proposed correction and request explicit approval unless that exact correction
+is already covered; do not compensate with adapter-local enforcement or another
+migration engine. The repository Payload skill carries this procedure.
+
 Status: private pinned `payload@3.88.0` Local API CRUD is implemented for
 compiler-owned scalar collections and one optional relationship, with exact
 combined content/lifecycle admission in the closed headless profile.

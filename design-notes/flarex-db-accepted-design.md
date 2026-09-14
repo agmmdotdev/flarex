@@ -30,6 +30,15 @@ framework behavior, exact data semantics, scope confinement and singular
 settlement; inventory actual durable/public obligations before destructive
 replacement. Existing generic families are foundations, not frozen APIs.
 
+Declared relationships may connect Application, Payload and Medusa records in
+either direction while preserving endpoint ownership and authorization. Shared
+logical schema evolution must track those dependencies across all three, with
+common validation/build/readiness and recovery mechanics. Separate schema
+revisions do not permit incompatible endpoint activation. The
+[cross-framework contract](./flarexdb-shared-logical-storage.md#cross-framework-relationship-contract)
+and roadmap require an early connected proof; neither relationships nor
+migration consolidation are established by shared physical tables alone.
+
 Current Medusa code still installs deployment-named physical module tables.
 That is the displaced implementation and regression baseline, not proof that
 the accepted shared logical target is implemented. Earlier physical receipts

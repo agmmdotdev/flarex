@@ -23,6 +23,9 @@ root. Start with the sources relevant to the requested outcome:
 - `design-notes/flarex-db-accepted-design.md`,
   `design-notes/flarexdb-payload-relational-adapter.md`, and
   `roadmaps/16-package-boundaries.md` for accepted authority and package owners.
+- [Shared logical storage](../../../design-notes/flarexdb-shared-logical-storage.md)
+  and its [roadmap](../../../roadmaps/shared-logical-storage/README.md) for the
+  accepted three-consumer storage, relationship and schema-evolution target.
 - `roadmaps/flarexdb-framework-integration/07-payload-adoption.md` and its
   focused preflight for current scope. The exact-release contract and
   `preflight/payload-release-capability-map.json` identify compatibility evidence.
@@ -43,6 +46,32 @@ validation and hooks, adapter method, Flarex capability, and returned result.
 Calling `payload.db.*` directly does not prove the Local API lifecycle. Native
 storage adapters are useful contract evidence, but their SQL, migrations, and
 transaction mechanisms are not automatically suitable Flarex dependencies.
+
+## Design for Application, Payload and Medusa together
+
+Application, Payload and Medusa target logical schemas over generic shared
+physical storage and shared logical evolution mechanics. The project is in
+development: core storage, relations, query/index contracts and execution flows
+may be redesigned around all three. Do not freeze Application-shaped internals
+or create adapter workarounds to preserve them. Preserve intended framework
+behavior and actual durable/public obligations, not unshipped mechanisms.
+
+Payload collections may declare relationships with Application and admitted
+Medusa records in either direction. Trace stable scoped endpoint identities,
+forward population and reverse queries, target authorization, draft/version and
+soft-delete visibility, cardinality and deletion policies. Keep a single
+authoritative reference or rich Link record with derived indexes. A relationship
+does not grant target mutation authority, bypass hooks/access checks, or turn
+independent API calls into one atomic operation.
+
+Use real Local API calls in the roadmap's early three-consumer proof, including
+schema changes that affect another framework's references. Consolidate logical
+planning, validation/build, progress/recovery and readiness at shared owners;
+compare Application evolution with the framework coordinator and redesign gaps.
+Payload configuration and conversion meaning remain Payload-owned. Avoid a
+second logical migration engine or successful no-op migration methods. Platform
+physical upgrades remain distinct. Shared rows and standalone population tests
+do not establish cross-framework integrity or coordinated schema evolution.
 
 ## Reuse behavior and types from their real owners
 
@@ -137,6 +166,24 @@ Unsupported methods, fields, query forms, and internal collections must fail
 according to the admitted contract. Do not inherit successful no-op transaction
 or migration defaults, enable startup DDL, or infer broad compatibility from the
 mandatory adapter interface being populated.
+
+## Report core blockers and request the proper correction
+
+When integration exposes a Flarex core blocker, explicitly tell the user what
+failed and why the responsible owner must change. Preserve a reproducible
+witness and record expected/actual behavior in the owning roadmap. Present the
+recommended core correction, viable alternatives, affected consumers, risks,
+compatibility/removal obligations and the nearest connected validation gate.
+Ask for approval of that concrete correction before dependent implementation,
+and explain/link the applicable approval rule. Continue independent investigation.
+Do not use adapter SQL, duplicate enforcement, extra lifetimes, weakened tests,
+limit increases or fallback paths to make the integration pass.
+
+If an existing explicit core-correction approval already covers the same owner
+and contract, state that coverage and continue without asking again. General
+permission to redesign during development is not approval of every future core
+change. A materially different contract needs a revised proposal. Ordinary
+in-scope fixes and test-harness-only defects do not require repeated approval.
 
 ## Finish with removal and evidence
 

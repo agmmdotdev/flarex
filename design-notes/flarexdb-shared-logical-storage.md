@@ -167,6 +167,45 @@ Redesign the current edge/row core when those semantics do not fit. Do not
 preserve application-shaped internals by attaching a second commerce relation
 engine. Reuse is judged by authority and semantics, not matching type names.
 
+## Cross-Framework Relationship Contract
+
+Declared relationships between Application, Payload and Medusa logical records
+are an accepted target, including references originating in any of the three
+and indexed traversal in both directions. Prove this early through real native
+calls; completing three isolated adapters does not prove their composition.
+Shared physical storage alone supplies neither integrity nor authorization.
+
+A relationship binds stable source and target identities, their semantic owners,
+the admitted schema revisions, cardinality, visibility and deletion policy.
+Its endpoints must resolve within the authorized scope and compatible local
+transaction placement. Separate deployments do not gain access to one another
+through shared storage. Cross-shop or remote-service references require a
+separate explicit contract; do not claim local atomic enforcement for them.
+
+Keep one authoritative reference field or rich Link record. Reverse traversal
+uses derived indexes, not a second independently writable relationship. The
+source owner can change its reference; target mutations still pass through the
+target's admitted framework behavior. Medusa-owned extensions require a supported
+fork/model seam, not arbitrary writes into built-in commerce records. Read and
+population boundaries preserve access checks and Payload draft/version visibility;
+core must not expose target rows or existence through an unauthorized traversal.
+
+Core enforces the declared relationship atomically, including concurrent target
+deletion and reference insertion. Deletion, soft deletion, restore, cardinality
+and lifecycle visibility need explicit compatible endpoint policies. Never
+silently cascade across owners or invoke unadmitted hooks from constraint code.
+Reject an unsupported policy rather than degrade a strong relation to an
+unchecked ID or asynchronous repair. Distinguish a strong local relation from
+an explicitly admitted weak/external reference.
+
+Schema dependencies span framework boundaries. A candidate that removes or
+changes a referenced table, identity, field, index or relation must account for
+dependent schemas, existing data, in-flight readers and recovery. Independent
+schema evolution is allowed when compatible; incompatible changes require a
+coordinated transition. Dependency cycles cannot be resolved by arbitrarily
+activating one broken endpoint first. The shared evolution contract must either
+admit a coherent activation group or refuse that transition before writes.
+
 ## Transactions, Concurrency And Workflow Boundaries
 
 One physical representation does not require one universal transaction API.
@@ -204,6 +243,27 @@ Definition identity, live authorization and integrity auditing remain separate.
 No cached prepared plan is current execution authority. Select the integrity
 contract explicitly before reducing current evidence checks.
 
+Logical evolution must converge on shared definitions, planning, validation,
+index/constraint builds, progress/recovery and readiness mechanics for all three
+consumers. Begin with the Application evolution owners and compare the existing
+framework coordinator's guarantees. Redesign inadequate contracts instead of
+retaining overlapping engines behind a facade or adding framework-name branches
+to the Application planner. Native schema compilation and business conversion
+meaning remain framework-owned. Data conversions execute through admitted,
+bounded operations with shared progress and settlement; they are not arbitrary
+migration callbacks or one long database transaction.
+
+Current Application evolution is not a ready-made universal engine. Its
+`managed-schema` planner and persistence apply/build/activation owners need a
+connected capability analysis. Current framework migration metadata tables are
+already shared physical tables; their count does not multiply per shop. Inventory
+their responsibilities against Application catalog, build and activation state.
+Retain needed definitions, fences, progress and evidence once per responsibility;
+replace or delete redundant authorities and generated-commerce name/DDL records
+as their consumers move. Platform physical upgrades and explicitly retained
+system/lifecycle consumers remain separately justified. No exact table layout
+or wholesale deletion is approved merely by choosing consolidation.
+
 ## Replacement, Compatibility And Completion
 
 | Existing component | Disposition and completion condition |
@@ -212,7 +272,7 @@ contract explicitly before reducing current evidence checks.
 | Medusa DML, services, workflows, Link semantics and original assertions | Retain intended behavior and provenance; change fork seams when needed, with explicit divergences. |
 | Deployment-named Medusa tables and per-module physical DDL | Replace with logical definitions/shared storage; delete obsolete runtime consumers, exports and tests of displaced mechanics after semantic parity. |
 | Commerce-only store guards and materialization | Replace with shared indexed and bounded mechanics; keep framework lifecycle translation only. |
-| Framework installation/migration infrastructure | Reuse warranted immutable evidence and progress mechanics; inventory system/lifecycle consumers before removing DDL support they still need. |
+| Application evolution and framework installation/migration infrastructure | Consolidate logical planning/build/readiness/progress at shared owners; inventory both metadata sets and replace duplicate authorities. Retain proven evidence/recovery mechanics and explicitly needed platform/system DDL consumers; delete obsolete commerce name assignments and DDL paths after cutover. |
 | Shared settlement, feed, outbox, outcomes and task owners | Retain authority; redesign internals only under explicit connected correctness gates. |
 | Fixed shared Medusa physical tables | Comparison only; no fallback or implementation without a new architecture decision. |
 
