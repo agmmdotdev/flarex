@@ -18,8 +18,11 @@ are removed. Floor observation now bounds live leases independently of expired
 backlog. Journal roots retain one final syscall counter, and write events retain
 canonical bytes/digest without a JSON mirror. Terminal sessions retain request
 identity and fencing while clearing argument/grant/Application authority bodies
-in the same transaction. Index/unique, row representation and remaining
-execution-evidence replacements remain open.
+in the same transaction. Canonical-byte row bodies, stable unique ownership
+and membership-transition index history are implemented within their bounded
+contracts. Coalesced journal evidence remains a separate selection. The storage
+record owns exact status; these changes do not establish generic Medusa execution
+or measured whole-request performance.
 
 The accepted [shared logical storage redesign](../shared-logical-storage/README.md)
 now owns the next cross-consumer storage correction: generic physical families
@@ -40,6 +43,14 @@ witnesses into GLS2/GLS3. GLS5 is coordinated cutover and capacity validation,
 not the first concurrency design. Shared-core ownership includes coherent pending
 index/claim/relation visibility, rollback and outcome recovery across admitted
 participants; an adapter-local working set cannot repair a missing core guarantee.
+
+The [core execution redesign](../../design-notes/flarexdb-core-execution-redesign.md)
+and [execution gates](./10-core-execution-redesign.md) address costs below the
+framework adapters: enabled-index coverage contention, bounded batch
+materialization, commit-sequence critical sections, physical lifetime and
+measured journal/evidence reduction. Native OCC and shared publication remain;
+new execution and benchmark implementations are pending. The PostgreSQL reference
+is test-only, uses PostgreSQL like Flarex, and must match the selected guarantees.
 
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;
@@ -73,6 +84,9 @@ public APIs and production activation retain separate decisions and gates.
   with a physical inventory, source-derived costs, and Payload/Medusa API impact.
   Its status distinguishes implemented replacements from pending slices; it does
   not reopen completed R1/R2.
+- The [core execution plan](./10-core-execution-redesign.md) maps CE0-CE5 into
+  GLS1-GLS6 and requires core/reference equivalence before performance claims.
+  It supplements runtime scalability; it does not introduce a new engine.
 
 ## Current Architecture
 
@@ -192,12 +206,13 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [R2 CMS participant/materialization](./04-implementation-proposal.md#r2-cms-participant-and-application-materialization) | Implemented | CMS orchestration leaves native OCC; both participants use one shared materializer; displaced paths removed |
 | [Replacement and cleanup](./02-migration-and-cleanup.md) | R1/R2 logic cleanup complete; no DDL | Each approved replacement completes its consumer switch and logic cleanup; retained state justified |
 | [Performance and conformance](./03-validation-and-completion.md) | Focused extraction proof exists; broader measurement pending | Representative costs and concurrency meet explicit criteria; affected semantics preserved |
-| [Transactional storage redesign](./07-transactional-storage-redesign.md) | Source audit and replacement proposal complete; implementation not selected | Selected redundant state/work removed, core and integration consumers switched, retention/correctness proven and costs measured |
+| [Transactional storage redesign](./07-transactional-storage-redesign.md) | Bounded batching, wake, row-body, membership and unique-ownership replacements implemented; further evidence work separately gated | Exact source/status remain in the owning record; whole-request and generic-framework performance are not inferred from isolated reductions |
 | [Named cross-domain command](./05-named-command-preflight.md) | Private Currency + scalar CMS + Application profile implemented | Actual domain paths, complete atomic publication, rollback and retained recovery proven |
 | [Atomic commerce composition](../workflow-foundations/09-atomic-composition.md) | Private Product/Currency profile implemented and validated | Exact installation-set admission, aggregate lifetime and complete relational publication through the existing owner |
 | [Application command invocation](./06-application-command-invocation-preflight.md) | Preflight complete; Action-first implementation proposed | Authenticated real Action callback, frozen-intent recovery and explicit shared effect contract; Task invocation separately gated |
 | [Runtime scalability redesign](./09-runtime-scalability-redesign.md) | Design recorded; runtime implementation and database validation pending | Selective work independent of total catalog size, explicit integrity/recovery guarantees, and proven concurrent publication across affected owners |
 | [Shared query and constraint acceptance](../shared-logical-storage/02-query-and-constraint-acceptance.md) | Required early design/execution gates; not implemented | GLS1 invariant/lock and history contracts; GLS2/GLS3 pending indexed reads, native-Link/strong-reference policies and distinct-connection constraints; GLS5 coordinated overlap/capacity proof |
+| [Core execution redesign](./10-core-execution-redesign.md) | Design recorded; CE0-CE5 execution and measurement pending | Matched PostgreSQL reference, batch materialization, proven index-lifecycle/commit protection and conditional evidence reduction; affected real consumers, failure behavior and retirement pass |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
 The [named-command contract](./05-named-command-preflight.md) is implemented
