@@ -10,6 +10,7 @@ import {
   FRAMEWORK_SCHEMA_TARGET_NAMESPACE_VERSION,
 } from "../../migrationCoordination/targetNamespace";
 import type { JsonObject } from "flarex-protocol/json";
+import { hasExactNumericCompanionDefaults } from "../exactNumeric";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import {
   MAX_RELATIONAL_SCHEMA_CAPABILITIES,
@@ -518,10 +519,8 @@ function validatePhysicalCapability(
         capability.numericColumn.identity.tableId !==
           capability.rawColumn.identity.tableId ||
         numeric.type !== "numeric" || raw.type !== "jsonb" ||
-        numeric.nullable !== raw.nullable ||
-        numeric.default.kind !== "exactNumericLiteral" ||
-        raw.default.kind !== "exactNumericRawLiteral" ||
-        numeric.default.value !== raw.default.value ||
+        !hasExactNumericCompanionDefaults(numeric, raw) ||
+        capability.matchingNullability !== (numeric.nullable === raw.nullable) ||
         !samePhysicalDefault(numeric.default, capability.numericDefault) ||
         !samePhysicalDefault(raw.default, capability.rawDefault) ||
         derivedColumns.has(rawKey)) return false;
@@ -1135,7 +1134,7 @@ export function isStoredRelationalPhysicalCapability(
     case "exactNumericCompanion":
       return isPhysicalColumnReference(input.numericColumn) &&
         isPhysicalColumnReference(input.rawColumn) &&
-        input.matchingNullability === true &&
+        typeof input.matchingNullability === "boolean" &&
         isPhysicalDefault(input.numericDefault) &&
         isPhysicalDefault(input.rawDefault) &&
         input.residualRequirement ===

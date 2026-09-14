@@ -229,7 +229,7 @@ export type RelationalPhysicalCapabilityEvidence =
       readonly kind: "exactNumericCompanion";
       readonly numericColumn: RelationalPhysicalColumnReference;
       readonly rawColumn: RelationalPhysicalColumnReference;
-      readonly matchingNullability: true;
+      readonly matchingNullability: boolean;
       readonly numericDefault: RelationalPhysicalDefault;
       readonly rawDefault: RelationalPhysicalDefault;
       readonly residualRequirement: "exactNumericCompanionWriteBehavior";

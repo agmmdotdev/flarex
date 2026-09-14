@@ -9,7 +9,8 @@ export const dmlSchemaOrigins: SchemaOrigins = {
   table: table => (table.columns.some(column => column.primaryKey) ? authored : implicit)(table.name),
   column: (table, column) => ["created_at", "updated_at", "deleted_at"].includes(column.name)
     ? implicit("dml." + column.name)
-    : column.generated ? derived(table.name + "." + column.name)
+    : column.generated || table.columns.some(numeric => numeric.type === "bigNumber" && column.name === "raw_" + numeric.name)
+      ? derived(table.name + "." + column.name)
       : (table.columns.some(column => column.primaryKey) ? authored : implicit)(table.name + "." + column.name),
   primaryKey: table => authored(table.name + ".primary"),
   searchable: table => authored(table.name + ".searchable"),
@@ -29,6 +30,7 @@ function columnType(column: SchemaColumn): LoweredColumn["type"] {
 function columnDefault(column: SchemaColumn): ColumnDefault {
   const value = column.defaultValue;
   if (value === undefined) return { kind: ["created_at", "updated_at"].includes(column.name) ? "currentTimestamp" : "none" };
+  if (value === null) return { kind: "none" };
   if (column.type === "bigNumber") return { kind: "exactNumericLiteral", value: String(value) };
   if (typeof value === "object") return { kind: "exactNumericRawLiteral", ...value };
   if (typeof value === "boolean") return { kind: "booleanLiteral", value };
@@ -172,7 +174,10 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
         constraints,
         relationships,
       },
-      capabilities: [...capabilities, ...(table.exactNumbers ?? []).map(companion => ({
+      capabilities: [...capabilities, ...(table.exactNumbers ?? table.columns.filter(column => column.type === "bigNumber").map(column => ({
+        capabilityId: table.name + "." + column.name + ".exact-number",
+        numericColumn: column.name, rawColumn: "raw_" + column.name,
+      }))).map(companion => ({
         capabilityId: companion.capabilityId, kind: "exactNumericCompanion",
         numericColumn: reference(companion.numericColumn), rawColumn: reference(companion.rawColumn),
         origin: derived("dml.big-number.companion"),

@@ -927,7 +927,7 @@ function lowerCapability(
             tableNames,
             columnNames,
           ),
-          matchingNullability: true,
+          matchingNullability: numeric.nullable === raw.nullable,
           numericDefault: copyPhysicalDefault(numeric.default),
           rawDefault: copyPhysicalDefault(raw.default),
           residualRequirement: "exactNumericCompanionWriteBehavior",

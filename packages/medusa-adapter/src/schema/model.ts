@@ -15,8 +15,8 @@ type ColumnBase = Readonly<Pick<DatabaseColumn, "name" | "nullable" | "primaryKe
 export type SchemaColumn = ColumnBase & (
   | { readonly type: "id" | "text" | "number" | "boolean" | "dateTime" | "json" | "enum";
       readonly defaultValue?: string | number | boolean }
-  | { readonly type: "bigNumber"; readonly defaultValue?: string | number }
-  | { readonly type: "json"; readonly defaultValue: { readonly value: string; readonly precision: number } }
+  | { readonly type: "bigNumber"; readonly defaultValue?: string | number | null }
+  | { readonly type: "json"; readonly defaultValue?: string | number | boolean | null | { readonly value: string; readonly precision: number } }
 );
 
 export type SchemaTable = Readonly<Pick<DatabaseTable, "name">> & {

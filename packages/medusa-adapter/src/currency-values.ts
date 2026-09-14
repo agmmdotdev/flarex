@@ -1,19 +1,13 @@
 import { Effect, Schema } from "effect";
-import { BigNumber } from "@medusajs/utils/totals/big-number";
 import { capturePrivateJsonData, commerceError, commerceLimits, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "./commerce-decoder";
 import { currencyValueProfile } from "./currency-value-profile";
+import { decodeExactNumeric, encodeExactNumeric } from "./exact-numeric";
 
 export { captureCommerceInput as captureCurrencyInput } from "./commerce-input";
 import { captureCommerceInput as captureCurrencyInput } from "./commerce-input";
 
-const NumericInput = Schema.Union([Schema.String, Schema.Number]);
 const decodeWriteBatch = commerceDecoder(Schema.Array(Schema.Unknown).check(Schema.isMaxLength(commerceLimits.catalogRows)), "invalidInput");
-const decodeStoredNumeric = commerceDecoder(NumericInput, "storedCorruption");
-const decodeRawNumeric = commerceDecoder(Schema.Struct({
-  value: Schema.String,
-  precision: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 100 })),
-}).annotate({ parseOptions: { onExcessProperty: "ignore" } }), "storedCorruption");
 
 export const currencyWriteRows = Effect.fn("CurrencyAdapter.writeRows")(function* (input: unknown) {
   const captured = yield* Effect.fromResult(captureCurrencyInput(input));
@@ -24,11 +18,8 @@ export const currencyWriteRows = Effect.fn("CurrencyAdapter.writeRows")(function
     const value = yield* Effect.fromResult(decodeWriteRow(inputRow));
     const row: Record<string, Json> = { ...value, code: value.code.toLowerCase() };
     if (value.rounding !== undefined) {
-      const roundingInput = value.rounding;
-      const rounding = yield* Effect.try({ try: () => new BigNumber(roundingInput), catch: cause => commerceError("invalidInput", cause) });
-      const raw = rounding.raw;
-      if (raw === undefined || !Number.isFinite(rounding.numeric) || typeof raw.value !== "string") return yield* Effect.fail(commerceError("invalidInput"));
-      row.rounding = raw.value;
+      const { value: rounding, raw } = yield* encodeExactNumeric(value.rounding);
+      row.rounding = rounding;
       row.raw_rounding = (yield* Effect.fromResult(capturePrivateJsonData(raw, commerceLimits.rowBytes, commerceError))).value;
     }
     rows.push(row);
@@ -47,13 +38,8 @@ export const serializeCurrency = Effect.fn("CurrencyAdapter.serialize")(function
     const decoded = yield* Effect.fromResult(decodeStoredRow(value));
     const row: Record<string, Json> = { ...decoded };
     if (decoded.rounding !== undefined) {
-      const storedValue = yield* Effect.fromResult(decodeStoredNumeric(decoded.rounding));
       // Ignore extra raw metadata for conversion, but retain it in the row.
-      const raw = yield* Effect.fromResult(decodeRawNumeric(decoded.raw_rounding));
-      const numeric = yield* Effect.try({ try: () => new BigNumber(raw), catch: cause => commerceError("storedCorruption", cause) });
-      const stored = yield* Effect.try({ try: () => new BigNumber(storedValue), catch: cause => commerceError("storedCorruption", cause) });
-      if (!Number.isFinite(numeric.numeric) || numeric.bigNumber === undefined || stored.bigNumber === undefined || !numeric.bigNumber.eq(stored.bigNumber)) return yield* Effect.fail(commerceError("storedCorruption"));
-      row.rounding = numeric.numeric;
+      row.rounding = yield* decodeExactNumeric(decoded.rounding, decoded.raw_rounding);
     }
     output.push(row);
   }

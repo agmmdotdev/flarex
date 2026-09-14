@@ -7,6 +7,7 @@ import {
 import { Brand, Result } from "effect";
 
 import { RelationalSchemaError } from "./errors";
+import { hasExactNumericCompanionDefaults } from "./exactNumeric";
 import {
   RELATIONAL_SCHEMA_FORMAT,
   RELATIONAL_SCHEMA_FORMAT_VERSION,
@@ -1019,10 +1020,7 @@ function validateRelationalSchema(
           numeric.origin.kind !== "authored" ||
           raw.type !== "jsonb" ||
           raw.origin.kind !== "derived" ||
-          numeric.nullable !== raw.nullable ||
-          numeric.default.kind !== "exactNumericLiteral" ||
-          raw.default.kind !== "exactNumericRawLiteral" ||
-          numeric.default.value !== raw.default.value
+          !hasExactNumericCompanionDefaults(numeric, raw)
         ) {
           return yield* Result.fail(RelationalSchemaError.invalidInput(
             capabilityPath,

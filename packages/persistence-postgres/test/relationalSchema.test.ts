@@ -222,7 +222,24 @@ describe("private relational schema values", () => {
     );
   });
 
-  it("couples exact numeric companion nullability", () => {
+  it.each([false, true])("admits default-free numeric columns with nullable generated companions (numeric nullable %s)", nullable => {
+    const input = currencyInput();
+    for (const column of input.tables[0]?.columns ?? []) {
+      if (["rounding", "raw_rounding"].includes(column.columnId)) {
+        Reflect.set(column, "default", { kind: "none" });
+        Reflect.set(column, "nullable", column.columnId === "raw_rounding" || nullable);
+      }
+    }
+    expect(Result.isSuccess(normalizeRelationalSchema(input))).toBe(true);
+  });
+
+  it.each(["rounding", "raw_rounding"])("rejects a one-sided default on %s", columnId => {
+    const input = currencyInput();
+    Reflect.set(input.tables[0]?.columns.find(column => column.columnId === columnId) ?? {}, "default", { kind: "none" });
+    expectInvalid(input, "$.capabilities[currency.exact-number]");
+  });
+
+  it("requires a nullable companion when the numeric column is nullable", () => {
     const nullable = currencyInput();
     const nullableColumns = nullable.tables[0]?.columns ?? [];
     Reflect.set(

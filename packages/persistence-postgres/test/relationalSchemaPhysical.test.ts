@@ -16,6 +16,7 @@ import {
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   currencyArtifact,
+  currencySchemaInput,
   expectDeeplyFrozen,
   FRAMEWORK_VALUE_LOCATOR,
   frameworkTargetNamespace,
@@ -29,6 +30,33 @@ type PublicPhysicalExport = Extract<
 >;
 
 describe("private relational physical values", () => {
+  it.each([false, true])("authenticates exact numeric nullability evidence (matching %s)", async matching => {
+    const schema = currencySchemaInput();
+    for (const column of schema.tables[0]?.columns ?? []) {
+      if (["rounding", "raw_rounding"].includes(column.columnId)) {
+        Reflect.set(column, "default", { kind: "none" });
+        Reflect.set(column, "nullable", column.columnId === "raw_rounding" && !matching);
+      }
+    }
+    const artifact = await runEffect(captureRelationalSchemaArtifact({
+      deploymentId: "deployment-a", provenance: { kind: "synthetic", fixtureId: "numeric-nullability" }, schema,
+    }));
+    const layout = await runEffect(captureRelationalPhysicalLayout({
+      artifact: artifact.artifact, physicalLocator: FRAMEWORK_VALUE_LOCATOR, targetNamespace: await frameworkTargetNamespace(),
+    }));
+    expect(layout.frame.requiredPhysicalCapabilities.find(capability => capability.kind === "exactNumericCompanion"))
+      .toMatchObject({ matchingNullability: matching });
+    expect(await runEffect(verifyStoredRelationalPhysicalValue({ kind: "physicalLayout",
+      canonicalBytes: new TextEncoder().encode(layout.canonicalJson), sha256Hex: layout.layoutSha256,
+    }))).toEqual(layout.frame);
+    const altered = { ...layout.frame, requiredPhysicalCapabilities: layout.frame.requiredPhysicalCapabilities.map(capability =>
+      capability.kind === "exactNumericCompanion" ? { ...capability, matchingNullability: !matching } : capability) };
+    const canonical = encodeCanonicalJson(altered, cause => { throw cause; });
+    expect(await runEffectFailure(verifyStoredRelationalPhysicalValue({ kind: "physicalLayout",
+      canonicalBytes: new TextEncoder().encode(canonical), sha256Hex: createHash("sha256").update(canonical).digest("hex"),
+    }))).toMatchObject({ reason: "storedStateCorrupt" });
+  });
+
   it("remains absent from root and package export surfaces", async () => {
     expectTypeOf<PublicPhysicalExport>().toEqualTypeOf<never>();
     const packageJson = await import("../package.json", {

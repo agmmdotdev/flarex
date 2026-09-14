@@ -67,6 +67,9 @@ export const productSchemaInput = Effect.fn("MedusaProduct.schemaInput")(
 const productSchemaFromCompiled = Effect.fn("MedusaProduct.normalizeCompiled")(
   function* (compiled: Effect.Success<ReturnType<typeof decodeCompiled>>) {
     if (
+      compiled.tables.some(table => table.columns.some(column =>
+        column.type === "bigNumber" || column.defaultValue === null ||
+        typeof column.defaultValue === "object")) ||
       compiled.tables.length !== expectedTables.length ||
       compiled.tables
         .map((table) => table.name)

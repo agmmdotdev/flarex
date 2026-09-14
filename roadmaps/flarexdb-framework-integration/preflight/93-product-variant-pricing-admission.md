@@ -1,9 +1,8 @@
 # Product Variant Pricing: Admission Preflight
 
-Status: proposed. The user approved this investigation, not the new schema,
-population or Pricing capabilities below. Approval of this record would cover
-the ordered foundation and connected slices, their regression fixes, reviews,
-cleanup and scoped commits. Newly discovered authority, compatibility or
+Status: approved; implementation in progress. Approval covers the ordered
+foundation and connected slices, their regression fixes, reviews, cleanup and
+scoped commits. Newly discovered authority, compatibility or
 resource-contract changes retain their separate preflight gate.
 
 ## Outcome and sequence
@@ -73,7 +72,7 @@ installed-schema or database acceptance claim.
 | PriceSet and PriceRule decode; Price fails at `columns[3].type` (`bigNumber`). | Shared Medusa checked-DML grammar rejects the compiler's numeric output. `schema/model.ts` and lowering already name numeric types, but that does not establish admission. Extend the real decoder and validated companion construction. |
 | Price's foreign targets are `price_set` and `price_list`; PriceList fails at `indexes[0].where`. | The shared decoder accepts only `deleted_at IS NULL`; current lowering maps every nonempty admitted predicate to that meaning. Do not bypass the decoder or let it mislower the compound condition. |
 | Relational logical/physical predicates currently represent only null or one `isNull` atom. | Persistence's schema policy, canonicalization, stored validation, capability identity and structural SQL owner need an explicit neutral extension before exact PriceList admission. This is a new shared contract, not an installer failure. |
-| Exact numeric companion policy currently requires matching nullability and matching nonempty numeric/raw defaults. | Native Price amount has no default, a required numeric column and nullable generated raw column; optional quantity bounds also lack defaults. The existing Currency-shaped capability does not establish these contracts. Extend logical/physical validation deliberately; do not manufacture zero defaults or silently change native nullability. |
+| Exact numeric companion policy originally required matching nullability and matching nonempty numeric/raw defaults. | Native Price amount and its model-builder raw companion are required and have no defaults; optional quantity bounds and their companions are nullable without defaults. The model builder supplies raw properties before compilation, without the compiler's `generated` flag. The compiler fallback for a missing raw property instead produces nullable generated JSON. Validate both forms and derive companion provenance from the checked numeric relationship; do not manufacture zero defaults or change native nullability. |
 | Shared relation population accepts paths/order/lifecycle but no child predicate. | Extend the shared Medusa read/population owner. Its local fetched-row reuse must account for the predicate; equal target tables do not make differently filtered populations interchangeable. |
 
 These are identified admission prerequisites. There is no evidence here of a
@@ -83,6 +82,11 @@ temporary model probe is not native Pricing service, storage or concurrency proo
 ## Foundation slices
 
 ### A1. Exact numeric metadata and values
+
+Implemented. Shared decoding admits model-builder and compiler-fallback numeric
+companions. Logical and physical default policies agree; physical evidence
+records and validates actual nullability equality. Currency retains its existing
+schema identity and delegates value conversion to the shared adapter owner.
 
 Extend shared Medusa compiled-DML decoding to validate `bigNumber` columns and
 their actual generated raw companions. Extend the existing persistence companion
@@ -98,6 +102,15 @@ Reuse existing numeric codecs/native BigNumber handling and Currency evidence;
 do not convert exact values through an extra floating-point representation.
 Existing Currency artifacts, physical identities and defaults must be unchanged.
 Use neutral required/optional numeric models as well as the actual Price model.
+
+Absent and nullable null DML defaults lower to the existing `none` default.
+Companions either both lack defaults or retain equal explicit numeric/raw
+defaults. A nullable numeric requires nullable raw storage. Required numerics
+may use nullable generated raw storage, with paired-write and read-corruption
+checks remaining the adapter's residual obligation. Selected nullable values
+require two nulls; a present value requires a finite native BigNumber and an
+equal raw value. Missing selected values and conflicting/malformed raw payloads
+are corruption; caller raw write fields remain outside the numeric write API.
 
 ### A2. Bounded compound partial-index predicates
 
