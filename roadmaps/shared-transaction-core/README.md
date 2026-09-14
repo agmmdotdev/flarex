@@ -34,6 +34,13 @@ proof; do not first expand the displaced physical commerce model. Existing
 locking and admission remain in force until their coordinated replacements are
 proven. Each gate includes consumer migration, cleanup and roadmap reconciliation.
 
+The [query and constraint acceptance contract](../shared-logical-storage/02-query-and-constraint-acceptance.md)
+brings the invariant/lock design into GLS1 and unique/relation concurrency
+witnesses into GLS2/GLS3. GLS5 is coordinated cutover and capacity validation,
+not the first concurrency design. Shared-core ownership includes coherent pending
+index/claim/relation visibility, rollback and outcome recovery across admitted
+participants; an adapter-local working set cannot repair a missing core guarantee.
+
 This domain tracks core transaction, publication and recovery ownership across
 Application, Payload/CMS and Medusa/commerce; remaining ownership work;
 replacement and cleanup obligations; and performance and completion gates.
@@ -159,6 +166,14 @@ as separate storage/progress obligations. Installation and app schema validation
 remain outside that investigation. Pending slices do not describe implemented
 behavior, and storage reductions alone do not establish measured performance.
 
+The generic replacement also requires a declared commerce history/retention
+contract and a per-operation amplification budget. Preserve evidence needed by
+native OCC, pinned readers, recovery and event delivery; do not infer infinite
+retention or safe pruning from shared physical placement. Tenant-dependent native
+caches and prepared plans have separate lifetimes from fresh authorization.
+The acceptance contract owns these proof obligations; implementation and measured
+benefits remain pending.
+
 ## Target Direction
 
 Every common guarantee has an explicit owner; each framework participates
@@ -182,6 +197,7 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [Atomic commerce composition](../workflow-foundations/09-atomic-composition.md) | Private Product/Currency profile implemented and validated | Exact installation-set admission, aggregate lifetime and complete relational publication through the existing owner |
 | [Application command invocation](./06-application-command-invocation-preflight.md) | Preflight complete; Action-first implementation proposed | Authenticated real Action callback, frozen-intent recovery and explicit shared effect contract; Task invocation separately gated |
 | [Runtime scalability redesign](./09-runtime-scalability-redesign.md) | Design recorded; runtime implementation and database validation pending | Selective work independent of total catalog size, explicit integrity/recovery guarantees, and proven concurrent publication across affected owners |
+| [Shared query and constraint acceptance](../shared-logical-storage/02-query-and-constraint-acceptance.md) | Required early design/execution gates; not implemented | GLS1 invariant/lock and history contracts; GLS2/GLS3 pending indexed reads, native-Link/strong-reference policies and distinct-connection constraints; GLS5 coordinated overlap/capacity proof |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
 The [named-command contract](./05-named-command-preflight.md) is implemented

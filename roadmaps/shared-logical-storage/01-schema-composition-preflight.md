@@ -24,6 +24,11 @@ workflow parity, new public APIs, ownership transfer or advanced migrations.
 Those remain the connected follow-on gates in the [core roadmap](./README.md)
 and [deferred evolution note](./deferred-framework-schema-evolution.md).
 
+The [query and constraint acceptance contract](./02-query-and-constraint-acceptance.md)
+constrains the definitions produced here and the subsequent GLS2/GLS3 execution.
+It does not widen this candidate-only slice into Pricing execution, new Payload
+index support, runtime Link enforcement or publication-lock replacement.
+
 ## Current Paths And Concrete Mismatches
 
 | Current owner and source | Observed boundary | Required correction |
@@ -62,6 +67,16 @@ edit them to accept a weakened candidate.
   identity, null, enum, timestamp, soft-delete, index predicate and FK/relation
   requirements in typed definitions. A pivot without a native primary ID must
   retain its unique endpoint contract; do not invent a public Medusa ID.
+- Preserve the distinction between value encoding, comparison/collation, null or
+  missing values, conditional membership and unique-null policy. A persisted
+  semantic requirement is not evidence that the current ordered codec executes it.
+  Refuse unsupported execution at readiness rather than coercing decimal values
+  to float64/string ordering or dropping predicates from the candidate.
+- Distinguish module-local relationship requirements, native stored-Link policy
+  and explicitly strong local references. Resolve schema endpoints in all cases;
+  do not infer runtime record-existence checks from a reference-shaped field or
+  a producer label. Stronger native-Link behavior requires an explicit divergence
+  contract. No Link runtime or additional module is activated by this slice.
 - Express references as qualified endpoint identities and exact requirements,
   resolved against the candidate or retained authorized definitions. No module
   import order, coincident name, runtime global registry or arbitrary SQL decides
@@ -121,6 +136,26 @@ This proves a persisted candidate graph, not runtime relation traversal or
 generic commerce writes. GLS3 must subsequently exercise native APIs, indexed
 forward/reverse queries, mutation constraints and publication on shared rows.
 Do not report those capabilities from this admission-only checkpoint.
+
+Persist/reload the applicable comparison, unique-null, predicate and relation
+policy requirements without conflating them. Native Product's active-handle
+predicate and declared module-local relationships are immediate witnesses;
+Pricing decimals and richer native Links remain follow-on producer/execution
+witnesses, not a requirement to expand this first Product candidate. A changed
+policy must change the authenticated definition/evidence and cannot reuse old
+readiness. Tests must distinguish unresolved schema targets from a selected
+runtime policy concerning absent records.
+
+## Execution Handoff
+
+After candidate admission, follow the [early execution witnesses](./02-query-and-constraint-acceptance.md):
+representative calculated-pricing access paths, native Payload indexed non-ID
+and unique operations, explicit Link/reference semantics, and pending indexed
+visibility. Specify invariant protection before those write contracts are
+finalized and add ordinary-role distinct-connection races as they land.
+These are GLS2/GLS3 acceptance obligations, not serving authority or runtime
+implementation approval conferred by this metadata checkpoint. Preserve current
+active readers and exact native behavior until their proved consumer cutover.
 
 ## Retain, Extend, Replace And Delete Inventory
 

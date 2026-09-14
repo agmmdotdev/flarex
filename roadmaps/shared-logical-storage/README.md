@@ -23,6 +23,9 @@ into core. Runtime optimization follows this storage decision.
 - [Accepted database design](../../design-notes/flarex-db-accepted-design.md) and
   [shared logical storage decision](../../design-notes/flarexdb-shared-logical-storage.md)
   own the target, replacement authority and tradeoffs.
+- [Query and constraint acceptance](./02-query-and-constraint-acceptance.md)
+  owns the early source-to-proof matrix, native-Link distinction, pending-state
+  witnesses and comparison requirements. These are required tests, not results.
 - [Package boundaries](../16-package-boundaries.md) own dependency placement.
 - [Application evolution planner](../../packages/managed-schema/src/Planning.ts),
   [Application apply/build composition](../../packages/persistence-postgres/src/applicationManagedSchemaApplication.ts),
@@ -147,6 +150,33 @@ extension contracts for later evolution. General transition orchestration is
 deferred. Do not freeze Application APIs or preserve a parallel engine to avoid
 correcting them. Platform physical upgrades remain a distinct concern.
 
+## Early Query And Constraint Gates
+
+The [acceptance contract](./02-query-and-constraint-acceptance.md) is part of GLS1
+and the connected GLS2/GLS3 deliverables, not a new metadata-only program. GLS1
+maps calculated Pricing and Payload indexed operations to a finite neutral
+query contract, declares exact value/unique-null/relation policies, and specifies
+pending visibility and the invariant/lock protocol. It also defines commerce
+history obligations, native cache lifetimes and predeclared comparison targets.
+
+GLS2/GLS3 must execute representative calculated-pricing access paths, indexed
+Payload non-ID and unique operations, conditional-unique restore, rich Link
+records, pending indexed reads and distinct-connection constraint races. Full
+Pricing module admission and advanced migrations remain separate. A passing
+candidate-only checkpoint cannot substitute for these execution proofs.
+
+The native Module Link baseline lacks endpoint FKs. Preserve its declared
+cardinality/lifecycle behavior; strong local references add an explicitly
+admitted existence/deletion contract. Missing schema dependencies always refuse,
+but missing record targets are governed by the selected relationship policy.
+Do not strengthen every Link implicitly or weaken a declared strong reference.
+
+GLS5 measures and completes coordinated publication-lock cutover and capacity.
+It does not defer concurrency design until after shared writes exist. Temporary
+coarse exclusion can prove safety, not independent-operation overlap. Each
+migrated consumer must pass its applicable acceptance witnesses before its old
+path is removed; final GLS6 retirement audits the complete set.
+
 ## First Core Composition Gate
 
 The [first implementation preflight](./01-schema-composition-preflight.md)
@@ -199,9 +229,11 @@ target behavior remains unimplemented.
 - Traverse forward and backward through admitted APIs with selective database
   access. Prove source/target access rules, draft/soft-delete visibility, bounded
   fan-out and refusal across two shops, even when their local IDs match.
-- Exercise concurrent reference insertion and target deletion, explicit deletion
-  and restore policies, cardinality and dangling-target refusal. A reverse index
-  must not become an independently writable source of truth.
+- Exercise concurrent strong-reference insertion and target deletion, explicit
+  deletion/restore policies and dangling-target refusal. Separately characterize
+  native-Link missing endpoints, cardinality, custom data and conflicting restore;
+  stronger Link enforcement needs an explicit compatibility decision. A reverse
+  index must not become an independently writable source of truth.
 - Present an incompatible endpoint candidate while another framework depends
   on it and prove refusal without changing active authority or data. Preserve
   coverage for already admitted builds/activation and concurrent writes. Defer
@@ -219,12 +251,12 @@ a blocker to report with a proposed owner correction, not an adapter workaround.
 
 | Gate | Coherent outcome | Completion evidence |
 | --- | --- | --- |
-| GLS1: contract and baseline | Inventory current three-lane schemas, query/mutation semantics, identities, constraints, profiles and both migration systems; freeze the first connected replacement contract and performance targets. | Exact source/test mappings; per-table and per-component retain/extend/replace/delete decisions for Application evolution and framework migration, with named consumers and retirement gates; representative Product/Variant/Pricing/Link graph and Payload/Application calls; same-workload baseline; durable/public obligations distinguished from resettable fixtures. |
-| GLS2: core composition, shared definitions and indexes | First prove joint producer admission and existing-table overlays, then implement admitted typed values, composite/conditional indexes, unique ownership and query bounds; wire one real consumer from each lane. | First core composition gate passes with stable identities, explicit schema/write ownership and dependency/conflict refusal; different deployments/schemas share physical families; exact decimals/nulls/order and active-handle uniqueness pass; actual SQL is selective; logical index creation does not issue tenant DDL. |
-| GLS3: logical relations and atomic writes | Complete rich Link records, relationship integrity, pending state and complete shared materialization/publication for the connected workflow. | Native assertions plus parent-delete/child-insert, missing endpoint, pair/cardinality, restore/cascade, cross-scope, rollback, duplicate request and lost-COMMIT witnesses on both database lanes as applicable. |
+| GLS1: contract and baseline | Inventory three-lane semantics and both migration systems; specify calculated-pricing/Payload access plans, exact values, relation policies, pending visibility, invariant/lock order, history/cache obligations and performance targets. | Source-to-proof matrix and named retain/extend/replace/delete owners; native-Link versus strong-reference distinction; representative same-workload comparators, cost metrics and proposed breaks; durable/public obligations distinguished from resettable fixtures. |
+| GLS2: core composition, shared definitions and indexes | Prove candidate-only joint admission first, then typed ordered values, conditional indexes/claims and operation-bounded queries through real consumers; begin the representative Pricing query proof. | Stable identities and serving refusal for unsupported metadata; decimal/null/collation differential tests, indexed Payload non-ID/unique operations, pending index membership and concurrent unique-claim/restore witnesses; selective SQL without tenant DDL. |
+| GLS3: logical relations and atomic writes | Complete the representative Pricing query and connected workflow, rich Links/strong references, pending graph state and shared materialization/publication under the previously specified invariant protocol. | Native result/ordering/count assertions; separately characterized Link and strong-reference policies; rich data, parent-delete/reference-insert and cardinality races, pending new/old index reads, rollback, duplicate requests and lost-COMMIT recovery on the applicable database lanes. |
 | GLS4: shared core readiness and evolution boundary | Consolidate admitted installation/build, validation, progress/recovery and serving readiness across the three consumers; migrate callers off displaced structural migration paths and remove obsolete components; record extension contracts for later evolution. | Admitted activation/build and concurrent-write safeguards, dependency/stale-definition refusal, crash/resume and pinned recovery; one authority per responsibility and no fallback; unsupported upgrades/conversions/ownership transfers remain blocked; no advanced evolution implementation is required for this gate. |
-| GLS5: concurrency and capacity | Replace coarse exclusion only after the shared invariant protocol is approved; prove bounded work and tenant fairness. | Real Postgres barriers, query plans and declared latency/resource limits; independent/conflicting workloads, many scopes/deployments, hot tenants and mixed framework traffic; hosted proof separately gated. |
-| GLS6: final retirement | Audit complete cutover and removal of displaced commerce physical storage and framework migration systems, including obsolete metadata tables, coordinators, repositories, compiler/adapter contracts, exports and test scaffolding. | No generated commerce DDL, parallel logical migration engine or fallback; no duplicate authoritative rows, indexes, relations, progress or recovery; obsolete tables removed through the approved physical upgrade/reset policy; any retained platform/system lifecycle DDL component has a named consumer and justification; meaningful behavioral coverage and all owning docs match the replacement. |
+| GLS5: coordinated cutover and capacity | Complete coarse-lock replacement across affected owners using the protocol designed in GLS1 and exercised with GLS2/GLS3 writes; validate bounded work and tenant fairness. | Distinct-connection barriers prove independent overlap separately from conflicting-invariant safety; no mixed lock-order fallback; many scopes/deployments, hot tenants, maintenance, WAL/history and declared latency/resource limits; hosted proof separately gated. |
+| GLS6: final retirement | Audit complete consumer cutover and all applicable query/constraint acceptance witnesses; remove remaining displaced commerce physical storage and migration components. | Representative Pricing, indexed Payload, declared relation policies and pending/concurrent constraints are proved before final retirement; no generated commerce DDL, duplicate authority, parallel logical migration engine or fallback; obsolete tables follow the approved upgrade/reset policy; retained platform/system consumers and original behavioral coverage are documented. |
 
 These are capability gates, not instructions to build a whole core before
 exercising consumers. GLS2/GLS3 must run real consumers as capabilities land.
@@ -248,9 +280,12 @@ GLS1-GLS3: use R0 instrumentation for the baseline, then implement operation
 bounds on the shared logical target. Do not first expand or optimize the
 generated-commerce-table architecture as the destination.
 
-R2 readiness and R3 concurrency decisions are incorporated at GLS4/GLS5 where
-required. Durable workflow R4 remains consumer-driven and does not become a
-prerequisite for migrating database-only atomic commerce. Keep original native
+R2 readiness contracts are specified with GLS1 and preserved in early serving
+admission, with consolidation at GLS4. R3's invariant/lock design belongs to
+GLS1 and its constraint races to GLS2/GLS3; GLS5 completes coordinated lock
+cutover, overlap and capacity proof. Do not read GLS5 as permission to postpone
+concurrency correctness. Durable workflow R4 remains consumer-driven and is not
+a prerequisite for migrating database-only atomic commerce. Keep original native
 tests as regression evidence and label approved divergences explicitly.
 
 ## Validation And Retirement Inventory
