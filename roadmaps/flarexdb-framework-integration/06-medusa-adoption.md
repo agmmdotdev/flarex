@@ -118,10 +118,15 @@ The approved [Product Variant Pricing admission](./preflight/93-product-variant-
 starts with shared exact-numeric, compound-index and child-population prerequisites
 exposed by the pinned native PriceSet create path. Native creation rereads prices
 and rules, and Price's nullable PriceList FK retains a structural table dependency.
-The connected branch will create variants, PriceSets and their singular Link
-under one root, after the ordered foundation slices complete. Pricing runtime
-promotion remains gated on those prerequisites; Inventory/Stock Location and
-the complete Product composer remain subsequent admission gates.
+The three foundation slices are implemented. The connected branch will create
+variants, PriceSets and their singular Link under one root, but its current
+binding is blocked: PriceList is required by the native FK and deliberately has
+no row grant, while multi-profile binding requires both FK endpoints to have the
+same declared owner. The proposed
+[structural-table ownership correction](./preflight/94-commerce-structural-table-ownership.md)
+must resolve this at the shared profile/binding owner. Pricing promotion and
+connected acceptance remain incomplete; Inventory/Stock Location and the
+complete Product composer remain subsequent admission gates.
 
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result

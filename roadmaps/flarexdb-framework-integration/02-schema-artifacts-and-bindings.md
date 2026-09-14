@@ -230,6 +230,14 @@ Activation validates the pair, so canonical identity has no digest cycle.
 
 ## Data Binding Set
 
+The private commerce multi-profile validator currently derives table ownership
+only from data grants and rejects FKs whose source and target do not share that
+owner. A structurally required table with no row capability therefore cannot
+participate in the owning profile's FK closure. The Pricing consumer exposes this
+gap through its structural-only PriceList dependency; the proposed
+[zero-access ownership correction](./preflight/94-commerce-structural-table-ownership.md)
+is pending approval. Existing closure checks remain in force.
+
 `DataBindingSet` coordinates the artifacts required by one deployed
 application:
 

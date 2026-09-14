@@ -170,6 +170,14 @@ owners remain module-neutral and do not import Pricing or dispatch by its name.
 
 ## B. Connected native Pricing admission
 
+Implementation is blocked on the proposed
+[structural-table ownership correction](./94-commerce-structural-table-ownership.md).
+The current multi-profile binding validator requires FK endpoints to share a
+granted owner, but PriceList has no granted data capability by design. It rejects
+the Price-to-PriceList edge before activation. The existing profile issuer cannot
+declare zero-access ownership. Preserve this failure; do not grant PriceList
+writes or bypass binding validation. The three foundation slices are complete.
+
 After the foundations, promote the finite native Pricing constructor/model,
 utility/type and step closure with exact provenance/browser guards. Construct
 all six real internal services through `defineCommerceModule`. Add the named
