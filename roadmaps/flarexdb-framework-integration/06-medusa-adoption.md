@@ -114,6 +114,15 @@ semantics and the independent ProductSalesChannel workflow remain supported.
 The native module's unselected public methods are explicit sticky refusals,
 including provider calls and empty writes caught after pending creation.
 
+The next proposed [Product Variant Pricing admission](./preflight/93-product-variant-pricing-admission.md)
+starts with shared exact-numeric, compound-index and child-population prerequisites
+exposed by the pinned native PriceSet create path. Native creation rereads prices
+and rules, and Price's nullable PriceList FK retains a structural table dependency.
+The proposed connected branch creates variants, PriceSets and their singular Link
+under one root. Pricing runtime promotion and the new shared contracts still
+require approval; Inventory/Stock Location and the complete Product composer
+remain subsequent admission gates.
+
 The approved [JSON identity and retained-outcome correction](./preflight/60-commerce-json-identity-and-outcomes.md)
 gives both commerce hosts domain-separated ordinary JSON identity and result
 evidence, including reserved and Unicode keys. Shared idempotency rows retain an
