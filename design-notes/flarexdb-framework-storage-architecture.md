@@ -275,6 +275,13 @@ binding and no readiness dependency on that lane.
 
 There is no universal source schema.
 
+Different source languages must compose into the shared logical catalog and
+evolution contract. The [core composition gate](./flarexdb-shared-logical-storage.md#core-schema-composition-before-developer-apis)
+precedes developer APIs: private producer outputs establish stable identity,
+provenance, schema/write ownership and cross-producer dependency validation.
+An existing-table Payload overlay references its identity; a Medusa module
+produces definitions without requiring manual Application redeclaration.
+
 | Lane | Authoritative source | Compiled target |
 | --- | --- | --- |
 | Application | Standard/Application definition | application manifest and document-storage definitions |

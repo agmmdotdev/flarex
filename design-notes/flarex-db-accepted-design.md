@@ -39,6 +39,13 @@ revisions do not permit incompatible endpoint activation. The
 and roadmap require an early connected proof; neither relationships nor
 migration consolidation are established by shared physical tables alone.
 
+The [core schema composition contract](./flarexdb-shared-logical-storage.md#core-schema-composition-before-developer-apis)
+must admit explicit Application definitions, Payload-generated definitions or
+validated overlays of existing tables, and Medusa-generated model definitions.
+Preserve one stable table identity and separate schema ownership from write
+policy. Prove private composition, conflict/dependency refusal and safe ownership
+boundaries before designing public syntax, generated APIs or CMS interfaces.
+
 Current Medusa code still installs deployment-named physical module tables.
 That is the displaced implementation and regression baseline, not proof that
 the accepted shared logical target is implemented. Earlier physical receipts

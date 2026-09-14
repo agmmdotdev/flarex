@@ -106,6 +106,48 @@ emulate a missing index, implement private uniqueness maps, bypass resource
 limits, invent extra transactions or duplicate relation/publication/recovery
 logic. A missing guarantee blocks that capability until its owner is corrected.
 
+## Core Schema Composition Before Developer APIs
+
+Prepare the core now for different definition sources using the same logical
+catalog, admission and evolution owners. Public authoring syntax, generated APIs,
+dashboard surfaces and CMS ergonomics come later. Private compiler outputs and
+internal composition calls must prove this contract before those surfaces exist.
+
+| Definition source | Core admission requirement |
+| --- | --- |
+| Application declaration | Admit the authoritative logical definition and its stable identity through authenticated analysis. |
+| Payload view of an existing Application table | Bind and validate the presentation/configuration against that exact table; do not publish a second definition or copy its rows. |
+| Payload-owned collection configuration | Compile the supported native definition into the shared catalog with provenance and explicit write policy. |
+| Configured Medusa modules and Links | Compile the complete admitted model/dependency set into logical definitions; other schemas reference those identities without manually redeclaring the models. |
+
+Medusa's implicit tables are generated definitions, not hidden runtime DDL or
+untracked schema authority. Composition resolves cross-producer references
+against authenticated candidate/retained definitions before activation. Missing
+dependencies, conflicting definitions or mismatched ownership fail admission.
+Identical names never silently merge tables. Use stable qualified identities
+and explicit references; a CMS overlay is a consumer, not another schema writer.
+
+Keep definition provenance, schema ownership, stable table identity, immutable
+definition revision and ordinary write-policy ownership distinct. A namespace,
+UI label or producer name alone is not authority. Recompiling a producer or
+exposing a new surface must not allocate another identity for an existing table.
+Schema/identity changes require explicit evolution intent and dependency checks.
+
+Making an Application table editable through Payload preserves its logical
+identity but changes its admitted write policy. The core must support a proved
+transition or refuse it: revoke the old write capability and activate the new
+policy without a dual-writer interval, accounting for in-flight and stale
+requests, pinned readers and recovery. No public CMS-management API is needed
+to test that internal boundary. Adding a read-only view does not transfer
+ownership, and displaying Medusa data never grants direct Payload writes.
+
+The current catalog namespaces, Payload compiler and Application analysis/build
+owners are foundations, not evidence of completed multi-producer composition.
+Correct Application-only binding/planning assumptions where required instead of
+adding a parallel framework catalog or universal schema registry. Native schema
+languages remain with their producers; shared core contracts must be expressed
+without importing framework implementations or dispatching on module names.
+
 ## Indexes And Query Execution
 
 Logical indexes are metadata plus entries in shared indexed physical families.

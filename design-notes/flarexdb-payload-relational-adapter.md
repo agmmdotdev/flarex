@@ -86,6 +86,13 @@ surface is generated.
 
 ## One Table, One Authority, One Schema Owner
 
+The [core composition contract](./flarexdb-shared-logical-storage.md#core-schema-composition-before-developer-apis)
+requires private admission/identity/ownership proofs now; public CMS syntax and
+surfaces remain later work. Both modes below must compose with admitted
+Medusa-generated definitions through the same logical catalog. Reusing an
+Application table does not duplicate its definition, and choosing CMS-managed
+writes requires a safe policy transition, not an identity change or label.
+
 A Payload collection may expose an existing Flarex application table without
 creating a second copy of its rows:
 

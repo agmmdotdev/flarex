@@ -120,6 +120,10 @@ Postgres tests remain evidence only for their actual current implementation.
 - Application evolution and framework structural installation remain distinct
   implementations. Shared storage does not itself consolidate their metadata,
   progress or activation responsibilities.
+- Existing catalog namespaces and Payload-generated Application definitions do
+  not prove joint admission of all three producers, existing-table overlays or
+  safe transfer of write authority. Public APIs are not a prerequisite to the
+  required private core proofs.
 
 ## Target Direction
 
@@ -135,6 +139,37 @@ GLS1 inventories both migration metadata sets and overlapping responsibilities;
 GLS4 completes consolidated execution and dependency-aware activation. Do not
 freeze the Application APIs or preserve a separate logical migration engine to
 avoid correcting them. Platform physical upgrades remain a distinct concern.
+
+## First Core Composition Gate
+
+GLS1 specifies the [composition contract](../../design-notes/flarexdb-shared-logical-storage.md#core-schema-composition-before-developer-apis).
+The first GLS2 deliverable proves it through private compiler outputs and
+internal admission calls, before downstream storage/index work relies on its
+identity and ownership model. Do not defer core preparation to future developer
+API work or build a second catalog for generated framework schemas.
+
+- Compose an Application declaration, a supported Payload-owned collection and
+  actual admitted Medusa model definitions in one authorized candidate graph.
+  Resolve relationships by stable qualified identity without redeclaring Medusa
+  fields in Application code. Reject missing or unauthorized dependencies.
+- Bind a Payload view to an existing Application table. Verify one table identity,
+  definition authority and row history; repeated compilation/admission must not
+  create another copy. Reject incompatible overlay field/relation definitions
+  and competing schema owners instead of merging by name.
+- Distinguish source provenance, schema ownership and write policy. Verify an
+  extra read surface cannot mutate its target. Exercise stale/unauthorized
+  requests and safe refusal of any unimplemented write-owner transition.
+- Define the complete identity-preserving Application-to-Payload write-policy
+  transition now. GLS4 proves old-capability revocation, new-policy activation,
+  in-flight request handling and recovery without a dual-writer interval before
+  that transition can be admitted. Until then it remains refused.
+- Inventory Application-only binding/planning assumptions and migrate the
+  affected owners and callers within each approved slice. Keep one catalog and
+  evolution authority; retain original behavior and remove displaced glue.
+
+Developer-facing declaration syntax, generated handles/APIs, dashboard routes
+and CMS interfaces are explicit non-goals. Use real producer outputs and core
+capabilities for these proofs; test fixtures may not emulate missing admission.
 
 ## Early Cross-Framework Proof
 
@@ -170,7 +205,7 @@ a blocker to report with a proposed owner correction, not an adapter workaround.
 | Gate | Coherent outcome | Completion evidence |
 | --- | --- | --- |
 | GLS1: contract and baseline | Inventory current three-lane schemas, query/mutation semantics, identities, constraints, profiles and both migration systems; freeze the first connected replacement contract and performance targets. | Exact source/test mappings; per-table and per-component retain/extend/replace/delete decisions for Application evolution and framework migration, with named consumers and retirement gates; representative Product/Variant/Pricing/Link graph and Payload/Application calls; same-workload baseline; durable/public obligations distinguished from resettable fixtures. |
-| GLS2: shared logical definitions and indexes | Implement the admitted typed values, composite/conditional indexes, unique ownership, scoped identity and query bounds in existing neutral owners; wire one real consumer from each lane. | Different deployments and logical schemas use the same physical families; exact decimals/nulls/order and active-handle uniqueness pass; actual SQL is selective; index creation means logical metadata/build work, not tenant DDL. |
+| GLS2: core composition, shared definitions and indexes | First prove joint producer admission and existing-table overlays, then implement admitted typed values, composite/conditional indexes, unique ownership and query bounds; wire one real consumer from each lane. | First core composition gate passes with stable identities, explicit schema/write ownership and dependency/conflict refusal; different deployments/schemas share physical families; exact decimals/nulls/order and active-handle uniqueness pass; actual SQL is selective; logical index creation does not issue tenant DDL. |
 | GLS3: logical relations and atomic writes | Complete rich Link records, relationship integrity, pending state and complete shared materialization/publication for the connected workflow. | Native assertions plus parent-delete/child-insert, missing endpoint, pair/cardinality, restore/cascade, cross-scope, rollback, duplicate request and lost-COMMIT witnesses on both database lanes as applicable. |
 | GLS4: shared logical evolution and serving admission | Consolidate Application, Payload and Medusa logical planning, validation/build, progress/recovery and readiness; migrate callers off the separate framework structural migration path for business schemas and remove its displaced in-scope components. | Cross-framework dependency checks and compatible activation; concurrent-write backfill coverage, stale-definition refusal, crash/resume and revision-pinned recovery; one authority per responsibility, no parallel logical migration engine or fallback; deliberate integrity contract and measured build/warm admission costs. |
 | GLS5: concurrency and capacity | Replace coarse exclusion only after the shared invariant protocol is approved; prove bounded work and tenant fairness. | Real Postgres barriers, query plans and declared latency/resource limits; independent/conflicting workloads, many scopes/deployments, hot tenants and mixed framework traffic; hosted proof separately gated. |
