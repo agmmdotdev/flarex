@@ -1,248 +1,132 @@
 # Conformance And Flarex Adoption
 
-## Migration Principle
+## Status And Proof Principle
 
-Build one replacement authority and switch to it once. Do not preserve the
-current backend-local sync work as a second engine, dual registry, comparison
-writer, fallback, or silent compatibility path.
+The [accepted live-query redesign](../../design-notes/runtime-agnostic-query-sync-engine.md)
+is documentation only. Existing private kernel/adapter tests prove their current
+contracts, not the new service. This file replaces the former adoption sequence;
+[the roadmap](./README.md) owns the current gates.
 
-The current production-inert code is evidence to classify as:
+Standalone means the complete query/session service and its real local state
+adapter can be tested without FlarexDB, Postgres, Cloudflare or credentials.
+It does not mean postponing a narrow real-source feasibility check until the
+engine is finished. Both tracks use the same source contract.
 
-| Current owner | Disposition |
-| --- | --- |
-| deleted `flarex-backend/src/deploymentSync/Policy.ts` | C1 removed the displaced backend-local query-generation policy. Portable decisions now come through the private transition-plan boundary; do not recreate this file or a host reducer. |
-| `flarex-backend/src/deploymentSync/Model.ts` and `QuerySyncModel.ts` | Retain only backend-owned invalidation projection errors and Flarex model mapping. Do not mirror portable state unions or policy. |
-| `flarex-backend/src/deploymentSync/Store.ts` | Composes the completed private generation-4 nine-operation SQLite state adapter. The current unversioned pinned-host harness is [`deploymentQuerySync.workerd.test.ts`](../../packages/flarex-backend/test/deploymentQuerySync.workerd.test.ts) with [`deploymentQuerySync.workerd.worker.ts`](../../packages/flarex-backend/test/deploymentQuerySync.workerd.worker.ts); do not create parallel tables or writes. |
-| `flarex-backend/src/deploymentSyncDO.ts` | Remains an empty production-inert per-scope placement shell with no callable surface or adapter construction. Later FX02 host composition may construct one namespace engine instance per object; the class is not semantic authority. |
-| `flarex-protocol/internal/scope-sync-v1` | Remains the concrete Flarex versioned codec/adapter contract until a separately approved migration. Its Flarex identities must not become generic engine types. |
-| `@flarex/persistence-postgres` commit feed | Remains authoritative and later implements the trusted replayable Flarex `ChangeSource`. |
-| `ConnectionDO` and current connection protocol | Remain Flarex gateway/session adapter evidence. Mutation/action messages never enter the generic query-sync package. |
-| `flarex` sync client | Later wraps the selected delivery client and Flarex gateway. Do not create a second reconnect engine when upstream Durable Streams supplies it. |
+## Permanent Independent Test Composition
 
-Code presence, a private export, or a regression test does not prove a shipped
-compatibility obligation. Re-check concrete consumers immediately before any
-move/delete. Preserve a compatibility wrapper only for a demonstrated
-supported consumer and give it an explicit removal gate.
+```text
+small synthetic transactional source with tracked queries
+                      |
+             portable query-sync service
+                      |
+        actual local sync-state persistence
+                      |
+       loopback session/client protocol adapter
+```
 
-## No-Dual-Engine Rules
+The synthetic source supplies immutable versioned records, target snapshots,
+complete commit history, empty/absence/range reads and controlled authority/code
+changes. It runs small actual queries rather than merely returning scripted
+correct answers. It is not a second production database or an alternate engine.
+An additional small model fixture may check that contracts are not Flarex-shaped;
+that is not a commitment to a universal source-adapter product.
 
-- No new caller may use the old backend policy while another uses the new
-  engine for the same namespace.
-- No commit/change batch may be applied to two sync registries.
-- No adapter may dual-write old and new query/dependency tables.
-- No delivery may be published by both `ConnectionDO` logic and Durable Streams
-  for comparison.
-- No fallback may catch a new-engine failure and silently invoke the old path.
-- No test may duplicate shared engine logic to make an adapter pass.
-- Migration is production-inert until one complete target-only proof exists.
-- Legacy removal happens only after all supported callers switch and reset,
-  recovery, and state-loss behavior are proven.
-
-Because the current `SYNC01-F` actor/store is production-inert, the preferred
-path is adapt-or-replace without a live dual-state migration. If a shipped
-obligation is discovered, stop and preflight its exact migration separately.
-
-## Executable Reference Model
-
-The first package testing subpath owns an immutable reference aggregate and
-pure command reducer. It serves three purposes:
-
-1. executable specification of transition semantics;
-2. deterministic simulation and property/fuzz testing; and
-3. oracle for future durable-state adapter conformance.
-
-It is not production storage, a fake delivery network, or proof of runtime
-portability. It must be bounded and explicitly unsuitable for unbounded tenant
-state.
-
-Use at least two synthetic sync models with unrelated data shapes, such as a
-key/value model and a graph model. They must share only canonical engine
-contracts. Flarex app-row/table/relation fixtures alone would not prove the
-engine is independent.
+Expected-result assertions independently recompute the required queries against
+the chosen snapshot. A reference reducer that calls the production planners is
+useful for adapter agreement but is not an independent correctness oracle.
+Retain existing conformance tests; add independent safety and progress checks.
 
 ## Conformance Matrix
 
-| Evidence lane | Required proof |
+| Lane | Required evidence |
 | --- | --- |
-| pure policies | canonical capture, immutability, ordering, duplicate/exact-next/gap/epoch decisions, provisional snapshot-to-current refresh, atomic authority-witness-fenced generation completion, dirty frontiers, unchanged-result refresh, aggregate byte and membership boundedness |
-| immutable reference model | deterministic command sequences, source-state non-mutation, namespace/model isolation, crash-point expected state, semantic atomicity oracle |
-| model adapters | canonicality, determinism, no false-negative dependency projection on decisive fixtures, bounded output, model-version separation, authority-witness capture/re-derivation, and proof that every mutable result authority is identity-, epoch/model-, or source-sequence-fenced |
-| state adapters | every semantic operation against the same oracle, rollback, conflict, corruption, uncertain response, continuation, quota, and cross-namespace tests |
-| PGlite and genuine Postgres | exact commit-source epoch/sequence/floor mapping, snapshot correlation, lost wake, bounded pages, transaction/outbox replay, error mapping |
-| Workerd/Miniflare | per-object construction, SQLite transaction behavior, constructor re-entry, eviction/restart, alarm/wake handling, no module-global object state |
-| real Cloudflare | service bindings, real lifecycle/cost, stream auth/cache/rotation, duplicate append, ambiguous receipt, load and storage budgets |
-| client/gateway | authorization binding, query sharing isolation, apply-then-checkpoint, reconnect, expired-offset reset, auth change, duplicate transition |
-| system proof | one real Flarex mutation/commit through query invalidation, rerun, publication, client application, crash/restart, and target-only recovery |
-| second durable host | same semantic-store and orchestration conformance on a non-Cloudflare durable runtime before portability is called production-proven |
+| Pure policies | Canonical identities, epoch/ordering, no false-negative invalidation, generation fencing, fixed-target progress, bounded result validity/retention |
+| Independent source/oracle | Actual query values match claimed snapshots; absence/range/dependency changes; sustained relevant and unrelated writes; no source-state mutation |
+| Local real state adapter | Same SQL/schema operations used by the host; rollback, crash-point settlement, reopen, selective reads, limits, migration/refusal and reset |
+| Loopback sessions/client | Automatic interest lifetime, sharing isolation, membership changes, atomic query-set application, mutation visibility, duplicate/reverse/missing frames, reset and expiry |
+| Source adapter | Selected-target feasibility, exact snapshot/feed correlation, retained-floor/epoch refusal, dependency and authorization completeness; no fabricated evidence |
+| Real Flarex bridge | One real query plus mutation through the same contract, including actual execution cost and dependency capture; no parallel registry |
+| Real Postgres | Target history, transaction/source ordering, retention, authority and uncertain-commit boundaries under ordinary admitted roles |
+| Workerd/Cloudflare | Actual SQLite transaction bridge, private service binding, bounded scheduling, lost-wake recovery, accurately labeled restart/eviction/hibernation and resource costs |
 
-Adapter conformance must inspect real platform effects. A mock that implements
-the desired answer cannot prove SQL transaction, Cloudflare lifecycle, network
-uncertainty, or Postgres ordering behavior.
+Local proofs do not claim production durability, throughput or Cloudflare
+behavior. A second real durable host passing the applicable contract is required
+before broad production-portability claims; it does not block the independent
+local correctness suite or first Flarex proof.
 
-## Fault And Race Matrix
+## Required Race And Recovery Scenarios
 
-At minimum, inject interruption or uncertainty:
+- Initial evaluation overlaps committed changes; dependency installation retains
+  every relevant post-target change and old completion cannot clear future work.
+- Continuous relevant writes do not force the chosen target to chase latest
+  forever. With admitted fair capacity, sessions advance without requiring quiet.
+- A query changes its dependency set; missing points, empty ranges, insertions,
+  deletions, key moves and supported relation reads remain correctly observed.
+- Two queries finish at different times; a session never publishes mixed target
+  snapshots. Membership changes fence in-flight query-set work.
+- Two sessions share an instance; one release/expiry/slow consumer does not remove
+  the other's interest or prevent its progress.
+- Revocation or credential expiry occurs with evaluation or buffered delivery in
+  flight; old access is fenced after detection and reconnect reauthorizes.
+- A mutation commits while transport fails; visibility waits/reset do not imply
+  rollback or unsafe write replay. Test concurrent mutations and query-set changes.
+- Direct wake is lost before results exist; lost send/ack on a live connection is
+  reconciled, not left stale until an unrelated future write happens.
+- Engine, gateway or client restarts; leases/material recover or an explicit reset
+  re-registers current interest. Stale responses cannot cross reset generations.
+- Target or resume history expires; the reset/error is explicit and storage/work
+  remains bounded. Corruption is not treated as fresh initialization.
+- One query/source/session exceeds a budget; named failure policy and fair work
+  protect unrelated sessions/scopes without bypassing configured limits.
 
-- before and after source-page read;
-- before, during, and after exact-next state application;
-- after cursor advance but before host acknowledgement;
-- before evaluation, during evaluation, and after a newer dirty frontier;
-- during initial refresh with a missing/reversed/wrong-epoch source interval and
-  with the namespace cursor advancing after refresh evidence;
-- before and after generation installation;
-- after outbox insertion but before append;
-- after append may have succeeded but before receipt persistence;
-- during outbox completion;
-- across object eviction/reconstruction;
-- during source epoch rollover or retained-floor loss;
-- during authorization-fingerprint/head/model change;
-- during stream rotation and client resubscription; and
-- with two host instances racing the same durable work.
+Each scenario states whether it retries, completes at a fixed target, produces
+an explicit error or resets. "Try again" without identity and state effects is
+not a recovery contract.
 
-Each case must state whether replay returns the same receipt, retries the same
-identity, requests rerun/resnapshot/reset, or fails terminally. “Try again” is
-not a complete uncertainty contract.
+## Performance Evidence
 
-## Adoption Sequence
+Separate engine overhead from query execution and transport. Use one shared
+query with many subscribers, many distinct personalized queries, mostly
+unaffected dependency populations, a hot shared dependency, large results,
+slow consumers, rapid interest churn and restart with backlog.
 
-1. **Complete (`QSYNC01-A`).** Build the pure transition kernel/reference model
-   without touching the current actor, store, Postgres feed, protocol, or
-   clients.
-2. **Complete (`QSYNC01-B`).** Derive the trusted change-model and semantic
-   durable-state contracts from executable transitions; do not design them
-   from SQLite CRUD.
-3. **Complete (`QSYNC01-C4`).** C1-C4 provide recovery-stable
-   evaluation/publication state plus bounded evaluation and publication
-   orchestration over deterministic reference capabilities.
-4. **Accepted split gate (`QSYNC-FX01`).** The dedicated preflight splits the
-   broad adoption outcome into A canonical Flarex mappings, B a docs-only
-   access/transition-seam proof before DDL, and C1-C3 semantic SQLite verticals
-   ending in the complete nine-operation state adapter. Keep Postgres source
-   reads outside the generic package.
-5. **Complete (`QSYNC-FX01-A`).** Versioned query, dependency, and authority
-   frames, one Flarex model projector, and coupled result/publication mapping
-   are private and production-inert. A adds no SQLite schema or host behavior.
-6. **Complete (`QSYNC-FX01-B`, docs only).** Every operation has a bounded
-   logical read/transition/write plan and Cloudflare SQLite is feasible. B
-   historically stopped before DDL because the then-current reducers consumed
-   and rebuilt the complete aggregate; D1-D4 subsequently closed that seam.
-7. **Complete (`QSYNC01-D0`, docs only).** The accepted
-   [operation-scoped transition-plan preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
-   freezes bounded facts, closed staged reads, operation-specific logical
-   changes, exact accounting, compatibility refactoring, and proof. It adds no
-   code or adapter authority.
-8. **Complete (`QSYNC01-D1`).** The private planner foundation, shared exact
-   accounting, initialization, begin, staged admitted-batch application,
-   aggregate/reference integration, and independent normalized equivalence
-   proof are complete with no package export or adapter code.
-9. **Complete (`QSYNC01-D2`).** Evaluation completion now uses scalar-first
-   policy plus exact replay or material reads, planner-owned publication intent
-   and counters, aggregate/reference integration, and independent normalized
-   proof. It adds no package export or adapter code.
-10. **Complete (`QSYNC01-D3`).** Evaluation selection now uses bounded cyclic
-   scan and selected-point stages, while attempt-outcome recording uses one
-   nominally authenticated scalar planner. Aggregate/reference integration,
-   independent normalized interpretation, exact counters, capability,
-   uncertainty, and history proofs are complete without an adapter or package
-   export.
-11. **Complete (`QSYNC01-D4`).** Publication claim, attempt-outcome recording,
-   and completion now use bounded pure planners, completing all nine operations
-   and the private transition-plan import boundary without adapter code.
-12. **Complete (`QSYNC-FX01-C1`).** The
-   [C1 checkpoint](./preflight/10-qsync-fx01-c1-sqlite-vertical.md), its portable
-   empty-scope prerequisite, and the private generation-2 initialize, begin,
-   and admitted-batch SQLite vertical completed in `12e2f375` and `b94abbb0`.
-   The adapter remains package-private, unrouted, and production-inert.
-13. **Complete (`QSYNC-FX01-C2`).** The accepted
-    [C2 checkpoint](./preflight/11-qsync-fx01-c2-sqlite-evaluation-vertical.md)
-    implemented the historical generation-3 six-operation evaluation subset
-    with focused migration, rollback, portable-oracle, and genuine Workerd proof
-    on 2026-08-30. Its exact fifteen-write generation-2 migration fault matrix
-    and SQLite-local 4,096-query streaming migration proof are also complete.
-14. **Complete C2 exit proof.** On 2026-08-31 the pinned local Workerd lane
-    closed the retained maximum-population, row/content, binding, buffering,
-    disposal, and reopen matrix. This is not deployed Cloudflare evidence or a
-    measured 128 MiB guarantee, and dispose/recreate does not prove eviction or
-    hibernation.
-15. **Complete (`QSYNC-FX01-C3` and `QSYNC-FX01`).** The accepted
-    [C3 checkpoint](./preflight/12-qsync-fx01-c3-publication-lifecycle.md)
-    now records the completed generation-4 publication lifecycle and private
-    nine-operation adapter. Node SQLite proves the exact 4,096-pending/32 MiB
-    compound topology, exact 64 MiB and plus-one pre-exposure behavior, and
-    capacity-infallible settlement. Miniflare `4.20260611.0` with Workerd
-    `1.20260611.1` proves the maximum publication lifecycle, selector plan,
-    rollback, two-object isolation, disposal/recreation, and persisted reopen.
-    The completed adapter remains package-private, unrouted, and
-    production-inert; this is not eviction, hibernation, deployed Cloudflare,
-    runtime-portability, production-parity, or publisher/client/delivery
-    evidence.
-16. Independently run the Cloudflare Durable Streams feasibility spike and
-    accept or reject it at explicit maturity, security, retention, payload, and
-    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;
-    it blocks only that delivery composition.
-17. **Preflight accepted (`QSYNC-FX02`).** The
-    [FX02 record](./preflight/13-qsync-fx02-postgres-host-composition.md)
-    freezes the exact Postgres source, authenticated query registration/
-    evaluation/rerun host composition, lifecycle, wake recovery, and semantic-
-    outbox processing boundaries.
-18. **FX02-A exited.** The private correlated authoritative
-    Postgres scope/feed/head read, strict executor/backend codec, authenticated
-    host, service-binding client, and replayable-source/admission adapter are
-    implemented. Focused local proofs, clean final reviews, and the checked-in
-    real-Postgres test against isolated PostgreSQL 18.3 passed on 2026-09-01.
-    No Durable Object behavior is authorized by this exit.
-19. Compose query execution, provisional completion, rerun coalescing,
-    unchanged suppression, and processing of the already-semantic durable
-    publication outbox.
-20. Compose whichever delivery adapter passed its own gate with the authenticated
-    gateway, then the
-    Flarex client wrapper.
-21. Prove target-only reset/reconnect/recovery and switch internal callers.
-22. Remove the displaced unshipped engine code/state/export when no supported
-    consumer remains.
-23. Run `R03-B` through the accepted framework and Flarex adapters; relation
-    code may consume dependency keys but cannot own sync state.
-24. Prove a second real durable host before making a broad production
-    portability claim.
+Record CPU, allocations/peak memory, affected-key work, reevaluations and unchanged
+results, state rows/instructions read/written, retained versions/bytes, session
+latency, lag and recovery cost. Fix affected work while growing unrelated state
+to detect full scans. A `LIMIT` bounds rows returned, not necessarily scan work.
 
-## Relation Gate
+The existing whole-dependency role audit and coarse table invalidation are
+measurement targets, not claims of measured gains from this docs PR. No table
+count, passing fixture or higher limit substitutes for a workload measurement.
 
-`R03-A` already publishes relation-adjacency facts through the existing commit
-and retention owners. `R03-B` remains the native relation consumer gate for
-fenced live registration.
+## Retain, Replace And Remove
 
-`R03-B` is blocked until the portable engine plus Flarex adapters prove:
+| Current owner | Disposition / retirement gate |
+| --- | --- |
+| Portable canonicalization, sequence and pure planner foundations | Retain where correct; adapt to fixed targets and session semantics with decisive tests |
+| Nine-operation `QuerySyncTransitionState` and moving-latest completion | Replace affected contracts with consumers; do not preserve method count or replay shapes for their own sake |
+| Exact per-scope publication attempt/settlement machinery | Retain for current baseline until target recovery passes; remove from default UI path in the coherent cutover |
+| `deploymentSync/Store.ts`, codecs and storage generations | Extract generic state implementation from Flarex binding; inventory actual stored state before conversion/reset or dropping unused generations |
+| `deploymentSync/Binding.ts`, Flarex query/change mappings | Keep authentication/mapping in the bridge, not the portable SQL adapter |
+| Postgres source feed, snapshots, outcomes and transaction outboxes | Preserve producer authority; no subscriber registry belongs to the core |
+| Prototype `live_query_subscriptions`, `live_query_deliveries` and connection registry callers | Retire with named consumers after target-only reset/reconnect/visibility proof; no immediate destructive DDL |
+| ConnectionDO and client prototype | Reuse suitable transport code; replace duplicated session algorithms with the portable protocol |
+| Historical preflights 00-14 | Retain baseline evidence; conflicting unfinished implementation authorization is held |
 
-- one authenticated namespace binding;
-- canonical relation-query identity including its effective access fingerprint;
-- initial provisional registration at a coherent snapshot;
-- relation dependency projection without false negatives;
-- contiguous source catch-up across registration;
-- generation-fenced activation and rerun;
-- explicit source/stream reset;
-- durable publication and client reconnect; and
-- no use of the Legacy timestamp registry or compatibility `SchedulerDO`.
+## Cutover And Relation Gate
 
-Non-reactive `SV-R Core` may proceed under its own relation roadmap. The sync
-engine gates only live/reactive/reconnectable claims and `SV-R Live`; it must
-not become a reason to repair or widen unrelated relation owners.
+Inspect concrete exports, callers, stored formats and named environments before
+changing them. State exactly which identity, completion, state, protocol or
+adapter contracts break and how readers/clients cut over. No compatibility
+wrapper, dual registry, dual writer, shadow engine or fallback is introduced to
+avoid migrating current consumers. A discovered real compatibility obligation
+requires an explicit bounded plan, not silent data deletion.
 
-## Documentation And Review Gates
+`R03-B` remains a consumer of the common engine: prove relation-query identity,
+complete relation dependency capture, target snapshots, authority, session
+transitions, reset/reconnect and target-only recovery. Do not add relation-local
+sync state. Non-reactive relation/core work remains independently gated.
 
-Every implementation preflight must name:
-
-- exact files/package exports and dependency graph;
-- current-to-target move/delete/adapter/compatibility classification;
-- trusted inputs and untrusted inputs;
-- semantic operations and transaction revalidation;
-- precise Effect success, failure, and requirement channels;
-- lifecycle/cardinality owner for every service, state instance, runtime, and
-  background process;
-- retry, uncertainty, reset, and corruption behavior;
-- limits and resource/cost budgets;
-- focused tests plus real-platform evidence; and
-- explicit non-authorized adjacent work.
-
-Significant TypeScript implementation checkpoints require the repository's
-standing TypeScript and code-quality reviewers before commit, after core/diff
-lint and before the final staged diff gate. Docs-only planning changes do not.
+Implementation slices follow the repository's review, Effect, lint and real-
+platform evidence rules. Documentation changes do not authorize TypeScript,
+SQL, routes, live traffic, database resets or transport selection.

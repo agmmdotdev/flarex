@@ -35,6 +35,24 @@ Older relationship examples in broad CMS, commerce, developer-API, InstantDB,
 or internal-schema notes remain research vocabulary. They do not override the
 native relational authority above.
 
+## Query-Sync Replacement Authority
+
+For live-query coordination, use
+[runtime-agnostic-query-sync-engine.md](./runtime-agnostic-query-sync-engine.md)
+and its [living roadmap](../roadmaps/query-sync-engine/README.md). The accepted
+replacement specifies automatic ordinary-query subscriptions, fixed snapshot
+targets, portable session query-set consistency, independently runnable state
+adapters and bounded reconstruction/reset recovery. It supersedes older
+sync-specific lifecycle/delivery prescriptions, including the moving-latest
+activation and mandatory publication-attempt directions repeated in roadmap 21
+and preflights 00-14. Those records remain implemented-baseline evidence.
+
+The general FlarexDB authority above still controls committed data, transaction
+settlement, source snapshots/history and business-event recovery; the sync
+replacement does not change those guarantees. The new service is not yet
+implemented or activated. Exact breaks and implementation gates are recorded in
+[the redesign preflight](../roadmaps/query-sync-engine/preflight/15-live-query-service-redesign.md).
+
 ## Notes
 
 - [Shared framework integration direction](./flarexdb-framework-integration-direction.md)
@@ -54,12 +72,13 @@ native relational authority above.
     Neither optional OCC nor workflow-runtime replacement blocks ordinary
     framework integration. Implementation still requires its bounded contract.
 
-- `runtime-agnostic-query-sync-engine.md`
-  - Accepted cross-domain decision to extract one small private query-result
-    synchronization engine with runtime-neutral state semantics and
-    conformance, while retaining Postgres/Flarex/Cloudflare as adapters and
-    evaluating upstream Durable Streams only as the replaceable delivery log.
-    Implementation order and gates live under `roadmaps/query-sync-engine/`.
+- [Runtime-agnostic query sync](./runtime-agnostic-query-sync-engine.md)
+  - Accepted versioned live-query service: ordinary queries auto-subscribe,
+    fixed targets advance consistent session query sets, and sync-owned derived
+    state uses bounded reconstruction/reset recovery. Standalone source, real
+    local state adapter and loopback client tests do not require FlarexDB.
+    Durable Streams is optional research, not a required delivery contract.
+    Runtime implementation remains pending the query-sync roadmap.
 
 - `flarex-postgres-persistence-domain-separation-idea.md`
   - Exploratory, snapshot-based idea for separating domain policy,
