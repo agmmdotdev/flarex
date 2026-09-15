@@ -2,6 +2,11 @@
 
 Status: accepted architecture replacement; runtime migration is not implemented.
 
+The [query and constraint acceptance contract](../roadmaps/shared-logical-storage/02-query-and-constraint-acceptance.md)
+makes representative Pricing queries, indexed Payload operations, relation-policy
+compatibility and concurrent pending-state proofs early requirements. These are
+implementation acceptance criteria, not completed capabilities or measured gains.
+
 ## Decision And Authority
 
 Application, Payload content and Medusa commerce use framework-neutral logical
@@ -192,6 +197,42 @@ statistics structures are evidence-driven extensions, not mandatory duplication.
 Measure hot/cold cache behavior and skew; do not force index scans merely to
 produce a passing plan assertion.
 
+### Representative Query And Value Acceptance
+
+Before the generic query contract is frozen, map the pinned Pricing
+`calculatePrices` path to scoped access paths, nullable quantity ranges,
+price-list validity, rule matching/aggregation and exact amount ordering.
+Creation-only PriceSet tests do not establish this capability. GLS1 specifies
+the mapping and comparison workload; GLS2/GLS3 execute a bounded representative
+query through shared storage before the corresponding legacy consumer retires.
+Full Pricing service admission remains a separate outcome.
+
+Use a finite neutral query-plan vocabulary at the existing core owners, not
+arbitrary SQL or framework-name branches. Show index bounds, residual predicates,
+join/aggregate work, decode locations and output/overflow accounting. Generic
+typed projections or covering entries may be justified by measured work, but
+remain derived, scoped and atomically maintained. Pagination applies to logical
+roots, not accidentally to flattened child rows; preserve coherent count and
+complete-set semantics.
+
+Exact numeric companions prove storage/DTO translation, not generic index order.
+Choose an exact decimal comparison/index contract and differentially test it
+against PostgreSQL numeric behavior, including negative values, equivalent scales,
+exponents, nullable ranges and values beyond exact binary64 precision. Declare
+null/missing, collation and unique-null policy separately; a shared byte codec
+must not silently impose Application ordering or equality on commerce.
+
+Conditional unique membership changes with every relevant field and lifecycle
+transition. The Product witness includes soft-deleting A, reusing its handle in
+B, and refusing a conflicting restore of A, with no partial claims or publication.
+Concurrent claim and restore races belong to GLS2/GLS3, not only load testing.
+
+Payload's ordinary/compound index compilation must land with indexed execution
+through native Local API calls. Generic placement alone is insufficient: the
+current CMS non-ID `find` and early unique validation can read a bounded whole
+collection. Replace that work at the core query/constraint owner, including
+pending index membership, without bypassing access, validation or native hooks.
+
 ## Relationships And Constraints
 
 Shared relational core means logical relationships over generic storage, not
@@ -204,13 +245,32 @@ or soft-deletion lifecycle remains an authoritative logical record. Its
 endpoint indexes are derived. A read-only Link remains query metadata. Do not
 replace rich link records with public ID arrays or make edges a second writer.
 
-Core must enforce logical target existence, endpoint ownership, cardinality,
-unique pairs, deletion policy and complete change facts atomically. Concurrent
-parent deletion and child insertion, missing endpoints, restore, cascades and
-cross-scope refusal require real database witnesses. Generic physical FKs may
-protect stable storage identities; field-specific native FKs cannot simply be
-copied onto arbitrary encoded record fields. Their guarantees need a proven
-logical constraint owner, not weaker adapter checks.
+Relation policy is explicit in the authenticated definition. Do not conflate
+schema dependency resolution with the existence of each referenced record.
+
+| Relationship category | Required compatibility boundary |
+| --- | --- |
+| Module-local relationship | Preserve the admitted native FK-like, nullability and deletion contract through core enforcement. |
+| Native stored Module Link | Preserve native pair/endpoint cardinality, record identity, custom data, soft deletion and restoration; do not infer endpoint-existence checks merely from the presence of endpoint IDs. |
+| Strong local cross-framework reference | Enforce admitted target existence, ownership, cardinality and deletion/restore rules atomically within the supported placement. |
+
+The current [Link compiler](../packages/medusa-adapter/src/link-schema.ts) emits
+no endpoint foreign keys. [Native Link conformance](../packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts)
+includes cardinality/restore scenarios without created endpoint records.
+Stronger target-existence enforcement for a native Link must therefore be named
+as an intentional behavior change, with creation-order, missing-target,
+soft-delete, restore and cleanup consequences; it is not an implied compatibility
+fix. Preserve that native behavior unless a focused contract explicitly changes
+it. The relationship categories above are semantic policies, not a requirement
+for three storage engines or three public APIs.
+
+Core enforces the selected policy and complete change facts. Strong-reference
+parent-delete/reference-insert races and native-Link cardinality/restore races
+require distinct real-Postgres witnesses. A native Link without an existence
+guarantee is not an external or cross-shop capability: scope, ownership and
+traversal authorization still apply. Generic physical FKs may protect stable
+storage identities; field-specific native FKs require a proven logical
+constraint owner where their semantics are admitted, not weaker adapter checks.
 
 Redesign the current edge/row core when those semantics do not fit. Do not
 preserve application-shaped internals by attaching a second commerce relation
@@ -218,9 +278,10 @@ engine. Reuse is judged by authority and semantics, not matching type names.
 
 ## Cross-Framework Relationship Contract
 
-Declared relationships between Application, Payload and Medusa logical records
-are an accepted target, including references originating in any of the three
-and indexed traversal in both directions. Prove this early through real native
+Declared strong local relationships between Application, Payload and Medusa
+logical records are an accepted target, including references originating in any
+of the three and indexed traversal in both directions. Native Module Links
+retain the distinct compatibility policy above. Prove this early through real native
 calls; completing three isolated adapters does not prove their composition.
 Shared physical storage alone supplies neither integrity nor authorization.
 
@@ -276,6 +337,46 @@ authorization fences, row/set/invariant protection, common lock order,
 publication ordering and lost-COMMIT recovery across all consumers. Protect
 decisions before applying their writes; locking the final row does not repair
 a stale decision. Do not automatically replay arbitrary hooks or callbacks.
+
+### Pending Indexed State And Early Concurrency Proofs
+
+GLS1 specifies the invariant/lock and pending-visibility protocol before generic
+write contracts are finalized. GLS2/GLS3 exercise distinct-connection races when
+unique claims and relations first execute. GLS5 owns coordinated lock cutover,
+capacity and fairness, not the first design of constraint concurrency. Retain
+current exclusion until a replacement is proven; success under a scope-wide
+mutex must not be described as independent-operation concurrency.
+
+One request must observe its new indexed values, removal of old memberships,
+conditional uniqueness, newly created Links and coherent counts before commit.
+Use one core-owned transaction-local materialization or rigorously defined
+overlay; do not bolt a second pending-state engine onto each adapter. Preserve
+native Application exact dependencies/history and framework-specific lifecycle
+rules. Failure rolls back all affected rows and derived state together.
+
+No writer may switch from clock-first to row-first locking in isolation from
+other writers sharing those resources. Inventory Application, CMS, commerce,
+control-plane and maintenance interactions, including request-identity exclusion
+and lost-COMMIT recovery. Prove independent overlap and safe conflicting decisions
+separately before claiming the publication bottleneck has been removed.
+
+### History And Cache Lifetimes
+
+GLS1 defines which generic commerce read surfaces promise historical snapshots
+and what retention is necessary for those surfaces, native OCC, recovery,
+publication and delivery. Reusing a revision family is not authority to prune
+required evidence or an obligation to retain every commerce representation
+forever. Price the row, index, claim, relation and event/history work per business
+operation; measure narrow updates to wide rows and avoid unchanged derived writes.
+
+Share immutable compiled definitions/plans only at an identity-complete bounded
+lifetime. Mutable native services and data-dependent caches must be scoped to
+the authorized tenant/schema/definition and invalidated by the relevant writes
+and lifecycle transitions. The pinned Pricing available-attribute cache is a
+specific future witness, not an established bug in the currently admitted
+profile. Scoped SQL alone cannot repair a query whose input was incorrectly
+pruned by another tenant's cache. A prepared plan remains distinct from fresh
+authorization and integrity acceptance.
 
 ## Schema Evolution And Admission
 
@@ -354,6 +455,14 @@ relation fan-out, skewed hot tenants, independent/conflicting keys, p50/p95/p99,
 errors/retries, SQL/rows/buffers, bytes, CPU, memory, WAL, history and maintenance.
 Predeclare targets and compare equivalent operations against the current
 relational baseline. No table-count reduction is a throughput claim.
+
+The [acceptance matrix](../roadmaps/shared-logical-storage/02-query-and-constraint-acceptance.md#acceptance-and-measurement-matrix)
+separates current bounded Flarex behavior, the pinned native relational comparator
+where available, and the new generic path. Include Pricing query execution,
+indexed Payload reads/unique writes, declared Link/reference semantics and
+pending/concurrent constraints before final retirement. An isolated comparison
+harness is not a serving fallback. Numerical thresholds must be set before
+measurements; no unsupported legacy workload is reported as a measured baseline.
 
 Convex's logical table/index developer model remains the reference; this does
 not claim identical internal storage. Postgres authority, framework transaction
