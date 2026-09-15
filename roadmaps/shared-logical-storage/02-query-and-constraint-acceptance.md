@@ -16,6 +16,12 @@ operations rather than treating increasingly rich metadata as storage support.
 [Advanced evolution](./deferred-framework-schema-evolution.md), developer APIs,
 full framework activation and hosted Cloudflare proof retain separate gates.
 
+The [core execution design](../../design-notes/flarexdb-core-execution-redesign.md)
+and [CE0-CE5 roadmap](../shared-transaction-core/10-core-execution-redesign.md)
+complement these semantic witnesses with enabled-index lifecycle, batch
+materialization, commit-sequence/lock and native evidence requirements. They do
+not grant new query syntax or change native-Link/strong-reference policy.
+
 ## Sources And Current Boundaries
 
 Use the [Medusa source receipt](../../third_party/medusa/SOURCE.json) and
@@ -268,3 +274,27 @@ constraint/admission/recovery authorities after their named consumers migrate.
 Inventory named durable data and formats before reset or conversion. Preserve
 one current owner for each guarantee; document exact contract breaks and refusal
 boundaries instead of wrapping obsolete core behavior in another adapter.
+
+## Core Cost And Reference Handoff
+
+GLS1/CE0 records the actual executing path and a correctness-equivalent minimal
+PostgreSQL reference before timing. Flarex itself already uses PostgreSQL. The
+reference is an isolated benchmark, not a replacement database or a production
+fallback. Follow the [equivalence checklist](../../design-notes/flarexdb-core-execution-redesign.md#equivalence-checklist)
+for earlier-read/OCC protection, constraints, snapshot/pending visibility,
+publication/outcomes, cancellation and durability. A matched-layout comparison
+isolates orchestration more closely; a relational-layout experiment also changes
+representation costs and must be labeled separately.
+
+The initial generic writes must measure enabled-index build-state locks and
+coverage updates as well as the scope clock. Distinct keys can still share those
+coordination rows. Coherent pending reads and constraint safety are required
+before batching or shortening exclusion; sequence-stamped revisions cannot be
+moved before sequence allocation without a replacement protocol. Keep tests of
+old/new indexed membership, returned-body OCC and complete rollback/publication.
+
+CE1-CE3 provide those core execution proofs alongside GLS2/GLS3 and the later
+coordinated cutover. Do not postpone them to a framework-specific workaround.
+CE4 evidence coalescing remains conditional native work; no framework must adopt
+the native journal solely because storage is shared. CE5 combines core evidence
+with these real Pricing, Payload and relation witnesses before final retirement.

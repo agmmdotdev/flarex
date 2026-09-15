@@ -26,6 +26,10 @@ into core. Runtime optimization follows this storage decision.
 - [Query and constraint acceptance](./02-query-and-constraint-acceptance.md)
   owns the early source-to-proof matrix, native-Link distinction, pending-state
   witnesses and comparison requirements. These are required tests, not results.
+- [Core execution design](../../design-notes/flarexdb-core-execution-redesign.md)
+  and [CE gates](../shared-transaction-core/10-core-execution-redesign.md) own
+  materialization/coordination costs, native evidence and the fair PostgreSQL
+  reference. Both candidates use PostgreSQL; no second production engine is planned.
 - [Package boundaries](../16-package-boundaries.md) own dependency placement.
 - [Application evolution planner](../../packages/managed-schema/src/Planning.ts),
   [Application apply/build composition](../../packages/persistence-postgres/src/applicationManagedSchemaApplication.ts),
@@ -177,6 +181,17 @@ coarse exclusion can prove safety, not independent-operation overlap. Each
 migrated consumer must pass its applicable acceptance witnesses before its old
 path is removed; final GLS6 retirement audits the complete set.
 
+Core CE0 attribution and benchmark-equivalence work run within GLS1, not after
+framework migration. CE1 batch materialization and CE2 enabled-index lifecycle
+proofs accompany GLS2/GLS3 writes and GLS4 readiness. CE3 covers the complete
+commit/lock protocol, including index-state contention and sequence-stamped
+materialization; GLS5 completes its applicable cross-owner cutover/capacity.
+CE4 journal coalescing is conditional native work, not a prerequisite for all
+frameworks. CE5 contributes connected acceptance and final cleanup to GLS5/GLS6.
+These gates do not expand the candidate-only composition slice or resurrect the
+generated commerce-table destination. A smaller scope lock alone is not proof
+that shared index/metadata contention or per-action SQL has been removed.
+
 ## First Core Composition Gate
 
 The [first implementation preflight](./01-schema-composition-preflight.md)
@@ -303,3 +318,11 @@ warm requests from builds and history maintenance. Use natural optimizer plans
 with representative statistics; a fixed table count or a forced index scan is
 not a scalability result. The shared-database baseline must eventually include
 capacity placement and tenant fairness, not only one empty-shop benchmark.
+
+Follow the [core reference equivalence checklist](../../design-notes/flarexdb-core-execution-redesign.md#equivalence-checklist):
+compare the current core with a minimal isolated PostgreSQL implementation of
+the same admitted guarantees, then with the replacement and actual framework
+paths. Distinguish matched-layout orchestration cost from a separately labeled
+relational-layout comparison. A bare UPDATE or rollback-only test does not
+represent complete OCC, constraint, publication, durability and replay work.
+Benchmark code must never become production dispatch or a fallback storage lane.
