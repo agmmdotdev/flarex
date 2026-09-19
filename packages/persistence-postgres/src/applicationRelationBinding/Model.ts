@@ -11,6 +11,7 @@ import type {
 } from "flarex-protocol/internal/application-schema-binding";
 import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
+import type { SchemaVersionArtifact } from "../schemaVersionArtifacts";
 
 type PersistedRelationEvolution =
   ApplicationSchemaRelationBindingV2["evolution"];
@@ -57,6 +58,7 @@ export interface ApplicationRelationBindingPublication {
 export interface LocatedApplicationRelationBinding {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly schemaArtifact: SchemaVersionArtifact;
   readonly binding: ApplicationSchemaBindingWithRelations;
   readonly applicationSchemaSha256: Uint8Array;
   readonly schemaManifestSha256: Uint8Array;

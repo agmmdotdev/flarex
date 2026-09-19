@@ -308,6 +308,7 @@ export const locateApplicationRelationBindingForCommitEffect = Effect.fn(
   return Object.freeze({
     deploymentId: input.deploymentId,
     schemaVersionId,
+    schemaArtifact: artifact,
     binding: decoded.bound.binding,
     applicationSchemaSha256: copyBytes(row.applicationSchemaSha256),
     schemaManifestSha256: copyBytes(decoded.schemaManifestSha256),
@@ -1177,7 +1178,7 @@ const validateLocatedRelationBindingCatalogEffect = Effect.fn(
   const relationIds = bound.binding.relationBindings.map(
     (relation) => relation.relationId,
   );
-  const stableRelationRows = yield* relationBindingReadQueryEffect(() =>
+  const stableRelationRows = relationIds.length === 0 ? [] : yield* relationBindingReadQueryEffect(() =>
     db.select().from(fxControlRelations).where(and(
       eq(
         fxControlRelations.deploymentId,
@@ -1213,7 +1214,7 @@ const validateLocatedRelationBindingCatalogEffect = Effect.fn(
   const edgeDefinitionIds = bound.binding.edgeDefinitions.map(
     (edge) => edge.edgeDefinitionId,
   );
-  const edgeRows = yield* relationBindingReadQueryEffect(() => db.select()
+  const edgeRows = edgeDefinitionIds.length === 0 ? [] : yield* relationBindingReadQueryEffect(() => db.select()
     .from(fxControlEdgeDefinitions)
     .where(and(
       eq(

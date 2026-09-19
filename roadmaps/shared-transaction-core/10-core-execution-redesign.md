@@ -170,6 +170,13 @@ total stored rows. Request limits and final claim/publication authority remain.
 Repeated catalog/readiness preparation is still a full-request and replay cost;
 native attribution, matched references and wider concurrency remain open.
 
+[Catalog restoration reuse](./28-ce0-catalog-restoration.md) removes the schema
+resolver's duplicate artifact read within one resolution and omits relation/edge
+lookups for empty ID sets. Fresh preparation and accepting integrity checks
+remain independent; the normalized relation-set query still detects unexpected
+rows even for an empty root. This does not implement cross-request preparation
+retention or the broader readiness/audit contract.
+
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution
 with a supported native and CMS mutation and follows the Medusa consumer as

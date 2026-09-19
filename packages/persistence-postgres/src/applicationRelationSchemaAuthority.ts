@@ -33,10 +33,6 @@ import type {
 } from "./applicationSchemaAuthority";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
-import {
-  getSchemaVersionArtifactByIdEffect,
-  type ReadSchemaVersionArtifactError,
-} from "./schemaVersionArtifacts";
 
 export interface ApplicationRelationSchemaAuthority {
   readonly writePolicy: Pick<ApplicationSchemaBindingV3, "writePolicySetSha256" | "writePolicies"> | null;
@@ -71,8 +67,7 @@ export class ApplicationRelationSchemaAuthorityError extends Data.TaggedError(
 
 export type ResolveApplicationRelationSchemaAuthorityError =
   | ApplicationRelationSchemaAuthorityError
-  | ReadApplicationRelationBindingError<"locateManifestBinding">
-  | ReadSchemaVersionArtifactError;
+  | ReadApplicationRelationBindingError<"locateManifestBinding">;
 
 export interface ApplicationRelationSchemaAuthorityPort {
   readonly resolve: (input: {
@@ -159,13 +154,11 @@ export function createApplicationRelationSchemaAuthorityPort(
         encodeBytesToLowercaseHex(bound.boundPublicationSha256) !==
           pin.boundPublicationSha256
       ) return yield* failure("bindingMismatch");
-      const artifact = yield* getSchemaVersionArtifactByIdEffect(
-        controlDb,
-        input.deploymentId,
-        pin.schemaVersionId,
-      );
+      // The locator just acquired and fully validated this artifact. Reuse that
+      // observation within this resolution; the next resolution reads it afresh.
+      const artifact = bound.schemaArtifact;
       if (
-        artifact === null || artifact.version !== pin.schemaVersion ||
+        artifact.version !== pin.schemaVersion ||
         !bytesEqualFullScan(
           artifact.manifestSha256,
           bound.schemaManifestSha256,
