@@ -2,6 +2,18 @@
 
 ## Status And Scope
 
+The active goal covers Flarex DB core redesign. New Medusa integration and
+framework capability expansion are subsequent work. Future framework semantics
+constrain core contracts; existing consumers affected by a core break must still
+be migrated and regression-tested within that slice.
+
+The owner grants standing approval to proceed slice by slice. Record each
+focused design/preflight, necessary breaks, affected consumers and cleanup before
+implementation, then implement, validate, run both required reviews and commit.
+Do not wait for a separate approval response for each slice. Surface materially
+different decisions explicitly and correct the actual owner; this authorization
+does not permit silent durable-data deletion or unrelated integration expansion.
+
 Status: owner-requested design and implementation-gate plan, with initial CE0
 publication instrumentation and a bounded baseline implemented; execution changes,
 equivalent-reference benchmarks and measured improvements remain pending. Documentation
@@ -85,6 +97,9 @@ remaining coverage gaps. It is not complete CE0 acceptance or a measured win.
 The [native lifecycle and row-store reference](./12-ce0-native-lifecycle-and-reference.md)
 separates native journal cost from publication and admits only a bounded
 first-revision storage comparison. Full publication/reference equivalence remains open.
+The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
+extends the matched comparison at the existing shared publication owner, without
+duplicating native authentication or transaction recovery in a benchmark engine.
 
 Continue CE0 with complete request attribution and an equivalent PostgreSQL
 reference before selecting an execution change. The initial publication slice
