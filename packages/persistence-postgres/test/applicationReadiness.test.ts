@@ -1,3 +1,4 @@
+import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
 import { webcrypto } from "node:crypto";
 import { eq } from "drizzle-orm";
 
@@ -40,8 +41,7 @@ import {
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
-import { makeGrantRetentionPolicyV1Result } from
-  "flarex-protocol/grant-retention-policy";
+
 import {
   decodeApplicationTaskRunCreationAuthorityPreimageV1,
   encodeApplicationTaskRunCreationAuthorityPreimageV1,
@@ -50,13 +50,7 @@ import {
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Effect, Encoding, Exit, Result, Scope } from "effect";
-import {
-  APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
-  assembleApplicationMutationGrantJwsV1,
-  createApplicationMutationGrantVerifierNamespaceV1,
-  prepareApplicationMutationGrantV1,
-  verifyApplicationMutationGrantV1,
-} from "flarex-protocol/internal/application-mutation-grant-v1";
+
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
@@ -87,28 +81,9 @@ import {
   decodeReplacementScopeIdV1,
   projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
-import {
-  TransactionGrantDeploymentIdV1Schema,
-  TransactionGrantKeyIdV1Schema,
-  TransactionGrantTimestampV1Schema,
-  canonicalizeTransactionGrantIdentityAccessPolicyV1,
-} from "flarex-protocol/transaction-grant";
-import {
-  CanonicalTransactionArgumentsBytesV1Schema,
-  TransactionArgumentsSha256V1Schema,
-  TransactionAuthorizationGrantIdV1Schema,
-  TransactionAuthorizationRevocationEpochSchema,
-  TransactionFunctionKindV1Schema,
-  TransactionFunctionPathV1Schema,
-  TransactionIdentityAccessPolicySha256V1Schema,
-  TransactionPolicyVersionV1Schema,
-  TransactionRequestKeyV1Schema,
-  TransactionRequestSha256V1Schema,
-} from "flarex-protocol/transaction-session";
-import {
-  canonicalizeFlarexValueJsonV1,
-  FLAREX_VALUE_CODEC_VERSION_V1,
-} from "flarex-protocol/value";
+
+import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
+
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
@@ -4141,7 +4116,6 @@ async function applicationMutationActivationInput(
     grantId: "grant_application_mutation_1",
   },
 ) {
-  const trustedNowEpochMilliseconds = Date.now();
   const fn = active.basis.manifest.functions[0];
   if (fn === undefined || fn.kind !== "mutation") {
     throw new Error("Expected one Application mutation function.");
@@ -4182,134 +4156,12 @@ async function applicationMutationActivationInput(
       schemaVersionId: active.basis.schemaVersionId,
     }),
   );
-  const policyVersion = TransactionPolicyVersionV1Schema.make(
-    "policy_point_mutation_v1",
-  );
-  const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
-    policyVersion,
-    auth: { kind: "anonymous" },
-    capabilities: [
-      "db:get",
-      "db:insert",
-      "db:patch",
-      "db:replace",
-      "db:delete",
-    ],
-  });
-  const validatedArgsJson = Object.freeze({ body: "hello" });
-  const canonicalArgs = await canonicalizeFlarexValueJsonV1(
-    validatedArgsJson,
-  );
-  const validatedArgsSha256 = TransactionArgumentsSha256V1Schema.make(
-    canonicalArgs.sha256,
-  );
-  const requestSha256 = TransactionRequestSha256V1Schema.make(
-    new Uint8Array(32).fill(0x41),
-  );
-  const requestKey = TransactionRequestKeyV1Schema.make(
-    options.requestKey,
-  );
-  const grantSegments = await runEffect(prepareApplicationMutationGrantV1({
-    kid: TransactionGrantKeyIdV1Schema.make("application-key-1"),
-    grantId: TransactionAuthorizationGrantIdV1Schema.make(
-      options.grantId,
-    ),
-    deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-      fixture.input.deploymentId,
-    ),
-    executionAuthority,
-    policyVersion,
-    identityAccessPolicy: policy,
-    validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
-    validatedArgsSha256: encodeBytesToLowercaseHex(validatedArgsSha256),
-    requestKey,
-    requestSha256: encodeBytesToLowercaseHex(requestSha256),
-    issuedAt: TransactionGrantTimestampV1Schema.make(
-      new Date(trustedNowEpochMilliseconds - 60_000).toISOString(),
-    ),
-    expiresAt: TransactionGrantTimestampV1Schema.make(
-      new Date(trustedNowEpochMilliseconds + 5 * 60_000).toISOString(),
-    ),
-    authorizationRevocationEpoch:
-      TransactionAuthorizationRevocationEpochSchema.make(0n),
-  }));
-  const grantKeyPair = await globalThis.crypto.subtle.generateKey(
-    "Ed25519",
-    false,
-    ["sign", "verify"],
-  );
-  if (!("privateKey" in grantKeyPair) || !("publicKey" in grantKeyPair)) {
-    throw new Error("Expected an Ed25519 key pair.");
-  }
-  const authorizationGrant = assembleApplicationMutationGrantJwsV1(
-    grantSegments,
-    new Uint8Array(await globalThis.crypto.subtle.sign(
-      "Ed25519",
-      grantKeyPair.privateKey,
-      copyBytesToArrayBuffer(grantSegments.signingInput),
-    )),
-  );
-  const verifiedGrant = await runEffect(verifyApplicationMutationGrantV1(
-    authorizationGrant,
-    createApplicationMutationGrantVerifierNamespaceV1({
-      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-        fixture.input.deploymentId,
-      ),
-      grantRetentionPolicy: Result.getOrThrow(
-        makeGrantRetentionPolicyV1Result({
-          maximumGrantLifetimeMilliseconds: 10 * 60_000,
-          maximumFutureIssuedAtSkewMilliseconds: 30_000,
-          maximumLiveSnapshotRetentionMilliseconds: 20 * 60_000,
-        }),
-      ),
-      trustedNowEpochMilliseconds: Effect.succeed(
-        trustedNowEpochMilliseconds,
-      ),
-      keys: [{
-        kid: TransactionGrantKeyIdV1Schema.make("application-key-1"),
-        purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
-        state: "active",
-        issuedAtInclusiveEpochMilliseconds:
-          trustedNowEpochMilliseconds - 60 * 60_000,
-        publicKey: grantKeyPair.publicKey,
-      }],
-    }),
-  ));
-  return Object.freeze({
-    deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-      fixture.input.deploymentId,
-    ),
-    scopeId: decodeReplacementScopeIdV1(active.basis.authority.scopeId),
-    activeSelection: active.selection,
-    evidence: Object.freeze({
-      executionAuthority: executionAuthority.authority,
-      verifiedGrant,
-      functionPath: TransactionFunctionPathV1Schema.make(fn.path),
-      functionKind: TransactionFunctionKindV1Schema.make("mutation"),
-      schemaVersionId: active.basis.schemaVersionId,
-      policyVersion,
-      identityAccessPolicySha256:
-        TransactionIdentityAccessPolicySha256V1Schema.make(
-          hexBytes(policy.sha256Hex),
-        ),
-      validatedArgsJson,
-      validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
-      validatedArgsCanonicalBytes:
-        CanonicalTransactionArgumentsBytesV1Schema.make(
-          canonicalArgs.canonicalBytes,
-        ),
-      validatedArgsSha256,
-      requestKey,
-      requestSha256,
-    }),
+  return applicationMutationActivationFixture({
+    deploymentId: fixture.input.deploymentId, selection: active.selection,
+    executionAuthority, requestKey: options.requestKey, grantId: options.grantId,
   });
 }
 
-function hexBytes(value: string): Uint8Array {
-  return Uint8Array.from({ length: value.length / 2 }, (_, index) =>
-    Number.parseInt(value.slice(index * 2, index * 2 + 2), 16)
-  );
-}
 
 async function enablePhysicalBuilds(
   fixture: Awaited<ReturnType<typeof readinessFixture>>,

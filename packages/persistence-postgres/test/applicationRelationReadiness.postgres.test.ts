@@ -72,6 +72,7 @@ import {
 } from "../src/applicationAnalysisRegistration";
 import {
   claimApplicationActiveSelection,
+  type ApplicationActiveSelection,
   claimApplicationRelationActiveSelection,
   makeApplicationActivationRepository,
   type ApplicationRelationActivationContext,
@@ -714,6 +715,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           secondRelation: true,
           inverseName: "authoredPosts",
           secondInverseName: "reviewedPosts",
+          sourceMutation: true,
         },
       );
       const canonical = Result.getOrThrow(
@@ -1040,6 +1042,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           targetRowId,
           40_102,
           CommitSeqSchema.make(1n),
+          active.selection,
         );
       const replayedActivation = await runEffect(
         relationActivation.activate({
@@ -1144,6 +1147,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           targetRowId,
           40_103,
           CommitSeqSchema.make(2n),
+          active.selection,
         );
       const operation = Object.freeze({
         kind: "relationIncoming" as const,
@@ -2825,10 +2829,12 @@ async function applyExactPostgresRelationSourceCommit(
   targetRowId: ReturnType<typeof exactRelationCommitRowId>,
   sourceOrdinal: number,
   expectedCommitSeq: ReturnType<typeof CommitSeqSchema.make>,
+  selection: ApplicationActiveSelection,
 ) {
   expect(binding).toEqual(publication.binding.relationBindings[0]);
   return publishExactRelationSourceCommit({
     controlDb: fixture.control.drizzle, scopeId: fixture.scopeId,
+    selection,
     ports: fixture.pointCommitAuthority, authority: fixture.authority,
     publication, definitions, relationCommit: fixture.relationCommit,
   }, targetRowId, sourceOrdinal, expectedCommitSeq);

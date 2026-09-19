@@ -59,6 +59,7 @@ typechecks, lint and both required reviews as the change gate.
 This closes the factory lookup defect, not the entire writer-composition gate.
 The [required composition slice](./20-ce2-required-ordered-index-composition.md)
 now enforces correctly issued ports at native Application and shared participant
-boundaries. Excluding legacy writers against active obligations remains necessary.
+boundaries. [Legacy-writer exclusion](./21-ce2-legacy-writer-exclusion.md) now
+refuses legacy writes against active obligations.
 Coverage updates, locks, activation and reader behavior remain unchanged until
 the continuous-maintenance cutover in preflight 18 is complete.

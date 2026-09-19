@@ -17,8 +17,8 @@ The current contract is coherent and must be replaced across its consumers:
 
 | Owner | Current responsibility and necessary change |
 | --- | --- |
-| `applicationDocumentMaterialization/materialization.ts` | Locks intrinsic/developer build rows for update, authenticates coverage at the preceding commit, applies memberships, then advances enabled coverage. Preparation accepts absent index ports as an empty selection. The replacement needs an exact required-definition selection before it can omit progress writes. |
-| `pointCommitTransaction.ts` | Application execution validates the active schema under the clock. `legacy_dynamic_worker_v1` returns before that check. Current write-ownership contract 3 denies legacy writes, but contracts 1/2 do not establish the same exclusion. A universal writer premise cannot be inferred from the Application path alone. |
+| `applicationDocumentMaterialization/materialization.ts` | Locks intrinsic/developer build rows for update, authenticates coverage at the preceding commit, applies memberships, then advances enabled coverage. Application material publication and shared participants now require issued ports and exact developer selections. Progress writes remain until the activation-bound coverage cutover. |
+| `pointCommitTransaction.ts` | Application execution validates the active schema under the clock. The shared write-ownership guard now excludes legacy material/attempted writes and missing attempted-write evidence under all active head contracts. Contracts 1/2 retain authenticated read-only legacy settlement; contract 3 retains its stronger generation rule. |
 | `cmsTransaction/admission.ts` | Accepts and checks the current Application binding, schema and Payload binding before participant work. Preserve that admission and pass the same core maintenance selection to shared materialization. |
 | `indexBuildStates.ts` | `isIndexBuildSnapshotCoveredInTransactionEffect` admits explicit coverage or an unchanged-table suffix after checking enabled lifecycle and first-readable lower bound. Readers must use this one owner for both bounded and continuously maintained coverage. |
 | `applicationReadiness.ts`, `applicationActivation.ts` | Readiness authenticates physical requirements and coverage; activation locks the scope and changes the active head. Activation must atomically open, carry forward and close maintenance obligations with that head. |
@@ -126,8 +126,11 @@ The [exact developer selection slice](./19-ce2-exact-developer-index-selection.m
 closes partial lookup in the issued control-catalog port using the verified
 published requirement snapshot. The [required composition slice](./20-ce2-required-ordered-index-composition.md)
 requires genuine intrinsic/developer ports from the serving control database
-for Application material publication and shared participants. The complete
-writer boundary still requires legacy-writer exclusion against active obligations.
+for Application material publication and shared participants. [Legacy-writer exclusion](./21-ce2-legacy-writer-exclusion.md)
+closes material and attempted legacy publication against active obligations,
+including net-zero attempts and missing write evidence. Natural relation-source
+fixtures use Application admission; retained read-only attempts carry their
+authenticated journals. These prerequisites do not establish continuous coverage.
 
 1. Close exact writer composition and its refusal witnesses through the existing
    shared owner. Migrate native/CMS construction and named legacy publication

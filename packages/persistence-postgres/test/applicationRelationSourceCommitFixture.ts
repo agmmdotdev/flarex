@@ -1,8 +1,12 @@
 import { expect } from "vitest";
+import { selectApplicationMutationAdmission } from "../src/applicationMutationAdmission";
+import type { ApplicationActiveSelection } from "../src/applicationActivation";
+import { makeApplicationSchemaAuthorityPublisher } from "../src/applicationSchemaAuthority";
+import { createApplicationRelationSchemaAuthorityPort } from "../src/applicationRelationSchemaAuthority";
+import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1, type AppDocumentIdV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
-import { decodeReplacementScopeIdV1, type CommitSeq, type ScopeId } from "flarex-protocol/storage-authority";
-import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
+import { type CommitSeq, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { ApplicationRelationBindingPublication } from "../src/applicationRelationBinding";
 import type { ApplicationRelationCommitPort, LocatedApplicationRelationDefinitionSet } from "../src/applicationRelationCommit";
@@ -15,12 +19,12 @@ import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrins
 import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from "../src/pointCommitTransaction";
 import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
-import { createPointMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
+import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
 import { issueSetupSeededSyscallValidatorProofV1 } from "./applicationRevisionSyscallValidatorTestSupport";
 import { completeSessionJournalSeal, prepareSessionJournalSeal, runEffect } from "./effectTestRuntime";
 import { relationAuthorityFromAnchor, selectorFromRelationAnchor } from "./pointCommitRelationTestSupport";
 import { pointCommitCommandFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "./pointCommitTransactionTestSupport";
-import { TEST_GRANT_RETENTION_POLICY_V1, activatePointMutationSession, pointMutationSessionActivationFixture } from "./transactionSessionActivationTestSupport";
+import { TEST_GRANT_RETENTION_POLICY_V1 } from "./transactionSessionActivationTestSupport";
 
 /** Deterministic UUID-v4 identities accepted by the real journal insert owner. */
 export function exactRelationCommitRowId(ordinal: number): AppRowIdHexV1 {
@@ -29,6 +33,7 @@ export function exactRelationCommitRowId(ordinal: number): AppRowIdHexV1 {
 
 interface RelationSourceCommitFixture {
   readonly controlDb: FlarexMetadataDatabase;
+  readonly selection: ApplicationActiveSelection;
   readonly scopeId: ScopeId;
   readonly ports: Parameters<typeof createPointCommitPublisherPortV1>[0];
   readonly authority: Parameters<typeof createAppUniqueConstraintSetEligibilityPortV1>[0]["authority"];
@@ -53,13 +58,16 @@ export async function publishExactRelationSourceCommit(
   const targetId = appDocumentIdV1FromRowIdentity({ tableId: binding.targetTableId, rowId: targetRowId });
   const sourceId = appDocumentIdV1FromRowIdentity({ tableId: binding.sourceTableId, rowId: sourceRowId });
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(publication.manifestBinding.deploymentId);
-  const activation = await activatePointMutationSession(
-    createPointMutationSessionActivationPersistenceV1(ports, { leaseDurationMilliseconds: 60_000 }),
-    pointMutationSessionActivationFixture(deploymentId, decodeReplacementScopeIdV1(fixture.scopeId), {
-      evidence: { schemaVersionId: publication.binding.schemaVersionId,
-        requestKey: TransactionRequestKeyV1Schema.make(`relation-source:${sourceOrdinal}`) },
-    }),
-  );
+  const admission = await runEffect(selectApplicationMutationAdmission(fixture.selection, "functions:write", {
+    deploymentId, controlDb: fixture.controlDb, authority: fixture.authority,
+    schema: makeApplicationSchemaAuthorityPublisher({ db: fixture.controlDb, runTransaction: run => fixture.controlDb.transaction(run) }),
+    relationSchema: createApplicationRelationSchemaAuthorityPort(fixture.controlDb),
+  }));
+  const activation = await runEffect(createApplicationMutationSessionActivationPersistenceV1(ports,
+    { leaseDurationMilliseconds: 60_000 }).activateEffect(await applicationMutationActivationFixture({
+      deploymentId, selection: fixture.selection, executionAuthority: admission.executionAuthority,
+      requestKey: `relation-source:${sourceOrdinal}`, grantId: `relation-source-grant-${sourceOrdinal}`,
+    })));
   if (activation.status !== "created") throw new Error("Expected new source-write attempt");
   const identities = [...(includeTarget ? [targetRowId] : []), sourceRowId];
   const store = createSessionJournalStorePersistenceV1(ports, {
@@ -76,7 +84,7 @@ export async function publishExactRelationSourceCommit(
     snapshotToken: activation.anchor.snapshotToken, schemaVersionId: publication.binding.schemaVersionId,
   }));
   const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: activation.anchor.scopeId,
-    schemaVersionId: publication.binding.schemaVersionId });
+    schemaVersionId: publication.binding.schemaVersionId, schemaManifest: admission.schema.manifest });
   const tableName = (tableId: number) => {
     const table = publication.binding.tables.find(table => table.tableId === tableId);
     if (table === undefined) throw new Error("Missing fixture table");

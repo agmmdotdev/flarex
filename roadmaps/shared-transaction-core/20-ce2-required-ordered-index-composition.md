@@ -1,7 +1,8 @@
 # CE2 Required Ordered Index Composition
 
 Status: implemented for Application material publication/proof and the shared
-CMS/cross-domain participant. Active legacy-writer exclusion remains open.
+CMS/cross-domain participant. [Legacy-writer exclusion](./21-ce2-legacy-writer-exclusion.md)
+also closes material and attempted legacy publication under active heads.
 
 ## Outcome And Owners
 
@@ -38,8 +39,8 @@ optional bypass. The lower `pointCommitTransaction.postgres.test.ts` publication
 fixtures and the executor's `pointMutationExactRuntimeRunner.ts` and
 `pointMutationSessionActivation.ts` consumers still exercise their existing
 non-Application profile;
-their exclusion against active Application obligations remains a named CE2
-retirement gate. No optional serving composition is justified by those fixtures.
+their material and attempted writes now refuse against active Application
+obligations. No optional serving composition is justified by those fixtures.
 Zero-material native outcomes do not require index mutation capabilities.
 
 ## Validation And Completion
@@ -59,7 +60,7 @@ and issued ports while preserving its locked-active-schema rejection witness.
 The write-policy fixture provides its actual control database and ordered ports;
 lower legacy proof fixtures keep their explicitly limited profile.
 
-This establishes required issued composition. Legacy-writer exclusion, binding
+This establishes required issued composition. Binding
 to continuous maintenance, reader/build/activation cutover and removal of
 coverage updates remain subsequent CE2 work. Existing locks, coverage updates,
 unique-constraint behavior and request isolation remain in force.

@@ -214,6 +214,7 @@ export async function pointCommitCommandWithJournalReadDependenciesFromStoredAtt
     ...command,
     indexRangeDependencies,
     relationDependencies,
+    journalBytes: new Uint8Array(evidence.root.journalBytes),
   });
 }
 

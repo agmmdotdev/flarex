@@ -234,7 +234,8 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   expect(await runEffectFailure(publisher.publish({ ...applicationBase, journalBytes: staleJournal.canonicalBytes, successfulResult })))
     .toMatchObject({ reason: "applicationWritePolicyDenied" });
   await expect(runEffect(publisher.publish({ ...command, journalBytes: new Uint8Array([0]) }))).rejects.toBeDefined();
-  await expect(runEffect(publisher.publish({ ...base, successfulResult }))).rejects.toBeDefined();
+  const { journalBytes: _journalBytes, ...withoutJournal } = base;
+  await expect(runEffect(publisher.publish({ ...withoutJournal, successfulResult }))).rejects.toMatchObject({ reason: "applicationWritePolicyDenied" });
   const publish = () => runEffect(publisher.publish(command));
   const published = hooks.publish ? await hooks.publish(fixture, publish) : await publish();
   expect(published).toMatchObject({ kind: "published" });

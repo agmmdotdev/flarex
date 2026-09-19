@@ -29,6 +29,12 @@ export const validateApplicationWriteOwnershipForCommit = Effect.fn("Application
     cause => new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause }));
     const status = rows[0];
     if (status === undefined) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "authorityChanged" }));
+    // The scope clock orders this status against activation. A legacy attempt
+    // cannot certify the active Application's complete maintenance selection.
+    if (status.contract !== null && input.generation === "legacy_dynamic_worker_v1" &&
+      (input.authenticatedAttemptedTables === null || input.authenticatedAttemptedTables.length > 0 || input.materialTables.length > 0)) {
+      return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "writeDenied" }));
+    }
     if (!status.retained && (status.contract === null || status.contract === 1 || status.contract === 2)) return;
     const budget = new ApplicationWriteOwnershipHistoryBudget();
     const snapshot = yield* readApplicationOwnershipForUniqueDefinitions(uniqueConstraints, tx, input.scopeId, budget);

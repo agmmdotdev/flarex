@@ -17,6 +17,7 @@ import {
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 
@@ -24,6 +25,7 @@ import type { PublishApplicationRelationBindingInput } from
   "../src/applicationRelationBinding";
 
 export interface RelationBuildPublicationOptions {
+  readonly sourceMutation?: boolean;
   readonly decisions?: PublishApplicationRelationBindingInput["decisions"];
   readonly extraUserField?: boolean;
   readonly inverseName?: string;
@@ -97,7 +99,7 @@ function relationBuildManifestInput(
       schemaModulePath: "schema.js",
       modules: [{
         path: "functions.js",
-        roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+        roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION | (options.sourceMutation ? SOURCE_ARTIFACT_V2_ROLE_FUNCTION : 0),
         sourceSha256: "e".repeat(64),
         sourceByteLength: 18,
       }, {
@@ -215,6 +217,7 @@ function relationBuildManifestInput(
           }]
         : [])],
     },
-    functions: [],
+    functions: options.sourceMutation ? [{ path: "functions:write", moduleName: "functions", exportName: "write",
+      kind: "mutation", visibility: "public", args: { type: "any" }, returns: null, partition: null }] : [],
   })).manifest;
 }

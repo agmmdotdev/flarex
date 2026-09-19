@@ -260,6 +260,7 @@ export async function applyExactRelationSourceCommit(
 ) {
   return publishExactRelationSourceCommit({
     controlDb: ready.fixture.control.drizzle, scopeId: ready.fixture.authority.scopeId,
+    selection: ready.active.selection,
     ports: ready.fixture.pointCommitAuthority, authority: ready.fixture.authorityPorts,
     publication: ready.fixture.relation, definitions: ready.definitions, relationCommit: ready.fixture.relationCommit,
   }, targetRowId, sourceOrdinal, expectedCommitSeq, includeTarget);
@@ -450,6 +451,7 @@ export async function relationReadinessFixture(
       fixtureOrdinal + 1_000,
       {
         inverseName: "articlesAuthored",
+        sourceMutation: true,
         decisions: Object.freeze([{
           relationOrdinal: 1,
           evolution: Object.freeze({
@@ -798,7 +800,8 @@ export async function prepareLegacyRevisionInRelationFixture(
       tables: fixture.manifest.schema.tables,
       indexes: fixture.manifest.schema.indexes,
     },
-    functions: fixture.manifest.functions,
+    // This transition-only legacy revision has no executable fixture writer.
+    functions: fixture.manifest.functions.filter(fn => fn.path !== "functions:write"),
   } satisfies ApplicationManifestV1));
   const analyses = makeApplicationAnalysisRepository(
     fixture.persistence.drizzle,
@@ -1063,11 +1066,12 @@ export async function relationApplicationInput(
     secondRelation: true,
     inverseName: "authoredPosts",
     secondInverseName: "reviewedPosts",
+    sourceMutation: true,
   });
   if (!includeFunction) return base;
   const canonical = Result.getOrThrow(canonicalizeApplicationManifestV2({
     ...base.manifest,
-    functions: [relationFunction("a"), relationFunction("default")],
+    functions: [...base.manifest.functions, relationFunction("a"), relationFunction("default")],
   }));
   return Object.freeze({
     ...base,
