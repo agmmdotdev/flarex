@@ -81,11 +81,17 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges).where(eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitAppRowChanges.commitSeq, fxSystemCommitAppRowChanges.rowId),
     sessions: await persistence.drizzle.select().from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.scopeUuid, scope.scopeUuid)),
   });
-  const verifyInsert = async (before: Awaited<ReturnType<typeof inventory>>, value: Json, count: number, prefix: string) => {
-    const documents = decodeDocuments(value);
-    expect(documents.map(document => document.title)).toEqual(Array.from({ length: count }, (_, index) => `${prefix}-${index.toString().padStart(2, "0")}`));
-    expect(new Set(documents.map(document => document._id)).size).toBe(count);
-    expect(await runEffect(host.read(read, documents.map(document => document._id)))).toEqual(value);
+  const verifyInserts = async (before: Awaited<ReturnType<typeof inventory>>, inserts: readonly { readonly value: Json; readonly count: number; readonly prefix: string }[]) => {
+    const allIds: string[] = [];
+    for (const { value, count, prefix } of inserts) {
+      const documents = decodeDocuments(value);
+      expect(documents.map(document => document.title)).toEqual(Array.from({ length: count }, (_, index) => `${prefix}-${index.toString().padStart(2, "0")}`));
+      expect(documents).toHaveLength(count);
+      allIds.push(...documents.map(document => document._id));
+      expect(await runEffect(host.read(read, documents.map(document => document._id)))).toEqual(value);
+    }
+    const count = inserts.reduce((sum, insert) => sum + insert.count, 0);
+    expect(new Set(allIds).size).toBe(count);
     const after = await inventory();
     expect(after.rows.length - before.rows.length).toBe(count);
     expect(after.revisions.length - before.revisions.length).toBe(count);
@@ -93,8 +99,14 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     expect(after.facts.length - before.facts.length).toBe(count);
     expect(after.indexes.length - before.indexes.length).toBe(count * 2);
     expect(after.indexRevisions.length - before.indexRevisions.length).toBe(count * 2);
-    for (const family of ["commits", "outcomes", "wakes"] as const) expect(after[family].length - before[family].length).toBe(1);
-    expect(after.clock[0]?.lastCommitSeq).toBe((before.clock[0]?.lastCommitSeq ?? -1n) + 1n);
+    const priorSequence = before.clock[0]?.lastCommitSeq;
+    if (priorSequence === undefined) throw new Error("Missing scope clock");
+    const sequences = inserts.map((_, index) => priorSequence + BigInt(index + 1));
+    for (const family of ["commits", "outcomes", "wakes"] as const) {
+      expect(after[family].length - before[family].length).toBe(inserts.length);
+      expect(after[family].filter(row => row.commitSeq > priorSequence).map(row => row.commitSeq)).toEqual(sequences);
+    }
+    expect(after.clock[0]?.lastCommitSeq).toBe(priorSequence + BigInt(inserts.length));
     expect(before.builds.length).toBeGreaterThan(0);
     expect(before.uniqueBuilds.length).toBeGreaterThan(0);
     expect(before.builds.every(build => build.maintenanceActivationSequence !== null)).toBe(true);
@@ -104,7 +116,8 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     expect(after.sessions).toEqual(before.sessions);
     return after;
   };
-  return { fixture, host, insert, read, moveAndReuse, inventory, verifyInsert, scope, priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions };
+  const verifyInsert = (before: Awaited<ReturnType<typeof inventory>>, value: Json, count: number, prefix: string) => verifyInserts(before, [{ value, count, prefix }]);
+  return { fixture, host, insert, read, moveAndReuse, inventory, verifyInsert, verifyInserts, scope, priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions };
 }
 
 export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {

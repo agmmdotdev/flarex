@@ -229,6 +229,16 @@ and duplicates now wait at the main exclusive scope clock. This is preparation
 overlap; command execution, sequence-consuming materialization and publication
 remain serialized pending the coordinated CE3 protocol.
 
+The [concurrent CMS load baseline](./43-ce0-concurrent-cms-load.md) extends these
+barriers to finite complete-request bursts on one and four scopes sharing a
+pool. It separates bounded client queueing from host execution, records SQL and
+sampled pool pressure, and verifies successful publications and explicit replay.
+Both twelve-slot configurations miss the zero-refusal performance target:
+the existing lock timeout rejects scope-clock waiters before command execution.
+Those refusals must leave no durable effects and support an explicit untimed
+retry after rollback. This preserves a measured CE3 limitation; it neither raises
+timeouts nor establishes sustained capacity or complete-reference equivalence.
+
 The [publication deadline witness](./30-ce3-publication-deadline.md) now proves
 that the existing PostgreSQL physical owner ends a stalled active CMS publication
 before COMMIT, releases its transaction and preserves complete rollback. An

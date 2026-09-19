@@ -1189,12 +1189,12 @@ export function taskManifest() {
 
 export function uuidSequence(...sequences: ReadonlyArray<number>): () => string {
   let index = 0;
+  const prefix = fixtureOrdinal.toString(16).padStart(8, "0");
   return () => {
     const sequence = sequences[index];
     if (sequence === undefined) throw new Error("UUID sequence exhausted.");
     index += 1;
-    const prefix = (fixtureOrdinal % 10).toString();
-    return `${prefix}0000000-0000-4000-8000-${sequence
+    return `${prefix}-0000-4000-8000-${sequence
       .toString()
       .padStart(12, "0")}`;
   };
