@@ -69,6 +69,7 @@ export const LogicalSchemaExtensionSchema = Schema.Struct({
   sourceKey: Name,
   source: Endpoint,
   target: Endpoint,
+  policy: Schema.Literal("strongReference"),
   // This records a dependency requirement; traversal/enforcement stays unready.
   onTargetDelete: Schema.Literal("restrict"),
 }).annotate(strict);
@@ -93,15 +94,16 @@ export function logicalTableKey(table: QualifiedLogicalTable): string {
   return JSON.stringify([table.namespace, table.logicalName]);
 }
 
+const decodeCandidate = Schema.decodeUnknownResult(LogicalSchemaCandidateSchema.check(
+  Schema.makeFilter(validateCandidate),
+));
+
 /** Structural/semantic validation only. Trusted composition must verify sources. */
 export function decodeLogicalSchemaCandidate(input: unknown) {
   return Result.gen(function* () {
     // Reuse the no-getter, bounded protocol JSON capture before inspecting data.
     const json = yield* Schema.decodeUnknownResult(SchemaManifestJsonSchema)(input);
-    const candidate = yield* Schema.decodeUnknownResult(LogicalSchemaCandidateSchema)(json);
-    yield* Schema.decodeUnknownResult(LogicalSchemaCandidateSchema.check(
-      Schema.makeFilter(validateCandidate),
-    ))(candidate);
+    const candidate = yield* decodeCandidate(json);
     return snapshotDecodedProtocolPlainData(candidate);
   });
 }
@@ -192,10 +194,14 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
 
 function endpointKind({ source, binding }: DefinitionBinding, field: string): string | undefined {
   if (source.definition.kind === "documents") {
-    if (field === "_id") return "identity";
+    if (field === "_id") return `identity:${logicalTableKey(binding.table)}`;
     const table = source.definition.tables.find(entry => entry.logicalName === binding.localName);
-    const type = table?.definition.documentType.value[field]?.fieldType.type;
-    return type === "id" ? "identity" : type === "string" ? "text" : undefined;
+    const type = table?.definition.documentType.value[field]?.fieldType;
+    if (type?.type === "id") {
+      const target = source.bindings.find(entry => entry.localName === type.tableName);
+      return target === undefined ? undefined : `identity:${logicalTableKey(target.table)}`;
+    }
+    return type?.type === "string" ? "text" : undefined;
   }
   const table = source.definition.schema.tables.find(entry => entry.identity.tableId === binding.localName);
   const column = table?.columns.find(entry => entry.identity.columnId === field);

@@ -48,6 +48,16 @@ export const prepareLogicalSchemaCandidate = Effect.fn("LogicalSchema.prepareCan
   const candidate = yield* Effect.fromResult(decodeLogicalSchemaCandidate(input)).pipe(
     Effect.mapError(cause => new LogicalSchemaCandidateError({ reason: "invalidInput", cause })),
   );
+  yield* verifyLogicalSchemaCandidateDigests(candidate);
+  const prepared = Object.freeze({ [preparedBrand]: true } satisfies PreparedLogicalSchemaCandidate);
+  preparedCandidates.set(prepared, candidate);
+  return prepared;
+});
+
+/** Established decoded candidate only; does not issue a preparation capability. */
+export const verifyLogicalSchemaCandidateDigests = Effect.fn("LogicalSchema.verifyDigests")(function* (
+  candidate: LogicalSchemaCandidate,
+) {
   if (measureCanonicalJsonUtf8Bytes(candidate, maximumBytes).kind !== "success") {
     return yield* Effect.fail(new LogicalSchemaCandidateError({ reason: "limitExceeded" }));
   }
@@ -56,9 +66,6 @@ export const prepareLogicalSchemaCandidate = Effect.fn("LogicalSchema.prepareCan
       return yield* Effect.fail(new LogicalSchemaCandidateError({ reason: "digestMismatch" }));
     }
   }
-  const prepared = Object.freeze({ [preparedBrand]: true } satisfies PreparedLogicalSchemaCandidate);
-  preparedCandidates.set(prepared, candidate);
-  return prepared;
 });
 
 export const readPreparedLogicalSchemaCandidate = Effect.fn("LogicalSchema.readPrepared")(function* (

@@ -1,6 +1,6 @@
 # Shared Schema Composition And Candidate Admission Preflight
 
-Status: approved implementation contract; candidate admission is under validation.
+Status: implemented bounded candidate-admission contract; serving activation remains unready.
 The source observations below describe the pre-implementation baseline; the
 [implementation note](./02-candidate-admission.md) owns the resulting contract.
 This is the first part of GLS2, not completion of GLS1's whole-system inventory

@@ -19,6 +19,8 @@ import type { AppRowTransaction } from "../appRows";
 import type { FlarexMetadataDatabase } from "../deployments";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { ApplicationWriteOwnershipError } from "./Model";
+import { isLogicalSchemaAdmissionManifest, readLogicalSchemaAdmissionEvidence,
+  MAX_LOGICAL_SCHEMA_HISTORY_RECORDS, MAX_LOGICAL_SCHEMA_HISTORY_BYTES } from "../logicalSchemaAdmissionEvidence";
 import type { ApplicationWriteOwnershipHistoryBudget } from "./Policy";
 
 /** Complete, bounded publication history over stable catalog identities, including inactive revisions. */
@@ -45,13 +47,29 @@ export const readPreviouslyApplicationWritableTables = Effect.fn("ApplicationWri
     // the deployment's complete retained catalog history as well, so absence from
     // Application publications never grants first ownership of an old identity.
     const catalogHistory = yield* query(controlDb.select({ schemaVersionId: fxControlSchemaVersions.schemaVersionId,
+      candidate: sql<boolean>`coalesce(${fxControlSchemaVersions.manifestJson}->>'kind' = 'logicalSchemaAdmission', false)`,
       length: sql<number>`octet_length(${fxControlSchemaVersions.manifestBytes})` }).from(fxControlSchemaVersions)
       .where(and(eq(fxControlSchemaVersions.deploymentId, input.deploymentId),
-        ne(fxControlSchemaVersions.schemaVersionId, input.schemaVersionId))).limit(65));
-    yield* Effect.fromResult(budget.consume(catalogHistory.length, catalogHistory.reduce((sum, row) => sum + row.length, 0)));
+        ne(fxControlSchemaVersions.schemaVersionId, input.schemaVersionId))).limit(65 + MAX_LOGICAL_SCHEMA_HISTORY_RECORDS));
+    // The untrusted preview chooses accounting only. Every artifact is still
+    // authenticated below, including its exact agreement with the preview.
+    const candidates = catalogHistory.filter(row => row.candidate);
+    if (candidates.length > MAX_LOGICAL_SCHEMA_HISTORY_RECORDS ||
+        candidates.reduce((sum, row) => sum + row.length, 0) > MAX_LOGICAL_SCHEMA_HISTORY_BYTES) {
+      return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "historyLimit" }));
+    }
+    const serving = catalogHistory.filter(row => !row.candidate);
+    yield* Effect.fromResult(budget.consume(serving.length, serving.reduce((sum, row) => sum + row.length, 0)));
     for (const historical of catalogHistory) {
       const artifact = yield* readSchemaVersionArtifactByIdEffect(controlDb, input.deploymentId, historical.schemaVersionId).pipe(Effect.mapError(failure));
-      if (artifact === null || artifact.manifestBytes.byteLength !== historical.length) return yield* invalid();
+      if (artifact === null || artifact.manifestBytes.byteLength !== historical.length ||
+          isLogicalSchemaAdmissionManifest(artifact.manifestJson) !== historical.candidate) return yield* invalid();
+      // Shared candidates allocate identities but have never granted writes.
+      // Authenticate the semantic envelope before excluding it from serving history.
+      if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
+        yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, input.deploymentId).pipe(Effect.mapError(failure));
+        continue;
+      }
       const appSchema = yield* Effect.fromResult(decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson).pipe(Result.mapError(failure)));
       const sizes = yield* query(controlDb.select({ length: sql<number>`octet_length(${fxControlBoundApplicationSchemas.bindingBytes}) + octet_length(${fxControlBoundApplicationSchemas.applicationSchemaFrameBytes})` })
         .from(fxControlBoundApplicationSchemas).where(and(eq(fxControlBoundApplicationSchemas.deploymentId, input.deploymentId),

@@ -9,7 +9,7 @@ or data-conversion engine. This boundary supersedes earlier wording that made
 full migration/ownership transitions prerequisites for core completion.
 
 Status: accepted development-phase architecture replacement; the first
-[candidate-admission slice](./02-candidate-admission.md) is under validation.
+[candidate-admission slice](./02-candidate-admission.md) is implemented as private metadata admission.
 Shared row execution and later gates remain pending. The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
@@ -115,7 +115,7 @@ profiles are Flarex decisions, not claims about Convex physical storage.
 Current row/index/unique/edge kernels, core settlement/recovery, private framework
 operations and source-preserved module/workflow tests provide the starting point.
 The first candidate-admission implementation composes native producer outputs
-through the shared catalog; it is under validation and does not complete GLS2.
+through the shared catalog; it does not complete GLS2 or confer serving readiness.
 Existing PGlite and Postgres tests remain evidence only for their actual current
 implementation.
 
@@ -198,8 +198,8 @@ that shared index/metadata contention or per-action SQL has been removed.
 ## First Core Composition Gate
 
 The [first implementation preflight](./01-schema-composition-preflight.md)
-maps current producer/admission owners and proposes a persisted, authenticated
-candidate-only slice. It requires implementation approval and does not complete
+maps current producer/admission owners for the approved persisted, authenticated
+candidate-only slice. Its bounded implementation is complete and does not complete
 GLS2 storage execution or authorize new serving/writes. The entire GLS1 inventory
 and performance baseline remain separate obligations for the later owners.
 

@@ -31,7 +31,7 @@ const Request = Schema.Struct({
 }).annotate(strict);
 
 export class SchemaCompositionError extends Data.TaggedError("SchemaCompositionError")<{
-  readonly reason: "invalidRequest" | "unanalyzedApplication" | "mixedApplicationPolicy";
+  readonly reason: "invalidRequest" | "unanalyzedApplication" | "mixedApplicationPolicy" | "unsupportedPlacement";
   readonly cause?: unknown;
 }> {}
 
@@ -41,21 +41,31 @@ export class SchemaCompositionError extends Data.TaggedError("SchemaCompositionE
  * framework definitions come from their native compilers, never caller schemas
  * or claimed producer hashes. Deployment configuration authorizes dependencies.
  */
-export function makeSchemaComposer(input: {
+export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
 }) {
+  const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
+    storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
+  const deploymentId = configuration.deploymentId;
+  const repository = configuration.applicationAnalyses;
+  const inspect = repository.inspect;
   return Effect.fn("SchemaComposition.compose")(function* (request: unknown) {
     const config = yield* Schema.decodeUnknownEffect(Request)(request).pipe(
       Effect.mapError(cause => new SchemaCompositionError({ reason: "invalidRequest", cause })),
     );
-    const application = yield* input.applicationAnalyses.inspect(input.authority, config.applicationCandidateId);
+    const application = yield* inspect.call(repository, authority, config.applicationCandidateId);
     if (application.status !== "analyzed") return yield* Effect.fail(new SchemaCompositionError({ reason: "unanalyzedApplication" }));
     const manifest = application.manifest;
     // The shared path takes independently compiled Payload sources. The old V3
     // embedded policy bundle remains with its existing active runtime consumers.
     if (manifest.version === 3) return yield* Effect.fail(new SchemaCompositionError({ reason: "mixedApplicationPolicy" }));
+    // Placement must not disappear when projecting a native schema. This first
+    // candidate profile has no partition/colocation contract yet.
+    if (manifest.schema.tables.some(table => table.placement.kind !== "global")) {
+      return yield* Effect.fail(new SchemaCompositionError({ reason: "unsupportedPlacement" }));
+    }
     const tables = yield* Effect.fromResult(decodeSchemaManifestAppTableDeclarationsV1Result(manifest.schema.tables.map(table => ({
       logicalName: table.name,
       definition: { kind: "appDocument", definitionVersion: 1, documentType: table.validator },
@@ -100,7 +110,7 @@ export function makeSchemaComposer(input: {
     }
     return yield* prepareLogicalSchemaCandidate({
       kind: "logicalSchemaCandidate", definitionVersion: 1, state: "candidate",
-      deploymentId: input.deploymentId, scopeId: input.authority.scopeId,
+      deploymentId, scopeId: authority.scopeId,
       applicationAnalysis: { candidateId: application.candidateId, analysisId: application.analysisId,
         manifestSha256: application.manifestSha256, sourceArtifactRootSha256: application.sourceArtifactRootSha256 },
       sources: [applicationSource, payloadSource, productSource, ...views],

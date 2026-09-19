@@ -78,6 +78,10 @@ consumers and removes what it displaces before reporting completion.
 
 ## First Implementation Handoff
 
+The [first workload handoff](./11-ce0-first-workload.md) names the selected
+executing path, existing correctness witnesses and gaps in its observation
+coverage. It is an initial inventory, not a complete baseline or measured win.
+
 The next recommended executable slice is CE0: instrument current supported core
 entry points and establish the benchmark equivalence and failure baseline. It
 changes observability/test support, not the authoritative lock or storage

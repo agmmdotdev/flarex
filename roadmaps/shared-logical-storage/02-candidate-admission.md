@@ -1,6 +1,6 @@
 # Shared Candidate Admission
 
-Status: implementation under validation. This is the admission-only part of
+Status: implemented private candidate admission; serving cutover remains unready. This is the admission-only part of
 [GLS2](./README.md), within the [approved preflight](./01-schema-composition-preflight.md).
 It does not complete shared commerce storage, serving activation or migrations.
 
@@ -14,6 +14,8 @@ pinned Product compiler. Configuration supplies collection inputs, explicit
 read-only view bindings and deployment-authorized dependency declarations; it
 cannot supply a replacement Product schema or claim framework producer hashes.
 No HTTP or application execution route exposes this construction capability.
+The composer detaches authority coordinates and captures the repository method
+and receiver at construction; asynchronous compilation cannot change its target.
 
 [The protocol contract](../../packages/flarex-protocol/src/logical-schema-candidate.ts)
 owns qualified identities, definition/reference distinction and graph checks.
@@ -37,6 +39,17 @@ installs no rows, index or relation. Additional view relationships/indexes are
 refused pending their explicit capability. Dependency extensions record exact
 qualified field endpoints and their originating source; they do not modify a
 native Product model or prove executable traversal/constraint enforcement.
+Extensions explicitly select `strongReference`; they are not native Module Links.
+Application ID fields resolve their declared target through producer bindings,
+so two different table IDs are not interchangeable merely because both are IDs.
+Non-global Application placement is explicitly refused until typed partition and
+colocation requirements are supported; it must never disappear in projection.
+
+The relational grammar retains the pinned native types, predicates and constraints.
+It is not a complete execution comparison contract: collation, exact ordered
+numeric keys and unique-null enforcement remain unready under the
+[query/constraint contract](./02-query-and-constraint-acceptance.md). No reader may
+infer those capabilities from this candidate or silently choose an ordered codec.
 
 ## Catalog And Stored Data Diff
 
@@ -62,6 +75,27 @@ control settlement/recovery implementation has moved to
 both framework artifact admission and shared candidates use it. There is no
 new journal, allocator, transaction/recovery implementation or active head.
 
+New admissions check retained schema evidence under the same deployment lock.
+Prior shared definitions cannot change producer owner or write profile through
+another version or by omitting and later reintroducing a table. Existing ordinary
+Application schema artifacts cannot be claimed by a framework. Bound V3 Payload
+policy evidence is authenticated by its existing binding reader and refused as
+an unsupported baseline: its ownership cutover requires a connected core slice.
+This conservative refusal includes inactive V3 bindings. It avoids copying the
+active ownership engine or assuming the control database also holds data-plane
+state. It does not certify activation, data conversion or current write authority.
+
+This first control-plane check bounds resulting retained history, including the
+new artifact, to 64 artifacts/16 MiB; overflow refuses new admission atomically.
+It is not an ordinary query/request-path scan.
+Exact immutable replay verifies its own evidence without replaying history or
+reclassifying a later ownership baseline. Future readiness must independently
+revalidate current authority. The Application ownership-history reader validates
+candidate envelopes and excludes them from previously writable tables. Candidate
+integrity reads have a separate bounded metadata allowance; they cannot consume
+the unchanged 1 MiB serving ownership-evidence allowance. A stored JSON preview
+selects only accounting, and never permits skipping canonical/semantic checks.
+
 The initial private profile bounds a candidate to 256 source bindings and 4 MiB
 of canonical candidate JSON. These bound construction/admission work, not shop
 row counts. Large-catalog query performance remains a later execution proof.
@@ -84,6 +118,10 @@ row counts. Large-catalog query performance remains a later execution proof.
   runtime consumers. The new composer refuses that mixed-source input instead
   of silently importing its ownership assumptions; native Application V1/V2
   analysis and independently compiled Payload contributions form this candidate.
+- Dependency extensions now require their explicit strong-reference policy.
+  Caller admission identities are captured and decoded strictly; extra authority
+  fields cannot redirect artifact persistence. This private candidate format has
+  no supported old reader or durable environment requiring a compatibility decoder.
 
 There is no public developer API or compatibility promise for these private
 construction seams. The source manifest remains authoritative for Application
@@ -100,8 +138,11 @@ native Payload configuration and the full Product compiler. It checks preserved
 IDs, both dependency directions, read-only exposure, canonical reload, replay,
 competing candidates, source digest tampering, incomplete Product sets,
 conflicting definitions, missing/wrong-owner endpoints, wrong scope and stored
-corruption. The PostgreSQL lane exercises concurrent admission with an ordinary
-role. A catalog inventory comparison checks that admission creates no tables.
+corruption, retained ownership refusal and unsupported placement. The PostgreSQL
+lane exercises identical/conflicting admission races and lost-COMMIT recovery
+with an ordinary role. PGlite also checks that failed quarantine preserves an
+uncertain decision. A catalog inventory comparison checks that admission creates
+no tables. A shared history witness proves candidates confer no prior writes.
 
 The test is a catalog/producer proof. It does not establish native cross-framework
 query execution, writes, generic index enforcement, migration conversion,

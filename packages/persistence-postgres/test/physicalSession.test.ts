@@ -65,7 +65,7 @@ it("refuses invalid physical deadline durations as defects", async () => {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 describePostgres("physical session owner composition", () => {
-  it("keeps artifact schema access with the artifact adapter", async () => {
+  it("keeps the catalog session independent of framework query metadata", async () => {
     const pool = new Pool({
       connectionString: postgresUrl ?? undefined,
       max: 1,
@@ -108,7 +108,7 @@ describePostgres("physical session owner composition", () => {
         }),
       );
       expect(observations.core).toEqual({ kind: "committed", value: false });
-      expect(observations.control).toEqual({ kind: "committed", value: true });
+      expect(observations.control).toEqual({ kind: "committed", value: false });
       expect(pool.totalCount - pool.idleCount).toBe(0);
     } finally {
       await pool.end();

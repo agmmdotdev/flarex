@@ -1,18 +1,15 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 import {
-  prepareLogicalSchemaCandidate,
   readPreparedLogicalSchemaCandidate,
   type PreparedLogicalSchemaCandidate,
 } from "@flarex/analysis/internal/logical-schema-candidate";
 import {
-  decodeLogicalSchemaCandidate,
   logicalTableKey,
-  QualifiedLogicalTableSchema,
   type LogicalSchemaCandidate,
 } from "flarex-protocol/internal/logical-schema-candidate";
-import { CatalogTableIdSchema } from "flarex-protocol/catalog";
-import { SchemaManifestJsonSchema, type CatalogSchemaVersionId, type CatalogSchemaVersion } from "flarex-protocol/schema-manifest";
+import { SchemaManifestJsonSchema, CatalogSchemaVersionIdSchema, CatalogSchemaVersionSchema,
+  decodeSchemaManifestAppSchemaV1Result, type CatalogSchemaVersionId, type CatalogSchemaVersion } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -25,7 +22,11 @@ import {
   type CatalogControlReadInput,
   type RunCatalogControlInput,
 } from "./catalogControlSession";
-import { fxControlScopes } from "./schema";
+import { fxControlScopes, fxControlSchemaVersions } from "./schema";
+import { locateApplicationRelationBindingForCommitEffect } from "./applicationRelationBinding";
+import { readLogicalSchemaAdmissionEvidence, isLogicalSchemaAdmissionManifest,
+  MAX_LOGICAL_SCHEMA_HISTORY_RECORDS, MAX_LOGICAL_SCHEMA_HISTORY_BYTES,
+  type LogicalSchemaAdmissionBinding as Binding } from "./logicalSchemaAdmissionEvidence";
 import { lockSchemaManifestBindingDeploymentEffect } from "./schemaManifestTableBindings";
 import {
   ensureStableTableIdentityInTransactionEffect,
@@ -33,22 +34,19 @@ import {
 } from "./stableTableCatalog";
 import {
   prepareSchemaVersionArtifactEffect,
+  getPreparedSchemaVersionArtifactEvidenceResult,
   ensureSchemaVersionArtifactInTransactionEffect,
   getSchemaVersionArtifactByIdEffect,
 } from "./schemaVersionArtifacts";
 
 export class LogicalSchemaAdmissionError extends Data.TaggedError("LogicalSchemaAdmissionError")<{
-  readonly reason: "wrongTarget" | "missingCandidate" | "storedCorruption" | "resourceFailure";
+  readonly reason: "wrongTarget" | "missingCandidate" | "storedCorruption" | "resourceFailure" | "invalidIdentity"
+    | "ownershipChanged" | "unsupportedOwnershipBaseline" | "historyLimit" | "identityConflict";
   readonly cause?: unknown;
 }> {}
-const Binding = Schema.Struct({ table: QualifiedLogicalTableSchema, tableId: CatalogTableIdSchema });
-const Admission = Schema.Struct({
-  kind: Schema.Literal("logicalSchemaAdmission"),
-  definitionVersion: Schema.Literal(1),
-  candidate: SchemaManifestJsonSchema,
-  tableBindings: Schema.Array(Binding).check(Schema.isMaxLength(10_000)),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
-type Binding = typeof Binding.Type;
+const decodeIdentity = Schema.decodeUnknownEffect(Schema.Struct({
+  schemaVersionId: CatalogSchemaVersionIdSchema, version: CatalogSchemaVersionSchema,
+}).annotate({ parseOptions: { onExcessProperty: "error" } }));
 type AdmissionFailure = LogicalSchemaAdmissionError
   | Effect.Error<ReturnType<typeof lockSchemaManifestBindingDeploymentEffect>>
   | Effect.Error<ReturnType<typeof ensureStableTableIdentityInTransactionEffect>>
@@ -62,12 +60,14 @@ type AdmissionFailure = LogicalSchemaAdmissionError
  * catalogs and physical settlement owner. Its output is inspectable metadata;
  * it is deliberately not an Application manifest or a commerce profile.
  */
-export function makeLogicalSchemaAdmission(input: {
+export function makeLogicalSchemaAdmission(configuration: {
   readonly controlDb: FlarexMetadataDatabase;
   readonly session: CatalogControlSessionStarter;
   readonly deploymentId: string;
   readonly scopeId: ScopeId;
 }) {
+  const input = Object.freeze({ controlDb: configuration.controlDb, session: configuration.session,
+    deploymentId: configuration.deploymentId, scopeId: configuration.scopeId });
   if (!hasCatalogControlSessionComposition(input.session, input.controlDb)) {
     throw new Error("Logical schema admission needs the exact catalog session/database pair");
   }
@@ -89,24 +89,13 @@ export function makeLogicalSchemaAdmission(input: {
     yield* requireScope(db);
     const artifact = yield* getSchemaVersionArtifactByIdEffect(db, input.deploymentId, schemaVersionId);
     if (artifact === null) return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "missingCandidate" }));
-    const admitted = yield* Schema.decodeUnknownEffect(Admission)(artifact.manifestJson).pipe(
-      Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })),
-    );
-    const candidate = yield* Effect.fromResult(decodeLogicalSchemaCandidate(admitted.candidate)).pipe(
-      Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })),
-    );
+    const admitted = yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, input.deploymentId).pipe(
+      Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })));
+    const candidate = admitted.candidate;
     yield* requireTarget(candidate);
-    yield* prepareLogicalSchemaCandidate(candidate).pipe(
-      Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })),
-    );
-    const definitions = candidate.sources.flatMap(source => source.bindings.filter(binding => binding.kind === "definition"));
-    if (admitted.tableBindings.length !== definitions.length ||
-        new Set(admitted.tableBindings.map(binding => logicalTableKey(binding.table))).size !== definitions.length) {
-      return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "storedCorruption" }));
-    }
     for (const binding of admitted.tableBindings) {
       const identity = yield* getStableTableIdentityByNameEffect(db, { deploymentId: input.deploymentId, ...binding.table });
-      if (identity?.tableId !== binding.tableId || !definitions.some(definition => logicalTableKey(definition.table) === logicalTableKey(binding.table))) {
+      if (identity?.tableId !== binding.tableId) {
         return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "storedCorruption" }));
       }
     }
@@ -115,15 +104,29 @@ export function makeLogicalSchemaAdmission(input: {
 
   const admit = Effect.fn("LogicalSchemaAdmission.admit")(function* (
     prepared: PreparedLogicalSchemaCandidate,
-    identity: { readonly schemaVersionId: CatalogSchemaVersionId; readonly version: CatalogSchemaVersion },
+    identityInput: { readonly schemaVersionId: CatalogSchemaVersionId; readonly version: CatalogSchemaVersion },
     budget: RunCatalogControlInput,
   ) {
+    const identity = yield* Schema.decodeUnknownEffect(SchemaManifestJsonSchema)(identityInput).pipe(Effect.flatMap(decodeIdentity), Effect.mapError(cause =>
+      new LogicalSchemaAdmissionError({ reason: "invalidIdentity", cause })));
     const candidate = yield* readPreparedLogicalSchemaCandidate(prepared);
     yield* requireTarget(candidate);
     return yield* runCatalogControlEffect<CatalogSchemaVersionId, AdmissionFailure>(input.session, budget, {
       runLockedEffect: transaction => withCatalogRawControlSessionTransactionEffect(transaction, input.session, tx => Effect.gen(function* () {
         yield* lockSchemaManifestBindingDeploymentEffect(tx, input.deploymentId);
         yield* requireScope(tx, true);
+        const retained = yield* getSchemaVersionArtifactByIdEffect(tx, input.deploymentId, identity.schemaVersionId);
+        if (retained !== null) {
+          if (!isLogicalSchemaAdmissionManifest(retained.manifestJson)) {
+            return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "identityConflict" }));
+          }
+          const existing = yield* inspectInDatabase(tx, identity.schemaVersionId);
+          if (existing.artifact.version !== identity.version || candidateText(existing.candidate) !== candidateText(candidate)) {
+            return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "identityConflict" }));
+          }
+          return { kind: "existing" as const, value: identity.schemaVersionId };
+        }
+        const retainedBytes = yield* requireRetainedOwners(tx, input.deploymentId, candidate);
         const tableBindings: Binding[] = [];
         // One allocator and one settlement owner. Views never allocate identities.
         const definitions = candidate.sources.flatMap(source => source.bindings.filter(binding => binding.kind === "definition"))
@@ -137,14 +140,19 @@ export function makeLogicalSchemaAdmission(input: {
         }).pipe(Effect.orDie);
         // Compilation is complete. Only bounded owned metadata and local digest
         // work run here; no user callbacks, model loading or remote effects.
-        const artifact = yield* prepareSchemaVersionArtifactEffect({ deploymentId: input.deploymentId, ...identity, manifest });
+        const artifact = yield* prepareSchemaVersionArtifactEffect({ deploymentId: input.deploymentId,
+          schemaVersionId: identity.schemaVersionId, version: identity.version, manifest });
+        const evidence = yield* Effect.fromResult(getPreparedSchemaVersionArtifactEvidenceResult(artifact));
+        if (retainedBytes + evidence.manifestByteLength > MAX_LOGICAL_SCHEMA_HISTORY_BYTES) {
+          return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "historyLimit" }));
+        }
         const result = yield* ensureSchemaVersionArtifactInTransactionEffect(tx, artifact);
         return { kind: result.status, value: identity.schemaVersionId };
       })),
       resolveExistingEffect: db => Effect.gen(function* () {
         const existing = yield* inspectInDatabase(db, identity.schemaVersionId);
         if (existing.artifact.version !== identity.version || candidateText(existing.candidate) !== candidateText(candidate)) {
-          return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "storedCorruption" }));
+          return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "identityConflict" }));
         }
         return identity.schemaVersionId;
       }),
@@ -157,6 +165,57 @@ export function makeLogicalSchemaAdmission(input: {
       runCatalogControlReadEffect(input.session, budget, db => inspectInDatabase(db, schemaVersionId)),
   });
 }
+
+/** Conservative candidate-only transition check, under the existing deployment
+ * lock. This reads retained catalog evidence, not a second write-owner history.
+ * Active V3 ownership needs its own connected cutover; never infer it from names.
+ */
+const requireRetainedOwners = Effect.fn("LogicalSchemaAdmission.requireRetainedOwners")(function* (
+  db: FlarexMetadataDatabase, deploymentId: string, candidate: LogicalSchemaCandidate,
+) {
+  const history = yield* query(() => db.select({ id: fxControlSchemaVersions.schemaVersionId,
+    bytes: sql<number>`octet_length(${fxControlSchemaVersions.manifestBytes})` }).from(fxControlSchemaVersions)
+    .where(eq(fxControlSchemaVersions.deploymentId, deploymentId)).limit(MAX_LOGICAL_SCHEMA_HISTORY_RECORDS));
+  const retainedBytes = history.reduce((total, row) => total + row.bytes, 0);
+  // Charge the new artifact too; refusal must leave retained history readable.
+  if (history.length >= MAX_LOGICAL_SCHEMA_HISTORY_RECORDS || retainedBytes >= MAX_LOGICAL_SCHEMA_HISTORY_BYTES) {
+    return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "historyLimit" }));
+  }
+  const proposed = new Map(candidate.sources.flatMap(source => source.bindings.filter(binding => binding.kind === "definition")
+    .map(binding => [logicalTableKey(binding.table), { owner: source.owner, profile: source.writeProfile }] as const)));
+  for (const row of history) {
+    const artifact = yield* getSchemaVersionArtifactByIdEffect(db, deploymentId, row.id);
+    if (artifact === null || artifact.manifestBytes.byteLength !== row.bytes) {
+      return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "storedCorruption" }));
+    }
+    if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
+      const previous = yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, deploymentId).pipe(
+        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })));
+      for (const source of previous.candidate.sources) for (const binding of source.bindings) {
+        if (binding.kind !== "definition") continue;
+        const next = proposed.get(logicalTableKey(binding.table));
+        if (next !== undefined && (next.owner !== source.owner || next.profile !== source.writeProfile)) {
+          return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }));
+        }
+      }
+      continue;
+    }
+    const bound = yield* locateApplicationRelationBindingForCommitEffect(db, { deploymentId, schemaVersionId: row.id }).pipe(
+      Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })));
+    if (bound?.binding.version === 3) {
+      return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "unsupportedOwnershipBaseline" }));
+    }
+    const previous = yield* Effect.fromResult(decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson)).pipe(
+      Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "unsupportedOwnershipBaseline", cause })));
+    for (const table of previous.tableDefinitions.tables) {
+      const next = proposed.get(logicalTableKey(table));
+      if (next !== undefined && (next.owner !== "application" || next.profile !== "application.occ")) {
+        return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "ownershipChanged" }));
+      }
+    }
+  }
+  return retainedBytes;
+});
 
 const query = <A>(run: () => PromiseLike<A>) => Effect.tryPromise({
   try: run,
