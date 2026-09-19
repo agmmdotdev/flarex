@@ -20,7 +20,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema } from
   "flarex-protocol/storage-authority";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result, Tracer } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -40,6 +40,8 @@ import {
   MAX_APP_UNIQUE_CONSTRAINT_BUILDS_PER_SCOPE,
   advanceAppUniqueConstraintSetBackfillV1Effect,
   createAppUniqueConstraintSetEligibilityPortV1,
+  prepareAppUniqueConstraintSet,
+  acceptPreparedAppUniqueConstraintSet,
   createLocatedAppUniqueConstraintSetBuildTargetV1,
   hasAppUniqueConstraintSetEligibilityEvidenceV1,
   loadAppUniqueConstraintSetEligibilityForReadinessV1Effect,
@@ -63,6 +65,7 @@ import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
   "../src/transactionSessionActivation";
 import { LocatedReadCommittedTransactionFailureV1 } from
   "../src/transactionSessionAttemptKernel";
+import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const LOCATOR = Object.freeze({
@@ -331,6 +334,43 @@ describe("C08-B1 closed unique-set build foundation", () => {
     expect(hasAppUniqueConstraintSetEligibilityEvidenceV1({
       ...eligible.evidence,
     })).toBe(false);
+    const mutableInput = { ...eligibilityInput(fixture) };
+    let mutatedDuringRead = false;
+    const tracer = Tracer.make({ span(options) {
+      if (options.name === "AppUniqueConstraintSetClosure.read") {
+        Object.assign(mutableInput, eligibilityInput(absent));
+        mutatedDuringRead = true;
+      }
+      return new Tracer.NativeSpan(options);
+    } });
+    const plan = await runEffect(prepareAppUniqueConstraintSet(port, mutableInput)
+      .pipe(Effect.provideService(Tracer.Tracer, tracer)));
+    expect(mutatedDuringRead).toBe(true);
+    const emptyPlan = await runEffect(prepareAppUniqueConstraintSet(absentPort, eligibilityInput(absent)));
+    if (emptyPlan.status !== "prepared") throw new Error("Expected closed empty catalog plan");
+    if (plan.status !== "prepared") throw new Error("Expected closed catalog plan");
+    await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+      const authority = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
+        physicalLocator: LOCATOR, storageGeneration: clock.storageGeneration,
+        storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
+        lastCommitSeq: clock.lastCommitSeq };
+      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(absentPort,
+        emptyPlan.preparation, tx, { ...authority, deploymentId: absent.deploymentId, scopeId: absent.scopeId }, clock)))
+        .toMatchObject({ reason: "scopeMismatch" });
+      expect(yield* acceptPreparedAppUniqueConstraintSet(port, plan.preparation, tx, authority, clock))
+        .toMatchObject({ status: "eligible" });
+      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
+        { ...plan.preparation }, tx, authority, clock))).toMatchObject({ reason: "invalidPort" });
+      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(absentPort,
+        plan.preparation, tx, authority, clock))).toMatchObject({ reason: "invalidPort" });
+      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
+        plan.preparation, tx, { ...authority, scopeId: absent.scopeId }, clock)))
+        .toMatchObject({ reason: "scopeMismatch" });
+      expect(yield* Effect.flip(acceptPreparedAppUniqueConstraintSet(port,
+        plan.preparation, tx, authority, { ...clock, scopeId: absent.scopeId })))
+        .toMatchObject({ reason: "scopeMismatch" });
+    })));
     const exactPorts = ports(fixture);
     let controlDbReads = 0;
     let authorityReads = 0;

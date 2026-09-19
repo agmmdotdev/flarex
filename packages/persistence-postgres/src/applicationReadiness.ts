@@ -568,7 +568,6 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
           capturedContext.physicalDefinitionLifecycle,
           reserved.authority.scopeId,
           requirements,
-          uniqueConstraintEligibility,
         );
       const preliminaryPhysical = yield* runLocatedTransaction(
         located.target,
@@ -708,7 +707,6 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
           capturedContext.physicalDefinitionLifecycle,
           reserved.authority.scopeId,
           requirements,
-          uniqueConstraintEligibility,
         );
       const schemaBindingSha256 = yield* runTransaction(
         capturedContext.controlDb,

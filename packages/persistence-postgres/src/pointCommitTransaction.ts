@@ -1,4 +1,5 @@
 import { sqlCall } from "./pointCommitErrors";
+import { prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, type AppUniqueConstraintSetPreparation } from "./appUniqueConstraintSetBuildV1";
 import { hasApplicationDocumentOrderedIndexComposition } from "./applicationDocumentMaterialization/indexComposition";
 import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "./storedCommitAuthority/postgresLoader";
 import { runPointCommitInTransactionEffect, projectPointCommitTransactionResult } from "./pointCommitPromiseBoundary";
@@ -658,6 +659,27 @@ export const loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect =
       input,
     );
   });
+
+/** Catalog-only preparation through the same authenticated unique-set owner. */
+export const preparePointCommitUniqueConstraintSet = Effect.fn("PointCommitTransaction.prepareUniqueConstraintSet")(
+  function* (value: unknown, input: AppUniqueConstraintSetEligibilityInputV1,
+    controlDb: FlarexMetadataDatabase, authority: TrustedScopeAuthorityResolutionPorts) {
+    const eligibility = typeof value === "object" && value !== null ? pointCommitUniqueConstraintEligibilityPortsV1.get(value) : undefined;
+    if (eligibility === undefined || !hasAppUniqueConstraintSetEligibilityCompositionV1(eligibility, controlDb, authority)) {
+      return yield* Effect.fail(new PointCommitUniqueConstraintEligibilityUnavailableV1Error({ reason: eligibility === undefined ? "notSameFactory" : "compositionMismatch" }));
+    }
+    return yield* prepareAppUniqueConstraintSet(eligibility, input);
+  },
+);
+
+export const acceptPreparedPointCommitUniqueConstraintSet = Effect.fn("PointCommitTransaction.acceptPreparedUniqueConstraintSet")(
+  function* (value: unknown, preparation: AppUniqueConstraintSetPreparation, tx: AppRowTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord) {
+    const eligibility = typeof value === "object" && value !== null ? pointCommitUniqueConstraintEligibilityPortsV1.get(value) : undefined;
+    if (eligibility === undefined) return yield* Effect.fail(new PointCommitUniqueConstraintEligibilityUnavailableV1Error({ reason: "notSameFactory" }));
+    return yield* acceptPreparedAppUniqueConstraintSet(eligibility, preparation, tx, authority, clock);
+  },
+);
 
 /**
  * Private FSV04/FSV05 composition seam. The caller owns the transaction and

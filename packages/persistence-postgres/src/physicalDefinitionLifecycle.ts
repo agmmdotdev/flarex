@@ -9,13 +9,11 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
-  Array as EffectArray,
   Cause,
   Data,
   Effect,
   Exit,
   Option,
-  Order,
   Result,
   Schema,
 } from "effect";
@@ -52,10 +50,6 @@ import {
   getAppUniqueConstraintDefinitionByIdEffect,
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
-import {
-  hasAppUniqueConstraintSetEligibilityEvidenceCompositionV1,
-  type AppUniqueConstraintSetEligibilityResultV1,
-} from "./appUniqueConstraintSetBuildV1";
 import {
   readAppUniqueConstraintSetClosureV1Effect,
   type LocatedAppUniqueConstraintSetClosureV1,
@@ -350,11 +344,6 @@ export type PreparePhysicalDefinitionLifecycleReadinessError =
   | ReadAppUniqueConstraintSetClosureV1Error
   | TrustedScopeAuthorityError;
 
-export type PhysicalDefinitionLifecycleUniqueEligibility = Exclude<
-  AppUniqueConstraintSetEligibilityResultV1,
-  { readonly status: "not_ready" }
->;
-
 export type ValidatePhysicalDefinitionLifecycleReadinessError =
   | InvalidPhysicalDefinitionLifecyclePortError
   | InvalidPreparedPhysicalDefinitionLifecycleReadinessError
@@ -463,7 +452,6 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
   port: PhysicalDefinitionLifecyclePort,
   scopeId: ScopeId,
   snapshot: PublishedPhysicalRequirementSnapshotV1,
-  uniqueEligibility: PhysicalDefinitionLifecycleUniqueEligibility,
 ): Effect.fn.Return<
   PreparedPhysicalDefinitionLifecycleReadiness,
   PreparePhysicalDefinitionLifecycleReadinessError
@@ -482,19 +470,9 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
     snapshot.deploymentId,
     snapshot.schemaVersionId,
   );
-  if (
-    uniqueClosure === null ||
-    !uniqueEligibilityMatchesClosure(
-      state,
-      scopeId,
-      snapshot,
-      uniqueEligibility,
-      uniqueClosure,
-    )
-  ) {
-    return yield* Effect.fail(new InvalidPhysicalDefinitionLifecycleInputError({
-      field: "uniqueConstraintEligibility",
-    }));
+  if (uniqueClosure === null || uniqueClosure.closure.deploymentId !== snapshot.deploymentId ||
+    uniqueClosure.closure.schemaVersionId !== snapshot.schemaVersionId) {
+    return yield* Effect.fail(new InvalidPhysicalDefinitionLifecycleInputError({ field: "uniqueConstraintSet" }));
   }
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
     snapshot.deploymentId,
@@ -1340,41 +1318,6 @@ function compareReadinessRequirement(
 ): number {
   const kindOrder = left.definitionKind.localeCompare(right.definitionKind);
   return kindOrder === 0 ? left.definitionId - right.definitionId : kindOrder;
-}
-
-function uniqueEligibilityMatchesClosure(
-  state: Readonly<PhysicalDefinitionLifecyclePortDependencies>,
-  scopeId: ScopeId,
-  snapshot: PublishedPhysicalRequirementSnapshotV1,
-  eligibility: PhysicalDefinitionLifecycleUniqueEligibility,
-  closure: LocatedAppUniqueConstraintSetClosureV1,
-): boolean {
-  if (
-    closure.closure.deploymentId !== snapshot.deploymentId ||
-    closure.closure.schemaVersionId !== snapshot.schemaVersionId
-  ) return false;
-  if (eligibility.status === "not_required") {
-    return closure.members.length === 0 && closure.closure.definitionCount === 0;
-  }
-  const evidence = eligibility.evidence;
-  if (
-    !hasAppUniqueConstraintSetEligibilityEvidenceCompositionV1(
-      evidence,
-      state.controlDb,
-      state.authority,
-    ) ||
-    evidence.deploymentId !== snapshot.deploymentId ||
-    evidence.scopeId !== scopeId ||
-    evidence.schemaVersionId !== snapshot.schemaVersionId ||
-    evidence.definitionCount !== closure.closure.definitionCount ||
-    evidence.definitionSetSha256Hex !== closure.closure.definitionSetSha256Hex
-  ) return false;
-  const tableIds = EffectArray.sort(
-    new Set(closure.members.map(member => member.tableId)),
-    Order.Number,
-  );
-  return tableIds.length === evidence.tableIds.length &&
-    tableIds.every((tableId, index) => tableId === evidence.tableIds[index]);
 }
 
 function requireReadinessAuthorityResult(

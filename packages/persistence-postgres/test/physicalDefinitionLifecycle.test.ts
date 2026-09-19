@@ -1,3 +1,5 @@
+import { and, eq } from "drizzle-orm";
+import { fxControlSchemaVersionUniqueConstraintSets } from "../src/schema";
 import { resolveTrustedScopeAuthorityEffect } from "../src/scopeAuthorityResolution";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
@@ -33,6 +35,7 @@ import {
   preparePhysicalDefinitionLifecycleReadinessEffect,
   preparePhysicalDefinitionLifecycleSubjectEffect,
   validatePhysicalDefinitionLifecycleReadinessInTransactionEffect,
+  validatePhysicalDefinitionLifecycleReadinessCatalogEffect,
   type PreparedPhysicalDefinitionLifecycleSubject,
 } from "../src/physicalDefinitionLifecycle";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
@@ -475,7 +478,6 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         foreignControlPort,
         fixture.authority.scopeId,
         requirements,
-        uniqueEligibility,
       ),
     )).resolves.toMatchObject({ field: "requirementSnapshot" });
     await expect(runEffectFailure(
@@ -483,29 +485,22 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         port,
         fixture.authority.scopeId,
         Object.freeze({ ...requirements }),
-        uniqueEligibility,
       ),
     )).resolves.toMatchObject({ field: "requirementSnapshot" });
-    // SAFETY: this deliberately constructs a structurally valid but unauthentic
-    // evidence object to prove process-local issuer identity is required.
-    const copiedEligibility = Object.freeze({
-      status: "eligible" as const,
-      evidence: Object.freeze({ ...uniqueEligibility.evidence }),
-    }) as typeof uniqueEligibility;
-    await expect(runEffectFailure(
-      preparePhysicalDefinitionLifecycleReadinessEffect(
-        port,
-        fixture.authority.scopeId,
-        requirements,
-        copiedEligibility,
-      ),
-    )).resolves.toMatchObject({ field: "uniqueConstraintEligibility" });
+    const closureWhere = and(eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, fixture.deploymentId),
+      eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, fixture.active.basis.schemaVersionId));
+    const closures = await fixture.control.drizzle.select().from(fxControlSchemaVersionUniqueConstraintSets).where(closureWhere);
+    expect(closures).toHaveLength(1);
+    await fixture.control.drizzle.delete(fxControlSchemaVersionUniqueConstraintSets).where(closureWhere);
+    try {
+      await expect(runEffectFailure(preparePhysicalDefinitionLifecycleReadinessEffect(port,
+        fixture.authority.scopeId, requirements))).resolves.toMatchObject({ field: "uniqueConstraintSet" });
+    } finally { await fixture.control.drizzle.insert(fxControlSchemaVersionUniqueConstraintSets).values(closures); }
     const readiness = await runEffect(
       preparePhysicalDefinitionLifecycleReadinessEffect(
         port,
         fixture.authority.scopeId,
         requirements,
-        uniqueEligibility,
       ),
     );
     const eligibility = await fixture.target.drizzle.transaction(tx =>
@@ -677,12 +672,7 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       ],
     );
     await expect(runEffectFailure(
-      preparePhysicalDefinitionLifecycleReadinessEffect(
-        port,
-        fixture.authority.scopeId,
-        requirements,
-        uniqueEligibility,
-      ),
-    )).resolves.toMatchObject({ field: "uniqueConstraintEligibility" });
+      validatePhysicalDefinitionLifecycleReadinessCatalogEffect(port, readiness),
+    )).resolves.toMatchObject({ reason: "storedStateInvalid" });
   });
 });

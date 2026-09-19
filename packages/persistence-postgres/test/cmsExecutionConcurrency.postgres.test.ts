@@ -167,9 +167,9 @@ describe.skipIf(postgresUrl === null)("active CMS request concurrency", () => {
       const competing = yield* tested.host.run(otherKey, tested.insert, otherArgs).pipe(Effect.forkScoped);
       const waiter = yield* waitForScopeClockWaiter(persistence, holderPid);
       expect(waiter.pid).not.toBe(holderPid);
-      // Current admission blocks during its preparatory shared clock read,
-      // before it reaches the main transaction or the second command callback.
-      expect(waiter.shared).toBe(true);
+      // Planning overlaps the held publication. The remaining wait is the
+      // main transaction's exclusive clock acquisition before callback execution.
+      expect(waiter.shared).toBe(false);
       expect(tested.executionCount()).toBe(1);
       expect(yield* Effect.promise(() => tested.inventory())).toEqual(before);
       yield* barrier.open;

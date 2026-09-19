@@ -468,7 +468,7 @@ export const loadAppSchemaCandidateReadinessEffect = Effect.fn(
         clock,
         "load",
       ));
-      const head = yield* readHeadWithLockEffect(
+      const head = yield* readHeadEffect(
         tx,
         input.scopeId,
         "share",
@@ -589,7 +589,7 @@ const validateExpectedCandidateReadinessInTransaction = Effect.fn(
   AppSchemaCandidateReadinessResult,
   ValidateAppSchemaCandidateReadinessError
 > {
-  const current = yield* readHeadWithLockEffect(
+  const current = yield* readHeadEffect(
     tx,
     input.scopeId,
     evidenceLock,
@@ -1147,30 +1147,7 @@ export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
   const head = yield* runLocatedTransaction(
     located.target,
     "load",
-    (tx) => Effect.gen(function* () {
-      const clock = yield* lockScopeClockForShareInTransactionEffect(
-        tx,
-        located.authority.scopeId,
-      );
-      yield* Effect.fromResult(requireExactAuthorityResult(
-        located.authority,
-        clock,
-        "load",
-      ));
-      const current = yield* readAppSchemaCandidateValidationHeadForShareInTransactionEffect(
-        tx,
-        located.authority.scopeId,
-        "load",
-      );
-      if (current !== null) {
-        yield* Effect.fromResult(requireHeadAuthorityResult(
-          current,
-          clock,
-          "load",
-        ));
-      }
-      return current;
-    }),
+    (tx) => readHeadEffect(tx, located.authority.scopeId, "planning"),
   ).pipe(Effect.mapError(mapCandidateWriteGuardError));
   let validator: CandidateDocumentValidator | null = null;
   if (
@@ -1250,6 +1227,13 @@ export const applyAppSchemaCandidateWriteGuardInTransactionEffect = Effect.fn(
     authority.scopeId,
     "advance",
   ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+  if (current !== null) {
+    yield* Effect.fromResult(requireHeadAuthorityResult(
+      current,
+      lockedClock,
+      "settle",
+    )).pipe(Effect.mapError(mapCandidateWriteGuardError));
+  }
   const preparedHead = preparedState.head;
   if (preparedHead === null) {
     return current === null
@@ -2358,18 +2342,19 @@ export const readAppSchemaCandidateValidationHeadForShareInTransactionEffect =
       : yield* decodeHeadRowEffect(rows[0], operation);
   });
 
-const readHeadWithLockEffect = Effect.fn(
-  "AppSchemaCandidateValidation.readHeadWithLock",
+const readHeadEffect = Effect.fn(
+  "AppSchemaCandidateValidation.readHead",
 )(function* (
   tx: AppRowTransaction,
   scopeId: ScopeId,
-  lock: "share" | "update",
+  lock: "share" | "update" | "planning",
 ) {
+  const query = tx.select().from(fxSystemAppSchemaCandidateValidations).where(
+    eq(fxSystemAppSchemaCandidateValidations.scopeId, scopeId),
+  ).limit(1);
   const rows = yield* queryEffect(
     "readHead",
-    tx.select().from(fxSystemAppSchemaCandidateValidations).where(
-      eq(fxSystemAppSchemaCandidateValidations.scopeId, scopeId),
-    ).limit(1).for(lock),
+    lock === "planning" ? query : query.for(lock),
   );
   return rows[0] === undefined
     ? null

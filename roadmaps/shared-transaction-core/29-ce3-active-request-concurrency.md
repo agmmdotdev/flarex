@@ -46,18 +46,20 @@ work on failure. Do not claim parallelism from two sequential successful calls.
 
 ## Current Finding
 
-The active PostgreSQL witness locates the same-scope wait in preparation's shared
-scope-clock read, before the competing command callback and its main transaction.
-The held request has already written rows, memberships, claims and publication
-prefix, all still invisible to other connections. A different active scope
-completes its full request before the barrier is released. Shared physical
-families therefore do not impose a global request mutex in this composition.
-After release, disjoint writes settle densely and duplicates reuse one outcome.
+The initial baseline located the same-scope wait in preparation's shared
+scope-clock read. [Unlocked planning](./31-ce3-unlocked-planning.md) replaces that
+preliminary exclusion: the active request witness now reaches the main exclusive
+scope-clock acquisition while the first publication remains held. Its command
+callback has not executed, and the first request's rows, memberships, claims
+and publication prefix remain invisible to other connections. After release,
+disjoint writes settle densely and duplicates reuse one outcome.
 
-This distinguishes cross-scope progress from same-scope parallel execution.
-Moving only the main CMS clock acquisition cannot remove the earlier preparation
-wait. The CE3 replacement must coordinate preparation/readiness, authoritative
-validation, sequence-consuming materialization and final publication together.
+A different active scope still completes its full request before the barrier is
+released. Shared physical families do not impose a global request mutex in this
+composition. These witnesses distinguish cross-scope progress and same-scope
+preparation overlap from parallel command execution. Authoritative validation,
+sequence-consuming materialization and final publication remain protected by the
+main clock; the coordinated CE3 replacement remains open.
 
 The [physical deadline witness](./30-ce3-publication-deadline.md) extends this
 baseline with a publication that never voluntarily resumes. The PostgreSQL

@@ -349,6 +349,46 @@ const eligibilityPortStates = new WeakMap<
   }>
 >();
 const eligibilityEvidenceSnapshots = new WeakMap<object, BuildSnapshot>();
+const uniquePreparationBrand: unique symbol = Symbol("AppUniqueConstraintSetPreparation");
+export interface AppUniqueConstraintSetPreparation { readonly [uniquePreparationBrand]: true }
+const uniquePreparations = new WeakMap<object, Readonly<{
+  port: AppUniqueConstraintSetEligibilityPortV1;
+  scopeId: ScopeId;
+  snapshot: BuildSnapshot;
+  tableIds: ReadonlyArray<CatalogTableId>;
+}>>();
+
+/** Closed catalog inputs only. No target observation or eligibility is issued. */
+export const prepareAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.prepareCatalog")(
+  function* (port: AppUniqueConstraintSetEligibilityPortV1, input: AppUniqueConstraintSetEligibilityInputV1) {
+    const state = eligibilityPortStates.get(port);
+    if (state === undefined) return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+    const captured = Object.freeze({ deploymentId: input.deploymentId, scopeId: input.scopeId, schemaVersionId: input.schemaVersionId });
+    const closure = yield* readAppUniqueConstraintSetClosureV1Effect(state.ports.controlDb, captured.deploymentId, captured.schemaVersionId);
+    if (closure === null) return Object.freeze({ status: "not_ready" as const, reason: "setNotClosed" as const,
+      blocksAllTables: true, tableIds: [] as const });
+    const preparation: AppUniqueConstraintSetPreparation = Object.freeze({ [uniquePreparationBrand]: true as const });
+    uniquePreparations.set(preparation, Object.freeze({ port, scopeId: captured.scopeId,
+      snapshot: buildSnapshot(captured, closure), tableIds: uniqueConstraintTableIds(closure) }));
+    return Object.freeze({ status: "prepared" as const, preparation });
+  },
+);
+
+/** The caller owns the exact locked clock and accepting target transaction. */
+export const acceptPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.acceptPreparedCatalog")(
+  function* (port: AppUniqueConstraintSetEligibilityPortV1, preparation: AppUniqueConstraintSetPreparation,
+    tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) {
+    const state = uniquePreparations.get(preparation);
+    if (state === undefined || state.port !== port) return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+    if (state.scopeId !== authority.scopeId || state.scopeId !== clock.scopeId ||
+      state.snapshot.deploymentId !== authority.deploymentId) {
+      return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "scopeMismatch", retryable: false }));
+    }
+    yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+    if (state.snapshot.members.length === 0) return Object.freeze({ status: "not_required" as const, tableIds: [] as const });
+    return yield* inspectEligibilityWithLockedClock(tx, authority, state.snapshot, state.tableIds, clock, port);
+  },
+);
 const eligibilityEvidencePorts = new WeakMap<
   object,
   AppUniqueConstraintSetEligibilityPortV1
@@ -437,24 +477,6 @@ export function hasAppUniqueConstraintSetEligibilityEvidenceV1(
   );
 }
 
-/** Exact issuer composition for consumers that combine eligibility evidence. */
-export function hasAppUniqueConstraintSetEligibilityEvidenceCompositionV1(
-  value: unknown,
-  controlDb: FlarexMetadataDatabase,
-  authority: TrustedScopeAuthorityResolutionPorts,
-): value is AppUniqueConstraintSetEligibilityEvidenceV1 {
-  if (typeof value !== "object" || value === null) return false;
-  const port = eligibilityEvidencePorts.get(value);
-  return (
-    port !== undefined &&
-    hasAppUniqueConstraintSetEligibilityCompositionV1(
-      port,
-      controlDb,
-      authority,
-    )
-  );
-}
-
 export const loadAppUniqueConstraintSetEligibilityV1Effect = Effect.fn(
   "AppUniqueConstraintSetBuild.loadEligibility",
 )(function* (
@@ -501,30 +523,16 @@ const loadEligibilityWithClockLock = Effect.fn(
     );
   }
   const ports = state.ports;
-  const closure = yield* readAppUniqueConstraintSetClosureV1Effect(
-    ports.controlDb,
-    input.deploymentId,
-    input.schemaVersionId,
-  );
-  if (closure === null) {
-    return Object.freeze({
-      status: "not_ready" as const,
-      reason: "setNotClosed" as const,
-      blocksAllTables: true,
-      tableIds: [] as const,
-    });
-  }
-  if (closure.members.length === 0) {
-    return Object.freeze({
-      status: "not_required" as const,
-      tableIds: [] as const,
-    });
-  }
+  const planned = yield* prepareAppUniqueConstraintSet(port, input);
+  if (planned.status === "not_ready") return planned;
+  const prepared = uniquePreparations.get(planned.preparation);
+  if (prepared === undefined) return yield* Effect.die("Missing issued unique-set preparation");
+  if (prepared.snapshot.members.length === 0) return Object.freeze({ status: "not_required" as const, tableIds: [] as const });
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    input.deploymentId,
+    prepared.snapshot.deploymentId,
     ports.authority,
   );
-  if (located.authority.scopeId !== input.scopeId) {
+  if (located.authority.scopeId !== prepared.scopeId) {
     return yield* Effect.fail(
       new AppUniqueConstraintSetEligibilityV1Error({
         reason: "scopeMismatch",
@@ -532,8 +540,7 @@ const loadEligibilityWithClockLock = Effect.fn(
       }),
     );
   }
-  const snapshot = buildSnapshot(input, closure);
-  const tableIds = uniqueConstraintTableIds(closure);
+  const { snapshot, tableIds } = prepared;
   return yield* runEligibilityTransaction(
     port,
     located.target,

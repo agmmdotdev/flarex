@@ -7,6 +7,7 @@ import { readApplicationBindingPreparationInputs, readAcceptedApplicationBinding
   type AcceptedApplicationBinding } from "../src/applicationActivation";
 import { readAcceptedApplicationBindingProjection } from "../src/applicationBindingProjection";
 import { readApplicationBindingProjectionInTransaction } from "../src/applicationBindingProjection";
+import { fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { fxSystemApplicationReadiness } from "../src/applicationRelationSchema";
 import { fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
 import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
@@ -33,6 +34,9 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   const prepared = await prepare();
   expect(Result.isFailure(claimApplicationExecutableActiveSelection(prepared))).toBe(true);
   expect(spans).not.toContain("ApplicationRelationReadinessFold.validatePreparedInTransaction");
+  expect(spans).not.toContain("ScopeClock.lockForShareInTransaction");
+  expect(spans).toContain("AppUniqueConstraintSetBuild.prepareCatalog");
+  expect(spans).not.toContain("AppUniqueConstraintSetBuild.acceptPreparedCatalog");
   expect(spans.filter(name => name === "ApplicationRelationBinding.locateManifestBinding")).toHaveLength(1);
   const accept = (input = prepared) => persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
     const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
@@ -90,6 +94,27 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
     const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
     return yield* readApplicationBindingProjectionInTransaction(prepared, tx, { ...clock, storageGenerationFence: StorageGenerationFenceSchema.make(clock.storageGenerationFence + 1n) });
   })))).rejects.toMatchObject({ reason: "scopeAuthority" });
+
+  // Planning owns definitions; accepting authority must observe the current build.
+  const buildWhere = eq(fxSystemUniqueConstraintBuilds.scopeId, scopeId);
+  const builds = await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).where(buildWhere);
+  expect(builds.length).toBeGreaterThan(0);
+  await persistence.drizzle.delete(fxSystemUniqueConstraintBuilds).where(buildWhere);
+  try {
+    const missingBuildPlan = await prepare();
+    await expect(accept(missingBuildPlan)).rejects.toMatchObject({ reason: "authorityChanged" });
+    await expect(accept(prepared)).rejects.toMatchObject({ reason: "authorityChanged" });
+  } finally { await persistence.drizzle.insert(fxSystemUniqueConstraintBuilds).values(builds); }
+  await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ lifecycle: "declared",
+    coveredThroughCommitSeq: null, maintenanceActivationSequence: null, maintenanceBytes: null,
+    maintenanceSha256: null }).where(buildWhere);
+  try {
+    await expect(accept(await prepare())).rejects.toMatchObject({ reason: "authorityChanged" });
+  } finally {
+    await persistence.drizzle.delete(fxSystemUniqueConstraintBuilds).where(buildWhere);
+    await persistence.drizzle.insert(fxSystemUniqueConstraintBuilds).values(builds);
+  }
+  expect(await accept(prepared)).toEqual(base.reference);
 
   const readinessWhere = eq(fxSystemApplicationReadiness.scopeId, scopeId);
   const original = (await persistence.drizzle.select().from(fxSystemApplicationReadiness).where(readinessWhere))[0];

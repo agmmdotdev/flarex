@@ -179,11 +179,14 @@ retention or the broader readiness/audit contract.
 
 [Active request concurrency](./29-ce3-active-request-concurrency.md) proves that
 another active CMS scope can settle through the shared physical families while a
-publication remains uncommitted. Within one scope, even disjoint requests wait
-on preparation's shared scope-clock read; duplicates settle once after that wait.
-This is a concrete CE3 baseline, not a concurrency replacement or capacity result.
-The replacement must account for that earlier admission dependency as well as
-the main materialization/publication transaction.
+publication remains uncommitted. [Unlocked planning](./31-ce3-unlocked-planning.md)
+removes the earlier same-scope wait in binding and document preparation: planning
+captures authenticated definitions and candidate inputs without claiming live
+readiness. The accepting transaction checks current unique builds, candidate
+receipts, head/fence and lifecycle before issuing authority. Disjoint requests
+and duplicates now wait at the main exclusive scope clock. This is preparation
+overlap; command execution, sequence-consuming materialization and publication
+remain serialized pending the coordinated CE3 protocol.
 
 The [publication deadline witness](./30-ce3-publication-deadline.md) now proves
 that the existing PostgreSQL physical owner ends a stalled active CMS publication

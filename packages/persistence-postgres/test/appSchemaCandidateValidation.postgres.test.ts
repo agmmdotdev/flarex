@@ -15,10 +15,16 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
+import { Effect } from "effect";
+import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import { describe, expect, it } from "vitest";
 
 import {
   createAppSchemaCandidateValidationPort,
+  createAppSchemaCandidateWriteGuardPort,
+  type PreparedAppSchemaCandidateWriteGuard,
+  prepareAppSchemaCandidateWriteGuardEffect,
+  applyAppSchemaCandidateWriteGuardInTransactionEffect,
   createLocatedAppSchemaCandidateValidationTarget,
   advanceAppSchemaCandidateValidationEffect,
   installAppSchemaCandidateValidationEffect,
@@ -51,6 +57,14 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
         input(fixture, fixture.schemaVersionId),
       ));
 
+      const dependencies = portDependencies(fixture);
+      const guard = createAppSchemaCandidateWriteGuardPort({
+        candidateValidation: createAppSchemaCandidateValidationPort(dependencies),
+        pointCommitAuthority: { scopeMetadata: dependencies.authority.scopeMetadata,
+          provisioningReceipts: dependencies.authority.provisioningReceipts,
+          scopeSessionTargets: dependencies.authority.scopeClockTargets },
+      });
+      let preparation: PreparedAppSchemaCandidateWriteGuard;
       const blocker = await persistence.pool.connect();
       let released = false;
       let replacements: ReadonlyArray<PromiseSettledResult<Awaited<
@@ -67,6 +81,12 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
           `select 1 from fx_system_scope_clock where scope_id = $1 for update`,
           [fixture.scopeId],
         );
+        await blocker.query(
+          "select 1 from fx_system_app_schema_candidate_validation where scope_id = $1 for update",
+          [fixture.scopeId],
+        );
+        preparation = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(guard,
+          { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId }).pipe(Effect.timeout(2_000)));
         const first = install(fixture, fixture.replacementSchemaVersionId);
         const second = install(fixture, fixture.emptySchemaVersionId);
         await waitForBlockedBy(persistence, blockerPid, 2);
@@ -77,6 +97,16 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
         if (!released) await blocker.query("rollback").catch(() => undefined);
         blocker.release();
       }
+      await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+        const authority = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
+          physicalLocator: LOCATOR, storageGeneration: clock.storageGeneration,
+          storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch,
+          lastCommitSeq: clock.lastCommitSeq };
+        expect(yield* Effect.flip(applyAppSchemaCandidateWriteGuardInTransactionEffect(tx,
+          guard, preparation, authority, clock, CommitSeqSchema.make(1n), [])))
+          .toMatchObject({ reason: "concurrentStateChange" });
+      })));
       expect(replacements).toBeDefined();
       const successful = (replacements ?? []).flatMap(result =>
         result.status === "fulfilled" ? [result.value] : []
@@ -342,7 +372,11 @@ function rowId(value: number): AppRowIdHexV1 {
 }
 
 function port(fixture: Fixture) {
-  return createAppSchemaCandidateValidationPort({
+  return createAppSchemaCandidateValidationPort(portDependencies(fixture));
+}
+
+function portDependencies(fixture: Fixture) {
+  return {
     controlDb: fixture.persistence.drizzle,
     authority: {
       scopeMetadata: {
@@ -354,7 +388,7 @@ function port(fixture: Fixture) {
       },
       scopeClockTargets: { resolve: async () => fixture.target },
     },
-  });
+  };
 }
 
 function input(fixture: Fixture, schemaVersionId: Fixture["schemaVersionId"]) {

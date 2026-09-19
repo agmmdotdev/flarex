@@ -1,3 +1,5 @@
+import { eq } from "drizzle-orm";
+import { fxSystemScopeClocks } from "../src/schema";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -403,6 +405,18 @@ describe("M03-A app-schema candidate validation", () => {
         ],
       } },
     });
+    // Failed-candidate plans also require current authority at acceptance.
+    const failedPlan = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(guard,
+      { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId }));
+    const nextEpoch = ScopeEpochSchema.make("epoch_candidate_write_guard_replaced");
+    await fixture.persistence.drizzle.update(fxSystemScopeClocks).set({ epoch: nextEpoch })
+      .where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
+    await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      const changedClock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+      expect(yield* Effect.flip(applyAppSchemaCandidateWriteGuardInTransactionEffect(tx, guard,
+        failedPlan, { ...authority, epoch: nextEpoch }, changedClock, CommitSeqSchema.make(1n), [])))
+        .toMatchObject({ reason: "concurrentStateChange" });
+    })));
   });
 
   it("keeps valid writes and deletes inert, then invalidates a settled receipt", async () => {
