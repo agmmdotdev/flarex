@@ -122,6 +122,12 @@ same-scope commits overlap; CE3 owns that separate protocol and measurement.
 
 ## Cutover, Cleanup And Slice Sequence
 
+The [exact developer selection slice](./19-ce2-exact-developer-index-selection.md)
+closes partial lookup in the issued control-catalog port using the verified
+published requirement snapshot. The complete writer boundary remains open:
+publication must require the correct issued composition, including intrinsic
+selection, and exclude legacy writers against active obligations.
+
 1. Close exact writer composition and its refusal witnesses through the existing
    shared owner. Migrate native/CMS construction and named legacy publication
    callers; keep current coverage semantics until that gate passes.

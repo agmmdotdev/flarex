@@ -234,6 +234,7 @@ export type ReconcilePublishedIndexBuildsV1Error =
   | IndexBuildReconciliationDecisionUncertainV1Error;
 
 interface PhysicalDefinitionRequirementV1 {
+  readonly access: AppIndexDefinitionRecord["access"];
   readonly tableId: AppIndexDefinitionRecord["access"]["tableId"];
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly physicalSpecCodecVersion: AppIndexDefinitionRecord["physicalSpecCodecVersion"];
@@ -567,6 +568,7 @@ function projectExactRequirementsResult(
     }
     seen.add(definition.indexDefinitionId);
     projected.push(Object.freeze({
+      access: Object.freeze({ ...definition.access }),
       tableId: definition.access.tableId,
       indexDefinitionId: definition.indexDefinitionId,
       physicalSpecCodecVersion: definition.physicalSpecCodecVersion,
@@ -1079,6 +1081,12 @@ function requirementSnapshotsEqual(
   return left.definitions.every((definition, index) => {
     const other = right.definitions[index];
     return other !== undefined &&
+      definition.access.kind === other.access.kind &&
+      definition.access.tableId === other.access.tableId &&
+      (definition.access.kind === "by_creation_time" ||
+        (other.access.kind === "developer" &&
+          definition.access.logicalIndexId === other.access.logicalIndexId)) &&
+      definition.tableId === other.tableId &&
       definition.indexDefinitionId === other.indexDefinitionId &&
       definition.physicalSpecCodecVersion === other.physicalSpecCodecVersion &&
       definition.physicalSpecBytesHex === other.physicalSpecBytesHex &&

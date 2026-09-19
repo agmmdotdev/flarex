@@ -29,6 +29,12 @@ import {
   type ReadAppSchemaVersionIndexBindingError,
 } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
+import {
+  IndexBuildReconciliationCatalogV1Error,
+  loadPublishedPhysicalRequirementSnapshotV1,
+  type PublishedPhysicalRequirementSnapshotV1,
+} from "./indexBuildReconciliation";
+import type { ReadSchemaVersionArtifactError } from "./schemaVersionArtifacts";
 import { lowerAppDocumentOrderedFieldValuesV1 } from
   "./appDocumentOrderedFieldValuesV1";
 
@@ -42,7 +48,9 @@ export interface LocateAppDeveloperIndexDefinitionsV1Input {
 
 export type LocateAppDeveloperIndexDefinitionsV1Error =
   | ReadAppIndexDefinitionError
-  | ReadAppSchemaVersionIndexBindingError;
+  | ReadAppSchemaVersionIndexBindingError
+  | ReadSchemaVersionArtifactError
+  | IndexBuildReconciliationCatalogV1Error;
 
 export interface AppDeveloperIndexDefinitionPortV1 {
   readonly locate: (
@@ -62,17 +70,61 @@ const appDeveloperIndexDefinitionControlDbsV1 = new WeakMap<
 export function createAppDeveloperIndexDefinitionPortV1(
   controlDb: FlarexMetadataDatabase,
 ): AppDeveloperIndexDefinitionPortV1 {
+  // One immutable schema per port, never cached scope or serving authority.
+  // Concurrent misses may repeat verification; each invocation keeps its own
+  // snapshot and only a successfully verified snapshot can replace this slot.
+  let retained: PublishedPhysicalRequirementSnapshotV1 | null = null;
   const port = Object.freeze({
     locate: Effect.fn("AppDeveloperIndexDefinition.locate")(
-      (input: LocateAppDeveloperIndexDefinitionsV1Input) =>
-        locateAppDeveloperIndexDefinitionsForSchemaEffect(
+      function* (input: LocateAppDeveloperIndexDefinitionsV1Input) {
+        const definitions = yield* locateAppDeveloperIndexDefinitionsForSchemaEffect(
           controlDb,
           input.deploymentId,
           input.scopeId,
           input.schemaVersionId,
           input.tableIds,
           input.maximumDefinitions,
-        ),
+        );
+        if (definitions === null || input.tableIds.length === 0) return definitions;
+        if (definitions.length > input.maximumDefinitions) {
+          return yield* Effect.fail(new IndexBuildReconciliationCatalogV1Error({
+            reason: "definitionLimitExceeded",
+            deploymentId: input.deploymentId,
+            schemaVersionId: input.schemaVersionId,
+            detail: `the touched developer definition set exceeds ${input.maximumDefinitions}`,
+          }));
+        }
+        let snapshot = retained;
+        if (snapshot === null || snapshot.deploymentId !== input.deploymentId ||
+          snapshot.schemaVersionId !== input.schemaVersionId) {
+          snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(controlDb, input);
+          if (snapshot === null) return null;
+          retained = snapshot;
+        }
+        const tables = new Set(input.tableIds);
+        const required = snapshot.definitions.filter(definition =>
+          definition.access.kind === "developer" && tables.has(definition.tableId));
+        if (required.length !== definitions.length ||
+          !required.every((expected, position) => {
+            const actual = definitions[position];
+            return actual !== undefined && actual.access.kind === "developer" &&
+              expected.access.kind === "developer" &&
+              actual.access.logicalIndexId === expected.access.logicalIndexId &&
+              actual.access.tableId === expected.tableId &&
+              actual.indexDefinitionId === expected.indexDefinitionId &&
+              actual.physicalSpecCodecVersion === expected.physicalSpecCodecVersion &&
+              actual.physicalSpecBytesHex === expected.physicalSpecBytesHex &&
+              actual.physicalSpecSha256Hex === expected.physicalSpecSha256Hex;
+          })) {
+          return yield* Effect.fail(new IndexBuildReconciliationCatalogV1Error({
+            reason: "publishedProjectionContradictory",
+            deploymentId: input.deploymentId,
+            schemaVersionId: input.schemaVersionId,
+            detail: "the touched developer definitions do not match the published schema requirements",
+          }));
+        }
+        return definitions;
+      },
     ),
   });
   appDeveloperIndexDefinitionControlDbsV1.set(port, controlDb);

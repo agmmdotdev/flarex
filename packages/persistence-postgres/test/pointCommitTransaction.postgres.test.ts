@@ -20,7 +20,8 @@ import { writeFile } from "node:fs/promises";
 import { withPostgresExecutionObservation, type PostgresExecutionPhase } from "./postgresExecutionObservation";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { fxControlSchemaVersionIndexBindings } from "../src/schema";
 import { Effect, Exit, Fiber, Result } from "effect";
 import type { PoolClient } from "pg";
 import {
@@ -1236,6 +1237,40 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     },
     120_000,
   );
+
+  it("refuses missing developer bindings before publication and preserves durable replay", async () => {
+    await withPostgresPersistence(async persistence => {
+      const randomUuid = uuidFactory("96417000");
+      const scope = await createScope(persistence, randomUuid, "exact_developer_selection", true);
+      const options = await prepareDeveloperIndexForPostgres(persistence, scope);
+      const publisher = createPublisher(persistence, options);
+      const first = await createAttempt(persistence, randomUuid, scope, "exact_developer_first");
+      const published = await runEffect(publisher.publish(first.publicationCommand));
+      const next = await createAttempt(persistence, randomUuid, scope, "exact_developer_next");
+      const scopeUuid = next.command.sealIdentity.scopeUuid;
+      const before = await durableState(persistence, scopeUuid);
+      const beforeIndexes = await developerIndexState(persistence, scopeUuid);
+      const identity = and(eq(fxControlSchemaVersionIndexBindings.deploymentId, scope.deploymentId),
+        eq(fxControlSchemaVersionIndexBindings.schemaVersionId, scope.schemaVersionId));
+      const [binding] = await persistence.drizzle.select().from(fxControlSchemaVersionIndexBindings).where(identity);
+      if (!binding) throw new Error("Missing developer binding before corruption");
+      await persistence.drizzle.delete(fxControlSchemaVersionIndexBindings).where(and(identity,
+        eq(fxControlSchemaVersionIndexBindings.logicalIndexId, binding.logicalIndexId)));
+      try {
+        expect(await runEffect(publisher.publish(first.publicationCommand))).toMatchObject({
+          kind: "replayed", token: published.token,
+        });
+        expect(await runFailure(publisher.publish(next.publicationCommand))).toMatchObject({
+          _tag: "IndexBuildReconciliationCatalogV1Error", reason: "publishedProjectionContradictory",
+        });
+        expect(await durableState(persistence, scopeUuid)).toEqual(before);
+        expect(await developerIndexState(persistence, scopeUuid)).toEqual(beforeIndexes);
+      } finally {
+        await persistence.drizzle.insert(fxControlSchemaVersionIndexBindings).values(binding);
+      }
+      expect(await runEffect(publisher.publish(next.publicationCommand))).toMatchObject({ kind: "published" });
+    });
+  }, 60_000);
 
   it("maintains developer-index key moves and rolls both entry changes back", async () => {
     await withPostgresPersistence(async (persistence) => {

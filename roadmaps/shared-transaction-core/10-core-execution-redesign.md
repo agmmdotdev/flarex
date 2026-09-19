@@ -133,8 +133,10 @@ unique writes with bounded validation and release/claim phases. Native unique
 admission remains capped at 32 transitions. The
 [CE2 continuous-maintenance preflight](./18-ce2-continuous-index-maintenance.md)
 selects activation-bound coverage and identifies exact writer composition as
-its prerequisite. Next implementation closes that native/CMS writer boundary
-before any coverage UPDATE or lock is removed. Continuous maintenance is not
+its prerequisite. [Exact developer selection](./19-ce2-exact-developer-index-selection.md)
+now rejects incomplete touched sets from the issued catalog port. Required
+native/CMS composition and legacy-writer exclusion still need to close before
+any coverage UPDATE or lock is removed. Continuous maintenance is not
 implemented; broader CE0 references and connected CE1 acceptance remain open.
 
 Candidate admission is already implemented and does not need its producer/identity
