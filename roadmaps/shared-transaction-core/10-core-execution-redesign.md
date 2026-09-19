@@ -216,9 +216,13 @@ current reader's size probe and document fetch in one statement snapshot. Its
 identity and byte verdict gates body transfer, while scope-clock validation,
 canonical decoding and corruption refusal remain with the existing owner.
 This removes one statement per capture; it does not change writer exclusion or
-establish a capacity improvement. Local larger-insert timings were slower than
-the original reader, so latency acceptance remains open despite the reduced
-statement count and single-snapshot transport contract.
+establish a capacity improvement. The aggregate plan remains necessary for
+set-wide budgets but adds unnecessary work to exact point selection.
+The [point plan refinement](./46-ce1-point-capture-plan.md) uses the current-row
+primary key to check a single selected row without aggregate CTE work, retaining
+SQL-side body withholding and the shared capture validation/decoding owner.
+Its measured local point-heavy request lane improves without changing SQL counts;
+batch/scan, large-catalog and capacity acceptance remain distinct open work.
 
 [Catalog restoration reuse](./28-ce0-catalog-restoration.md) removes the schema
 resolver's duplicate artifact read within one resolution and omits relation/edge

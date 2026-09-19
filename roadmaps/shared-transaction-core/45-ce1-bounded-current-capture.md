@@ -1,6 +1,7 @@
 # Bounded Current Row Capture
 
-Status: implemented under standing core approval; latency acceptance remains open.
+Status: implemented under standing core approval, with cardinality-aware point
+selection; broader performance acceptance remains open.
 
 ## Outcome And Owner
 
@@ -18,13 +19,18 @@ not establish lower latency or greater capacity.
 
 ## Capture Contract
 
-Build a bounded pointer/size CTE using the exact scoped table/point/batch selection,
+For batch and scan reads, build a bounded pointer/size CTE using the exact scoped selection,
 row ordering and identity limit plus one. Aggregate only that bounded set. Gate
 the join returning row bodies on all identity, per-document and aggregate-byte
 limits. An over-budget capture returns only its negative verdict with null row
 fields; no body bytes may cross the driver boundary. An empty valid selection
 returns an empty result. Preserve tombstones, missing-revision and future-pointer
 refusal, canonical evidence decoding and all identity/snapshot validation.
+
+The [point capture refinement](./46-ce1-point-capture-plan.md) uses exact
+primary-key cardinality to avoid aggregate work for explicit point reads. SQL
+CASE withholds an over-budget point body; both shapes share the same validation
+and decoding contract.
 
 Both size and body observations use one PostgreSQL statement snapshot. Do not
 apply a window aggregate to the whole table before LIMIT, read oversized bodies
@@ -44,12 +50,11 @@ reader to retain or durable data to migrate.
 ## Performance Disposition
 
 Retain the single-statement budget/body contract and its bounded transport proof.
-Local complete-request timings do not establish a speedup: larger insert cases
-were slower than the repeated original-reader baseline. An absent-point SQL
-diagnostic shows added planning and aggregate work in the combined query, although
-it avoids the second current-pointer scan. That narrow diagnostic does not fully
-attribute the complete-request difference. Do not describe this as an accepted
-latency optimization or infer remote-network savings without measuring them.
+The aggregate plan adds planning and aggregate work, making it a poor default
+for exact point probes. The point refinement removes that unnecessary work using
+schema-enforced cardinality and improves the measured local point-heavy request
+lane. Keep the set-wide plan for batch/scan budgets. Neither fewer statements nor
+these local samples establish general latency or remote-network savings.
 Large-catalog plans and connected capacity remain open under CE0/CE1; current
 scope exclusion and all capture limits remain unchanged.
 

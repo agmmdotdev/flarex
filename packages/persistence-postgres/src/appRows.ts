@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, lte, or, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
 import {
@@ -826,35 +826,57 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   const where = and(eq(fxAppRowCurrent.scopeUuid, scopeUuid.scopeUuid), eq(fxAppRowCurrent.tableId, tableId),
     selectedRowId === undefined ? undefined : eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(selectedRowId)),
     selectedRowIds === undefined ? undefined : inArray(fxAppRowCurrent.rowId, selectedRowIds.map(appRowIdHexV1ToBytes)));
-  // LIMIT applies before aggregation: total stored table size must not enter
-  // the capture budget, and rejected bodies must never cross the driver.
-  const bounded = tx.$with("bounded_current").as(tx.select({
-    scopeUuid: fxAppRowCurrent.scopeUuid,
-    tableId: fxAppRowCurrent.tableId,
-    rowId: fxAppRowCurrent.rowId,
-    commitSeq: fxAppRowCurrent.commitSeq,
-    bytes: sql<number>`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`.as("value_bytes_length"),
-  }).from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where)
-    .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1));
-  const budget = tx.$with("current_capture_budget").as(tx.select({
-    allowed: sql<boolean>`count(*) <= ${input.maximumIdentities}
-      and coalesce(max(${bounded.bytes}), 0) <= ${input.maximumDocumentBytes}
-      and coalesce(sum(${bounded.bytes}), 0) <= ${input.maximumTotalValueBytes}`.as("within_budget"),
-  }).from(bounded));
-  const capture = tx.with(bounded, budget).select({
-    withinBudget: budget.allowed,
-    pointer: { scopeUuid: bounded.scopeUuid, tableId: bounded.tableId, rowId: bounded.rowId, commitSeq: bounded.commitSeq },
-    revision: fxAppRowRevisions,
-  }).from(budget).leftJoin(bounded, sql`${budget.allowed}`).leftJoin(fxAppRowRevisions, and(
-    eq(fxAppRowRevisions.scopeUuid, bounded.scopeUuid),
-    eq(fxAppRowRevisions.tableId, bounded.tableId),
-    eq(fxAppRowRevisions.rowId, bounded.rowId),
-    eq(fxAppRowRevisions.commitSeq, bounded.commitSeq),
-  )).orderBy(bounded.rowId);
+  const capture = (() => {
+    if (selectedRowId !== undefined) {
+      // The scoped current-pointer key and exact revision join admit at most
+      // one row. Check its budget in SQL without constructing an aggregate.
+      const bytes = sql`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`;
+      const withinBudget = sql<boolean>`${input.maximumIdentities} >= 1
+        and ${bytes} <= ${input.maximumDocumentBytes}
+        and ${bytes} <= ${input.maximumTotalValueBytes}`;
+      return tx.select({
+        withinBudget,
+        pointer: fxAppRowCurrent,
+        revision: {
+          ...getTableColumns(fxAppRowRevisions),
+          valueBytes: sql`case when ${withinBudget} then ${fxAppRowRevisions.valueBytes} else null end`
+            .mapWith(fxAppRowRevisions.valueBytes),
+        },
+      }).from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where).limit(1);
+    }
+    // LIMIT applies before aggregation: total stored table size must not enter
+    // the capture budget, and rejected bodies must never cross the driver.
+    const bounded = tx.$with("bounded_current").as(tx.select({
+      scopeUuid: fxAppRowCurrent.scopeUuid,
+      tableId: fxAppRowCurrent.tableId,
+      rowId: fxAppRowCurrent.rowId,
+      commitSeq: fxAppRowCurrent.commitSeq,
+      bytes: sql<number>`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`.as("value_bytes_length"),
+    }).from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where)
+      .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1));
+    const budget = tx.$with("current_capture_budget").as(tx.select({
+      allowed: sql<boolean>`count(*) <= ${input.maximumIdentities}
+        and coalesce(max(${bounded.bytes}), 0) <= ${input.maximumDocumentBytes}
+        and coalesce(sum(${bounded.bytes}), 0) <= ${input.maximumTotalValueBytes}`.as("within_budget"),
+    }).from(bounded));
+    return tx.with(bounded, budget).select({
+      withinBudget: budget.allowed,
+      pointer: { scopeUuid: bounded.scopeUuid, tableId: bounded.tableId, rowId: bounded.rowId, commitSeq: bounded.commitSeq },
+      revision: fxAppRowRevisions,
+    }).from(budget).leftJoin(bounded, sql`${budget.allowed}`).leftJoin(fxAppRowRevisions, and(
+      eq(fxAppRowRevisions.scopeUuid, bounded.scopeUuid),
+      eq(fxAppRowRevisions.tableId, bounded.tableId),
+      eq(fxAppRowRevisions.rowId, bounded.rowId),
+      eq(fxAppRowRevisions.commitSeq, bounded.commitSeq),
+    )).orderBy(bounded.rowId);
+  })();
   observeDrizzleQuery("currentCapture", capture, observer);
   const rows = yield* readAppRowRowsEffect(capture, "readCurrentRevision");
   const verdict = rows[0];
-  if (verdict === undefined) return yield* Effect.die(new Error("Bounded current capture returned no budget verdict."));
+  if (verdict === undefined) {
+    if (selectedRowId !== undefined) return Object.freeze([]);
+    return yield* Effect.die(new Error("Bounded current capture returned no budget verdict."));
+  }
   if (!verdict.withinBudget) {
     return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: "bounded current view exceeds capture budget" }));
   }

@@ -65,17 +65,14 @@ export async function verifyBoundedCurrentCapture(
     "bounded_current_capture",
   );
   const snapshotCommitSeq = CommitSeqSchema.make(2n);
-  await db
-    .insert(fxSystemScopeClocks)
-    .values(
-      [scopeId, otherScopeId].map((id) => ({
-        scopeId: id,
-        storageGeneration:
-          FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-        epoch: writeEpoch,
-        lastCommitSeq: snapshotCommitSeq,
-      })),
-    );
+  await db.insert(fxSystemScopeClocks).values(
+    [scopeId, otherScopeId].map((id) => ({
+      scopeId: id,
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      epoch: writeEpoch,
+      lastCommitSeq: snapshotCommitSeq,
+    })),
+  );
   const documents = await Promise.all(
     rowIds.map((rowId, index) =>
       canonicalizeAppDocumentV1({
@@ -167,18 +164,25 @@ export async function verifyBoundedCurrentCapture(
         { ...bounds, ...input },
         (query) => captured.push(query.name),
       );
-    const inspectAccepted = async () => {
-      const result = await runEffect(read());
-      expect(result.map((row) => [row.rowId, row.kind])).toEqual([
-        [firstId, "live"],
-        [secondId, "live"],
-        [tombstoneId, "tombstone"],
-      ]);
-      expect(result[0]).toMatchObject({ document: firstDocument });
-      expect(captured).toEqual(["currentCapture"]);
-    };
-    if (observe === undefined) await inspectAccepted();
-    else await observe("accepted", inspectAccepted);
+    for (const rowId of [undefined, firstId]) {
+      captured.length = 0;
+      const inspectAccepted = async () => {
+        const result = await runEffect(read({ rowId }));
+        expect(result.map((row) => [row.rowId, row.kind])).toEqual(
+          rowId === undefined
+            ? [
+                [firstId, "live"],
+                [secondId, "live"],
+                [tombstoneId, "tombstone"],
+              ]
+            : [[firstId, "live"]],
+        );
+        expect(result[0]).toMatchObject({ document: firstDocument });
+        expect(captured).toEqual(["currentCapture"]);
+      };
+      if (observe === undefined) await inspectAccepted();
+      else await observe("accepted", inspectAccepted);
+    }
     expect(
       await runEffect(
         read({
@@ -195,6 +199,15 @@ export async function verifyBoundedCurrentCapture(
     ).toEqual([firstId, tombstoneId]);
     expect(
       await runEffect(read({ rowId: decodeAppRowIdHexV1("ff".repeat(16)) })),
+    ).toEqual([]);
+    expect(
+      await runEffect(
+        read({
+          rowId: decodeAppRowIdHexV1("ff".repeat(16)),
+          maximumIdentities: 0,
+          maximumTotalValueBytes: 0,
+        }),
+      ),
     ).toEqual([]);
     expect(await runEffect(read({ rowIds: [] }))).toEqual([]);
     expect(
@@ -214,6 +227,14 @@ export async function verifyBoundedCurrentCapture(
     );
     expect(await runEffect(read({ scopeId: otherScopeId }))).toHaveLength(1);
     expect(
+      await runEffect(read({ scopeId: otherScopeId, rowId: firstId })),
+    ).toHaveLength(1);
+    expect(
+      await runEffect(
+        read({ tableId: decodeCatalogTableId(2), rowId: firstId }),
+      ),
+    ).toMatchObject([{ document: { value: { title: "other table" } } }]);
+    expect(
       await runEffect(
         read({
           maximumTotalValueBytes:
@@ -225,6 +246,16 @@ export async function verifyBoundedCurrentCapture(
     for (const limit of [
       { maximumIdentities: 2 },
       { maximumIdentities: 0 },
+      { rowId: firstId, maximumIdentities: 0 },
+      { rowId: tombstoneId, maximumIdentities: 0 },
+      {
+        rowId: firstId,
+        maximumDocumentBytes: firstDocument.canonicalBytes.byteLength - 1,
+      },
+      {
+        rowId: firstId,
+        maximumTotalValueBytes: firstDocument.canonicalBytes.byteLength - 1,
+      },
       { maximumDocumentBytes: firstDocument.canonicalBytes.byteLength - 1 },
       {
         maximumTotalValueBytes:
@@ -304,6 +335,14 @@ export async function verifyBoundedCurrentCapture(
         expect(
           await runEffectFailure(
             readBoundedCurrentAppRowsInTransactionEffect(tx, bounds),
+          ),
+        ).toMatchObject({ _tag: "AppRowStorageCorruptionError" });
+        expect(
+          await runEffectFailure(
+            readBoundedCurrentAppRowsInTransactionEffect(tx, {
+              ...bounds,
+              rowId: firstId,
+            }),
           ),
         ).toMatchObject({ _tag: "AppRowStorageCorruptionError" });
         throw rollback;
