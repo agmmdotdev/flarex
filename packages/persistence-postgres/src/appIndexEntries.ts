@@ -1,10 +1,11 @@
 import { bytesEqualFullScan, isUint8Array } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, or, sql, type SQL } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import {
   CatalogTableIdSchema,
+  CatalogIndexDefinitionIdSchema,
   type CatalogIndexDefinitionId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
@@ -135,6 +136,7 @@ export interface AppIndexRangePageV1 {
 }
 
 export type InvalidAppIndexEntryInputIssue =
+  | "invalidBatch"
   | "invalidScopeId"
   | "invalidKind"
   | "invalidLocatedDefinition"
@@ -355,39 +357,449 @@ const decodeOrderedRowIdResult = Schema.decodeUnknownResult(
   Schema.toType(OrderedIndexRowIdHexV1Schema),
 );
 
-/**
- * Transaction-only S10 mutation primitive. SQL failures remain rejected
- * Promises so the caller's Drizzle transaction rolls back; owned validation,
- * digest, and transition failures remain Result data.
- */
-export async function appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+/** Online membership set; its owner must abort the transaction on any failure. */
+export const appendAppIndexEntryRevisionsInTransactionEffect = Effect.fn(
+  "AppIndexEntries.appendBatch",
+)(function* (
   tx: AppIndexEntryTransaction,
-  input: AppendAppIndexEntryRevisionV1Input,
-): Promise<
-  Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>
+  inputs: ReadonlyArray<AppendAppIndexEntryRevisionV1Input>,
+) {
+  const revisions = yield* decodeAppendInputsEffect(tx, inputs);
+  return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions);
+});
+
+const decodeAppendInputsEffect = Effect.fn(
+  "AppIndexEntries.decodeAppendInputs",
+)(function* (
+  tx: AppIndexEntryTransaction,
+  inputs: ReadonlyArray<AppendAppIndexEntryRevisionV1Input>,
+): Effect.fn.Return<
+  ReadonlyArray<DecodedAppendAppIndexEntryRevisionV1>,
+  AppendAppIndexEntryRevisionV1Error
 > {
-  const appended = await Effect.runPromise(
-    Effect.result(
-      decodeAppendInputEffect(tx, input).pipe(
-        Effect.flatMap((revision) =>
-          appendDecodedAppIndexEntryRevisionEffect(tx, revision),
-        ),
-      ),
-    ),
+  const captures: DecodedAppendAppIndexEntryCapture[] = [];
+  const positions = new Set<string>();
+  for (const input of inputs) {
+    const captured = yield* Effect.fromResult(captureAppendInputResult(input));
+    const first = captures[0];
+    if (
+      first !== undefined &&
+      (captured.identity.scopeId !== first.identity.scopeId ||
+        captured.writeEpochUuid !== first.writeEpochUuid ||
+        captured.commitSeq !== first.commitSeq)
+    )
+      return yield* Effect.fail(
+        new InvalidAppIndexEntryInputError("invalidBatch"),
+      );
+    const key = indexPositionKey(
+      captured.scopeProjection.scopeUuid,
+      captured.identity,
+    );
+    if (positions.has(key))
+      return yield* Effect.fail(
+        new InvalidAppIndexEntryInputError("invalidBatch"),
+      );
+    positions.add(key);
+    captures.push(captured);
+  }
+  const first = captures[0];
+  if (first === undefined) return [];
+  const clocks = yield* appendQueryEffect(
+    tx
+      .select({
+        scopeUuid: fxSystemScopeClocks.scopeUuid,
+        epochUuid: fxSystemScopeClocks.epochUuid,
+      })
+      .from(fxSystemScopeClocks)
+      .where(eq(fxSystemScopeClocks.scopeId, first.identity.scopeId))
+      .limit(1),
   );
-  return Result.match(appended, {
-    onFailure: (error) => {
-      // The Promise transaction boundary preserves driver rejection for rollback.
+  if (
+    clocks[0]?.scopeUuid !== first.scopeProjection.scopeUuid ||
+    clocks[0].epochUuid !== first.writeEpochUuid
+  )
+    return yield* Effect.fail(
+      new AppIndexEntryScopeAuthorityUnavailableError(first.identity.scopeId),
+    );
+  const specs = new Map<AppOrderedIndexPhysicalSpecV1, Uint8Array>();
+  const revisions: DecodedAppendAppIndexEntryRevisionV1[] = [];
+  for (const captured of captures) {
+    let digest = specs.get(captured.physicalSpec);
+    if (digest === undefined) {
+      const spec = yield* Effect.tryPromise({
+        try: () => canonicalizeAppIndexPhysicalSpecV1(captured.physicalSpec),
+        catch: (cause) => new AppIndexEntryHashError("append", cause),
+      });
+      digest = appIndexPhysicalSpecSha256HexV1ToBytes(spec.sha256Hex);
+      specs.set(captured.physicalSpec, digest);
+    }
+    revisions.push({
+      historical: false,
+      kind: captured.kind,
+      identity: captured.identity,
+      scopeUuid: captured.scopeProjection.scopeUuid,
+      commitSeq: captured.commitSeq,
+      physicalSpec: captured.physicalSpec,
+      physicalSpecSha256: digest,
+      keyBytes: captured.keyBytes,
+      keySha256: yield* sha256Effect(captured.keyBytes, "append"),
+    });
+  }
+  return revisions;
+});
+
+function indexPositionKey(
+  scopeUuid: ScopeUuidV1,
+  identity: Pick<
+    AppIndexEntryIdentityV1,
+    "indexDefinitionId" | "encodedKey" | "rowId"
+  >,
+): string {
+  return `${scopeUuid}/${identity.indexDefinitionId}/${identity.encodedKey}/${identity.rowId}`;
+}
+
+const IndexWriteReturnSchema = Schema.Struct({
+  scopeUuid: Schema.toType(ScopeUuidV1Schema),
+  indexDefinitionId: Schema.toType(CatalogIndexDefinitionIdSchema),
+  encodedKey: Schema.Uint8Array,
+  rowId: Schema.Uint8Array,
+  commitSeq: Schema.toType(CommitSeqSchema),
+});
+const decodeIndexWriteReturn = Schema.decodeUnknownResult(
+  IndexWriteReturnSchema,
+);
+const ParentRowSchema = Schema.Struct({
+  scopeUuid: Schema.toType(ScopeUuidV1Schema),
+  tableId: Schema.toType(CatalogTableIdSchema),
+  rowId: Schema.Uint8Array,
+  isTombstone: Schema.Boolean,
+});
+const decodeParentRow = Schema.decodeUnknownResult(ParentRowSchema);
+
+function verifyIndexWritesResult(
+  expected: ReadonlyArray<
+    Readonly<{
+      revision: DecodedAppendAppIndexEntryRevisionV1;
+      commitSeq: CommitSeq;
+    }>
+  >,
+  returned: ReadonlyArray<unknown>,
+  operation: "revision" | "current",
+): Result.Result<
+  void,
+  AppIndexEntryRevisionAlreadyExistsError | AppIndexEntryStorageCorruptionError
+> {
+  return Result.gen(function* () {
+    const wanted = new Map(
+      expected.map((entry) => [
+        indexPositionKey(entry.revision.scopeUuid, entry.revision.identity),
+        entry,
+      ]),
+    );
+    const seen = new Set<string>();
+    for (const raw of returned) {
+      const row = yield* decodeStoredResult(decodeIndexWriteReturn(raw));
+      const rowId = yield* decodeStoredResult(
+        orderedIndexRowIdHexV1FromBytesResult(row.rowId),
+      );
+      const encodedKey = yield* Result.try({
+        try: () => orderedIndexKeyBytesHexV1FromBytes(row.encodedKey),
+        catch: (cause) => corruption("returned encoded key is invalid", cause),
+      });
+      const key = indexPositionKey(row.scopeUuid, {
+        indexDefinitionId: row.indexDefinitionId,
+        encodedKey,
+        rowId,
+      });
+      if (seen.has(key) || wanted.get(key)?.commitSeq !== row.commitSeq)
+        return yield* Result.fail(
+          corruption(
+            "unexpected or duplicate returned index identity/sequence",
+          ),
+        );
+      seen.add(key);
+    }
+    for (const entry of expected) {
       if (
-        error instanceof AppIndexEntryWritePersistenceError ||
-        error instanceof AppIndexEntryReadPersistenceError
+        !seen.has(
+          indexPositionKey(entry.revision.scopeUuid, entry.revision.identity),
+        )
       )
-        throw error.cause;
-      return Result.fail(error);
-    },
-    onSuccess: Result.succeed,
+        return yield* Result.fail(
+          operation === "revision"
+            ? new AppIndexEntryRevisionAlreadyExistsError(
+                entry.revision.identity,
+                entry.revision.commitSeq,
+              )
+            : corruption(
+                "membership current pointer changed during transition",
+              ),
+        );
+    }
   });
 }
+
+function indexParentKey(
+  scope: ScopeUuidV1,
+  table: CatalogTableId,
+  row: OrderedIndexRowIdHexV1,
+): string {
+  return `${scope}/${table}/${row}`;
+}
+
+const requireParentRowsEffect = Effect.fn("AppIndexEntries.requireParentRows")(
+  function* (
+    tx: AppIndexEntryTransaction,
+    revisions: ReadonlyArray<DecodedAppendAppIndexEntryRevisionV1>,
+  ): Effect.fn.Return<
+    void,
+    | AppIndexEntryParentRowError
+    | AppIndexEntryStorageCorruptionError
+    | AppIndexEntryWritePersistenceError
+  > {
+    const wanted = new Set(
+      revisions.map((revision) =>
+        indexParentKey(
+          revision.scopeUuid,
+          revision.identity.tableId,
+          revision.identity.rowId,
+        ),
+      ),
+    );
+    const rows = yield* appendQueryEffect(
+      tx
+        .select({
+          scopeUuid: fxAppRowCurrent.scopeUuid,
+          tableId: fxAppRowCurrent.tableId,
+          rowId: fxAppRowCurrent.rowId,
+          isTombstone: fxAppRowRevisions.isTombstone,
+        })
+        .from(fxAppRowCurrent)
+        .innerJoin(
+          fxAppRowRevisions,
+          and(
+            eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
+            eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
+            eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId),
+            eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
+          ),
+        )
+        .where(
+          or(
+            ...revisions.map((revision) =>
+              and(
+                eq(fxAppRowCurrent.scopeUuid, revision.scopeUuid),
+                eq(fxAppRowCurrent.tableId, revision.identity.tableId),
+                eq(
+                  fxAppRowCurrent.rowId,
+                  orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+                ),
+              ),
+            ),
+          ),
+        ),
+    );
+    const parents = new Map<string, boolean>();
+    for (const raw of rows) {
+      const row = yield* Effect.fromResult(
+        decodeStoredResult(decodeParentRow(raw)),
+      );
+      const rowId = yield* Effect.fromResult(
+        decodeStoredResult(orderedIndexRowIdHexV1FromBytesResult(row.rowId)),
+      );
+      const key = indexParentKey(row.scopeUuid, row.tableId, rowId);
+      if (parents.has(key) || !wanted.has(key))
+        return yield* Effect.fail(
+          corruption("unexpected or duplicate parent row"),
+        );
+      parents.set(key, row.isTombstone);
+    }
+    for (const revision of revisions) {
+      const tombstone = parents.get(
+        indexParentKey(
+          revision.scopeUuid,
+          revision.identity.tableId,
+          revision.identity.rowId,
+        ),
+      );
+      if (tombstone === undefined)
+        return yield* Effect.fail(
+          new AppIndexEntryParentRowError(revision.identity, "missing"),
+        );
+      if (!revision.historical && revision.kind === "live" && tombstone)
+        return yield* Effect.fail(
+          new AppIndexEntryParentRowError(
+            revision.identity,
+            "tombstonedLiveEntry",
+          ),
+        );
+    }
+  },
+);
+
+const indexRevisionReturnColumns = {
+  scopeUuid: fxAppIndexEntryRevisions.scopeUuid,
+  indexDefinitionId: fxAppIndexEntryRevisions.indexDefinitionId,
+  encodedKey: fxAppIndexEntryRevisions.encodedKey,
+  rowId: fxAppIndexEntryRevisions.rowId,
+  commitSeq: fxAppIndexEntryRevisions.commitSeq,
+};
+const indexCurrentReturnColumns = {
+  scopeUuid: fxAppIndexEntryCurrent.scopeUuid,
+  indexDefinitionId: fxAppIndexEntryCurrent.indexDefinitionId,
+  encodedKey: fxAppIndexEntryCurrent.encodedKey,
+  rowId: fxAppIndexEntryCurrent.rowId,
+  commitSeq: fxAppIndexEntryCurrent.commitSeq,
+};
+
+const appendDecodedAppIndexEntryRevisionsEffect = Effect.fn(
+  "AppIndexEntries.applyBatch",
+)(function* (
+  tx: AppIndexEntryTransaction,
+  revisions: ReadonlyArray<DecodedAppendAppIndexEntryRevisionV1>,
+): Effect.fn.Return<
+  ReadonlyArray<AppIndexEntryRevisionV1>,
+  AppendAppIndexEntryRevisionV1Error
+> {
+  const heads = yield* readDecodedMembershipHeadsEffect(tx, revisions);
+  const transitions: {
+    revision: DecodedAppendAppIndexEntryRevisionV1;
+    prior: CommitSeq | null;
+  }[] = [];
+  for (let i = 0; i < revisions.length; i += 1) {
+    const revision = revisions[i];
+    const head = heads[i];
+    if (revision === undefined || head === undefined)
+      return yield* Effect.fail(corruption("missing membership transition"));
+    if (head?.commitSeq === revision.commitSeq)
+      return yield* Effect.fail(
+        new AppIndexEntryRevisionAlreadyExistsError(
+          revision.identity,
+          revision.commitSeq,
+        ),
+      );
+    if (
+      (head !== null && head.commitSeq >= revision.commitSeq) ||
+      (revision.kind === "live"
+        ? head?.isTombstone === false
+        : head === null || head.isTombstone)
+    )
+      return yield* Effect.fail(
+        new AppIndexEntryTransitionConflictError(
+          revision.identity,
+          revision.commitSeq,
+          head?.commitSeq ?? null,
+        ),
+      );
+    transitions.push({ revision, prior: head?.commitSeq ?? null });
+  }
+  for (let offset = 0; offset < transitions.length; offset += 32) {
+    const batch = transitions.slice(offset, offset + 32);
+    yield* requireParentRowsEffect(
+      tx,
+      batch.map((entry) => entry.revision),
+    );
+    const inserted = yield* appendQueryEffect(
+      tx
+        .insert(fxAppIndexEntryRevisions)
+        .values(
+          batch.map(({ revision }) => ({
+            scopeUuid: revision.scopeUuid,
+            indexDefinitionId: revision.identity.indexDefinitionId,
+            tableId: revision.identity.tableId,
+            keyCodecVersion: ORDERED_INDEX_KEY_CODEC_VERSION_V1,
+            physicalSpecSha256: revision.physicalSpecSha256,
+            encodedKey: revision.keyBytes,
+            keySha256: revision.keySha256,
+            rowId: orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+            commitSeq: revision.commitSeq,
+            isTombstone: revision.kind === "tombstone",
+          })),
+        )
+        .onConflictDoNothing()
+        .returning(indexRevisionReturnColumns),
+    );
+    yield* Effect.fromResult(
+      verifyIndexWritesResult(
+        batch.map((entry) => ({
+          revision: entry.revision,
+          commitSeq: entry.revision.commitSeq,
+        })),
+        inserted,
+        "revision",
+      ),
+    );
+    const creates = batch.filter((entry) => entry.revision.kind === "live");
+    if (creates.length > 0) {
+      const created = yield* appendQueryEffect(
+        tx
+          .insert(fxAppIndexEntryCurrent)
+          .values(
+            creates.map(({ revision }) => ({
+              scopeUuid: revision.scopeUuid,
+              indexDefinitionId: revision.identity.indexDefinitionId,
+              encodedKey: revision.keyBytes,
+              rowId: orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+              commitSeq: revision.commitSeq,
+            })),
+          )
+          .onConflictDoNothing()
+          .returning(indexCurrentReturnColumns),
+      );
+      yield* Effect.fromResult(
+        verifyIndexWritesResult(
+          creates.map((entry) => ({
+            revision: entry.revision,
+            commitSeq: entry.revision.commitSeq,
+          })),
+          created,
+          "current",
+        ),
+      );
+    }
+    const deletes = batch.filter(
+      (entry) => entry.revision.kind === "tombstone",
+    );
+    if (deletes.length > 0) {
+      const expected = [];
+      for (const entry of deletes) {
+        if (entry.prior === null)
+          return yield* Effect.fail(
+            corruption("missing prior live membership"),
+          );
+        expected.push({ revision: entry.revision, commitSeq: entry.prior });
+      }
+      const deleted = yield* appendQueryEffect(
+        tx
+          .delete(fxAppIndexEntryCurrent)
+          .where(
+            or(
+              ...expected.map(({ revision, commitSeq }) =>
+                and(
+                  eq(fxAppIndexEntryCurrent.scopeUuid, revision.scopeUuid),
+                  eq(
+                    fxAppIndexEntryCurrent.indexDefinitionId,
+                    revision.identity.indexDefinitionId,
+                  ),
+                  eq(fxAppIndexEntryCurrent.encodedKey, revision.keyBytes),
+                  eq(
+                    fxAppIndexEntryCurrent.rowId,
+                    orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
+                  ),
+                  eq(fxAppIndexEntryCurrent.commitSeq, commitSeq),
+                ),
+              ),
+            ),
+          )
+          .returning(indexCurrentReturnColumns),
+      );
+      yield* Effect.fromResult(
+        verifyIndexWritesResult(expected, deleted, "current"),
+      );
+    }
+  }
+  return revisions.map(projectRevision);
+});
 
 interface AppendBackfilledAppIndexEntryRevisionV1Input {
   readonly kind: "live" | "tombstone";
@@ -414,106 +826,10 @@ export const appendBuiltAppIndexEntryRevisionInTransactionEffect = Effect.fn(
   AppendAppIndexEntryRevisionV1Error
 > {
   const revision = yield* decodeBackfilledAppendInputEffect(tx, input);
-  return yield* appendDecodedAppIndexEntryRevisionEffect(tx, revision);
-});
-
-const appendDecodedAppIndexEntryRevisionEffect = Effect.fn(
-  "AppIndexEntries.appendDecoded",
-)(function* (
-  tx: AppIndexEntryTransaction,
-  revision: DecodedAppendAppIndexEntryRevisionV1,
-): Effect.fn.Return<
-  AppIndexEntryRevisionV1,
-  AppendAppIndexEntryRevisionV1Error
-> {
-  const head = yield* readDecodedMembershipHeadEffect(tx, revision);
-  if (head?.commitSeq === revision.commitSeq)
-    return yield* Effect.fail(
-      new AppIndexEntryRevisionAlreadyExistsError(
-        revision.identity,
-        revision.commitSeq,
-      ),
-    );
-  if (
-    (head !== null && head.commitSeq >= revision.commitSeq) ||
-    (revision.kind === "live"
-      ? head?.isTombstone === false
-      : head === null || head.isTombstone)
-  ) {
-    return yield* Effect.fail(
-      new AppIndexEntryTransitionConflictError(
-        revision.identity,
-        revision.commitSeq,
-        head?.commitSeq ?? null,
-      ),
-    );
-  }
-  yield* requireParentRowEffect(tx, revision);
-  const rowIdBytes = orderedIndexRowIdHexV1ToBytes(revision.identity.rowId);
-  const inserted = yield* appendQueryEffect(
-    tx
-      .insert(fxAppIndexEntryRevisions)
-      .values({
-        scopeUuid: revision.scopeUuid,
-        indexDefinitionId: revision.identity.indexDefinitionId,
-        tableId: revision.identity.tableId,
-        keyCodecVersion: ORDERED_INDEX_KEY_CODEC_VERSION_V1,
-        physicalSpecSha256: revision.physicalSpecSha256,
-        encodedKey: revision.keyBytes,
-        keySha256: revision.keySha256,
-        rowId: rowIdBytes,
-        commitSeq: revision.commitSeq,
-        isTombstone: revision.kind === "tombstone",
-      })
-      .onConflictDoNothing()
-      .returning({ commitSeq: fxAppIndexEntryRevisions.commitSeq }),
-  );
-  if (inserted.length !== 1)
-    return yield* Effect.fail(
-      new AppIndexEntryRevisionAlreadyExistsError(
-        revision.identity,
-        revision.commitSeq,
-      ),
-    );
-  const advanced = yield* appendQueryEffect(
-    revision.kind === "live"
-      ? tx
-          .insert(fxAppIndexEntryCurrent)
-          .values({
-            scopeUuid: revision.scopeUuid,
-            indexDefinitionId: revision.identity.indexDefinitionId,
-            encodedKey: revision.keyBytes,
-            rowId: rowIdBytes,
-            commitSeq: revision.commitSeq,
-          })
-          .onConflictDoNothing()
-          .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq })
-      : tx
-          .delete(fxAppIndexEntryCurrent)
-          .where(
-            and(
-              eq(fxAppIndexEntryCurrent.scopeUuid, revision.scopeUuid),
-              eq(
-                fxAppIndexEntryCurrent.indexDefinitionId,
-                revision.identity.indexDefinitionId,
-              ),
-              eq(fxAppIndexEntryCurrent.encodedKey, revision.keyBytes),
-              eq(fxAppIndexEntryCurrent.rowId, rowIdBytes),
-              eq(
-                fxAppIndexEntryCurrent.commitSeq,
-                head?.commitSeq ?? revision.commitSeq,
-              ),
-            ),
-          )
-          .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq }),
-  );
-  if (advanced.length !== 1) {
-    yield* deleteRejectedRevisionEffect(tx, revision);
-    return yield* Effect.fail(
-      corruption("membership current pointer changed during transition"),
-    );
-  }
-  return projectRevision(revision);
+  const written = yield* appendDecodedAppIndexEntryRevisionsEffect(tx, [revision]);
+  const result = written[0];
+  if (result === undefined) return yield* Effect.fail(corruption("backfill revision missing"));
+  return result;
 });
 
 export interface AppIndexEntryPositionV1 {
@@ -600,15 +916,6 @@ export const readAppIndexMembershipHeadsInTransactionEffect = Effect.fn(
   return yield* readDecodedMembershipHeadsEffect(tx, decoded);
 });
 
-const readDecodedMembershipHeadEffect = Effect.fn(
-  "AppIndexEntries.readMembershipHead",
-)(function* (
-  tx: AppIndexEntryTransaction,
-  position: DecodedMembershipPosition,
-) {
-  const heads = yield* readDecodedMembershipHeadsEffect(tx, [position]);
-  return heads[0] ?? null;
-});
 const readDecodedMembershipHeadsEffect = Effect.fn(
   "AppIndexEntries.readDecodedMembershipHeads",
 )(function* (
@@ -916,60 +1223,6 @@ interface DecodedAppendAppIndexEntryCapture {
   readonly physicalSpec: AppOrderedIndexPhysicalSpecV1;
   readonly keyBytes: Uint8Array;
 }
-
-const decodeAppendInputEffect = Effect.fn("AppIndexEntries.decodeAppendInput")(
-  function* (
-    tx: AppIndexEntryTransaction,
-    input: AppendAppIndexEntryRevisionV1Input,
-  ): Effect.fn.Return<
-    DecodedAppendAppIndexEntryRevisionV1,
-    AppendAppIndexEntryRevisionV1Error
-  > {
-    const captured = yield* Effect.fromResult(captureAppendInputResult(input));
-    const physicalSpec = yield* Effect.tryPromise({
-      try: () => canonicalizeAppIndexPhysicalSpecV1(captured.physicalSpec),
-      catch: (cause) => new AppIndexEntryHashError("append", cause),
-    });
-    const query = tx
-      .select({
-        scopeUuid: fxSystemScopeClocks.scopeUuid,
-        epochUuid: fxSystemScopeClocks.epochUuid,
-      })
-      .from(fxSystemScopeClocks)
-      .where(eq(fxSystemScopeClocks.scopeId, captured.identity.scopeId))
-      .limit(1);
-    const clocks = yield* Effect.uninterruptible(
-      Effect.tryPromise({
-        try: () => query,
-        catch: (cause) =>
-          new AppIndexEntryReadPersistenceError("readScopeAuthority", cause),
-      }),
-    );
-    if (
-      clocks[0]?.scopeUuid !== captured.scopeProjection.scopeUuid ||
-      clocks[0].epochUuid !== captured.writeEpochUuid
-    )
-      return yield* Effect.fail(
-        new AppIndexEntryScopeAuthorityUnavailableError(
-          captured.identity.scopeId,
-        ),
-      );
-    const keySha256 = yield* sha256Effect(captured.keyBytes, "append");
-    return Object.freeze({
-      historical: false,
-      kind: captured.kind,
-      identity: captured.identity,
-      scopeUuid: captured.scopeProjection.scopeUuid,
-      commitSeq: captured.commitSeq,
-      physicalSpec: captured.physicalSpec,
-      physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
-        physicalSpec.sha256Hex,
-      ),
-      keyBytes: captured.keyBytes,
-      keySha256,
-    });
-  },
-);
 
 const decodeBackfilledAppendInputEffect = Effect.fn(
   "AppIndexEntries.decodeBackfilledAppendInput",
@@ -1591,85 +1844,6 @@ const requireScopeUuidEffect = Effect.fn("AppIndexEntries.requireScopeUuid")(
       );
     }
     return projection.scopeUuid;
-  },
-);
-
-const deleteRejectedRevisionEffect = Effect.fn(
-  "AppIndexEntries.deleteRejectedRevision",
-)(function* (
-  tx: AppIndexEntryTransaction,
-  revision: DecodedAppendAppIndexEntryRevisionV1,
-) {
-  const deleted = yield* appendQueryEffect(
-    tx
-      .delete(fxAppIndexEntryRevisions)
-      .where(
-        and(
-          eq(fxAppIndexEntryRevisions.scopeUuid, revision.scopeUuid),
-          eq(
-            fxAppIndexEntryRevisions.indexDefinitionId,
-            revision.identity.indexDefinitionId,
-          ),
-          eq(fxAppIndexEntryRevisions.encodedKey, revision.keyBytes),
-          eq(
-            fxAppIndexEntryRevisions.rowId,
-            orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
-          ),
-          eq(fxAppIndexEntryRevisions.commitSeq, revision.commitSeq),
-        ),
-      )
-      .returning({ commitSeq: fxAppIndexEntryRevisions.commitSeq }),
-  );
-  if (deleted[0] === undefined)
-    return yield* Effect.fail(
-      corruption("rejected revision could not be removed"),
-    );
-});
-
-const requireParentRowEffect = Effect.fn("AppIndexEntries.requireParentRow")(
-  function* (
-    tx: AppIndexEntryTransaction,
-    revision: DecodedAppendAppIndexEntryRevisionV1,
-  ) {
-    const rows = yield* appendQueryEffect(
-      tx
-        .select({
-          rowId: fxAppRowCurrent.rowId,
-          isTombstone: fxAppRowRevisions.isTombstone,
-        })
-        .from(fxAppRowCurrent)
-        .innerJoin(
-          fxAppRowRevisions,
-          and(
-            eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
-            eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
-            eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId),
-            eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
-          ),
-        )
-        .where(
-          and(
-            eq(fxAppRowCurrent.scopeUuid, revision.scopeUuid),
-            eq(fxAppRowCurrent.tableId, revision.identity.tableId),
-            eq(
-              fxAppRowCurrent.rowId,
-              orderedIndexRowIdHexV1ToBytes(revision.identity.rowId),
-            ),
-          ),
-        )
-        .limit(1),
-    );
-    if (rows[0] === undefined)
-      return yield* Effect.fail(
-        new AppIndexEntryParentRowError(revision.identity, "missing"),
-      );
-    if (!revision.historical && revision.kind === "live" && rows[0].isTombstone)
-      return yield* Effect.fail(
-        new AppIndexEntryParentRowError(
-          revision.identity,
-          "tombstonedLiveEntry",
-        ),
-      );
   },
 );
 

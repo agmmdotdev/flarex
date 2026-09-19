@@ -2,7 +2,8 @@
 
 Status: intrinsic membership preparation is implemented in the shared materializer
 under standing owner approval. [Row batching](./15-ce1-row-batch-application.md)
-subsequently replaces the scalar row writer; index/unique write batching is open.
+subsequently replaces the scalar row writer; [index batching](./16-ce1-index-batch-application.md)
+replaces the scalar index writer. Unique write batching is open.
 
 ## Decision And Boundary
 
@@ -55,8 +56,8 @@ row/index writes or COMMIT. Both private step unions and their tests move togeth
 Delete the old per-row intrinsic read/plan/write function and redundant combined
 row preparation/write helper. This preparation slice retained scalar row/index
 persistence owners as active writers. The subsequent row-batching slice replaces
-the prepared scalar row API and changes row/index hook ordering; the index writer
-still owns its actual writes. No public API, DDL, data
+the prepared scalar row API and changes row/index hook ordering; index batching
+then replaces the scalar index API at its existing owner. No public API, DDL, data
 migration, durable format or framework adapter change is needed.
 
 ## Proof And Completion

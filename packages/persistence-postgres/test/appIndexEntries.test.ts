@@ -1,3 +1,4 @@
+import { verifyIndexBatches } from "./indexBatchScenario";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -14,6 +15,7 @@ import {
   encodeOrderedIndexComponentsV1,
   orderedIndexCreationTimeV1,
   orderedIndexKeyBytesHexV1ToBytes,
+  orderedIndexRowIdHexV1ToBytes,
   type OrderedIndexKeyHexV1,
   type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
@@ -28,7 +30,7 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { sql } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
@@ -39,10 +41,11 @@ import {
   AppIndexEntryReadPersistenceError,
   readAppIndexMembershipHeadsInTransactionEffect,
   InvalidAppIndexEntryInputError,
-  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+  appendAppIndexEntryRevisionsInTransactionEffect,
   scanAppIndexAtSnapshotInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,
   type AppendAppIndexEntryRevisionV1Input,
+  type AppIndexEntryTransaction,
 } from "../src/appIndexEntries";
 import {
   locateAppIndexDefinitionByIdEffect,
@@ -108,6 +111,50 @@ describe("S10 app-index revision and current storage", () => {
       });
     }
   });
+
+  it("rejects malformed parent and returned batch evidence as typed corruption", async () => {
+    await indexPersistence();
+    const scopeUuid = scopeId.slice("scope_".length);
+    const validParent = { scopeUuid, tableId, rowId: orderedIndexRowIdHexV1ToBytes(rowA), isTombstone: false };
+    const validReturn = { scopeUuid, indexDefinitionId, encodedKey: orderedIndexKeyBytesHexV1ToBytes(keyA),
+      rowId: orderedIndexRowIdHexV1ToBytes(rowA), commitSeq: 1n };
+    const cases: ReadonlyArray<Readonly<{ parent: unknown; returned: ReadonlyArray<unknown>; writes: number }>> = [
+      { parent: { ...validParent, tableId: 0 }, returned: [], writes: 0 },
+      { parent: { ...validParent, rowId: new Uint8Array(2) }, returned: [], writes: 0 },
+      { parent: { ...validParent, isTombstone: "false" }, returned: [], writes: 0 },
+      ...[
+        [{ ...validReturn, scopeUuid: "invalid" }],
+        [{ ...validReturn, indexDefinitionId: 0 }],
+        [{ ...validReturn, rowId: new Uint8Array(2) }],
+        [{ ...validReturn, encodedKey: new Uint8Array(2049) }],
+        [{ ...validReturn, commitSeq: "1" }],
+        [validReturn, validReturn],
+      ].map(returned => ({ parent: validParent, returned, writes: 1 })),
+    ];
+    for (const sample of cases) {
+      let writes = 0;
+      // Driver-boundary fault injection; returned data deliberately violates
+      // database codecs. No current-pointer writer exists in this stub.
+      const tx = {
+        select() { return { from() { return {
+          where() { return { limit() { return Promise.resolve([{ scopeUuid, epochUuid: epoch.slice("epoch_".length) }]); } }; },
+          innerJoin() { return { where() { return Promise.resolve([sample.parent]); } }; },
+        }; } }; },
+        execute() { return Promise.resolve({ rows: [{ ordinal: "0", currentCommitSeq: null, commitSeqText: null }] }); },
+        insert() { writes += 1; return { values() { return { onConflictDoNothing() { return {
+          returning() { return Promise.resolve(sample.returned); },
+        }; } }; } }; },
+      } as unknown as AppIndexEntryTransaction;
+      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx, [liveEntry(rowA, keyA, 1n)])))
+        .toBeInstanceOf(AppIndexEntryStorageCorruptionError);
+      expect(writes).toBe(sample.writes);
+    }
+  });
+
+  it("applies bounded index batches with exact returned keys and atomic rollback", async () => {
+    const persistence = await indexPersistence();
+    await verifyIndexBatches(persistence, persistence.drizzle, scopeId, epoch, locatedDefinition);
+  }, 120_000);
 
   it("preserves ordered history, exact bounds, composite pagination, movement, and tombstones", async () => {
     const persistence = await indexPersistence();
@@ -212,11 +259,8 @@ describe("S10 app-index revision and current storage", () => {
     await persistence.drizzle.transaction(async (tx) => {
       await appendRow(tx, await liveRow(rowA, 5n, 3n, "reuse"));
       const result =
-        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          liveEntry(rowA, keyA, 5n),
-        );
-      expect(Result.isSuccess(result)).toBe(true);
+        await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [liveEntry(rowA, keyA, 5n)]));
+      expect(result).toHaveLength(1);
     });
 
     await persistence.query(
@@ -255,17 +299,10 @@ describe("S10 app-index revision and current storage", () => {
       [],
     );
 
-    const failure = await persistence.drizzle.transaction(async (tx) => {
+    await expect(persistence.drizzle.transaction(async tx => {
       await appendRow(tx, await liveRow(rowA, 5n, 3n, "stale"));
-      const result =
-        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          liveEntry(rowA, keyA, 5n),
-        );
-      if (Result.isFailure(result)) return result.failure;
-      throw new Error("Expected stale index-entry pointer conflict");
-    });
-    expect(failure).toBeInstanceOf(AppIndexEntryTransitionConflictError);
+      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [liveEntry(rowA, keyA, 5n)]));
+    })).rejects.toBeInstanceOf(AppIndexEntryTransitionConflictError);
     const stored = await persistence.query<{ count: string }>(
       `select count(*)::text as count from fx_app_index_entry_rev
        where commit_seq = 5`,
@@ -372,57 +409,26 @@ describe("S10 app-index revision and current storage", () => {
 
   it("rejects malformed keys, live entries over row tombstones, and accepts empty ranges", async () => {
     const persistence = await indexPersistence();
-    await persistence.drizzle.transaction(async (tx) => {
+    await expect(persistence.drizzle.transaction(async tx => {
       await appendRow(tx, tombstoneRow(rowA, 1n, null));
-      const liveOverTombstone =
-        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          liveEntry(rowA, keyA, 1n),
-        );
-      expect(Result.isFailure(liveOverTombstone)).toBe(true);
-      if (Result.isFailure(liveOverTombstone)) {
-        expect(liveOverTombstone.failure).toBeInstanceOf(
-          AppIndexEntryParentRowError,
-        );
-      }
-    });
-
-    await persistence.drizzle.transaction(async (tx) => {
+      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [liveEntry(rowA, keyA, 1n)]));
+    })).rejects.toBeInstanceOf(AppIndexEntryParentRowError);
+    await persistence.drizzle.transaction(async tx => {
       await appendRow(tx, await liveRow(rowB, 2n, null, "b"));
-      const forgedDefinition = {
-        ...locatedDefinition,
-        physicalSpec: APP_BY_ID_PHYSICAL_SPEC_V1,
-      } as unknown as LocatedAppIndexDefinitionV1;
-      for (const symbol of Object.getOwnPropertySymbols(locatedDefinition)) {
-        const descriptor = Object.getOwnPropertyDescriptor(
-          locatedDefinition,
-          symbol,
-        );
-        if (descriptor !== undefined) {
-          Object.defineProperty(forgedDefinition, symbol, descriptor);
-        }
-      }
-      const forged =
-        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          { ...liveEntry(rowB, keyB, 2n), definition: forgedDefinition },
-        );
-      expect(Result.isFailure(forged)).toBe(true);
-      if (Result.isFailure(forged)) {
-        expect(forged.failure).toMatchObject({
-          issue: "invalidLocatedDefinition",
-        });
-      }
-      const malformed =
-        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          {
-            ...liveEntry(rowB, keyB, 2n),
-            encodedKey: `${keyB}00` as OrderedIndexKeyHexV1,
-          },
-        );
-      expect(Result.isFailure(malformed)).toBe(true);
     });
+    const forgedDefinition = {
+      ...locatedDefinition, physicalSpec: APP_BY_ID_PHYSICAL_SPEC_V1,
+    } as unknown as LocatedAppIndexDefinitionV1;
+    for (const symbol of Object.getOwnPropertySymbols(locatedDefinition)) {
+      const descriptor = Object.getOwnPropertyDescriptor(locatedDefinition, symbol);
+      if (descriptor !== undefined) Object.defineProperty(forgedDefinition, symbol, descriptor);
+    }
+    await expect(persistence.drizzle.transaction(tx => runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+      [{ ...liveEntry(rowB, keyB, 2n), definition: forgedDefinition }]))))
+      .rejects.toMatchObject({ issue: "invalidLocatedDefinition" });
+    await expect(persistence.drizzle.transaction(tx => runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+      [{ ...liveEntry(rowB, keyB, 2n), encodedKey: `${keyB}00` as OrderedIndexKeyHexV1 }]))))
+      .rejects.toMatchObject({ issue: "invalidEncodedKey" });
 
     const empty = await snapshot(persistence, 2n, 10, {
       startInclusive: decodeOrderedIndexBoundHexV1(keyB),
@@ -557,16 +563,11 @@ async function appendRow(
 
 async function appendEntry(
   tx: Parameters<
-    typeof appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult
+    typeof appendAppIndexEntryRevisionsInTransactionEffect
   >[0],
   input: AppendAppIndexEntryRevisionV1Input,
 ): Promise<void> {
-  Result.getOrThrow(
-    await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-      tx,
-      input,
-    ),
-  );
+  await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [input]));
 }
 
 async function snapshot(

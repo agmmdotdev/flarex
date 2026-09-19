@@ -28,7 +28,7 @@ import {
   orderedIndexRowIdHexV1FromBytesResult,
 } from "flarex-protocol/ordered-index";
 
-import { appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult } from "../src/appIndexEntries";
+import { appendAppIndexEntryRevisionsInTransactionEffect } from "../src/appIndexEntries";
 import { locateAppIndexDefinitionByIdEffect } from "../src/appIndexDefinitions";
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
 import {
@@ -447,10 +447,7 @@ async function insertWithOnlineIndexMaintenance(
     const indexRowId = Result.getOrThrow(
       orderedIndexRowIdHexV1FromBytesResult(appRowIdHexV1ToBytes(rowId)),
     );
-    const entry =
-      await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        {
+    await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
           definition,
@@ -461,9 +458,7 @@ async function insertWithOnlineIndexMaintenance(
           rowId: indexRowId,
           writeEpoch: clock.epoch,
           commitSeq,
-        },
-      );
-    if (Result.isFailure(entry)) throw entry.failure;
+        }]));
     await tx
       .update(fxSystemScopeClocks)
       .set({ lastCommitSeq: commitSeq })

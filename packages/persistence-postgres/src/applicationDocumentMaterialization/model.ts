@@ -74,6 +74,8 @@ export type ApplicationDocumentMaterializationStep =
   | "intrinsicMembershipPreparing"
   | "intrinsicMembershipPrepared"
   | "tentativeRowWritten"
+  | "intrinsicIndexBatchWriting"
+  | "intrinsicIndexBatchWritten"
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"
   | "uniqueKeyWritten"

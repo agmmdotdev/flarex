@@ -783,6 +783,8 @@ export type PointCommitTransactionProofStepV1 =
   | "intrinsicMembershipPreparing"
   | "intrinsicMembershipPrepared"
   | "tentativeRowWritten"
+  | "intrinsicIndexBatchWriting"
+  | "intrinsicIndexBatchWritten"
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"
   | "uniqueKeyWritten"

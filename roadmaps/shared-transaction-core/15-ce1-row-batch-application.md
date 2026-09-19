@@ -1,7 +1,8 @@
 # CE1 Bounded Row Batch Application
 
 Status: row batch application is implemented under standing owner authorization.
-Index and unique write batching remain open CE1 work.
+[Index batching](./16-ce1-index-batch-application.md) subsequently replaces scalar
+index application. Unique write batching remains open CE1 work.
 
 ## Outcome And Owner
 

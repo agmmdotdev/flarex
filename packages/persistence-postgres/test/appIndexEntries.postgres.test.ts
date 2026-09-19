@@ -1,3 +1,4 @@
+import { verifyIndexBatches } from "./indexBatchScenario";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -24,12 +25,11 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
   AppIndexEntryRevisionAlreadyExistsError,
-  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+  appendAppIndexEntryRevisionsInTransactionEffect,
   scanAppIndexAtSnapshotInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,
 } from "../src/appIndexEntries";
@@ -69,28 +69,21 @@ const deploymentId = "deployment_s10_postgres";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describePostgres("real PostgreSQL S10 app-index storage", () => {
+  it("applies bounded index batches with exact returned keys and atomic rollback", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      await insertClock(persistence);
+      await verifyIndexBatches(persistence, persistence.drizzle, scopeId, epoch, locatedDefinition);
+    });
+  }, 120_000);
+
   it("proves exact snapshot/current reads, concurrent replay, and intended plans", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await insertClock(persistence);
       await persistence.drizzle.transaction(async (tx) => {
         await appendRow(tx, rowA, 1n, null, "a");
-        expect(
-          Result.isSuccess(
-            await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-              tx,
-              indexEntry(rowA, keyA, 1n),
-            ),
-          ),
-        ).toBe(true);
+        expect(await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [indexEntry(rowA, keyA, 1n)])),).toHaveLength(1);
         await appendRow(tx, rowB, 2n, null, "b");
-        expect(
-          Result.isSuccess(
-            await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-              tx,
-              indexEntry(rowB, keyB, 2n),
-            ),
-          ),
-        ).toBe(true);
+        expect(await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [indexEntry(rowB, keyB, 2n)])),).toHaveLength(1);
       });
 
       const snapshot = await persistence.drizzle.transaction((tx) =>
@@ -114,22 +107,19 @@ describePostgres("real PostgreSQL S10 app-index storage", () => {
       await persistence.drizzle.transaction(async (tx) => {
         await appendRow(tx, rowA, 3n, 1n, "a-next");
         const released =
-          await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-            tx,
-            {
+          await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
               ...indexEntry(rowA, keyA, 3n),
               kind: "tombstone",
-            },
-          );
-        expect(Result.isSuccess(released)).toBe(true);
+            }]));
+        expect(released).toHaveLength(1);
       });
-      const attempts = await Promise.all([
+      const attempts = await Promise.allSettled([
         appendConcurrent(persistence, rowA, keyC),
         appendConcurrent(persistence, rowA, keyC),
       ]);
-      expect(attempts.filter(Result.isSuccess)).toHaveLength(1);
-      const failure = attempts.find(Result.isFailure);
-      expect(failure?.failure).toBeInstanceOf(
+      expect(attempts.filter(attempt => attempt.status === "fulfilled")).toHaveLength(1);
+      const failure = attempts.find(attempt => attempt.status === "rejected");
+      expect(failure?.reason).toBeInstanceOf(
         AppIndexEntryRevisionAlreadyExistsError,
       );
       const current = await persistence.drizzle.transaction((tx) =>
@@ -286,10 +276,7 @@ async function appendConcurrent(
   encodedKey: OrderedIndexKeyHexV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-      tx,
-      indexEntry(rowId, encodedKey, 3n),
-    ),
+    runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [indexEntry(rowId, encodedKey, 3n)])),
   );
 }
 

@@ -134,7 +134,8 @@ import {
   type CanonicalAppUniqueKeyV1,
 } from "../appUniqueKeyContract";
 import {
-  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+  appendAppIndexEntryRevisionsInTransactionEffect,
+  AppIndexEntryWritePersistenceError,
   AppIndexEntryReadPersistenceError,
   readAppIndexMembershipHeadsInTransactionEffect,
   type AppIndexEntryPositionV1,
@@ -627,19 +628,17 @@ export async function materializeApplicationDocumentRows(
   for (let rowIndex = 0; rowIndex < rowRevisions.length; rowIndex += 1) {
     await emitTransactionStep(options, command, "tentativeRowWritten");
   }
-  for (const row of rowRevisions) {
-    const intrinsic = intrinsicActions.get(row);
-    if (intrinsic !== undefined) {
-      projectPointCommitTransactionResult(
-        await sqlCall("writeIntrinsicIndexEntry", () =>
-          appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-            tx,
-            intrinsic,
-          ),
-        ),
-      );
+  if (intrinsicActions.size > 0) {
+    await emitTransactionStep(options, command, "intrinsicIndexBatchWriting");
+    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      appendAppIndexEntryRevisionsInTransactionEffect(tx, [...intrinsicActions.values()]).pipe(
+        Effect.mapError(cause => cause instanceof AppIndexEntryWritePersistenceError || cause instanceof AppIndexEntryReadPersistenceError
+          ? new PointCommitSqlFailureMarkerV1("writeIntrinsicIndexEntry", cause.cause) : cause),
+      ),
+    ));
+    await emitTransactionStep(options, command, "intrinsicIndexBatchWritten");
+    for (let i = 0; i < intrinsicActions.size; i += 1)
       await emitTransactionStep(options, command, "intrinsicIndexEntryWritten");
-    }
   }
 
   for (const intrinsic of intrinsicBuilds) {
@@ -2067,21 +2066,15 @@ async function writePointCommitDeveloperIndexActions(
   actions: ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>,
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<void> {
-  for (const action of actions) {
-    const appended = await sqlCall("writeDeveloperIndexEntry", () =>
-      appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(tx, {
-        kind: action.kind,
-        scopeId: command.authorityPins.scopeId,
-        definition: action.definition,
-        encodedKey: action.encodedKey,
-        rowId: action.rowId,
-        writeEpoch,
-        commitSeq,
-      }),
-    );
-    projectPointCommitTransactionResult(appended);
+  projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    appendAppIndexEntryRevisionsInTransactionEffect(tx, actions.map(action => ({
+      kind: action.kind, scopeId: command.authorityPins.scopeId, definition: action.definition,
+      encodedKey: action.encodedKey, rowId: action.rowId, writeEpoch, commitSeq,
+    }))).pipe(Effect.mapError(cause => cause instanceof AppIndexEntryWritePersistenceError || cause instanceof AppIndexEntryReadPersistenceError
+      ? new PointCommitSqlFailureMarkerV1("writeDeveloperIndexEntry", cause.cause) : cause)),
+  ));
+  for (let i = 0; i < actions.length; i += 1)
     await emitTransactionStep(options, command, "developerIndexEntryWritten");
-  }
 }
 
 async function writePointCommitUniqueKeyActions(

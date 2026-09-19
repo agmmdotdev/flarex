@@ -1,6 +1,6 @@
 import { verifyTerminalMembershipCompaction } from "./membershipCompactionScenario";
 import { createHash } from "node:crypto";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { decodeCatalogIndexDefinitionId } from "flarex-protocol/catalog";
 import {
   appIndexPhysicalSpecSha256HexV1ToBytes,
@@ -26,7 +26,7 @@ import {
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
-import { appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult } from "../src/appIndexEntries";
+import { appendAppIndexEntryRevisionsInTransactionEffect } from "../src/appIndexEntries";
 import { locateAppIndexDefinitionByIdEffect } from "../src/appIndexDefinitions";
 import {
   compactRetainedIndexHistoryPageEffect,
@@ -347,7 +347,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     const epoch = epochRows.rows[0]?.epoch;
     if (epoch === undefined) throw new Error("Expected the scope epoch.");
     const appended = await persistence.drizzle.transaction((tx) =>
-      appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(tx, {
+      runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
         kind: "tombstone",
         scopeId: context.scopeId,
         definition: located,
@@ -355,9 +355,9 @@ describe("O11-D retained ordered-index history compaction", () => {
         rowId: decodeOrderedIndexRowIdHexV1(testRowIdHex),
         writeEpoch: ScopeEpochSchema.make(epoch),
         commitSeq: CommitSeqSchema.make(3n),
-      }),
+      }])),
     );
-    expect(Result.isSuccess(appended)).toBe(true);
+    expect(appended).toHaveLength(1);
     await expect(
       readIndexHistory(persistence, context.scopeId),
     ).resolves.toEqual([`${key}:2`, `${key}:3`]);

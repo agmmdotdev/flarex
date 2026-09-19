@@ -73,7 +73,7 @@ import {
   type AppRowValueEvidenceV1,
 } from "../src/appRows";
 import {
-  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+  appendAppIndexEntryRevisionsInTransactionEffect,
 } from "../src/appIndexEntries";
 import {
   createAppDeveloperIndexDefinitionPortV1,
@@ -444,11 +444,8 @@ describe("C03 Postgres SessionJournalStore", () => {
           creationTime: seed.creationTime,
           fields: seed.fields,
         });
-        Result.getOrThrow(
-          await persistence.drizzle.transaction((tx) =>
-            appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-              tx,
-              {
+        await persistence.drizzle.transaction((tx) =>
+            runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
                 kind: "live",
                 scopeId,
                 definition: locatedDefinition,
@@ -460,10 +457,8 @@ describe("C03 Postgres SessionJournalStore", () => {
                 rowId: decodeOrderedIndexRowIdHexV1(seed.rowId),
                 writeEpoch: clock.epoch,
                 commitSeq: CommitSeqSchema.make(1n),
-              },
-            )
-          ),
-        );
+              }]))
+          );
       }
     }
 

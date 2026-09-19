@@ -8,7 +8,6 @@ import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { appendPreparedAppRowRevisionsInTransactionEffect } from "../src/appRows";
 import { createHash } from "node:crypto";
 import { expect } from "vitest";
-import { Result } from "effect";
 import {
   CommitSeqSchema,
   ScopeEpochSchema,
@@ -31,7 +30,7 @@ import {
 } from "flarex-protocol/index-definition";
 import { locateAppIndexDefinitionByIdEffect } from "../src/appIndexDefinitions";
 import {
-  appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
+  appendAppIndexEntryRevisionsInTransactionEffect,
   scanAppIndexAtSnapshotInTransactionEffect,
 } from "../src/appIndexEntries";
 import {
@@ -234,9 +233,7 @@ export async function verifyTerminalMembershipCompaction(input: {
         }]));
     expect(row).toHaveLength(1);
     const appended =
-      await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        {
+      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId,
           definition,
@@ -244,9 +241,8 @@ export async function verifyTerminalMembershipCompaction(input: {
           rowId,
           writeEpoch: ScopeEpochSchema.make(epoch),
           commitSeq: CommitSeqSchema.make(131n),
-        },
-      );
-    expect(Result.isSuccess(appended)).toBe(true);
+        }]));
+    expect(appended).toHaveLength(1);
     const old = await runEffect(
       scanAppIndexAtSnapshotInTransactionEffect(tx, {
         scopeId,

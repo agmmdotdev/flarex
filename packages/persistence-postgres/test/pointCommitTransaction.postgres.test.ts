@@ -87,7 +87,7 @@ import {
   installAppSchemaCandidateValidationEffect,
   loadAppSchemaCandidateValidationEffect,
 } from "../src/appSchemaCandidateValidation";
-import { appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult } from "../src/appIndexEntries";
+import { appendAppIndexEntryRevisionsInTransactionEffect } from "../src/appIndexEntries";
 import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
@@ -734,6 +734,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
                 ...intrinsic,
                 afterTransactionStep: async (event) => {
                   if (
+                    event.step === "intrinsicIndexBatchWriting" ||
+                    event.step === "intrinsicIndexBatchWritten" ||
                     event.step === "rowBatchWriting" ||
                     event.step === "rowBatchWritten" ||
                     event.step === "intrinsicMembershipPreparing" ||
@@ -749,6 +751,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         expect(
           measured.observation.phases.intrinsicMembershipPreparing?.queryCalls,
         ).toBe(1 + Math.ceil(rowCount / 32));
+        expect(measured.observation.phases.intrinsicIndexBatchWriting?.queryCalls).toBe(1 + 4 * Math.ceil(rowCount / 32));
         expect(measured.observation.phases.rowBatchWriting?.queryCalls).toBe(1 + 2 * Math.ceil(rowCount / 32));
         expect(
           (
@@ -829,6 +832,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
                 ...options,
                 afterTransactionStep: async (event) => {
                   if (
+                    event.step === "intrinsicIndexBatchWriting" ||
+                    event.step === "intrinsicIndexBatchWritten" ||
                     event.step === "rowBatchWriting" ||
                     event.step === "rowBatchWritten" ||
                     event.step === "intrinsicMembershipPreparing" ||
@@ -2354,10 +2359,10 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
               expect(measured.observation.transmittedBytes).toBeGreaterThan(0);
               expect(
                 measured.observation.familyQueries.fx_app_row_rev,
-              ).toBeGreaterThanOrEqual(rowCount);
+              ).toBe(1 + 2 * Math.ceil(rowCount / 32));
               expect(
                 measured.observation.familyQueries.fx_app_index_entry_rev,
-              ).toBeGreaterThanOrEqual(rowCount);
+              ).toBe(3 * Math.ceil(rowCount / 32));
               expect(clockLockedAt).toBeTypeOf("number");
               expect(beforeCommitAt).toBeTypeOf("number");
             }
@@ -4791,10 +4796,7 @@ async function commitCompetingIndexedUser(
         sha256: document.sha256,
       },
     });
-    Result.getOrThrow(
-      await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        {
+    await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: scope.scopeId,
           definition: attempt.definition,
@@ -4802,9 +4804,7 @@ async function commitCompetingIndexedUser(
           rowId: decodeOrderedIndexRowIdHexV1(rowId),
           writeEpoch: clock.epoch,
           commitSeq,
-        },
-      ),
-    );
+        }]));
     await tx.insert(fxSystemCommits).values({
       scopeUuid: attempt.command.sealIdentity.scopeUuid,
       epochUuid: projectScopeEpochUuidV1(clock.epoch).epochUuid,

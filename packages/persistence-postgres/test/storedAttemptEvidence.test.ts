@@ -223,7 +223,7 @@ import type {
   ScopePhysicalLocator,
   SharedDatabaseScopePhysicalLocator,
 } from "../src/scopeMetadataTypes";
-import { appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult } from "../src/appIndexEntries";
+import { appendAppIndexEntryRevisionsInTransactionEffect } from "../src/appIndexEntries";
 import {
   createAppDeveloperIndexDefinitionPortV1,
   lowerAppDeveloperIndexKeyV1,
@@ -5851,6 +5851,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "rowBatchWriting",
       "rowBatchWritten",
       "tentativeRowWritten",
+      "intrinsicIndexBatchWriting",
+      "intrinsicIndexBatchWritten",
       "intrinsicIndexEntryWritten",
       "beforeRollback",
     ]);
@@ -7790,10 +7792,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         throw new Error("Missing C08-A seeded scope clock.");
       }
       await persistence.drizzle.transaction(async (tx) => {
-        Result.getOrThrow(
-          await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-            tx,
-            {
+        await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
               kind: "live",
               scopeId: current.anchor.scopeId,
               definition,
@@ -7803,9 +7802,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
               rowId: decodeOrderedIndexRowIdHexV1(rowId),
               writeEpoch: clock.epoch,
               commitSeq: CommitSeqSchema.make(1n),
-            },
-          ),
-        );
+            }]));
       });
     }
     return Object.freeze({ developerIndexes });
@@ -7899,10 +7896,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           sha256: document.sha256,
         },
       });
-      Result.getOrThrow(
-        await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          {
+      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
             kind: "live",
             scopeId: current.anchor.scopeId,
             definition,
@@ -7910,9 +7904,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             rowId: decodeOrderedIndexRowIdHexV1(rowId),
             writeEpoch: clock.epoch,
             commitSeq,
-          },
-        ),
-      );
+          }]));
       await tx.insert(fxSystemCommits).values({
         scopeUuid,
         epochUuid,
