@@ -58,6 +58,16 @@ breaking old contracts is not permission to weaken behavioral proofs or silently
 delete named durable data. Keep advanced migrations and developer APIs deferred
 as recorded in [shared logical storage](roadmaps/shared-logical-storage/README.md).
 
+Cleanup is a completion gate for every implementation slice, not a separate
+end-of-redesign task. Migrate affected consumers and remove displaced code,
+exports, dependencies, tests/fixtures and stale documentation in that same slice,
+preserving behavioral coverage in the replacement. This includes obsolete
+framework migration logic and tables once their consumers and recovery obligations
+have moved; table removal must follow the approved data migration or reset policy.
+Record any temporary retention, its named consumer and removal gate in the owning
+roadmap. Final retirement is an audit of incremental cleanup, not permission to
+postpone it; deferring advanced schema evolution does not defer this cleanup.
+
 ## Durable Architecture Invariants
 
 - Preserve the Convex developer mental model and core behavior where portable.
