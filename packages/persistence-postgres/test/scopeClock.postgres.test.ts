@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   CommitSeqSchema,
@@ -64,6 +64,88 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres scope clock locking", () => {
+  it.each(["readerFirst", "writerFirst", "publicationBeforeAdmission"] as const)(
+    "keeps a repeatable clock snapshot while candidate publication progresses: %s",
+    async order => withTemporaryPostgresPersistence(async persistence => {
+      expect((await persistence.query("select rolsuper as superuser from pg_roles where rolname=current_user")).rows)
+        .toEqual([{ superuser: false }]);
+      const scopeId = ScopeIdSchema.make(`scope_clock_snapshot_${order}`);
+      await insertScopeClock(persistence, scopeId, "epoch-snapshot");
+      // Deliberately probe the proposed lock protocol, not production publication.
+      const read = (tx: Parameters<typeof lockScopeClockForUpdateInTransactionEffect>[0]) =>
+        tx.select({ sequence: fxSystemScopeClocks.lastCommitSeq, epoch: fxSystemScopeClocks.authorizationRevocationEpoch })
+          .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId));
+      const advance = async (tx: Parameters<typeof lockScopeClockForUpdateInTransactionEffect>[0]) => {
+        await tx.execute(sql`set local lock_timeout = '500ms'`);
+        await read(tx).for("no key update");
+        await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+          .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+      };
+      if (order !== "writerFirst") {
+        await persistence.drizzle.transaction(async reader => {
+          await reader.execute(sql`set local lock_timeout = '500ms'`);
+          expect(await (order === "readerFirst" ? read(reader).for("key share") : read(reader)))
+            .toEqual([{ sequence: 0n, epoch: 0n }]);
+          await persistence.drizzle.transaction(advance);
+          expect(await read(reader).for("key share")).toEqual([{ sequence: 0n, epoch: 0n }]);
+          expect(await read(reader)).toEqual([{ sequence: 0n, epoch: 0n }]);
+        }, { isolationLevel: "repeatable read" });
+      } else {
+        await persistence.drizzle.transaction(async writer => {
+          await advance(writer);
+          await persistence.drizzle.transaction(async reader => {
+            await reader.execute(sql`set local lock_timeout = '500ms'`);
+            expect(await read(reader).for("key share")).toEqual([{ sequence: 0n, epoch: 0n }]);
+          }, { isolationLevel: "repeatable read" });
+        });
+      }
+      expect(await persistence.getScopeClock(scopeId)).toMatchObject({ lastCommitSeq: 1n });
+      expect(await persistence.drizzle.transaction(tx => requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId))).toBe(0n);
+    }),
+  );
+
+  it("holds the real revocation owner behind a live key-share snapshot", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const scopeId = ScopeIdSchema.make("scope_clock_snapshot_revocation_wait");
+      await insertScopeClock(persistence, scopeId, "epoch-snapshot");
+      await persistence.drizzle.transaction(async reader => {
+        await reader.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId)).for("key share");
+        await expect(persistence.drizzle.transaction(async writer => {
+          await writer.execute(sql`set local lock_timeout = '500ms'`);
+          return advanceScopeAuthorizationRevocationEpochInTransaction(writer, scopeId);
+        })).rejects.toMatchObject({
+          _tag: "ScopeAuthorizationRevocationEpochPersistenceError", operation: "lockForUpdate",
+          cause: { cause: { code: "55P03" } },
+        });
+        expect(await reader.select({ epoch: fxSystemScopeClocks.authorizationRevocationEpoch })
+          .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId))).toEqual([{ epoch: 0n }]);
+      }, { isolationLevel: "repeatable read" });
+      await expect(persistence.drizzle.transaction(tx => advanceScopeAuthorizationRevocationEpochInTransaction(tx, scopeId)))
+        .resolves.toEqual({ previous: 0n, current: 1n });
+    });
+  });
+
+  it.each([false, true])("rejects stale key-share admission across revocation and later sequence advance: %s", async advanceAfterRevocation => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const scopeId = ScopeIdSchema.make("scope_clock_snapshot_revocation_stale");
+      await insertScopeClock(persistence, scopeId, "epoch-snapshot");
+      await expect(persistence.drizzle.transaction(async reader => {
+        expect(await reader.select({ epoch: fxSystemScopeClocks.authorizationRevocationEpoch })
+          .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId))).toEqual([{ epoch: 0n }]);
+        await persistence.drizzle.transaction(tx => advanceScopeAuthorizationRevocationEpochInTransaction(tx, scopeId));
+        if (advanceAfterRevocation) {
+          await persistence.drizzle.transaction(async writer => {
+            await writer.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId)).for("no key update");
+            await writer.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+              .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+          });
+        }
+        await reader.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId)).for("key share");
+      }, { isolationLevel: "repeatable read" })).rejects.toMatchObject({ cause: { code: "40001" } });
+      expect(await persistence.drizzle.transaction(tx => requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId))).toBe(1n);
+    });
+  });
+
   it("blocks the same scope, permits another scope, and rolls back the probe", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const lockedScopeId = ScopeIdSchema.make("scope_clock_pg_locked");

@@ -118,6 +118,11 @@ The [shared prior-document state](./34-ce3-shared-prior-document-state.md)
 consolidates predecessor reads and canonical decoding across index, unique and
 relation planning in native/CMS materialization. Publication exclusion and exact
 dependency validation remain; coordinated parallel materialization is still open.
+The [scope-clock lock contract](./36-ce3-scope-clock-lock-contract.md) provides
+PostgreSQL witnesses for separating snapshot-reader protection from ordinary
+sequence advancement on the existing row, while retaining strong transition
+exclusion and stale-snapshot refusal. The connected CMS snapshot profile and
+publisher cutover remain open; no production lock mode changes in that witness.
 The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
 extends the matched comparison at the existing shared publication owner, without
 duplicating native authentication or transaction recovery in a benchmark engine.
