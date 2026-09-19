@@ -14,9 +14,9 @@ Do not wait for a separate approval response for each slice. Surface materially
 different decisions explicitly and correct the actual owner; this authorization
 does not permit silent durable-data deletion or unrelated integration expansion.
 
-Status: owner-requested design and implementation-gate plan, with initial CE0
-publication instrumentation and a bounded baseline implemented; execution changes,
-equivalent-reference benchmarks and measured improvements remain pending. Documentation
+Status: owner-requested design and implementation-gate plan, with bounded CE0
+attribution/references and CE1 intrinsic membership preparation implemented;
+complete-request reference acceptance and remaining execution changes are open. Documentation
 approval does not activate new storage, remove locks or broaden any framework
 capability. This is a workstream within the existing shared transaction core,
 not another runtime or metadata authority.
@@ -75,8 +75,9 @@ breaking-change policy without silently resetting named durable data.
 ## Gate Sequence
 
 These gates name outcomes and evidence, not mandatory new packages or a demand
-to finish the entire core before exercising a framework. CE1 and CE2 may proceed
-as coherent independent slices after CE0; CE3 uses their actual findings. CE4 is
+to finish the entire core before exercising a framework. CE1 and CE2 use scoped
+CE0 evidence for coherent independent slices; complete-request CE0 acceptance
+remains a separate gate. CE3 uses their actual findings. CE4 is
 conditional on measured native evidence cost. Each slice migrates its real
 consumers and removes what it displaces before reporting completion.
 
@@ -102,13 +103,22 @@ extends the matched comparison at the existing shared publication owner, without
 duplicating native authentication or transaction recovery in a benchmark engine.
 
 Continue CE0 with complete request attribution and an equivalent PostgreSQL
-reference before selecting an execution change. The initial publication slice
+reference. Select each execution correction against its declared baseline and
+correctness contract without calling the wider CE0 gate complete. The initial publication slice
 provides repeated core samples and a deterministic scope-clock contention witness. It
 changes observability/test support, not the authoritative lock or storage
 protocol. Discover actual package/lane commands and reuse existing observation
 hooks; count SQL that bypasses those hooks through the physical execution
 boundary without logging tenant data. Keep overhead bounded and report the
 instrumented versus normal measurement boundary.
+
+The owner-approved [intrinsic membership preparation slice](./14-ce1-intrinsic-membership-preparation.md)
+refines this broad sequencing for an owner-local CE1 correction: use the existing
+bounded membership reader once for the admitted transition set, with direct
+before/after and connected correctness proofs. Complete-request CE0 acceptance
+remains open; it is not required to duplicate unchanged authority/recovery code
+in a benchmark before removing these repeated reads. Other execution changes
+retain their focused evidence and preflight gates.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution

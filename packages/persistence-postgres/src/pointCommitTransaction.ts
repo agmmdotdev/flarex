@@ -778,6 +778,8 @@ export type PointCommitTransactionProofStepV1 =
   | "dependenciesValidated"
   | "intrinsicIndexBuildLocked"
   | "developerIndexBuildLocked"
+  | "intrinsicMembershipPreparing"
+  | "intrinsicMembershipPrepared"
   | "tentativeRowWritten"
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"

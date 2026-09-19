@@ -704,6 +704,161 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     });
   }, 120_000);
 
+  it("batches CE1 intrinsic membership preparation and rejects late corruption before row writes", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96419000");
+      for (const rowCount of [1, 32, 33, 128]) {
+        const scope = await createScope(
+          persistence,
+          randomUuid,
+          `ce1_intrinsic_${rowCount}`,
+        );
+        const intrinsic = await enableIntrinsicIndexForPostgres(
+          persistence,
+          scope,
+        );
+        const inserted = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          "ce1_insert",
+          rowCount,
+        );
+        const measured = await withPostgresExecutionObservation(
+          persistence.pool,
+          async (markPhase) => {
+            return runEffect(
+              createPublisher(persistence, {
+                ...intrinsic,
+                afterTransactionStep: async (event) => {
+                  if (
+                    event.step === "intrinsicMembershipPreparing" ||
+                    event.step === "intrinsicMembershipPrepared"
+                  )
+                    markPhase(event.step);
+                },
+              }).publish(inserted.publicationCommand),
+            );
+          },
+        );
+        expect(measured.value).toMatchObject({ kind: "published" });
+        expect(
+          measured.observation.phases.intrinsicMembershipPreparing?.queryCalls,
+        ).toBe(1 + Math.ceil(rowCount / 32));
+        expect(
+          (
+            await intrinsicIndexState(
+              persistence,
+              inserted.command.sealIdentity.scopeUuid,
+            )
+          ).current,
+        ).toHaveLength(rowCount);
+        if (rowCount !== 33) continue;
+        const changed = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          "ce1_update",
+          {
+            kind: "bulkPatch",
+            documentIds: inserted.command.rowIntents.map(
+              (intent) => intent.documentId,
+            ),
+          },
+        );
+        const last = changed.command.rowIntents.at(-1);
+        if (last === undefined) throw new Error("Missing last CE1 row.");
+        const scopeUuid = inserted.command.sealIdentity.scopeUuid;
+        // Damage only the final requested position, across the 32-key boundary.
+        await persistence.query(
+          "update fx_app_index_entry_rev set key_sha256=$3 where scope_uuid=$1 and row_id=$2",
+          [scopeUuid, Buffer.from(last.rowId, "hex"), new Uint8Array(32)],
+        );
+        const before = await durableState(persistence, scopeUuid);
+        let rowWrites = 0;
+        expect(
+          await runFailure(
+            createPublisher(persistence, {
+              ...intrinsic,
+              afterTransactionStep: async (event) => {
+                if (event.step === "tentativeRowWritten") rowWrites += 1;
+              },
+            }).publish(changed.publicationCommand),
+          ),
+        ).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+        expect(rowWrites).toBe(0);
+        expect(await durableState(persistence, scopeUuid)).toEqual(before);
+      }
+    });
+  }, 180_000);
+
+  it("prepares CE1 intrinsic memberships across logical tables and permits no-index composition", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96419100");
+      for (const indexed of [false, true]) {
+        const scope = await createScope(
+          persistence,
+          randomUuid,
+          `ce1_tables_${indexed}`,
+          false,
+          ["users", "tasks"],
+        );
+        const options = indexed
+          ? await enableIntrinsicIndexForPostgres(persistence, scope)
+          : {};
+        const attempt = await createAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          `ce1_table_insert_${indexed}`,
+          {
+            kind: "insertTables",
+            tables: ["users", "tasks", "users", "tasks"],
+          },
+        );
+        const measured = await withPostgresExecutionObservation(
+          persistence.pool,
+          async (markPhase) =>
+            runEffect(
+              createPublisher(persistence, {
+                ...options,
+                afterTransactionStep: async (event) => {
+                  if (
+                    event.step === "intrinsicMembershipPreparing" ||
+                    event.step === "intrinsicMembershipPrepared"
+                  )
+                    markPhase(event.step);
+                },
+              }).publish(attempt.publicationCommand),
+            ),
+        );
+        expect(measured.value).toMatchObject({ kind: "published" });
+        expect(
+          new Set(attempt.command.rowIntents.map((row) => row.tableId)).size,
+        ).toBe(2);
+        expect(
+          (
+            await durableState(
+              persistence,
+              attempt.command.sealIdentity.scopeUuid,
+            )
+          ).current_rows,
+        ).toBe("4");
+        const index = await intrinsicIndexState(
+          persistence,
+          attempt.command.sealIdentity.scopeUuid,
+        );
+        expect(index.current.map((row) => row.tableId).sort()).toEqual(
+          indexed ? ["1", "1", "2", "2"] : [],
+        );
+        expect(
+          measured.observation.phases.intrinsicMembershipPreparing?.queryCalls ??
+            0,
+        ).toBe(indexed ? 3 : 0);
+      }
+    });
+  }, 120_000);
+
   it("publishes mixed multi-row sidecars and rolls every row back on failure", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96410000");
@@ -4144,6 +4299,7 @@ async function createScope(
   randomUuid: () => string,
   label: string,
   developerIndex: boolean | number = false,
+  logicalTables: readonly string[] = ["users"],
 ): Promise<ScopeScenario> {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     `deployment_o06_postgres_${label}`,
@@ -4171,7 +4327,7 @@ async function createScope(
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1),
-    tables: [appTable("users")],
+    tables: logicalTables.map(appTable),
     indexes: Array.from({ length: developerIndexCount }, (_, index) => ({
       tableLogicalName: "users",
       descriptor: `byName${index}`,
@@ -4199,6 +4355,7 @@ async function createAttempt(
     | number
     | "mixed"
     | "duplicate"
+    | Readonly<{ readonly kind: "insertTables"; readonly tables: readonly string[] }>
     | Readonly<{
         readonly kind: "insert";
         readonly name: string;
@@ -4301,7 +4458,16 @@ async function createAttempt(
         fields: { name: `${label}_replacement` },
       });
     }
-    if (typeof materialWrite === "object" && materialWrite.kind === "insert") {
+    if (typeof materialWrite === "object" && materialWrite.kind === "insertTables") {
+      for (let index = 0; index < materialWrite.tables.length; index += 1) {
+        const name = materialWrite.tables[index];
+        if (name === undefined) throw new Error("Missing table fixture name.");
+        const target = await runEffect(store.resolvePointTableEffect(attempt, name));
+        await runPointOperation(store, target, {
+          kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)), fields: { name: `${label}_${index}` },
+        });
+      }
+    } else if (typeof materialWrite === "object" && materialWrite.kind === "insert") {
       await runPointOperation(store, table, {
         kind: "insert",
         syscallSequence: CommitSyscallSequenceV1Schema.make(1n),

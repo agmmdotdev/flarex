@@ -137,6 +137,8 @@ import {
   appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
   AppIndexEntryReadPersistenceError,
   readAppIndexMembershipHeadsInTransactionEffect,
+  type AppIndexEntryPositionV1,
+  type AppendAppIndexEntryRevisionV1Input,
 } from "../appIndexEntries";
 import type {
   LocatedAppIndexDefinitionV1,
@@ -585,48 +587,52 @@ export async function materializeApplicationDocumentRows(
         reason: "definitionSetUnavailable",
       });
   }
-  let intrinsicBuildIndex = 0;
-  for (const rowIntent of command.rowIntents) {
-    const rowRevision = await lowerTentativePointCommitRow(
-      tx,
-      writeEpoch,
-      commitSeq,
-      command,
-      loadedHeads,
-      rowIntent,
+  const rowRevisions = command.rowIntents.map((intent) =>
+    projectPointCommitTransactionResult(
+      prepareTentativePointCommitRowResult(
+        writeEpoch,
+        commitSeq,
+        command,
+        loadedHeads,
+        intent,
+      ),
+    ),
+  );
+  if (rowRevisions.length > 0 && intrinsicBuilds.length > 0)
+    await emitTransactionStep(options, command, "intrinsicMembershipPreparing");
+  const intrinsicActions = projectPointCommitTransactionResult(
+    await runPointCommitInTransactionEffect(
+      prepareIntrinsicIndexActionsEffect(
+        tx,
+        command.authorityPins.scopeId,
+        rowRevisions,
+        intrinsicBuilds,
+      ),
+    ),
+  );
+  if (rowRevisions.length > 0 && intrinsicBuilds.length > 0)
+    await emitTransactionStep(options, command, "intrinsicMembershipPrepared");
+  for (const row of rowRevisions) {
+    projectPointCommitTransactionResult(
+      await sqlCall("writeTentativeRow", () =>
+        appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(tx, row),
+      ),
     );
     await emitTransactionStep(options, command, "tentativeRowWritten");
-    let intrinsic: LockedPointCommitIntrinsicIndexV1 | undefined =
-      intrinsicBuilds[intrinsicBuildIndex];
-    while (
-      intrinsic !== undefined &&
-      intrinsic.definition.access.tableId < rowIntent.tableId
-    ) {
-      intrinsicBuildIndex += 1;
-      intrinsic = intrinsicBuilds[intrinsicBuildIndex];
-    }
-    if (
-      intrinsic !== undefined &&
-      intrinsic.definition.access.tableId !== rowIntent.tableId
-    ) {
-      intrinsic = undefined;
-    }
+    const intrinsic = intrinsicActions.get(row);
     if (intrinsic !== undefined) {
-      const changed = await lowerTentativePointCommitIntrinsicIndex(
-        tx,
-        intrinsic.build,
-        intrinsic.definition,
-        rowRevision,
+      projectPointCommitTransactionResult(
+        await sqlCall("writeIntrinsicIndexEntry", () =>
+          appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
+            tx,
+            intrinsic,
+          ),
+        ),
       );
-      if (changed) {
-        await emitTransactionStep(
-          options,
-          command,
-          "intrinsicIndexEntryWritten",
-        );
-      }
+      await emitTransactionStep(options, command, "intrinsicIndexEntryWritten");
     }
   }
+
   for (const intrinsic of intrinsicBuilds) {
     await resetPointCommitIntrinsicIndexValidation(tx, intrinsic.build);
   }
@@ -2239,88 +2245,126 @@ export async function lockPointCommitIntrinsicIndexBuilds(
   return Object.freeze(locked);
 }
 
-async function lowerTentativePointCommitIntrinsicIndex(
+const prepareIntrinsicIndexActionsEffect = Effect.fn(
+  "ApplicationDocumentMaterialization.prepareIntrinsicIndexActions",
+)(function* (
   tx: AppRowTransaction,
-  build: IndexBuildStateRecord,
-  definition: LocatedAppIndexDefinitionV1,
-  rowRevision: AppendPreparedAppRowRevisionV1Input,
-): Promise<boolean> {
-  if (
-    definition.access.kind !== "by_creation_time" ||
-    definition.access.tableId !== rowRevision.tableId ||
-    build.indexDefinitionId !== definition.indexDefinitionId ||
-    build.scopeId !== rowRevision.scopeId
-  ) {
-    throw corruption("intrinsicIndexBuildInvalid");
+  scopeId: ReplacementScopeIdV1,
+  rows: readonly AppendPreparedAppRowRevisionV1Input[],
+  builds: readonly LockedPointCommitIntrinsicIndexV1[],
+) {
+  const positions: (AppIndexEntryPositionV1 & {
+    readonly encodedKey: OrderedIndexKeyHexV1;
+    readonly row: AppendPreparedAppRowRevisionV1Input;
+    readonly build: IndexBuildStateRecord;
+  })[] = [];
+  let buildIndex = 0;
+  for (const row of rows) {
+    let intrinsic = builds[buildIndex];
+    while (
+      intrinsic !== undefined &&
+      intrinsic.definition.access.tableId < row.tableId
+    ) {
+      intrinsic = builds[++buildIndex];
+    }
+    if (
+      intrinsic === undefined ||
+      intrinsic.definition.access.tableId !== row.tableId
+    )
+      continue;
+    const { definition, build } = intrinsic;
+    if (
+      definition.access.kind !== "by_creation_time" ||
+      build.indexDefinitionId !== definition.indexDefinitionId ||
+      build.scopeId !== row.scopeId
+    ) {
+      return yield* Effect.fail(corruption("intrinsicIndexBuildInvalid"));
+    }
+    const encodedKey = encodeAppOrderedIndexKeyV1({
+      spec: definition.physicalSpec,
+      values: [orderedIndexCreationTimeV1(row.creationTime)],
+    });
+    const rowId = yield* Effect.fromResult(
+      orderedIndexRowIdHexV1FromBytesResult(
+        appRowIdHexV1ToBytes(row.rowId),
+      ).pipe(
+        Result.mapError(() => corruption("intrinsicIndexTransitionInvalid")),
+      ),
+    );
+    positions.push({ row, build, definition, encodedKey, rowId });
   }
-  const encodedKey = encodeAppOrderedIndexKeyV1({
-    spec: definition.physicalSpec,
-    values: [orderedIndexCreationTimeV1(rowRevision.creationTime)],
-  });
-  const rowId = projectPointCommitTransactionResult(
-    orderedIndexRowIdHexV1FromBytesResult(
-      appRowIdHexV1ToBytes(rowRevision.rowId),
-    ).pipe(
-      Result.mapError(() => corruption("intrinsicIndexTransitionInvalid")),
+  const heads = yield* readAppIndexMembershipHeadsInTransactionEffect(tx, {
+    scopeId,
+    positions,
+  }).pipe(
+    Effect.mapError((failure) =>
+      failure instanceof AppIndexEntryReadPersistenceError
+        ? new PointCommitSqlFailureMarkerV1(
+            "writeIntrinsicIndexEntry",
+            failure.cause,
+          )
+        : failure,
     ),
   );
-  const heads = projectPointCommitTransactionResult(
-    await runPointCommitInTransactionEffect(
-      readAppIndexMembershipHeadsInTransactionEffect(tx, {
-        scopeId: rowRevision.scopeId,
-        positions: [{ definition, encodedKey, rowId }],
-      }).pipe(Effect.mapError(failure => failure instanceof AppIndexEntryReadPersistenceError
-        ? new PointCommitSqlFailureMarkerV1("writeIntrinsicIndexEntry", failure.cause)
-        : failure)),
-    ),
-  );
-  const head = heads[0] ?? null;
-  if (rowRevision.kind === "tombstone") {
-    if (head === null) {
-      if (build.lifecycle === "enabled")
-        throw corruption("intrinsicIndexTransitionInvalid");
-      return false;
-    }
-    if (
-      head.isTombstone ||
-      rowRevision.prevCommitSeq === null ||
-      head.commitSeq > rowRevision.prevCommitSeq
-    ) {
-      throw corruption("intrinsicIndexTransitionInvalid");
-    }
-  } else {
-    if (
-      head === null &&
-      rowRevision.prevCommitSeq !== null &&
-      build.lifecycle === "enabled"
-    ) {
-      throw corruption("intrinsicIndexTransitionInvalid");
-    }
-    if (head !== null) {
+  const actions = new Map<
+    AppendPreparedAppRowRevisionV1Input,
+    AppendAppIndexEntryRevisionV1Input
+  >();
+  for (let index = 0; index < positions.length; index += 1) {
+    const position = positions[index];
+    const head = heads[index];
+    if (position === undefined || head === undefined)
+      return yield* Effect.fail(corruption("intrinsicIndexTransitionInvalid"));
+    const { row, build, definition, encodedKey, rowId } = position;
+    if (row.kind === "tombstone") {
+      if (head === null) {
+        if (build.lifecycle === "enabled")
+          return yield* Effect.fail(
+            corruption("intrinsicIndexTransitionInvalid"),
+          );
+        continue;
+      }
       if (
         head.isTombstone ||
-        rowRevision.prevCommitSeq === null ||
-        head.commitSeq > rowRevision.prevCommitSeq
-      ) {
-        throw corruption("intrinsicIndexTransitionInvalid");
+        row.prevCommitSeq === null ||
+        head.commitSeq > row.prevCommitSeq
+      )
+        return yield* Effect.fail(
+          corruption("intrinsicIndexTransitionInvalid"),
+        );
+    } else {
+      if (
+        head === null &&
+        row.prevCommitSeq !== null &&
+        build.lifecycle === "enabled"
+      )
+        return yield* Effect.fail(
+          corruption("intrinsicIndexTransitionInvalid"),
+        );
+      if (head !== null) {
+        if (
+          head.isTombstone ||
+          row.prevCommitSeq === null ||
+          head.commitSeq > row.prevCommitSeq
+        )
+          return yield* Effect.fail(
+            corruption("intrinsicIndexTransitionInvalid"),
+          );
+        continue;
       }
-      return false;
     }
-  }
-  const appended = await sqlCall("writeIntrinsicIndexEntry", () =>
-    appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(tx, {
-      kind: rowRevision.kind,
-      scopeId: rowRevision.scopeId,
+    actions.set(row, {
+      kind: row.kind,
+      scopeId: row.scopeId,
       definition,
       encodedKey,
       rowId,
-      writeEpoch: rowRevision.writeEpoch,
-      commitSeq: rowRevision.commitSeq,
-    }),
-  );
-  projectPointCommitTransactionResult(appended);
-  return true;
-}
+      writeEpoch: row.writeEpoch,
+      commitSeq: row.commitSeq,
+    });
+  }
+  return actions;
+});
 
 async function resetPointCommitIntrinsicIndexValidation(
   tx: AppRowTransaction,
@@ -2357,30 +2401,6 @@ async function resetPointCommitIntrinsicIndexValidation(
   if (updated.length !== 1) {
     throw corruption("intrinsicIndexBuildInvalid");
   }
-}
-
-async function lowerTentativePointCommitRow(
-  tx: AppRowTransaction,
-  writeEpoch: ScopeEpoch,
-  tentativeCommitSeq: CommitSeq,
-  command: ApplicationDocumentMaterializationCommand,
-  heads: ReadonlyArray<LoadedPointCommitHeadV1>,
-  intent: PreparedPointCommitRowIntentV1,
-): Promise<AppendPreparedAppRowRevisionV1Input> {
-  const input = projectPointCommitTransactionResult(
-    prepareTentativePointCommitRowResult(
-      writeEpoch,
-      tentativeCommitSeq,
-      command,
-      heads,
-      intent,
-    ),
-  );
-  const written = await sqlCall("writeTentativeRow", () =>
-    appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(tx, input),
-  );
-  projectPointCommitTransactionResult(written);
-  return input;
 }
 
 function prepareTentativePointCommitRowResult(

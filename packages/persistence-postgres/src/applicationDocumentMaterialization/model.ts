@@ -69,6 +69,8 @@ export interface ApplicationDocumentDefinitionComposition {
 }
 
 export type ApplicationDocumentMaterializationStep =
+  | "intrinsicMembershipPreparing"
+  | "intrinsicMembershipPrepared"
   | "tentativeRowWritten"
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"
