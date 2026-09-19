@@ -1,4 +1,4 @@
-import { Clock, Deferred, Effect, Fiber, Schema } from "effect";
+import { Cause, Clock, Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
@@ -10,6 +10,7 @@ const decodePid = Schema.decodeUnknownSync(Schema.Int.check(Schema.isGreaterThan
 const decodeBlockers = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ pid: Schema.Int, shared: Schema.Boolean })));
 const decodeRole = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ superuser: Schema.Boolean })));
 const decodeDocuments = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ _id: Schema.String })));
+const decodeTransactionPresence = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ active: Schema.Boolean })));
 
 // Existing hook after the publication prefix, before clock advancement/COMMIT.
 // Only the first publication waits; later writes and replay use the same host.
@@ -49,6 +50,62 @@ const waitForScopeClockWaiter = Effect.fn(function* (persistence: PostgresFlarex
 
 describe.skipIf(postgresUrl === null)("active CMS request concurrency", () => {
   const withPersistence = useFileScopedPostgresPersistence();
+
+  it("expires a stalled publication through the physical owner and permits explicit retry after rollback", () => withPersistence(async persistence => {
+    let activePid = 0;
+    const session = makePostgresRelationalSession(persistence, { lifecycleFault: event => {
+      if (event.phase === "begin" && event.edge === "after") activePid = decodePid(Reflect.get(event.client, "processID"));
+    } });
+    let stalled = false;
+    let finalized = false;
+    const tested = await cmsExecutionMeasurementFixture(persistence, session, {
+      afterPreferenceFacts: Effect.fn(function* () {
+        if (stalled) return;
+        stalled = true;
+        yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => { finalized = true; })));
+      }),
+    });
+    const before = await tested.inventory();
+    const key = tested.host.newRequestKey();
+    const args = { count: 1, prefix: "deadline-rollback" };
+    // Reserve an independent observer before the request acquires its client.
+    // A later pool checkout could otherwise reuse a client with a leaked transaction.
+    const observer = await persistence.pool.connect();
+    try {
+      const observerPid = decodePid(Reflect.get(observer, "processID"));
+      // The outer watchdog cannot cause the expected failure. The physical
+      // session owns its real ten-second deadline; no shortened test policy.
+      const outcome = await runEffect(tested.host.run(key, tested.insert, args).pipe(Effect.exit, Effect.timeout("20 seconds")));
+      expect(stalled).toBe(true);
+      expect(finalized).toBe(true);
+      if (Exit.isSuccess(outcome)) throw new Error("Stalled publication unexpectedly committed");
+      const failure = Cause.findErrorOption(outcome.cause);
+      if (Option.isNone(failure)) throw new Error("Missing physical deadline failure");
+      expect(failure.value).toMatchObject({ reason: "resourceFailure", cause: {
+        _tag: "RelationalSessionError", reason: "resourceFailure", cause: {
+          _tag: "PhysicalSessionResourceIssue", phase: "callback", cause: {
+            _tag: "PhysicalSessionDeadlineIssue", deadlineKind: "initial", phase: "callback",
+          },
+        },
+      } });
+      expect(activePid).toBeGreaterThan(0);
+      expect(activePid).not.toBe(observerPid);
+      const backend = await observer.query("select exists(select 1 from pg_stat_activity where pid=$1 and xact_start is not null) as active", [activePid]);
+      expect(decodeTransactionPresence(backend.rows)).toEqual([{ active: false }]);
+    } finally {
+      observer.release();
+    }
+    expect(tested.executionCount()).toBe(1);
+    expect(await tested.inventory()).toEqual(before);
+    expect(persistence.pool.waitingCount).toBe(0);
+    expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
+    const value = await runEffect(tested.host.run(key, tested.insert, args));
+    const after = await tested.verifyInsert(before, value, 1, args.prefix);
+    expect(tested.executionCount()).toBe(2);
+    expect(await runEffect(tested.host.run(key, tested.insert, args))).toEqual(value);
+    expect(tested.executionCount()).toBe(2);
+    expect(await tested.inventory()).toEqual(after);
+  }), 120_000);
 
   it("settles another active scope over shared physical families while a publication is held", () => withPersistence(async persistence => {
     expect(decodeRole((await persistence.query("select rolsuper as superuser from pg_roles where rolname=current_user")).rows))

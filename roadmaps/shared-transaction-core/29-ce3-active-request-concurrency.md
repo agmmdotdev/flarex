@@ -59,6 +59,13 @@ Moving only the main CMS clock acquisition cannot remove the earlier preparation
 wait. The CE3 replacement must coordinate preparation/readiness, authoritative
 validation, sequence-consuming materialization and final publication together.
 
+The [physical deadline witness](./30-ce3-publication-deadline.md) extends this
+baseline with a publication that never voluntarily resumes. The PostgreSQL
+physical owner terminates its callback before COMMIT and releases or quarantines
+its connection; durable state rolls back and explicit retry remains possible.
+This is an existing owner guarantee to preserve, not another host timer or a
+whole-request deadline covering preparation.
+
 ## Completion Gates And Limits
 
 Keep PGlite coverage of the shared fixture and ordinary request/rollback/replay

@@ -185,6 +185,13 @@ This is a concrete CE3 baseline, not a concurrency replacement or capacity resul
 The replacement must account for that earlier admission dependency as well as
 the main materialization/publication transaction.
 
+The [publication deadline witness](./30-ce3-publication-deadline.md) now proves
+that the existing PostgreSQL physical owner ends a stalled active CMS publication
+before COMMIT, releases its transaction and preserves complete rollback. An
+explicit retry can publish once and subsequent duplicate calls replay. Keep this
+single deadline/settlement owner; the witness does not bound preparation before
+the main session or shorten same-scope commit exclusion.
+
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution
 with a supported native and CMS mutation and follows the Medusa consumer as
