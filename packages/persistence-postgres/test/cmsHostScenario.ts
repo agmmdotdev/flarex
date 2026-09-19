@@ -316,7 +316,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
         scopeId: fixture.authority.scopeId, tableId: posts.tableId, snapshotCommitSeq: locked.lastCommitSeq,
         maximumIdentities: 256, maximumDocumentBytes: 65_536, maximumTotalValueBytes: aggregate ? 32_768 : 1_048_576,
       }, query => { observed.push(query.name); }))).toMatchObject({ issue: { reason: "rowLimitExceeded" } });
-      expect(observed).toEqual(["currentSizes"]);
+      expect(observed).toEqual(["currentCapture"]);
       throw rollbackProbe;
     })).rejects.toBe(rollbackProbe);
   }

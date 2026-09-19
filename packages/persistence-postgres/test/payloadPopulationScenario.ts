@@ -92,14 +92,12 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
       expect(await runEffect(host.read(batchProbe, [second, target, source]))).toEqual([
         expect.objectContaining({ _id: second }), expect.objectContaining({ _id: target }), expect.objectContaining({ _id: source }),
       ]);
-      expect(queries.filter(query => query.name === "currentDocuments")).toHaveLength(1);
-      expect(queries.filter(query => query.name === "currentSizes")).toHaveLength(1);
+      expect(queries.filter(query => query.name === "currentCapture")).toHaveLength(1);
       queries.length = 0;
       const populated = object(await read(source));
       expect(populated.relatedPost).toMatchObject({ id: target, title: "population-target", relatedPost: null });
-      expect(queries.filter(query => query.name === "currentDocuments")).toHaveLength(2);
-      expect(queries.filter(query => query.name === "currentSizes")).toHaveLength(2);
-      expect(queries.filter(query => query.name === "currentDocuments")[1]?.sql).toContain(" in (");
+      expect(queries.filter(query => query.name === "currentCapture")).toHaveLength(2);
+      expect(queries.filter(query => query.name === "currentCapture")[1]?.sql).toContain(" in (");
       expect(object(await read(source, 0)).relatedPost).toBe(target);
       expect(object(await runEffect(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).relatedPost).toBe(target);
       expect(object(await read(target)).relatedPost).toBeNull();
@@ -109,7 +107,7 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
       expect(page.docs).toEqual(expect.arrayContaining([expect.objectContaining({ id: source, relatedPost: expect.objectContaining({ id: target }) }),
         expect.objectContaining({ id: second, relatedPost: expect.objectContaining({ id: target }) })]));
       // General find already loaded all three roots; the loader reuses that request cache.
-      expect(queries.filter(query => query.name === "currentDocuments")).toHaveLength(1);
+      expect(queries.filter(query => query.name === "currentCapture")).toHaveLength(1);
       expect(await input.inventory()).toEqual(before);
       for (const depth of [-1, 2, 1.5, null, "1"]) {
         expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source, depth }))).toMatchObject({ reason: "unsupportedProfile" });
@@ -282,11 +280,10 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
       });
       queries.length = 0;
       expect(await runEffect(host.read(capacity, ids.slice(0, 256)))).toBeNull();
-      expect(queries.filter(query => query.name === "currentDocuments")).toHaveLength(8);
+      expect(queries.filter(query => query.name === "currentCapture")).toHaveLength(8);
       queries.length = 0;
       expect(await runEffectFailure(host.read(capacity, ids))).toMatchObject({ reason: "limitExceeded" });
-      expect(queries.filter(query => query.name === "currentDocuments")).toHaveLength(8);
-      expect(queries.filter(query => query.name === "currentSizes")).toHaveLength(8);
+      expect(queries.filter(query => query.name === "currentCapture")).toHaveLength(8);
     });
   })));
 }

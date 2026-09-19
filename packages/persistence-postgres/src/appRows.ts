@@ -786,7 +786,7 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   input: Readonly<{ scopeId: ScopeId; tableId: CatalogTableId; snapshotCommitSeq: CommitSeq;
     maximumIdentities: number; maximumDocumentBytes: number; maximumTotalValueBytes: number;
     rowId?: AppRowIdHexV1; rowIds?: readonly AppRowIdHexV1[] }>,
-  observer?: Parameters<typeof observeDrizzleQuery<"currentSizes" | "currentDocuments">>[2],
+  observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2],
 ): Effect.fn.Return<ReadonlyArray<AppRowRevisionV1>, ReadAppRowError> {
   if (!Number.isSafeInteger(input.maximumIdentities) || input.maximumIdentities < 0 || input.maximumIdentities > 256 ||
     !Number.isSafeInteger(input.maximumDocumentBytes) || input.maximumDocumentBytes < 1 || input.maximumDocumentBytes > 1_048_576 ||
@@ -826,27 +826,42 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   const where = and(eq(fxAppRowCurrent.scopeUuid, scopeUuid.scopeUuid), eq(fxAppRowCurrent.tableId, tableId),
     selectedRowId === undefined ? undefined : eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(selectedRowId)),
     selectedRowIds === undefined ? undefined : inArray(fxAppRowCurrent.rowId, selectedRowIds.map(appRowIdHexV1ToBytes)));
-  const sizeQuery = tx.select({
-    bytes: sql<number>`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`,
+  // LIMIT applies before aggregation: total stored table size must not enter
+  // the capture budget, and rejected bodies must never cross the driver.
+  const bounded = tx.$with("bounded_current").as(tx.select({
+    scopeUuid: fxAppRowCurrent.scopeUuid,
+    tableId: fxAppRowCurrent.tableId,
+    rowId: fxAppRowCurrent.rowId,
+    commitSeq: fxAppRowCurrent.commitSeq,
+    bytes: sql<number>`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`.as("value_bytes_length"),
   }).from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where)
-    .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1);
-  observeDrizzleQuery("currentSizes", sizeQuery, observer);
-  const sizes = yield* readAppRowRowsEffect(sizeQuery, "readCurrentRevision");
-  if (sizes.length > input.maximumIdentities || sizes.some(size =>
-    size.bytes > input.maximumDocumentBytes) ||
-    sizes.reduce((total, size) => total + size.bytes, 0) > input.maximumTotalValueBytes) {
+    .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1));
+  const budget = tx.$with("current_capture_budget").as(tx.select({
+    allowed: sql<boolean>`count(*) <= ${input.maximumIdentities}
+      and coalesce(max(${bounded.bytes}), 0) <= ${input.maximumDocumentBytes}
+      and coalesce(sum(${bounded.bytes}), 0) <= ${input.maximumTotalValueBytes}`.as("within_budget"),
+  }).from(bounded));
+  const capture = tx.with(bounded, budget).select({
+    withinBudget: budget.allowed,
+    pointer: { scopeUuid: bounded.scopeUuid, tableId: bounded.tableId, rowId: bounded.rowId, commitSeq: bounded.commitSeq },
+    revision: fxAppRowRevisions,
+  }).from(budget).leftJoin(bounded, sql`${budget.allowed}`).leftJoin(fxAppRowRevisions, and(
+    eq(fxAppRowRevisions.scopeUuid, bounded.scopeUuid),
+    eq(fxAppRowRevisions.tableId, bounded.tableId),
+    eq(fxAppRowRevisions.rowId, bounded.rowId),
+    eq(fxAppRowRevisions.commitSeq, bounded.commitSeq),
+  )).orderBy(bounded.rowId);
+  observeDrizzleQuery("currentCapture", capture, observer);
+  const rows = yield* readAppRowRowsEffect(capture, "readCurrentRevision");
+  const verdict = rows[0];
+  if (verdict === undefined) return yield* Effect.die(new Error("Bounded current capture returned no budget verdict."));
+  if (!verdict.withinBudget) {
     return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: "bounded current view exceeds capture budget" }));
-  }
-  const documentQuery = tx.select({ pointer: fxAppRowCurrent, revision: fxAppRowRevisions })
-    .from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where)
-    .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1);
-  observeDrizzleQuery("currentDocuments", documentQuery, observer);
-  const rows = yield* readAppRowRowsEffect(documentQuery, "readCurrentRevision");
-  if (rows.length !== sizes.length) {
-    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "invalidSnapshotCommitSeq", cause: "current view changed while pinned" }));
   }
   const revisions: AppRowRevisionV1[] = [];
   for (const row of rows) {
+    // A valid empty selection retains only the aggregate verdict.
+    if (row.pointer === null) continue;
     const rowId = yield* Effect.fromResult(appRowIdHexV1FromBytesResult(row.pointer.rowId).pipe(
       Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidRowId", cause })),
     ));

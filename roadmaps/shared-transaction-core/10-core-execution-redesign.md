@@ -211,6 +211,15 @@ total stored rows. Request limits and final claim/publication authority remain.
 Repeated catalog/readiness preparation is still a full-request and replay cost;
 native attribution, matched references and wider concurrency remain open.
 
+[Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
+current reader's size probe and document fetch in one statement snapshot. Its
+identity and byte verdict gates body transfer, while scope-clock validation,
+canonical decoding and corruption refusal remain with the existing owner.
+This removes one statement per capture; it does not change writer exclusion or
+establish a capacity improvement. Local larger-insert timings were slower than
+the original reader, so latency acceptance remains open despite the reduced
+statement count and single-snapshot transport contract.
+
 [Catalog restoration reuse](./28-ce0-catalog-restoration.md) removes the schema
 resolver's duplicate artifact read within one resolution and omits relation/edge
 lookups for empty ID sets. Fresh preparation and accepting integrity checks

@@ -116,10 +116,10 @@ export async function payloadConfiguredRelationshipScenario(
         documentReads: { observeQuery: query => queries.push(query.name) },
       }));
       await runEffect(observedReads.read(runtime.commands.findByID, { collection: authorCollection, id: author.id, depth: 1 }));
-      expect(queries.filter(name => name === "currentDocuments")).toHaveLength(1);
+      expect(queries.filter(name => name === "currentCapture")).toHaveLength(1);
       queries.length = 0;
       await runEffect(observedReads.read(runtime.commands.findByID, { collection: "articles", id: second.id, depth: 1 }));
-      expect(queries.filter(name => name === "currentDocuments")).toHaveLength(2);
+      expect(queries.filter(name => name === "currentCapture")).toHaveLength(2);
       const page = await runEffect(host.read(runtime.commands.find, { collection: "articles", depth: 1, limit: 32 }));
       if (!isJsonObject(page) || !Array.isArray(page.docs)) throw new Error("Expected Payload page");
       expect(page.totalDocs).toBe(3);
