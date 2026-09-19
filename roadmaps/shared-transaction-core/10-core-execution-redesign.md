@@ -140,11 +140,15 @@ issued native/CMS ports against their control database. [Legacy-writer exclusion
 now refuses material, attempted and unauthenticated legacy writes under active
 Application heads. [Required intrinsic build state](./22-ce2-required-intrinsic-build-state.md)
 also prevents selected creation-time definitions from silently skipping missing
-build metadata. Continuous maintenance is not
-implemented. The [activation maintenance cutover](./23-ce2-activation-maintenance-cutover.md)
-records the concrete durable proof, serving break, lifecycle transitions and
-connected validation for the next implementation slice. Broader CE0 references
-and connected CE1 acceptance remain open.
+build metadata. The [activation maintenance cutover](./23-ce2-activation-maintenance-cutover.md)
+now binds ordered-index coverage to the coherent active head and its verified
+schema/physical requirements. Native/CMS serving writes no longer update enabled
+ordered-build progress; readers, activation and builders share the replacement
+proof. Existing uncertified active heads require fresh validated activation.
+Bounded candidate history and the scope clock remain authoritative. Unique
+workspace progress, matched complete-request measurements and wider lifecycle
+concurrency remain CE2 work. Broader CE0 references and connected CE1 acceptance
+also remain open.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution

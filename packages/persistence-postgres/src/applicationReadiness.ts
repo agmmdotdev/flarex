@@ -72,8 +72,10 @@ import {
   type IndexBuildReconciliationCatalogV1Error,
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
+import { IndexMaintenanceError } from "./indexMaintenanceEvidence";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect,
   decodeIndexBuildStateRowResult,
   type IndexBuildStateRecord,
   validateIndexBuildStateFrontierResult,
@@ -269,6 +271,7 @@ export interface ApplicationReadinessRepository<SchemaFailure, ColdFailure> {
 }
 
 export interface ApplicationReadinessActivationBasis {
+  readonly physicalRequirements: PublishedPhysicalRequirementSnapshotV1;
   readonly authority: TrustedScopeAuthority;
   readonly deploymentId: string;
   readonly revisionId: string;
@@ -2005,6 +2008,8 @@ const loadPhysicalBuildRows = Effect.fn(
     const rowsById = new Map(
       unordered.map(row => [row.indexDefinitionId, row] as const),
     );
+    const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock).pipe(Effect.mapError(cause =>
+      readinessFailureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", cause.reason === "resourceFailure" && (cause.retryable ?? retryableCause(cause.cause)), cause)));
     const rows: IndexBuildStateRecord[] = [];
     for (let index = 0; index < definitionIds.length; index += 1) {
       const definitionId = definitionIds[index];
@@ -2047,9 +2052,9 @@ const loadPhysicalBuildRows = Effect.fn(
       const requirement = requirements.definitions[index];
       if (requirement === undefined) return yield* readinessFailure("storedState");
       const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(
-        tx, decoded, requirement.tableId, clock.lastCommitSeq,
-      ).pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
-        ? readinessFailureValue("resourceFailure", retryableCause(cause.cause), cause.cause)
+        tx, decoded, requirement, clock.lastCommitSeq, context,
+      ).pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError || (cause instanceof IndexMaintenanceError && cause.reason === "resourceFailure")
+        ? readinessFailureValue("resourceFailure", cause instanceof IndexMaintenanceError ? (cause.retryable ?? retryableCause(cause.cause)) : retryableCause(cause.cause), cause.cause)
         : readinessFailureValue("storedState", false, cause)));
       if (!covered) {
         return Object.freeze({
@@ -2438,6 +2443,7 @@ function activationBasis(
         ...bundle.authority.physicalLocator,
       }),
     }),
+    physicalRequirements: state.kind === "prepared" ? state.prepared.requirements : state.stored.requirements,
     deploymentId: bundle.deploymentId,
     revisionId: bundle.revision.revisionId,
     candidateId: bundle.revision.candidateId,

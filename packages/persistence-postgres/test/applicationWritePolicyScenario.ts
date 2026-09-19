@@ -1,3 +1,4 @@
+import { assertIndexMaintenanceIntegrity, withIndexMaintenanceHashFailure } from "./indexMaintenanceIntegrity";
 import { expect } from "vitest";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { orderedIndexCompositionRefusals } from "./orderedIndexCompositionRefusals";
@@ -11,7 +12,7 @@ import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id"
 import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
-import { relationReadinessFixture, prepareReadinessEvidence, prepareAdditionalRelationRevision, uuidSequence } from "./applicationRelationReadinessFixture";
+import { relationReadinessFixture, enableApplicationPhysicalBuilds, prepareReadinessEvidence, prepareAdditionalRelationRevision, uuidSequence } from "./applicationRelationReadinessFixture";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect, runEffectFailure, prepareSessionJournalSeal, completeSessionJournalSeal } from "./effectTestRuntime";
@@ -83,10 +84,18 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   const faulty = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.legacyReadiness,
     relationReadiness: fixture.fold, authority: fixture.authorityPorts,
     faultAfter: point => { if (point === "headWritten") throw new Error("policy activation rollback"); } });
+  const beforeActivationBuilds = await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
   await expect(runEffect(faulty.activate(input))).rejects.toBeDefined();
+  expect(await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId)).toEqual(beforeActivationBuilds);
   expect(await persistence.drizzle.select().from(fxSystemApplicationWriteOwnership)).toHaveLength(0);
   expect(await persistence.drizzle.select().from(fxSystemApplicationActiveHeads)).toHaveLength(0);
   expect(await persistence.drizzle.select().from(fxSystemApplicationActivations)).toHaveLength(0);
+  const partial = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.legacyReadiness,
+    relationReadiness: fixture.fold, authority: fixture.authorityPorts,
+    faultAfter: point => { if (point === "maintenanceOpened") throw new Error("partial maintenance rollback"); } });
+  await expect(runEffect(partial.activate(input))).rejects.toBeDefined();
+  expect(await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId)).toEqual(beforeActivationBuilds);
+  expect(await persistence.drizzle.select().from(fxSystemApplicationActiveHeads)).toHaveLength(0);
   const activate = async () => {
     const result = await runEffect(fixture.relationActivation.activate(input));
     expect(result).toMatchObject({ status: "activated", activationSequence: 1n });
@@ -197,6 +206,9 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
     clocks: await persistence.drizzle.select().from(fxSystemScopeClocks),
   });
   const beforeCompositionRefusal = await publicationState();
+  const activeBuilds = await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
+  expect(activeBuilds.length).toBeGreaterThan(0);
+  expect(activeBuilds.every(build => build.maintenanceActivationSequence === 1n && build.maintenanceBytes !== null)).toBe(true);
   const intrinsic = await runEffect(intrinsicCreationTimeIndexes.locate({ deploymentId: fixture.deploymentId,
     scopeId: fixture.authority.scopeId, tableId: ordinary.tableId }));
   if (intrinsic === null) throw new Error("Expected required audit creation-time definition");
@@ -212,6 +224,17 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
     expect(await publicationState()).toEqual(beforeCompositionRefusal);
   } finally {
     await persistence.drizzle.insert(fxSystemIndexBuildStates).values(removedBuild);
+  }
+  // Existing enabled rows without certification cannot fall back to per-write progress.
+  await persistence.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceActivationSequence: null, maintenanceBytes: null, maintenanceSha256: null })
+    .where(eq(fxSystemIndexBuildStates.indexDefinitionId, intrinsic.indexDefinitionId));
+  try {
+    expect(await runEffectFailure(publisher.publish(command))).toMatchObject({ reason: "definitionSetUnavailable" });
+    expect(await publicationState()).toEqual(beforeCompositionRefusal);
+  } finally {
+    const saved = removedBuild[0];
+    if (!saved) throw new Error("Missing saved build");
+    await persistence.drizzle.update(fxSystemIndexBuildStates).set(saved).where(eq(fxSystemIndexBuildStates.indexDefinitionId, intrinsic.indexDefinitionId));
   }
   const foreign = await createMigratedPGlitePersistence();
   const invalidPublishers = orderedIndexCompositionRefusals(intrinsicCreationTimeIndexes, developerIndexes, foreign.drizzle)
@@ -252,9 +275,19 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   await expect(runEffect(publisher.publish({ ...command, journalBytes: new Uint8Array([0]) }))).rejects.toBeDefined();
   const { journalBytes: _journalBytes, ...withoutJournal } = base;
   await expect(runEffect(publisher.publish({ ...withoutJournal, successfulResult }))).rejects.toMatchObject({ reason: "applicationWritePolicyDenied" });
+  await withIndexMaintenanceHashFailure(async failure => {
+    expect(await runEffectFailure(publisher.publish(command))).toMatchObject({ _tag: "PointCommitSqlErrorV1", cause: failure });
+    expect(await publicationState()).toEqual(beforeCompositionRefusal);
+  });
   const publish = () => runEffect(publisher.publish(command));
   const published = hooks.publish ? await hooks.publish(fixture, publish) : await publish();
   expect(published).toMatchObject({ kind: "published" });
+  expect(await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId)).toEqual(activeBuilds);
+  await assertIndexMaintenanceIntegrity(persistence.drizzle, intrinsic);
+  const beforeBuilderReplay = await publicationState();
+  await enableApplicationPhysicalBuilds(fixture.control.drizzle, fixture.authorityPorts, fixture.authority.scopeId, fixture.deploymentId, fixture.relation.binding.schemaVersionId);
+  expect(await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId)).toEqual(activeBuilds);
+  expect(await publicationState()).toEqual(beforeBuilderReplay);
   expect(await runEffect(publisher.publish(command))).toMatchObject({ kind: "replayed" });
   for (const invalid of invalidPublishers) {
     expect(await runEffect(invalid.publish(command))).toMatchObject({ kind: "replayed" });
@@ -304,13 +337,43 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   // Grow through the real publication/readiness/activation owners to the exact
   // restore limit: one head plus 21 activation/claim/readiness triples = 64.
   let head = (await runEffect(fixture.relationActivation.readActive())).basis;
+  let secondActivation: Parameters<typeof fixture.relationActivation.activate>[0] | undefined;
   for (let ordinal = 1; ordinal <= 20; ordinal++) {
     const revision = await prepareAdditionalRelationRevision(fixture, ordinal);
+    if (ordinal === 1) secondActivation = { revisionId: revision.publication.revisionId,
+      expectedActiveHead: { activationSequence: head.activationSequence, headSha256: Buffer.from(head.headSha256).toString("hex") } };
+    if (ordinal === 1) await withIndexMaintenanceHashFailure(async () => {
+      expect(await runEffectFailure(fixture.relationActivation.activate({ revisionId: revision.publication.revisionId,
+        expectedActiveHead: { activationSequence: head.activationSequence, headSha256: Buffer.from(head.headSha256).toString("hex") } })))
+        .toMatchObject({ reason: "resourceFailure", retryable: false });
+    });
+    expect((await runEffect(fixture.relationActivation.readActive())).basis).toEqual(head);
     await runEffect(fixture.relationActivation.activate({ revisionId: revision.publication.revisionId,
       expectedActiveHead: { activationSequence: head.activationSequence, headSha256: Buffer.from(head.headSha256).toString("hex") } }));
     head = (await runEffect(fixture.relationActivation.readActive())).basis;
     expect(head.activationSequence).toBe(BigInt(ordinal + 1));
+    const bindings = await persistence.drizzle.select().from(fxSystemIndexBuildStates);
+    expect(bindings.every(build => build.maintenanceActivationSequence === head.activationSequence)).toBe(true);
+    if (ordinal === 1) {
+      // Pre-cutover active rows have a real sealed prefix but no fabricated certificate.
+      // The following fresh activation must certify them through the normal owner.
+      await persistence.drizzle.update(fxSystemIndexBuildStates).set({ maintenanceActivationSequence: null, maintenanceBytes: null, maintenanceSha256: null });
+    }
   }
+  const beforeReplayBuilds = await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
+  expect(await runEffect(fixture.relationActivation.activate(input))).toMatchObject({ disposition: "replayed", activationSequence: 1n });
+  if (!secondActivation?.expectedActiveHead) throw new Error("Missing historical second activation");
+  expect(await runEffectFailure(fixture.relationActivation.activate({ ...secondActivation,
+    expectedActiveHead: { ...secondActivation.expectedActiveHead, headSha256: "0".repeat(64) } }))).toMatchObject({ reason: "expectedHead" });
+  const firstActivationIdentity = and(eq(fxSystemApplicationActivations.scopeId, fixture.authority.scopeId), eq(fxSystemApplicationActivations.activationSequence, 1n));
+  const originalActivation = (await persistence.drizzle.select().from(fxSystemApplicationActivations).where(firstActivationIdentity))[0];
+  if (!originalActivation) throw new Error("Missing historical activation");
+  await persistence.drizzle.update(fxSystemApplicationActivations).set({ activationBytes: new TextEncoder().encode("{}") }).where(firstActivationIdentity);
+  try { expect(await runEffectFailure(fixture.relationActivation.activate(input))).toMatchObject({ reason: "storedState" }); }
+  finally { await persistence.drizzle.update(fxSystemApplicationActivations).set(originalActivation).where(firstActivationIdentity); }
+  expect(await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId)).toEqual(beforeReplayBuilds);
+  expect((await runEffect(fixture.relationActivation.readActive())).basis).toEqual(head);
+
   const lastHead = await persistence.drizzle.select().from(fxSystemApplicationActiveHeads);
   const next = await prepareAdditionalRelationRevision(fixture, 21);
   await expect(runEffect(fixture.relationActivation.activate({ revisionId: next.publication.revisionId,

@@ -110,6 +110,7 @@ import {
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
+  registerLocatedReadCommittedTargetDatabaseV1,
   isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
@@ -187,11 +188,13 @@ export function createLocatedAppSchemaCandidateValidationTarget(
   runReadCommitted: RunLocatedReadCommittedTransactionV1 =
     createDefaultLocatedReadCommittedTransactionRunnerV1(db),
 ): LocatedAppSchemaCandidateValidationTarget {
-  return Object.freeze({
+  const target = Object.freeze({
     physicalLocator: captureScopePhysicalLocator(physicalLocator),
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
   });
+  registerLocatedReadCommittedTargetDatabaseV1(target, db);
+  return target;
 }
 
 export interface AppSchemaCandidateValidationPortDependencies {

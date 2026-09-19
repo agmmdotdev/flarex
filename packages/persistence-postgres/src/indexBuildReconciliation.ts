@@ -66,6 +66,7 @@ import {
 import { fxSystemIndexBuildStates } from "./schema";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 import {
+  hasLocatedReadCommittedTargetDatabaseV1,
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
@@ -82,7 +83,7 @@ const decodeSchemaVersionIdResult = Schema.decodeUnknownResult(
 const decodeDefinitionIdResult = Schema.decodeUnknownResult(
   CatalogIndexDefinitionIdSchema,
 );
-const MAX_RECONCILED_DEFINITIONS = 256;
+export const MAX_RECONCILED_DEFINITIONS = 256;
 
 export interface ReconcilePublishedIndexBuildsV1Input {
   readonly deploymentId: string;
@@ -372,6 +373,26 @@ function decodeInputResult(
     });
   });
 }
+
+/** Activation-only lookup: retain the catalog authority of an already issued snapshot. */
+export const loadRelatedPublishedPhysicalRequirementSnapshotV1 = Effect.fn("IndexBuildReconciliation.loadRelatedRequirements")(
+  function* (source: PublishedPhysicalRequirementSnapshotV1, schemaVersionId: string,
+    target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction) {
+    const db = publishedPhysicalRequirementSnapshots.get(source);
+    if (db === undefined) return yield* Effect.fail(new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidInputShape" }));
+    const id = yield* Effect.fromResult(decodeSchemaVersionIdResult(schemaVersionId)).pipe(Effect.mapError(() =>
+      new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidSchemaVersionId" })));
+    if (id === source.schemaVersionId) return source;
+    // A colocated catalog must borrow the already held transaction rather than
+    // queue a second connection/transaction behind itself (notably PGlite).
+    const related = yield* loadPublishedPhysicalRequirementSnapshotV1(
+      hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : db,
+      { deploymentId: source.deploymentId, schemaVersionId: id },
+    );
+    if (related !== null) publishedPhysicalRequirementSnapshots.set(related, db);
+    return related;
+  },
+);
 
 export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   "IndexBuildReconciliation.loadPublishedRequirements",

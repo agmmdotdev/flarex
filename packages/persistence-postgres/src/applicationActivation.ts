@@ -12,7 +12,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Encoding, Exit, Result } from "effect";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
-import type { AppRowTransaction } from "./appRows";
+import { AppRowReadPersistenceError, type AppRowTransaction } from "./appRows";
+import { replaceActiveIndexMaintenanceInTransactionEffect } from "./indexMaintenance";
+import { IndexMaintenanceError } from "./indexMaintenanceEvidence";
 import { fxSystemApplicationWriteOwnership } from "./applicationWriteOwnership/Schema";
 import { readApplicationRelationOwnershipInTransaction } from "./applicationRelationReadinessFold";
 import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
@@ -205,7 +207,7 @@ export interface ApplicationActivationContext<SchemaFailure, ColdFailure> {
   >;
   /** Test-only failure or transaction gate after an owned persistence step. */
   readonly faultAfter?: (
-    point: "activationInserted" | "headWritten",
+    point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "headWritten",
   ) => void | Promise<void>;
 }
 
@@ -218,7 +220,7 @@ export interface ApplicationRelationActivationContext<SchemaFailure, ColdFailure
   >;
   /** Test-only failure or transaction gate after an owned persistence step. */
   readonly faultAfter?: (
-    point: "activationInserted" | "headWritten",
+    point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "headWritten",
   ) => void | Promise<void>;
 }
 
@@ -629,6 +631,12 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
           input.revisionId,
         );
       }
+      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+        captured.deploymentId,
+        captured.authority,
+      );
+      const replay = yield* tryReplayStoredActivation(located.target, located.authority, input.revisionId, expected, "legacy");
+      if (replay !== null) return replay;
       const readiness = yield* captured.readiness.settle(Object.freeze({
         deploymentId: captured.deploymentId,
         revisionId: input.revisionId,
@@ -636,16 +644,13 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
       if (readiness.status !== "ready") {
         return yield* activationFailure("activate", "notReady", input.revisionId);
       }
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        captured.deploymentId,
-        captured.authority,
-      );
       return yield* runLocatedTransaction(
         located.target,
         "activate",
         input.revisionId,
         tx => activateLegacyInTransaction(
           tx,
+          located.target,
           located.authority,
           captured.readiness,
           readiness,
@@ -752,6 +757,8 @@ function makeCompositeApplicationActivationRepository<
         captured.deploymentId,
         captured.authority,
       );
+      const replay = yield* tryReplayStoredActivation(located.target, located.authority, input.revisionId, expected);
+      if (replay !== null) return replay;
       const readinessKind = yield* runLocatedTransaction(
         located.target,
         "activate",
@@ -780,6 +787,7 @@ function makeCompositeApplicationActivationRepository<
           input.revisionId,
           tx => activateLegacyInTransaction(
             tx,
+            located.target,
             located.authority,
             captured.readiness,
             readiness,
@@ -788,28 +796,12 @@ function makeCompositeApplicationActivationRepository<
           ),
         );
       }
-      const replay = yield* tryReplayStoredRelationActivation(
-        located.target,
-        located.authority,
-        captured.relationReadiness,
-        captured.deploymentId,
-        input.revisionId,
-        expected,
-      );
-      if (replay !== null) return replay;
       const readiness = yield* captured.relationReadiness.settle(Object.freeze({
         deploymentId: captured.deploymentId,
         revisionId: input.revisionId,
       }));
       if (readiness.status !== "ready") {
-        const racedReplay = yield* tryReplayStoredRelationActivation(
-          located.target,
-          located.authority,
-          captured.relationReadiness,
-          captured.deploymentId,
-          input.revisionId,
-          expected,
-        );
+        const racedReplay = yield* tryReplayStoredActivation(located.target, located.authority, input.revisionId, expected);
         if (racedReplay !== null) return racedReplay;
         return yield* activationFailure(
           "activate",
@@ -824,6 +816,7 @@ function makeCompositeApplicationActivationRepository<
           input.revisionId,
           tx => activateRelationInTransaction(
             tx,
+            located.target,
             located.authority,
             captured.relationReadiness,
             readiness,
@@ -1130,20 +1123,6 @@ export const validateApplicationRelationActiveSelectionInTransaction = Effect.fn
       basis.revisionId,
     );
   }
-  const validated = yield*
-    validateActiveApplicationRelationReadinessInTransaction(
-      state.readinessRepository,
-      state.readiness,
-      tx,
-      currentClock,
-    );
-  if (!relationReadinessMatchesSelection(validated.basis, basis)) {
-    return yield* activationFailure(
-      "validateSelection",
-      "scopeAuthority",
-      basis.revisionId,
-    );
-  }
   const active = yield*
     readCoherentApplicationActiveHeadForShareInTransactionEffect(
       tx,
@@ -1157,6 +1136,20 @@ export const validateApplicationRelationActiveSelectionInTransaction = Effect.fn
     return yield* activationFailure(
       "validateSelection",
       "concurrentHead",
+      basis.revisionId,
+    );
+  }
+  const validated = yield*
+    validateActiveApplicationRelationReadinessInTransaction(
+      state.readinessRepository,
+      state.readiness,
+      tx,
+      currentClock,
+    );
+  if (!relationReadinessMatchesSelection(validated.basis, basis)) {
+    return yield* activationFailure(
+      "validateSelection",
+      "scopeAuthority",
       basis.revisionId,
     );
   }
@@ -1191,95 +1184,43 @@ export const validateApplicationExecutableActiveSelectionInTransaction =
     },
   );
 
-const tryReplayStoredRelationActivation = Effect.fn(
-  "ApplicationActivation.tryReplayStoredRelation",
-)(function* (
-  target: LocatedReadCommittedAttemptTargetV1,
-  authority: TrustedScopeAuthority,
-  readinessRepository: ApplicationRelationReadinessFoldRepository,
-  deploymentId: string,
-  revisionId: string,
-  expected: ApplicationActiveCasToken | null,
-): Effect.fn.Return<
-  ApplicationActivationReceipt | null,
-  | ApplicationActivationError
-  | ReadApplicationRelationReadinessFoldError
-  | LockScopeClockForUpdateError
-> {
-  const candidateExists = yield* runLocatedTransaction(
-    target,
-    "activate",
-    revisionId,
-    tx => hasPotentialActivationReplayInTransaction(
-      tx,
-      authority,
-      revisionId,
-      "relation",
-      expected,
-    ),
-  );
-  if (!candidateExists) return null;
-  const readiness = yield* readinessRepository.readActiveReady(Object.freeze({
-    deploymentId,
-    revisionId,
-  }));
-  if (readiness.status !== "ready") return null;
-  return yield* runLocatedTransaction(
-    target,
-    "activate",
-    revisionId,
-    tx => replayStoredRelationActivationInTransaction(
-      tx,
-      authority,
-      readinessRepository,
-      readiness,
-      expected,
-    ),
-  );
-});
-
-const replayStoredRelationActivationInTransaction = Effect.fn(
-  "ApplicationActivation.replayStoredRelationTransaction",
-)(function* (
-  tx: AppRowTransaction,
-  authority: TrustedScopeAuthority,
-  readinessRepository: ApplicationRelationReadinessFoldRepository,
-  readiness: Extract<
-    ApplicationRelationReadinessFoldResult,
-    { readonly status: "ready" }
-  >,
-  expected: ApplicationActiveCasToken | null,
-) {
-  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
-    tx,
-    authority.scopeId,
-  );
-  if (!clockMatches(authority, clock)) {
-    return yield* activationFailure(
-      "activate",
-      "scopeAuthority",
-      readiness.revisionId,
-    );
-  }
-  const validated = yield*
-    validateActiveApplicationRelationReadinessInTransaction(
-      readinessRepository,
-      readiness,
-      tx,
-      clock,
-    );
-  return yield* replayValidatedActivationInTransaction(
-    tx,
-    Object.freeze({ kind: "relation", basis: validated.basis }),
-    expected,
-  );
-});
+/** Receipt recovery never restores serving authority or changes the active head. */
+const tryReplayStoredActivation = Effect.fn("ApplicationActivation.tryReplayStored")(
+  (target: LocatedReadCommittedAttemptTargetV1, authority: TrustedScopeAuthority,
+    revisionId: string, expected: ApplicationActiveCasToken | null, readinessKind?: DecodedActivation["readinessKind"]) =>
+    runLocatedTransaction(target, "activate", revisionId, tx => Effect.gen(function* () {
+      const clock = yield* lockScopeClockForShareInTransactionEffect(tx, authority.scopeId);
+      if (!clockMatches(authority, clock)) return yield* activationFailure("activate", "scopeAuthority", revisionId);
+      if (expected?.activationSequence === MAX_SEQUENCE) return null;
+      const sequence = expected === null ? 1n : expected.activationSequence + 1n;
+      const rows = yield* query(tx.select().from(fxSystemApplicationActivations).where(and(
+        eq(fxSystemApplicationActivations.scopeId, authority.scopeId),
+        eq(fxSystemApplicationActivations.activationSequence, sequence),
+        eq(fxSystemApplicationActivations.revisionId, revisionId),
+      )).limit(1).for("share"), "activate", revisionId);
+      const row = rows[0];
+      if (row === undefined) return null;
+      const decoded = yield* decodeActivation(row, "activate", revisionId);
+      if (decoded.scopeId !== authority.scopeId || decoded.revisionId !== revisionId ||
+        decoded.activationSequence !== sequence || decoded.previousActivationSequence !== (expected?.activationSequence ?? null) ||
+        (readinessKind !== undefined && decoded.readinessKind !== readinessKind))
+        return yield* activationFailure("activate", "storedState", revisionId);
+      const request = yield* canonicalFrame(applicationActivationRequestFrame({
+        scopeId: authority.scopeId, revisionId, readiness: decodedReadinessCommitment(decoded),
+        expectedActiveHead: expected === null ? null : { activationSequence: expected.activationSequence.toString(), headSha256: expected.headSha256 },
+      }), "activate", revisionId);
+      if (!bytesEqualFullScan(decoded.activationRequestSha256, request.sha256))
+        return yield* activationFailure("activate", "expectedHead", revisionId);
+      return yield* activationReceipt("replayed", row, decoded, request.sha256);
+    })),
+);
 
 const activateLegacyInTransaction = Effect.fn(
   "ApplicationActivation.activateLegacyTransaction",
 )(
 function* (
   tx: AppRowTransaction,
+  target: LocatedReadCommittedAttemptTargetV1,
   authority: TrustedScopeAuthority,
   readinessRepository: unknown,
   readiness: ApplicationReadinessResult,
@@ -1312,7 +1253,9 @@ function* (
   }
   return yield* persistActivationInTransaction(
     tx,
+    target,
     Object.freeze({ kind: "legacy", basis: validated.basis }),
+    clock,
     expected,
     faultAfter,
   );
@@ -1322,6 +1265,7 @@ const activateRelationInTransaction = Effect.fn(
   "ApplicationActivation.activateRelationTransaction",
 )(function* (
   tx: AppRowTransaction,
+  target: LocatedReadCommittedAttemptTargetV1,
   authority: TrustedScopeAuthority,
   readinessRepository: ApplicationRelationReadinessFoldRepository,
   readiness: Extract<
@@ -1362,7 +1306,9 @@ const activateRelationInTransaction = Effect.fn(
   }
   return yield* persistActivationInTransaction(
     tx,
+    target,
     Object.freeze({ kind: "relation", basis: validated.basis }),
+    clock,
     expected,
     faultAfter,
     budget => readApplicationRelationOwnershipInTransaction(readinessRepository, tx, authority.scopeId, budget, catalogLease),
@@ -1407,21 +1353,6 @@ const canonicalActivationRequest = Effect.fn(
   }), "activate", basis.revisionId);
 });
 
-const replayValidatedActivationInTransaction = Effect.fn(
-  "ApplicationActivation.replayValidatedRequest",
-)(function* (
-  tx: AppRowTransaction,
-  validated: ValidatedActivation,
-  expected: ApplicationActiveCasToken | null,
-) {
-  const request = yield* canonicalActivationRequest(validated, expected);
-  return yield* replayCanonicalActivationRequestInTransaction(
-    tx,
-    validated,
-    request,
-  );
-});
-
 const replayCanonicalActivationRequestInTransaction = Effect.fn(
   "ApplicationActivation.replayCanonicalRequest",
 )(function* (
@@ -1461,48 +1392,13 @@ const replayCanonicalActivationRequestInTransaction = Effect.fn(
   return yield* activationReceipt("replayed", replay, decoded, request.sha256);
 });
 
-const hasPotentialActivationReplayInTransaction = Effect.fn(
-  "ApplicationActivation.hasPotentialReplay",
-)(function* (
-  tx: AppRowTransaction,
-  authority: TrustedScopeAuthority,
-  revisionId: string,
-  readinessKind: DecodedActivation["readinessKind"],
-  expected: ApplicationActiveCasToken | null,
-): Effect.fn.Return<boolean, ApplicationActivationError> {
-  if (expected?.activationSequence === MAX_SEQUENCE) return false;
-  const activationSequence = expected === null
-    ? 1n
-    : expected.activationSequence + 1n;
-  const rows = yield* query(
-    tx.select().from(fxSystemApplicationActivations).where(and(
-      eq(fxSystemApplicationActivations.scopeId, authority.scopeId),
-      eq(
-        fxSystemApplicationActivations.activationSequence,
-        activationSequence,
-      ),
-      eq(fxSystemApplicationActivations.revisionId, revisionId),
-    )).limit(1).for("share"),
-    "activate",
-    revisionId,
-  );
-  const row = rows[0];
-  if (row === undefined) return false;
-  const decoded = yield* decodeActivation(row, "activate", revisionId);
-  if (decoded.scopeId !== authority.scopeId ||
-    decoded.activationSequence !== activationSequence ||
-    decoded.revisionId !== revisionId ||
-    decoded.readinessKind !== readinessKind) {
-    return yield* activationFailure("activate", "storedState", revisionId);
-  }
-  return true;
-});
-
 const persistActivationInTransaction = Effect.fn(
   "ApplicationActivation.persistTransaction",
 )(function* (
   tx: AppRowTransaction,
+  target: LocatedReadCommittedAttemptTargetV1,
   validated: ValidatedActivation,
+  clock: ScopeClockRecord,
   expected: ApplicationActiveCasToken | null,
   faultAfter: ActivationFault | undefined,
   recoverOwnership?: (budget: ApplicationWriteOwnershipHistoryBudget) => Effect.Effect<unknown, ApplicationWriteOwnershipError>,
@@ -1620,6 +1516,13 @@ const persistActivationInTransaction = Effect.fn(
     readiness,
     activationSha256: encodeBytesToLowercaseHex(activation.sha256),
   }), "activate", basis.revisionId);
+  yield* replaceActiveIndexMaintenanceInTransactionEffect(tx, target, clock, basis.physicalRequirements, activationSequence, nextHead.sha256, faultAfter)
+    .pipe(Effect.mapError(cause => {
+      const resource = cause instanceof AppRowReadPersistenceError ||
+        (cause instanceof IndexMaintenanceError && cause.reason === "resourceFailure");
+      return activationError("activate", resource ? "resourceFailure" : "storedState", basis.revisionId,
+        resource && (cause instanceof IndexMaintenanceError ? (cause.retryable ?? retryableCause(cause.cause)) : retryableCause(cause.cause)), cause);
+    }));
   if (head === null) {
     const inserted = yield* query(
       tx.insert(fxSystemApplicationActiveHeads).values({
@@ -2492,7 +2395,7 @@ function* <A, E>(
 
 function runFault(
   faultAfter: ApplicationActivationContext<unknown, unknown>["faultAfter"],
-  point: "activationInserted" | "headWritten",
+  point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "headWritten",
   revisionId: string,
 ): Effect.Effect<void, ApplicationActivationError> {
   return faultAfter === undefined

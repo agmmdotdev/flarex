@@ -233,7 +233,7 @@ import {
 } from "../src/physicalDefinitionLifecycle";
 import { createAppDeveloperIndexDefinitionPortV1 } from
   "../src/appDeveloperIndexCommitV1";
-import { fxSystemApplicationActiveHeads } from
+import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from
   "../src/applicationActivationSchema";
 import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
@@ -924,6 +924,15 @@ describe("Application activation", { timeout: 30_000 }, () => {
       }),
     ));
     expect(validated.revisionId).toBe(fixture.input.revisionId);
+    const receiptIdentity = eq(fxSystemApplicationActivations.scopeId, fixture.authority.scopeId);
+    const originalReceipt = (await fixture.target.drizzle.select().from(fxSystemApplicationActivations).where(receiptIdentity))[0];
+    if (!originalReceipt) throw new Error("Missing committed activation receipt");
+    await fixture.target.drizzle.update(fxSystemApplicationActivations).set({ activationBytes: new TextEncoder().encode("{}") }).where(receiptIdentity);
+    try {
+      const corruptReplay = await runEffect(Effect.result(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null })));
+      expect(Result.isFailure(corruptReplay)).toBe(true);
+      if (Result.isFailure(corruptReplay)) expect(corruptReplay.failure).toMatchObject({ reason: "storedState" });
+    } finally { await fixture.target.drizzle.update(fxSystemApplicationActivations).set(originalReceipt).where(receiptIdentity); }
   });
 
   it("selects one immutable Application task without creating a run and invalidates it on head movement", async () => {
@@ -3828,6 +3837,9 @@ describe("Application activation", { timeout: 30_000 }, () => {
 
     await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({
       lifecycle: "validating",
+      maintenanceActivationSequence: null,
+      maintenanceBytes: null,
+      maintenanceSha256: null,
     }).where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
     const unavailable = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
       const opened = yield* openApplicationQuerySnapshot(

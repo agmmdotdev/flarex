@@ -297,6 +297,7 @@ export interface ApplicationRelationReadinessFoldRepository {
 }
 
 export interface ApplicationRelationReadinessActivationBasis {
+  readonly physicalRequirements: PublishedPhysicalRequirementSnapshotV1;
   readonly writePolicy: ApplicationRelationSchemaAuthority["writePolicy"];
   readonly writeOwnership: CanonicalApplicationWriteOwnership | null;
   readonly authority: ApplicationReadinessAuthority;
@@ -1876,6 +1877,7 @@ const relationActivationBasis = Effect.fn(
   const bundle = prepared.bundle;
   const relationEvidence = state.relationEvidence;
   return Object.freeze({
+    physicalRequirements: prepared.requirements,
     writePolicy: prepared.schema.writePolicy,
     writeOwnership: state.writeOwnership,
     authority: Object.freeze({

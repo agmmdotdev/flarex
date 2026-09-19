@@ -99,6 +99,8 @@
     "./internal/system-test/transactionSessionAttemptKernel": "./src/transactionSessionAttemptKernel.ts",
     "./internal/system-test/appRows": "./src/appRows.ts",
     "./internal/system-test/appSchemaCandidateValidation": "./src/appSchemaCandidateValidation.ts",
+    "./internal/system-test/indexBuildStates": "./src/indexBuildStates.ts",
+    "./internal/system-test/scopeClock": "./src/scopeClock.ts",
     "./internal/system-test/schema": "./src/schema.ts",
     "./internal/system-test/candidateRuntimeProjectionV1": "./src/candidateRuntimeProjectionV1.ts",
     "./internal/system-test/transactionExecutionClaimModel": "./src/transactionExecutionClaimModel.ts",

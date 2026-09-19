@@ -216,6 +216,7 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect,
   readFencedIndexBuildStateEffect,
   type ReadFencedIndexBuildStateError,
 } from "./indexBuildStates";
@@ -951,6 +952,7 @@ type SessionJournalStorageCorruptionReasonV1 =
   | "relationDependencyInvalid"
   | "relationPageFrontierInvalid"
   | "requestTableCapabilityMismatch"
+  | "indexMaintenanceInvalid"
   | "scopeClockMissingOrDuplicate"
   | "sealedJournalStateInvalid"
   | "sessionRecordInvalid"
@@ -3460,8 +3462,13 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
   if (
     build.status !== "current" ||
     !(yield* isIndexBuildSnapshotCoveredInTransactionEffect(
-      tx, build.buildState, index.tableId, index.attempt.snapshotToken.commitSeq,
-    ))
+      tx, build.buildState, { ...index.definition, tableId: index.tableId }, index.attempt.snapshotToken.commitSeq,
+      yield* readIndexCoverageContextInTransactionEffect(tx, context.scopeClock).pipe(Effect.mapError(cause =>
+        cause.reason === "resourceFailure" ? new SessionJournalPersistenceV1Error({ operation: "runIndexedQuery", cause })
+          : corruption(index.attempt, "indexMaintenanceInvalid", cause))),
+    ).pipe(Effect.catchTag("IndexMaintenanceError", cause => Effect.fail(
+      cause.reason === "resourceFailure" ? new SessionJournalPersistenceV1Error({ operation: "runIndexedQuery", cause })
+        : corruption(index.attempt, "indexMaintenanceInvalid", cause)))))
   ) {
     return yield* Effect.fail(
       new SessionJournalDeveloperIndexUnavailableV1Error({

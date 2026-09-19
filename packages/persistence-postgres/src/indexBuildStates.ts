@@ -1,10 +1,10 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
   type CatalogIndexDefinitionId,
-  type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
   IndexBuildAttemptFenceSchema,
@@ -33,9 +33,12 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import { readAppTableWriteFrontierInTransactionEffect, type AppRowTransaction, type AppRowReadPersistenceError, type AppRowTableFrontierCorruptionError, type InvalidAppRowReadInputError } from "./appRows";
+import type { AppIndexDefinitionRecord } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
-import { decodeScopeClockRecordResult } from "./scopeClock";
+import { decodeScopeClockRecordResult, type ScopeClockRecord } from "./scopeClock";
+import { readCoherentApplicationActiveHeadForShareInTransactionEffect, readApplicationSchemaForHeadForShareInTransactionEffect, type CoherentApplicationActiveHead } from "./applicationActiveHeadRead";
+import { decodeIndexMaintenanceEvidenceResult, verifyIndexMaintenanceEvidence, IndexMaintenanceError, type IndexMaintenanceEvidence } from "./indexMaintenanceEvidence";
 import {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
@@ -86,6 +89,7 @@ export interface IndexBuildStorageAuthority {
 }
 
 interface IndexBuildStateRecordBase {
+  readonly maintenance: IndexMaintenanceEvidence | null;
   readonly scopeId: ScopeId;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly storageGeneration: FlarexDbV1StorageGeneration;
@@ -269,6 +273,9 @@ function selectFencedIndexBuildStateRows(
       },
       buildState: {
         scopeId: fxSystemIndexBuildStates.scopeId,
+        maintenanceActivationSequence: fxSystemIndexBuildStates.maintenanceActivationSequence,
+        maintenanceBytes: fxSystemIndexBuildStates.maintenanceBytes,
+        maintenanceSha256: fxSystemIndexBuildStates.maintenanceSha256,
         indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId,
         storageGeneration: fxSystemIndexBuildStates.storageGeneration,
         storageGenerationFence:
@@ -497,7 +504,20 @@ export function decodeIndexBuildStateRowResult(
       ));
     }
 
+    const maintenance = yield* decodeIndexMaintenanceEvidenceResult(
+      row.maintenanceActivationSequence, row.maintenanceBytes, row.maintenanceSha256,
+    ).pipe(Result.mapError(cause => storedBuildStateCorruption(scopeId, indexDefinitionId, cause)));
+    if (maintenance !== null) {
+      const frame = maintenance.frame;
+      if (lifecycle !== "enabled" || frame.scopeId !== scopeId || frame.indexDefinitionId !== indexDefinitionId ||
+        frame.storageGeneration !== storageGeneration || frame.storageGenerationFence !== storageGenerationFence.toString() ||
+        frame.epoch !== epoch || frame.attemptFence !== attemptFence.toString() ||
+        frame.firstReadableCommitSeq !== firstReadableCommitSeq?.toString() || frame.openedCommitSeq !== coveredThroughCommitSeq?.toString()) {
+        return yield* Result.fail(storedBuildStateCorruption(scopeId, indexDefinitionId, "Maintenance certificate does not match build state"));
+      }
+    }
     const common = {
+      maintenance,
       scopeId,
       indexDefinitionId,
       storageGeneration,
@@ -544,18 +564,46 @@ export function validateIndexBuildStateFrontierResult(
   return Result.succeed(undefined);
 }
 
+type IndexCoverageDefinition = Pick<AppIndexDefinitionRecord, "indexDefinitionId" | "physicalSpecSha256Hex"> & {
+  readonly tableId: AppIndexDefinitionRecord["access"]["tableId"];
+};
+
+export interface IndexCoverageContext {
+  readonly clock: ScopeClockRecord;
+  readonly active: (CoherentApplicationActiveHead & { readonly schema: { readonly deploymentId: string; readonly schemaVersionId: string; readonly schemaManifestSha256: string } }) | null;
+}
+
+/** Keep this value within the guarded transaction that produced it. */
+export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuildState.readCoverageContext")(
+  function* (tx: AppRowTransaction, clock: ScopeClockRecord): Effect.fn.Return<IndexCoverageContext, IndexMaintenanceError> {
+    return yield* Effect.gen(function* () {
+      const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock.scopeId);
+      if (active === null) return Object.freeze({ clock, active: null });
+      const schema = yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head);
+      return Object.freeze({ clock, active: Object.freeze({ ...active, schema }) });
+    }).pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: cause.reason, retryable: cause.retryable, cause: cause.cause })));
+  },
+);
+
 /** Call under the caller's scope-clock/snapshot transaction before admitting a read. */
 export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
   "IndexBuildState.isSnapshotCovered",
 )(function* (
   tx: AppRowTransaction,
   state: IndexBuildStateRecord,
-  tableId: CatalogTableId,
+  definition: IndexCoverageDefinition,
   snapshotCommitSeq: CommitSeq,
+  context: IndexCoverageContext,
 ): Effect.fn.Return<
   boolean,
-  AppRowReadPersistenceError | InvalidAppRowReadInputError | AppRowTableFrontierCorruptionError
+  AppRowReadPersistenceError | InvalidAppRowReadInputError | AppRowTableFrontierCorruptionError | IndexMaintenanceError
 > {
+  if (state.indexDefinitionId !== definition.indexDefinitionId || state.scopeId !== context.clock.scopeId || state.storageGeneration !== context.clock.storageGeneration ||
+    state.storageGenerationFence !== context.clock.storageGenerationFence || state.epoch !== context.clock.epoch ||
+    snapshotCommitSeq > context.clock.lastCommitSeq ||
+    (state.coveredThroughCommitSeq !== null && state.coveredThroughCommitSeq > context.clock.lastCommitSeq)) {
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  }
   const covered = state.coveredThroughCommitSeq;
   if (
     state.lifecycle !== "enabled" ||
@@ -564,11 +612,23 @@ export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
     state.firstReadableCommitSeq > snapshotCommitSeq
   )
     return false;
+  if (state.maintenance !== null) {
+    yield* verifyIndexMaintenanceEvidence(state.maintenance);
+    const frame = state.maintenance.frame;
+    if (frame.tableId !== definition.tableId || frame.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex || context.active === null ||
+      frame.deploymentId !== context.active.schema.deploymentId || frame.schemaVersionId !== context.active.schema.schemaVersionId ||
+      frame.schemaManifestSha256 !== context.active.schema.schemaManifestSha256 ||
+      frame.activationSequence !== context.active.head.activationSequence.toString() ||
+      frame.headSha256 !== encodeBytesToLowercaseHex(context.active.head.headSha256)) {
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    }
+    return true;
+  }
   if (covered >= snapshotCommitSeq) return true;
   const latest = yield* readAppTableWriteFrontierInTransactionEffect(
     tx,
     state.scopeId,
-    tableId,
+    definition.tableId,
   );
   return latest === null || latest <= covered;
 });

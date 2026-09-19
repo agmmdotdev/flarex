@@ -69,6 +69,13 @@ describe.skipIf(postgresUrl === null)("Application table write ownership (Postgr
         expect(await catalogPublication).toMatchObject([{ status: "fulfilled" }]);
       },
       publish: async (fixture, publish) => {
+        const buildVersions = () => persistence.query<{ index_definition_id: string; xmin: string; ctid: string }>(
+          "select index_definition_id, xmin::text, ctid::text from fx_system_index_build_state where scope_id = $1 order by index_definition_id", [fixture.authority.scopeId]);
+        const before = (await buildVersions()).rows;
+        await persistence.query(`create function refuse_serving_build_update() returns trigger language plpgsql as $$
+          begin raise exception 'Serving publication must not update build progress'; end $$`);
+        await persistence.query(`create trigger refuse_serving_build_update before update on fx_system_index_build_state
+          for each statement execute function refuse_serving_build_update()`);
         const holder = await holdClock(persistence, fixture.authority.scopeId);
         let canceled: Promise<unknown> | undefined;
         let published: Promise<PromiseSettledResult<unknown>[]> | undefined;
@@ -92,9 +99,12 @@ describe.skipIf(postgresUrl === null)("Application table write ownership (Postgr
         } finally {
           await holder.release();
           await Promise.all([canceled, published]);
+          await persistence.query("drop trigger refuse_serving_build_update on fx_system_index_build_state");
+          await persistence.query("drop function refuse_serving_build_update()");
         }
         const result = (await published)?.[0];
         if (result?.status !== "fulfilled") throw new Error("Current writer failed to publish", { cause: result });
+        expect((await buildVersions()).rows).toEqual(before);
         return result.value;
       },
     });

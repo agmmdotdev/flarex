@@ -953,12 +953,9 @@ function captureLive(
     // Derived persistence ports snapshot the fields they consume at creation.
     sessionAuthority: live.sessionAuthority,
     candidateSchemaWriteGuard: live.candidateSchemaWriteGuard,
-    intrinsicCreationTimeIndexes: Object.freeze({
-      locate: live.intrinsicCreationTimeIndexes.locate,
-    }),
-    developerIndexes: Object.freeze({
-      locate: live.developerIndexes.locate,
-    }),
+    // Issued catalog ports carry exact composition provenance by identity.
+    intrinsicCreationTimeIndexes: live.intrinsicCreationTimeIndexes,
+    developerIndexes: live.developerIndexes,
     ...(live.applicationRelations === undefined
       ? {}
       : { applicationRelations: live.applicationRelations }),

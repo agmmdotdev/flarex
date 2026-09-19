@@ -1,9 +1,9 @@
 # CE2 Activation Maintenance Cutover
 
-Status: focused implementation design selected under standing owner approval.
-No runtime or schema cutover is implemented by this document. The four writer
-prerequisites in [continuous maintenance](./18-ce2-continuous-index-maintenance.md)
-are implemented; the following is the next coherent implementation slice.
+Status: ordered-index activation, writer, reader and builder cutover implemented.
+The four writer prerequisites in [continuous maintenance](./18-ce2-continuous-index-maintenance.md)
+remain mandatory. Unique-workspace optimization, matched before/after request
+measurements and wider concurrent-lifecycle acceptance remain subsequent CE2 work.
 
 ## Outcome And Boundaries
 
@@ -89,8 +89,17 @@ deterministic build-row order for all incoming and outgoing definitions.
    returns its durable result without modifying current maintenance state.
 3. Load outgoing certificates through the partial index with the existing
    requirement-count bound and an overflow witness. Authenticate them against
-   the outgoing coherent head and build identities. A malformed or stale
-   certificate is corruption, not an index to skip.
+   the outgoing coherent head, its independently resolved schema binding and
+   build identities. Resolve outgoing physical requirements through the incoming
+   issued snapshot's existing control-catalog authority; reuse that snapshot only
+   for the same schema identity. When the existing located-target registry proves
+   that catalog and target share a database, borrow the held transaction for the
+   catalog read instead of queuing a second read behind it. The candidate target
+   factory records its database identity in that existing registry. Every outgoing
+   certificate must match actual
+   catalog membership, table and physical spec. Never use its own fields as its
+   expected definition. A malformed or stale certificate is corruption, not an
+   index to skip.
 4. Seal outgoing continuously maintained definitions through H and clear their
    certificates. An outgoing definition without a certificate has only its
    existing bounded coverage; never extend it merely because it was enabled.
@@ -109,11 +118,12 @@ catch-up protocol. Do not reset readable history to disguise a missing suffix.
 
 ## Coverage And Writer Cutover
 
-Build one coherent coverage context for the current transaction/snapshot, using
-the existing active-head reader and scope guard. Reuse it across the selected
-definitions in that operation. Do not read and hash the same head separately for
-each index, nor cache it across transactions. Preserve the nonlocking
-repeatable-read variant where the caller owns snapshot isolation.
+The shared owner builds one coherent coverage context under the caller's scope
+guard, using the existing active-head reader and its schema-binding reader.
+It reuses the context across selected definitions in the operation and retains
+share protection on the authority records. It does not cache across transactions
+or introduce an unused alternate snapshot mode. The current head's deployment,
+schema version and manifest must independently match each certificate.
 
 The shared coverage owner admits a snapshot only after first-readable, scope
 frontier, build fences and the caller's physical/retained-history checks pass:
@@ -166,6 +176,46 @@ them together. Remove enabled-serving progress writes, obsolete exclusive locks,
 and assertions that require build timestamps to advance after ordinary commits.
 Replace those assertions with unchanged tuples and maintained memberships; keep
 tests for actual candidate progress and historical corruption.
+
+## Implemented Cutover And Remaining Acceptance
+
+Migration 0103 adds the nullable certificate on the existing shared build family.
+Activation opens, carries and closes it atomically with the existing head.
+Native and CMS materialization require certificates for active ordered builds;
+their old enabled progress UPDATE is removed and selected build reads use share
+locks. The no-active primitive and non-enabled lifecycle paths retain their
+bounded progress work. The native invocation constructor preserves the original
+issued ordered-index ports so their provenance reaches this shared owner.
+
+The shared coverage predicate is used by readiness, query snapshots, journal
+reads and builders. Invalid evidence fails closed; hashing or database failures
+remain resource failures rather than stored corruption. Active builders replay
+without advancing progress. Historical activation replay leaves current
+obligations unchanged. Both activation entry points recover an exact committed
+receipt before current readiness or manifest-kind resolution. The existing
+canonical activation decoder, scope authority check, caller predecessor token,
+request digest and receipt projection own this recovery. It validates neither
+current physical coverage nor the old readiness graph and cannot issue a serving
+selection or enter fresh activation. The receipt's expected-head token describes
+that historical outcome, not the current head. Malformed receipts, stale scope
+authority and different predecessor hashes refuse. This intentionally separates
+historical outcome recovery from fresh serving validation; no readiness reader
+is weakened. Relation selection validates head identity before coverage so stale
+selections retain their concurrent-head refusal.
+Existing active data needs a fresh normal activation to
+acquire certificates, without resetting row or index history.
+
+Connected witnesses cover native/CMS stable build tuples, ordinary-role
+PostgreSQL zero build UPDATE statements and unchanged physical tuples, candidate
+catch-up, A/B removal and reactivation across a genuine gap, historical reads,
+source/spec/table/hash corruption, crypto failure, replay during an inactive
+index gap, exact predecessor refusal, and rollback at close, open
+and head publication. Existing compaction/retirement guards remain in place;
+expanded simultaneous lifecycle races and matched latency/SQL/read-cost
+measurements are still CE2 acceptance work. Coverage now reads the active schema
+binding once per operation and hashes selected certificates. Activation can
+add a bounded outgoing catalog lookup. Attribute these costs alongside the
+eliminated writes before making a performance claim.
 
 ## Decisive Validation And Completion
 

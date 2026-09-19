@@ -1,3 +1,6 @@
+import { resolve } from "node:path";
+import { lockScopeClockForShareInTransactionEffect } from "../src/scopeClock";
+import { AppIndexPhysicalSpecSha256HexV1Schema } from "flarex-protocol/index-definition";
 import { PGlite } from "@electric-sql/pglite";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -15,6 +18,7 @@ import { createPGlitePersistence } from "../src/pglite";
 import { createPostgresPersistence } from "../src/postgres";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect,
   readFencedIndexBuildStateEffect,
 } from "../src/indexBuildStates";
 import {
@@ -91,6 +95,17 @@ async function proveCoverageStorage(
       first_readable_commit_seq: null,
     })),
   );
+  // Preserve the historical migration witness, then prove certificate migration rollback.
+  await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, 102);
+  await persistence.migrate();
+  const beforeMaintenance = (await persistence.query("select * from fx_system_index_build_state")).rows;
+  const maintenanceMigration = resolve(fixture.migrationsFolder, "0103_index_maintenance.sql");
+  await writeJournalThrough(fixture.currentJournal, fixture.temporaryJournal, Number.MAX_SAFE_INTEGER);
+  await injectMigrationFailure(maintenanceMigration, "fx_maintenance_deliberate_missing_table");
+  await expect(persistence.migrate()).rejects.toThrow(/fx_maintenance_deliberate_missing_table/);
+  expect((await persistence.query("select * from fx_system_index_build_state")).rows).toEqual(beforeMaintenance);
+  await restoreMigrationFile(maintenanceMigration, fixture.currentMigrationsFolder);
+  await persistence.migrate();
   const read = async () => {
     const result = await Effect.runPromise(
       readFencedIndexBuildStateEffect(persistence.drizzle, {
@@ -106,15 +121,19 @@ async function proveCoverageStorage(
     const state = await read();
     return persistence.drizzle.transaction((tx) =>
       Effect.runPromise(
-        isIndexBuildSnapshotCoveredInTransactionEffect(
+        Effect.gen(function* () {
+          const clock = yield* lockScopeClockForShareInTransactionEffect(tx, scopeId);
+          return yield* isIndexBuildSnapshotCoveredInTransactionEffect(
           tx,
           state,
-          CatalogTableIdSchema.make(table),
+          { indexDefinitionId, tableId: CatalogTableIdSchema.make(table), physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1Schema.make("0".repeat(64)) },
           CommitSeqSchema.make(snapshot),
-        ),
+          yield* readIndexCoverageContextInTransactionEffect(tx, clock),
+        ); }),
       ),
     );
   };
+  expect((await read()).maintenance).toBeNull();
   expect(await covered(1, 0n)).toBe(false);
   // Historical fixture DML creates retained tombstone identities; no publication claim is made here.
   await persistence.query(
@@ -158,6 +177,7 @@ async function proveCoverageStorage(
     "update fx_system_index_build_state set covered_through_commit_seq=1000",
   );
   for (const change of [
+    "maintenance_activation_sequence=1",
     "covered_through_commit_seq=-1",
     "first_readable_commit_seq=1001",
     "covered_through_commit_seq=null",

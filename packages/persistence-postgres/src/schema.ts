@@ -4898,6 +4898,9 @@ export const fxSystemIndexBuildStates = pgTable(
       .$type<CommitSeq>(),
     firstReadableCommitSeq: bigint("first_readable_commit_seq", { mode: "bigint" })
       .$type<CommitSeq>(),
+    maintenanceActivationSequence: bigint("maintenance_activation_sequence", { mode: "bigint" }),
+    maintenanceBytes: bytea("maintenance_bytes"),
+    maintenanceSha256: bytea("maintenance_sha256"),
     lifecycle: text("lifecycle").$type<IndexBuildLifecycleV1>().notNull(),
     cursorCodecVersion: integer("cursor_codec_version")
       .$type<IndexBuildCursorCodecVersionV1>()
@@ -4922,6 +4925,15 @@ export const fxSystemIndexBuildStates = pgTable(
       columns: [table.scopeId],
       foreignColumns: [fxSystemScopeClocks.scopeId],
     }).onDelete("restrict"),
+    index("fx_system_index_build_maintenance_idx")
+      .on(table.scopeId, table.maintenanceActivationSequence)
+      .where(sql`${table.maintenanceActivationSequence} is not null`),
+    check("fx_system_index_build_maintenance_check", sql`
+      (${table.maintenanceActivationSequence} is null and ${table.maintenanceBytes} is null and ${table.maintenanceSha256} is null)
+      or (${table.maintenanceActivationSequence} is not null and ${table.maintenanceActivationSequence} > 0
+        and ${table.maintenanceBytes} is not null and octet_length(${table.maintenanceBytes}) between 1 and 16384
+        and ${table.maintenanceSha256} is not null and octet_length(${table.maintenanceSha256}) = 32
+        and ${table.lifecycle} = 'enabled' and ${table.firstReadableCommitSeq} is not null and ${table.coveredThroughCommitSeq} is not null)`),
     check(
       "fx_system_index_build_scope_non_empty",
       nonBlankText(table.scopeId),

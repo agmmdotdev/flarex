@@ -63,7 +63,10 @@ describePostgres("Managed-schema cooking schema B - PostgreSQL", () => {
           createApplicationNativeMutationPostgresFixture(options, persistence),
         ),
       ).resolves.toEqual({
-        candidateIndexEnabledBeforeWrite: true,
+        continuousMaintenanceStable: true,
+        outgoingMaintenanceSealed: true,
+        reactivationGapBridged: true,
+      candidateIndexEnabledBeforeWrite: true,
         schemaAStayedActive: true,
         activeWritePublished: true,
         originalPlanRejectedAsStale: true,

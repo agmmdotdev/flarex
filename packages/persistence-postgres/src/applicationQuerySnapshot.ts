@@ -133,6 +133,7 @@ import {
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect,
   readFencedIndexBuildStateEffect,
   type ReadFencedIndexBuildStateError,
 } from "./indexBuildStates";
@@ -1322,9 +1323,12 @@ const readIndexInTransaction = Effect.fn(
   const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(
     tx,
     build.buildState,
-    table.tableId,
+    { ...definition, tableId: table.tableId },
     state.metadata.snapshotToken.commitSeq,
-  );
+    yield* readIndexCoverageContextInTransactionEffect(tx, scoped.clock).pipe(Effect.mapError(cause =>
+      failureValue("indexRead", cause.reason === "resourceFailure" ? "resourceFailure" : "indexUnavailable", cause.reason === "resourceFailure" && (cause.retryable ?? isRetryableTransactionCause(cause.cause)), cause))),
+  ).pipe(Effect.catchTag("IndexMaintenanceError", cause => Effect.fail(
+    failureValue("indexRead", cause.reason === "resourceFailure" ? "resourceFailure" : "indexUnavailable", cause.reason === "resourceFailure" && (cause.retryable ?? isRetryableTransactionCause(cause.cause)), cause))));
   if (!covered) {
     return yield* failure("indexRead", "indexUnavailable");
   }

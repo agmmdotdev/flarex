@@ -38,6 +38,9 @@ describe("Managed-schema cooking simulation - schema B", () => {
     await expect(
       proveManagedSchemaCandidateIndexAfterActiveWrite(),
     ).resolves.toEqual({
+      continuousMaintenanceStable: true,
+      outgoingMaintenanceSealed: true,
+      reactivationGapBridged: true,
       candidateIndexEnabledBeforeWrite: true,
       schemaAStayedActive: true,
       activeWritePublished: true,

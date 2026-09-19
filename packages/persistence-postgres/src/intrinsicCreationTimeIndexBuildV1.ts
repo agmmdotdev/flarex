@@ -73,6 +73,8 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   decodeIndexBuildStateRowResult,
+  isIndexBuildSnapshotCoveredInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect,
   validateIndexBuildStateFrontierResult,
   IndexBuildStateCorruptionError,
 } from "./indexBuildStates";
@@ -892,29 +894,15 @@ const buildInTransaction = Effect.fn("AppOrderedIndexBuild.buildInTransaction")(
             "enabled definition has no authenticated coverage; explicit rebuild required",
           );
         }
-        const latest = yield* readAppTableWriteFrontierInTransactionEffect(
-          tx,
-          state.scopeId,
-          definition.access.tableId,
-        ).pipe(
-          Effect.mapError((cause) =>
-            cause instanceof AppRowReadPersistenceError
-              ? new AppOrderedIndexBuildIntegrationError({
-                  phase: "targetTransaction",
-                  retryable: true,
-                  cause,
-                })
-              : new AppOrderedIndexBuildStateError({
-                  scopeId: state.scopeId,
-                  indexDefinitionId: state.indexDefinitionId,
-                  reason: "indexHistoryMismatch",
-                  detail: String(cause),
-                }),
-          ),
-        );
-        if (latest === null || latest <= state.coveredThroughCommitSeq) {
-          return result(state, "replayed", "enabled", 0, 0, null);
-        }
+        const covered = yield* Effect.gen(function* () {
+          const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock);
+          return yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state, { ...definition, tableId: definition.access.tableId }, clock.lastCommitSeq, context);
+        }).pipe(Effect.mapError(cause =>
+          cause instanceof AppRowReadPersistenceError || ("reason" in cause && cause.reason === "resourceFailure")
+            ? new AppOrderedIndexBuildIntegrationError({ phase: "targetTransaction", retryable: "retryable" in cause ? (cause.retryable ?? true) : true, cause })
+            : new AppOrderedIndexBuildStateError({ scopeId: state.scopeId, indexDefinitionId: state.indexDefinitionId,
+                reason: "indexHistoryMismatch", detail: String(cause) })));
+        if (covered) return result(state, "replayed", "enabled", 0, 0, null);
         return yield* catchUpEnabled(
           tx,
           scopeUuid.scopeUuid,

@@ -1,5 +1,7 @@
+import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect,
   validateIndexBuildStateFrontierResult,
 } from "../indexBuildStates";
 import { sqlCall } from "../pointCommitErrors";
@@ -563,18 +565,30 @@ export async function materializeApplicationDocumentRows(
     ),
   );
   const maintainedBuilds = [...intrinsicBuilds, ...developerBuilds];
+  const coverageContext = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    readIndexCoverageContextInTransactionEffect(tx, clock).pipe(Effect.mapError(cause =>
+      cause.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("lockDeveloperIndexBuilds", cause.cause)
+        : corruption("developerIndexBuildInvalid"))),
+  ));
   for (const { build, definition } of maintainedBuilds) {
+    if (coverageContext.active !== null && (build.lifecycle !== "enabled" || build.maintenance === null))
+      throw new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({ reason: "definitionSetUnavailable" });
+    if (build.maintenance !== null && (build.maintenance.frame.schemaVersionId !== command.authorityPins.schemaVersionId ||
+      build.maintenance.frame.deploymentId !== command.authorityPins.deploymentId ||
+      build.maintenance.frame.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex))
+      throw corruption("developerIndexBuildInvalid");
     if (build.lifecycle !== "enabled") continue;
     const covered = projectPointCommitTransactionResult(
       await runPointCommitInTransactionEffect(
         isIndexBuildSnapshotCoveredInTransactionEffect(
           tx,
           build,
-          definition.access.tableId,
+          { ...definition, tableId: definition.access.tableId },
           CommitSeqSchema.make(commitSeq - 1n),
+          coverageContext,
         ).pipe(
           Effect.mapError((cause) =>
-            cause instanceof AppRowReadPersistenceError
+            cause instanceof AppRowReadPersistenceError || (cause instanceof IndexMaintenanceError && cause.reason === "resourceFailure")
               ? new PointCommitSqlFailureMarkerV1(
                   "lockDeveloperIndexBuilds",
                   cause.cause,
@@ -660,7 +674,7 @@ export async function materializeApplicationDocumentRows(
     options,
   );
   for (const { build } of maintainedBuilds) {
-    if (build.lifecycle !== "enabled") continue;
+    if (build.lifecycle !== "enabled" || build.maintenance !== null) continue;
     const updated = await sqlCall("resetDeveloperIndexValidation", () =>
       tx
         .update(fxSystemIndexBuildStates)
@@ -1285,7 +1299,7 @@ export async function lockPointCommitDeveloperIndexBuilds(
         ),
       )
       .orderBy(fxSystemIndexBuildStates.indexDefinitionId)
-      .for("update"),
+      .for("share"),
   );
   if (rows.length !== definitions.length) {
     throw corruption("developerIndexBuildInvalid");
@@ -2226,7 +2240,7 @@ export async function lockPointCommitIntrinsicIndexBuilds(
           ),
         )
         .limit(1)
-        .for("update"),
+        .for("share"),
     );
     const row = rows[0];
     if (row === undefined) throw corruption("intrinsicIndexBuildInvalid");

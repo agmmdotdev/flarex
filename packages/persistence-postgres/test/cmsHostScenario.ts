@@ -1,3 +1,4 @@
+import { fxSystemIndexBuildStates } from "../src/schema";
 import { cmsHostFixture } from "./cmsHostFixture";
 import { assertCmsParticipantAdmission } from "./cmsParticipantAdmission";
 import { expect } from "vitest";
@@ -149,6 +150,9 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
     indexRevisions: await persistence.drizzle.select().from(fxAppIndexEntryRevisions), indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent),
     uniqueKeys: await persistence.drizzle.select().from(fxAppUniqueKeys), candidates: await persistence.drizzle.select().from(fxSystemAppSchemaCandidateValidations) });
   const initial = await inventory();
+  const enabledBuilds = await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
+  expect(enabledBuilds.length).toBeGreaterThan(0);
+  expect(enabledBuilds.every(build => build.maintenanceBytes !== null)).toBe(true);
   await assertCmsParticipantAdmission(input);
   expect(await inventory()).toEqual(initial);
   expect(await runEffect(host.read(read, null))).toEqual({ docs: [], total: 0 });
@@ -160,6 +164,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   if (!isJsonObject(created) || typeof created._id !== "string") throw new Error("Expected created document");
   expect(created.title).toBe("updated");
   const published = await inventory();
+  expect(await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId)).toEqual(enabledBuilds);
   expect(published.revisions).toHaveLength(initial.revisions.length + 1);
   expect(published.commits).toHaveLength(initial.commits.length + 1);
   expect(published.outcomes).toHaveLength(initial.outcomes.length + 1);

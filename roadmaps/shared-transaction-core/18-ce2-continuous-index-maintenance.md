@@ -1,8 +1,9 @@
 # CE2 Continuous Index Maintenance Preflight
 
-Status: selected implementation direction under standing owner approval.
-This preflight changes no serving behavior. Continuous maintenance, its durable
-binding and removal of ordinary coverage updates are not implemented.
+Status: ordered-index continuous maintenance implemented through the
+[activation cutover](./23-ce2-activation-maintenance-cutover.md). Unique-workspace
+optimization, matched request measurements and wider concurrency acceptance
+remain open; this is not complete CE2.
 
 ## Outcome And Evidence
 
@@ -13,17 +14,17 @@ settlement owner while replacing that per-index progress write with an
 activation-bound continuous-maintenance contract. Index-build work and physical
 retirement retain their existing owners.
 
-The current contract is coherent and must be replaced across its consumers:
+The shared contract is implemented across these existing owners:
 
 | Owner | Current responsibility and necessary change |
 | --- | --- |
-| `applicationDocumentMaterialization/materialization.ts` | Locks intrinsic/developer build rows for update, authenticates coverage at the preceding commit, applies memberships, then advances enabled coverage. Application material publication and shared participants now require issued ports and exact developer selections. Progress writes remain until the activation-bound coverage cutover. |
+| `applicationDocumentMaterialization/materialization.ts` | Reads selected intrinsic/developer builds with share protection, authenticates continuous coverage at the preceding commit and applies memberships without enabled serving progress updates. Application material publication and shared participants require issued ports and exact selections. Bounded no-active/non-enabled paths keep their lifecycle progress. |
 | `pointCommitTransaction.ts` | Application execution validates the active schema under the clock. The shared write-ownership guard now excludes legacy material/attempted writes and missing attempted-write evidence under all active head contracts. Contracts 1/2 retain authenticated read-only legacy settlement; contract 3 retains its stronger generation rule. |
 | `cmsTransaction/admission.ts` | Accepts and checks the current Application binding, schema and Payload binding before participant work. Preserve that admission and pass the same core maintenance selection to shared materialization. |
-| `indexBuildStates.ts` | `isIndexBuildSnapshotCoveredInTransactionEffect` admits explicit coverage or an unchanged-table suffix after checking enabled lifecycle and first-readable lower bound. Readers must use this one owner for both bounded and continuously maintained coverage. |
-| `applicationReadiness.ts`, `applicationActivation.ts` | Readiness authenticates physical requirements and coverage; activation locks the scope and changes the active head. Activation must atomically open, carry forward and close maintenance obligations with that head. |
+| `indexBuildStates.ts` | `isIndexBuildSnapshotCoveredInTransactionEffect` owns bounded and continuous coverage. It checks scope/build fences, first-readable and current head/schema/definition agreement; uncertified inactive builds retain explicit coverage or the unchanged-table suffix proof. |
+| `applicationReadiness.ts`, `applicationActivation.ts` | Readiness authenticates physical requirements and coverage; activation locks the scope and changes the active head. Activation atomically opens, carries forward and closes maintenance obligations with that head. |
 | `intrinsicCreationTimeIndexBuildV1.ts` | Initial validation establishes first-readable coverage; enabled catch-up replays original committed changes. Candidate-only work still uses this bounded reconciliation. It must not be mistaken for continuous active maintenance. |
-| `applicationQuerySnapshot.ts`, `sessionJournalStore.ts` | Index admission checks first-readable and coverage before scanning or accepting journal evidence. Both must consume the replacement proof, including historical snapshots. |
+| `applicationQuerySnapshot.ts`, `sessionJournalStore.ts` | Index admission checks first-readable and coverage before scanning or accepting journal evidence. Both consume the shared replacement proof, including historical snapshots. |
 | `retainedIndexHistoryCompaction.ts` | Preserves each membership anchor at the retained floor under the scope guard. Continuous coverage does not authorize deleting anchors, moving the floor or pretending missing catch-up history exists. |
 
 The connected witness is the managed-schema B scenario: B's candidate index is
@@ -117,9 +118,8 @@ transaction guards. An older snapshot is still eligible after deactivation when
 the sealed prefix covers it. Mutable maintenance/coverage metadata must not
 change the immutable readiness digest or invalidate a legitimate active token.
 
-The first implementation retains the scope clock. Only after these obligations
-are closed may enabled ordinary writers replace exclusive build-row access with
-the required read protection and remove the coverage UPDATE. Builders and
+The implementation retains the scope clock. Enabled serving writers use share
+protection on build rows and no longer update their covered-through frontier. Builders and
 validating-index cursor resets still own their writes. This does not prove two
 same-scope commits overlap; CE3 owns that separate protocol and measurement.
 
@@ -136,7 +136,8 @@ fixtures use Application admission; retained read-only attempts carry their
 authenticated journals. [Required intrinsic build state](./22-ce2-required-intrinsic-build-state.md)
 closes the materializer's remaining missing-row skip: each selected intrinsic
 definition must have its build metadata. These prerequisites do not establish
-continuous coverage.
+continuous coverage by themselves. The implemented activation cutover completes
+the following ordered-index sequence:
 
 1. Close exact writer composition and its refusal witnesses through the existing
    shared owner. Migrate native/CMS construction and named legacy publication

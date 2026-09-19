@@ -214,7 +214,15 @@ export const readApplicationActiveRevisionForShareInTransactionEffect =
         scopeId,
       );
       if (active === null) return null;
-      const head = active.head;
+      const schema = yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head);
+      return Object.freeze({ revisionId: schema.revisionId, deploymentId: schema.deploymentId, schemaVersionId: schema.schemaVersionId });
+    },
+  );
+
+/** Reuses a coherent head already authenticated in the caller's guarded transaction. */
+export const readApplicationSchemaForHeadForShareInTransactionEffect = Effect.fn("ApplicationActiveHead.readSchemaForHead")(
+    function* (tx: AppRowTransaction, head: DecodedApplicationActiveHead) {
+      const scopeId = head.scopeId;
       const bindings = head.readinessKind === "legacy"
         ? yield* query(
             tx.select().from(fxSystemApplicationRevisionSchemasV1).where(and(
@@ -261,6 +269,7 @@ export const readApplicationActiveRevisionForShareInTransactionEffect =
         revisionId: head.revisionId,
         deploymentId: binding.deploymentId,
         schemaVersionId: binding.schemaVersionId,
+        schemaManifestSha256: encodeBytesToLowercaseHex(binding.schemaManifestSha256),
       });
     },
   );
