@@ -2,9 +2,9 @@
 
 Status: implemented bounded lifecycle attribution and a first-row storage
 reference. [Native invocation attribution](./32-ce0-native-invocation-attribution.md)
-now measures the real invocation/host owners with a scripted Worker RPC body.
-Actual Worker/source execution and an equivalent full publication reference remain
-open. This extends the
+now measures the real invocation/host owners; its [source-execution extension](./35-ce0-native-workerd-attribution.md)
+uses local Workerd. Hosted execution and an equivalent complete-request reference
+remain open. This extends the
 [first workload](./11-ce0-first-workload.md); it does not complete CE0 or activate
 an execution replacement.
 
@@ -38,12 +38,15 @@ independently measured percentiles to derive request phases.
 ## Explicit SQL Reference Profile
 
 The [reference](../../packages/persistence-postgres/test/ce0RowInsertReference.ts)
-compares the existing prepared row-append owner with scalar SQL against the same
+compares the existing prepared row-append owner with bounded SQL batches against the same
 `fx_app_row_rev`, `fx_app_row_current` and scope-clock tables. Both use the existing
 located READ COMMITTED runner for acquisition, settlement and release. Canonical
 document construction occurs before either timed interval. The reference reuses
 protocol identity projection, byte encoding and the selected error definitions;
-it does not call the core row-insertion implementation.
+it does not call the core row-insertion implementation. The
+[matched batch reference](./41-ce0-batched-row-reference.md) independently enforces
+32-row and 256 KiB grouping, permits a larger singleton within the 8 MiB ceiling,
+and verifies every returned revision and pointer identity.
 
 | Dimension | Admitted comparison |
 | --- | --- |
@@ -65,9 +68,9 @@ not a substitute implementation of the core's corruption/recovery behavior.
 One warm-up pair and five measured pairs alternate core/reference ordering for
 1/8/32/128 rows. Both are instrumented; the existing observer calibration does
 not prove identical overhead for their different query forms. Samples are local
-diagnostics. The core now uses bounded row batches from CE1 while the explicit
-reference remains scalar. A difference therefore includes batching, SQL shape,
-driver binding, repeated validation, ORM construction and scheduling; do not
+diagnostics. Both candidates use matched bounded row batches and scope lookup
+counts. A difference still includes SQL shape, driver binding, scalar validation,
+ORM construction and scheduling; do not
 attribute the entire difference to one library or advertise a production gain.
 
 ## Validation, Reports And Cleanup
@@ -97,6 +100,6 @@ This does not authorize journal coalescing merely because it is expensive.
 Before calling a reference equivalent to publication, add the omitted admitted
 authority/dependency, index/constraint, publication/replay and failure contracts
 to both its implementation and differential witnesses. Broader framework and
-hosted workloads retain their existing gates. The scalar reference remains
+hosted workloads retain their existing gates. The bounded reference remains
 test-only; each actual replacement must migrate consumers and remove the code
 it displaces in the same slice.

@@ -138,6 +138,10 @@ while removing ordinary CMS publication exclusion.
 The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
 extends the matched comparison at the existing shared publication owner, without
 duplicating native authentication or transaction recovery in a benchmark engine.
+The [matched bounded row reference](./41-ce0-batched-row-reference.md) replaces
+its scalar SQL baseline with independent batching and exact returned-set checks.
+Row/byte boundary, late-batch rollback and real contention witnesses constrain
+that comparison; it remains a row-store boundary, not a complete request.
 
 Continue CE0 with complete request attribution and an equivalent PostgreSQL
 reference. Select each execution correction against its declared baseline and

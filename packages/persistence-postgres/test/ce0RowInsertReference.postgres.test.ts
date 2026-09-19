@@ -17,11 +17,14 @@ import {
   ScopeEpochSchema,
   CommitSeqSchema,
   projectScopeIdUuidV1,
+  projectScopeEpochUuidV1,
   FlarexDbV1StorageGenerationSchema,
 } from "flarex-protocol/storage-authority";
 import {
   appendPreparedAppRowRevisionsInTransactionEffect,
   AppRowRevisionAlreadyExistsError,
+  AppRowRevisionChainConflictError,
+  AppRowStorageCorruptionError,
   AppRowScopeAuthorityUnavailableError,
   type AppendPreparedLiveAppRowRevisionV1Input,
 } from "../src/appRows";
@@ -32,7 +35,7 @@ import {
   postgresUrl,
   useFileScopedPostgresPersistence,
 } from "./postgresHelpers";
-import { insertCe0ReferenceRow } from "./ce0RowInsertReference";
+import { insertCe0ReferenceRows } from "./ce0RowInsertReference";
 import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
 import { readCe0Environment } from "./ce0Environment";
 
@@ -106,6 +109,15 @@ describePostgres("CE0 same-layout first-row insertion reference", () => {
             callbackCause: expect.any(AppRowScopeAuthorityUnavailableError),
           },
         });
+        for (const [badRows, reason] of [
+          [[first, first], "duplicateIdentity"],
+          [[first, { ...first, commitSeq: CommitSeqSchema.make(2n) }], "mixedPublication"],
+        ] as const) {
+          await expect(runCandidate(persistence, candidate, badRows)).rejects.toMatchObject({
+            issue: { kind: "callbackRolledBack", callbackCause: { reason } },
+          });
+          expect(await rowState(persistence, first.scopeId)).toEqual(before);
+        }
         const rollbackRows = await prepareRows(persistence, 2);
         const failure = new Error("CE0 late row-store failure");
         await expect(
@@ -192,6 +204,87 @@ describePostgres("CE0 same-layout first-row insertion reference", () => {
     });
   }, 120_000);
 
+  it("matches row and byte batch boundaries with complete state and statement scaling", async () => {
+    await withPersistence(async persistence => {
+      for (const [count, padding, batches] of [[0, 0, 0], [1, 0, 1], [31, 0, 1], [32, 0, 1],
+        [33, 0, 2], [64, 0, 2], [65, 0, 3], [3, 100_000, 2], [2, 300_000, 2]] as const) {
+        let expected: Awaited<ReturnType<typeof rowState>> | undefined;
+        for (const candidate of ["core", "reference"] as const) {
+          const rows = await prepareRows(persistence, count, padding);
+          const measured = await withPostgresExecutionObservation(persistence.pool, () => runCandidate(persistence, candidate, rows));
+          expect(measured.value).toEqual(rows.map(({ writeEpoch, ...row }) => ({ ...row,
+            scopeUuid: projectScopeIdUuidV1(row.scopeId).scopeUuid,
+            writeEpochUuid: projectScopeEpochUuidV1(writeEpoch).epochUuid,
+          })));
+          for (const family of ["fx_app_row_rev", "fx_app_row_current"])
+            expect(measured.observation.familyCommands[family]?.insert ?? 0).toBe(batches);
+          expect(measured.observation.familyCommands.fx_system_scope_clock?.select ?? 0).toBe(count === 0 ? 0 : 1);
+          if (rows[0] !== undefined) {
+            const state = await rowState(persistence, rows[0].scopeId);
+            expect(state).toHaveLength(count);
+            if (expected === undefined) expected = state;
+            else expect(state).toEqual(expected);
+          }
+        }
+      }
+    });
+  }, 120_000);
+
+  it("rolls back earlier batches when a later first identity already exists", async () => {
+    await withPersistence(async persistence => {
+      for (const candidate of ["core", "reference"] as const) {
+        const rows = await prepareRows(persistence, 65);
+        const last = rows.at(-1);
+        if (last === undefined) throw new Error("Missing last batch identity");
+        await runCandidate(persistence, candidate, [last]);
+        const before = await rowState(persistence, last.scopeId);
+        await expect(runCandidate(persistence, candidate, rows)).rejects.toMatchObject({
+          issue: { kind: "callbackRolledBack", callbackCause: expect.any(AppRowRevisionAlreadyExistsError) },
+        });
+        expect(await rowState(persistence, last.scopeId)).toEqual(before);
+      }
+    });
+  }, 120_000);
+
+  it("refuses suppressed or altered RETURNING identities and rolls back every batch", async () => {
+    await withPersistence(async persistence => {
+      for (const candidate of ["core", "reference"] as const) {
+        for (const [table, action] of [["fx_app_row_rev", "suppress"], ["fx_app_row_rev", "alter"], ["fx_app_row_current", "suppress"]] as const) {
+          const rows = await prepareRows(persistence, 33);
+          const first = rows[0];
+          if (first === undefined) throw new Error("Missing trigger fixture row");
+          // Trusted constant SQL, local to this fixture's private search_path.
+          await persistence.query(`create function ce0_reference_fault() returns trigger language plpgsql as $$
+            begin
+              if encode(new.row_id, 'hex') = '00000000000000000000000000000021' then
+                ${action === "suppress" ? "return null;" : "new.row_id := decode('ffffffffffffffffffffffffffffffff', 'hex');"}
+              end if;
+              return new;
+            end $$`);
+          await persistence.query(`create trigger ce0_reference_fault before insert on ${table} for each row execute function ce0_reference_fault()`);
+          try {
+            const callbackCause = table === "fx_app_row_rev"
+              ? action === "suppress" ? expect.any(AppRowRevisionAlreadyExistsError)
+                : candidate === "core" ? expect.any(AppRowStorageCorruptionError)
+                : { message: "Unexpected or duplicate CE0 revision RETURNING identity" }
+              : candidate === "core" ? expect.any(AppRowRevisionChainConflictError)
+                : { message: "Incomplete CE0 pointer writes; transaction must roll back" };
+            const observed = await withPostgresExecutionObservation(persistence.pool, async () => {
+              await expect(runCandidate(persistence, candidate, rows)).rejects.toMatchObject({
+                issue: { kind: "callbackRolledBack", callbackCause },
+              });
+            });
+            expect(observed.observation.familyCommands.fx_app_row_current?.insert).toBe(table === "fx_app_row_rev" ? 1 : 2);
+            expect(await rowState(persistence, first.scopeId)).toEqual([]);
+          } finally {
+            await persistence.query(`drop trigger ce0_reference_fault on ${table}`);
+            await persistence.query("drop function ce0_reference_fault()");
+          }
+        }
+      }
+    });
+  }, 120_000);
+
   it("compares identical row histories and pointers with the same physical transaction owner", async () => {
     await withPersistence(async (persistence) => {
       const environment = await readCe0Environment(persistence, [
@@ -251,7 +344,7 @@ describePostgres("CE0 same-layout first-row insertion reference", () => {
         workload:
           "prepared first live row revisions only; same generic tables and physical runner; excludes admission, earlier-read OCC, indexes, publication, replay and hosted execution",
         comparison:
-          "bounded batch core versus scalar explicit SQL reference; both candidates instrumented; no full-request overhead ratio",
+          "bounded batch core versus bounded batch explicit SQL reference; both candidates instrumented; driver/validation/SQL construction differ; no full-request overhead ratio",
         warmupPairs: 1,
         measuredPairs: 5,
         samples,
@@ -269,6 +362,7 @@ describePostgres("CE0 same-layout first-row insertion reference", () => {
 async function prepareRows(
   persistence: PostgresFlarexPersistence,
   rowCount: number,
+  padding = 0,
 ): Promise<readonly Insert[]> {
   const scopeId = ScopeIdSchema.make(`scope_${randomUUID()}`);
   const epoch = ScopeEpochSchema.make(
@@ -305,6 +399,7 @@ async function prepareRows(
         creationTime,
         fields: {
           title: `row_${index}`,
+          ...(padding === 0 ? {} : { padding: "x".repeat(padding) }),
           count: 9_007_199_254_740_993n,
           bytes: new Uint8Array([0, 127, 255]).buffer,
         },
@@ -339,10 +434,7 @@ function runCandidate(
     if (hooks?.beforeRows !== undefined) await hooks.beforeRows(acquired);
     const output = candidate === "core"
       ? [...await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, rows))]
-      : [];
-    if (candidate === "reference") {
-      for (const row of rows) output.push(await insertCe0ReferenceRow(acquired, row));
-    }
+      : await insertCe0ReferenceRows(acquired, rows);
     if (lateFailure !== undefined) throw lateFailure;
     if (hooks?.afterRows !== undefined) await hooks.afterRows(acquired);
     return output;
