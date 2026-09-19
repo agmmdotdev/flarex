@@ -706,6 +706,37 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     });
   }, 120_000);
 
+  it("batches CE1 unique ownership through the native publisher", async () => {
+    await withPostgresPersistence(async persistence => {
+      const randomUuid = uuidFactory("96419300");
+      for (const rowCount of [1, 32, 33, 128]) {
+        const scope = await createScope(persistence, randomUuid, `ce1_unique_${rowCount}`);
+        const unique = await prepareUniqueConstraintForPostgres(persistence, scope);
+        const inserted = await createAttempt(persistence, randomUuid, scope, "ce1_unique_insert", rowCount);
+        if (rowCount > 32) {
+          expect(await runFailure(createPublisher(persistence, unique).publish(inserted.publicationCommand)))
+            .toMatchObject({ reason: "mutationLimitExceeded", observed: rowCount, maximum: 32 });
+          expect(await durableState(persistence, inserted.command.sealIdentity.scopeUuid))
+            .toMatchObject({ revisions: "0", commit_headers: "0", outcomes: "0", last_commit_seq: "0" });
+          continue;
+        }
+        const measured = await withPostgresExecutionObservation(persistence.pool, async markPhase =>
+          runEffect(createPublisher(persistence, {
+            ...unique,
+            afterTransactionStep: async event => {
+              if (event.step === "uniqueKeyBatchWriting" || event.step === "uniqueKeyBatchWritten")
+                markPhase(event.step);
+            },
+          }).publish(inserted.publicationCommand)),
+        );
+        expect(measured.value).toMatchObject({ kind: "published" });
+        expect(measured.observation.phases.uniqueKeyBatchWriting?.queryCalls).toBe(1 + 3 * Math.ceil(rowCount / 32));
+        const claims = await persistence.query("select row_id from fx_app_unique_key where scope_uuid = $1", [inserted.command.sealIdentity.scopeUuid]);
+        expect(claims.rows).toHaveLength(rowCount);
+      }
+    });
+  }, 120_000);
+
   it("batches CE1 intrinsic membership preparation and rejects late corruption before row writes", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96419000");

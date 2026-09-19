@@ -121,7 +121,7 @@ import {
   advanceActiveUniqueCoverageInTransactionEffect,
 } from "../appUniqueConstraintSetBuildV1";
 import {
-  applyAppUniqueKeyMutationInTransactionEffect,
+  applyAppUniqueKeyMutationsInTransactionEffect,
   readAppUniqueKeyOwnersInTransactionEffect,
   AppUniqueKeyConflictError,
   AppUniqueKeyHashError,
@@ -2084,29 +2084,38 @@ async function writePointCommitUniqueKeyActions(
   actions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<void> {
-  for (const action of actions) {
-    const input: ApplyAppUniqueKeyMutationV1Input = Object.freeze({
-      scopeId: command.authorityPins.scopeId,
-      constraintId: action.definition.uniqueConstraintDefinitionId,
-      tableId: action.definition.tableId,
-      rowId: action.rowId,
-      writeEpoch,
-      previous: action.previous,
-      next: action.next,
-    });
+  if (actions.length === 0) return;
+  await emitTransactionStep(options, command, "uniqueKeyBatchWriting");
+  for (const phase of ["release", "claim"] as const) {
+    const selected = actions.filter((action) => action.phase === phase);
+    const inputs = selected.map(
+      (action) =>
+        ({
+          scopeId: command.authorityPins.scopeId,
+          constraintId: action.definition.uniqueConstraintDefinitionId,
+          tableId: action.definition.tableId,
+          rowId: action.rowId,
+          writeEpoch,
+          previous: action.previous,
+          next: action.next,
+        }) satisfies ApplyAppUniqueKeyMutationV1Input,
+    );
     const settled = await runPointCommitInTransactionEffect(
-      applyAppUniqueKeyMutationInTransactionEffect(tx, input),
+      applyAppUniqueKeyMutationsInTransactionEffect(tx, inputs),
     );
     projectPointCommitTransactionResult(
       settled.pipe(Result.mapError(mapPointCommitUniqueKeyFailure)),
     );
-    await emitTransactionStep(options, command, "uniqueKeyWritten");
+    for (let index = 0; index < selected.length; index += 1) {
+      await emitTransactionStep(options, command, "uniqueKeyWritten");
+    }
   }
+  await emitTransactionStep(options, command, "uniqueKeyBatchWritten");
 }
 
 function mapPointCommitUniqueKeyFailure(
   failure: Effect.Error<
-    ReturnType<typeof applyAppUniqueKeyMutationInTransactionEffect>
+    ReturnType<typeof applyAppUniqueKeyMutationsInTransactionEffect>
   >,
 ) {
   if (

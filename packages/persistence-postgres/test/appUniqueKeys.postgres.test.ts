@@ -20,7 +20,7 @@ import {
 } from "../src/appUniqueKeyContract";
 import {
   AppUniqueKeyConflictError,
-  applyAppUniqueKeyMutationInTransactionEffect,
+  applyAppUniqueKeyMutationsInTransactionEffect,
 } from "../src/appUniqueKeys";
 import {
   appendPreparedAppRowRevisionsInTransactionEffect,
@@ -32,6 +32,7 @@ import {
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { verifyUniqueBatches } from "./uniqueBatchScenario";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const scopeId = ScopeIdSchema.make(
@@ -58,6 +59,12 @@ const rowC = decodeAppRowIdHexV1("5500000000000000000000000000000c");
 const key = projection("same-key");
 
 describePostgres("real PostgreSQL S11 unique-key storage", () => {
+  it("applies bounded unique sets and rolls back later-batch failures", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      await insertClocks(persistence);
+      await verifyUniqueBatches(persistence, persistence.drizzle, scopeId, epoch);
+    });
+  }, 60_000);
   it("preserves exact ownership, rejects overwrite, and permits another scope", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await insertClocks(persistence);
@@ -73,7 +80,7 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
 
       expect(claimed.claim).toMatchObject({scopeId, constraintId, tableId, rowId: rowA});
       const repeatedClaim = await persistence.drizzle.transaction((tx) =>
-        runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(tx, {
+        runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
           scopeId,
           constraintId,
           tableId,
@@ -81,7 +88,7 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
           writeEpoch: epoch,
           previous: null,
           next: key,
-        }))
+        }]))
       );
       expect(repeatedClaim).toBeInstanceOf(AppUniqueKeyConflictError);
 
@@ -93,7 +100,7 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
         "conflict",
       ));
       const conflict = await persistence.drizzle.transaction((tx) =>
-        runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(tx, {
+        runEffectFailure(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
           scopeId,
           constraintId,
           tableId,
@@ -101,7 +108,7 @@ describePostgres("real PostgreSQL S11 unique-key storage", () => {
           writeEpoch: epoch,
           previous: null,
           next: key,
-        }))
+        }]))
       );
       expect(conflict).toBeInstanceOf(AppUniqueKeyConflictError);
 
@@ -163,8 +170,8 @@ async function apply(
   rowId: typeof rowA,
   commitSeq: bigint,
 ) {
-  return persistence.drizzle.transaction((tx) =>
-    runEffect(applyAppUniqueKeyMutationInTransactionEffect(tx, {
+  const results = await persistence.drizzle.transaction((tx) =>
+    runEffect(applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
       scopeId: owningScopeId,
       constraintId,
       tableId,
@@ -172,8 +179,12 @@ async function apply(
       writeEpoch,
       previous: null,
       next: key,
-    }))
+    }]))
   );
+  expect(results).toHaveLength(1);
+  const result = results[0];
+  if (result === undefined) throw new Error("Missing unique mutation result");
+  return result;
 }
 
 async function liveRow(

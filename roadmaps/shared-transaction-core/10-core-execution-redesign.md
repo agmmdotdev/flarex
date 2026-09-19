@@ -16,7 +16,7 @@ does not permit silent durable-data deletion or unrelated integration expansion.
 
 Status: owner-requested design and implementation-gate plan, with bounded CE0
 attribution/references, CE1 intrinsic membership preparation and bounded row/index
-application implemented; complete-request reference acceptance and remaining
+and unique application implemented; complete-request reference acceptance and remaining
 execution changes are open. Documentation
 approval does not activate new storage, remove locks or broaden any framework
 capability. This is a workstream within the existing shared transaction core,
@@ -44,7 +44,7 @@ charge native syscall journaling to a framework path that does not use it.
 
 The pure point OCC comparison is not evidence of a large CPU bottleneck. Current
 head reads already batch dependencies, and prepared row writes now batch at the
-shared row owner. Index application also uses bounded sets. Remaining concerns include sequential unique application,
+shared row owner. Index and unique application also use bounded sets. Remaining concerns include
 exclusive index-build-state access and coverage
 updates during normal commits, broad commit exclusion, and execution evidence
 across the request. These are source-derived risks, not measured regressions.
@@ -128,7 +128,11 @@ returned identities, predecessor creation times and conditional current-pointer
 updates while retaining the existing transaction and locks. The
 [index application slice](./16-ce1-index-batch-application.md) extends bounded
 execution to membership/parent checks and index revisions/current pointers.
-Unique write application remains scalar and is the next CE1 materialization work.
+The [unique ownership slice](./17-ce1-unique-batch-application.md) replaces scalar
+unique writes with bounded validation and release/claim phases. Native unique
+admission remains capped at 32 transitions. Next execution work is the CE2
+readable-index/lifecycle preflight; broader CE0 references and connected CE1
+acceptance remain open.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution

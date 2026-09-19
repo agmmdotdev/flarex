@@ -788,6 +788,8 @@ export type PointCommitTransactionProofStepV1 =
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"
   | "uniqueKeyWritten"
+  | "uniqueKeyBatchWriting"
+  | "uniqueKeyBatchWritten"
   | "relationBindingValidated"
   | "relationTargetsValidated"
   | "relationEdgeWritten"

@@ -62,7 +62,7 @@ import {
 } from "./appUniqueConstraintDefinitions";
 import {
   ensureAppUniqueKeyBackfillClaimInTransactionEffect,
-  applyAppUniqueKeyMutationInTransactionEffect,
+  applyAppUniqueKeyMutationsInTransactionEffect,
   readAppUniqueKeyOwnersInTransactionEffect,
   drainInitialAppUniqueKeyClaimsInTransactionEffect,
   type ApplyAppUniqueKeyMutationV1Error,
@@ -2580,8 +2580,9 @@ const reconcileDefinitionGap = Effect.fn(
           componentCount: definition.physicalSpec.orderedFields.length + 1,
         })),
     });
-    for (const owner of owners)
-      yield* applyAppUniqueKeyMutationInTransactionEffect(tx, {
+    yield* applyAppUniqueKeyMutationsInTransactionEffect(
+      tx,
+      owners.map((owner) => ({
         scopeId: authority.scopeId,
         constraintId: owner.constraintId,
         tableId: owner.tableId,
@@ -2589,7 +2590,8 @@ const reconcileDefinitionGap = Effect.fn(
         writeEpoch: authority.epoch,
         previous: owner.projection,
         next: null,
-      });
+      })),
+    );
   }
   for (const rowId of rowIds) {
     const current = yield* readCurrentAppRowInTransactionEffect(tx, {

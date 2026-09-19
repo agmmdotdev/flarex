@@ -248,7 +248,7 @@ import {
   prepareAppUniqueConstraintSetClosureV1Effect,
 } from "../src/appUniqueConstraintSetClosureV1";
 import {
-  applyAppUniqueKeyMutationInTransactionEffect,
+  applyAppUniqueKeyMutationsInTransactionEffect,
   AppUniqueKeyConflictError,
 } from "../src/appUniqueKeys";
 import {
@@ -7997,7 +7997,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }
       await persistence.drizzle.transaction((tx) =>
         runEffect(
-          applyAppUniqueKeyMutationInTransactionEffect(tx, {
+          applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
             scopeId: current.anchor.scopeId,
             constraintId: definition.uniqueConstraintDefinitionId,
             tableId,
@@ -8007,7 +8007,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             next: Result.getOrThrow(
               lowerAppUniqueConstraintProjectionV1Result(definition, document),
             ),
-          }),
+          }]),
         ),
       );
     }
@@ -8156,7 +8156,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       });
       await runEffect(
-        applyAppUniqueKeyMutationInTransactionEffect(tx, {
+        applyAppUniqueKeyMutationsInTransactionEffect(tx, [{
           scopeId: current.anchor.scopeId,
           constraintId: definition.uniqueConstraintDefinitionId,
           tableId,
@@ -8166,7 +8166,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           next: Result.getOrThrow(
             lowerAppUniqueConstraintProjectionV1Result(definition, document),
           ),
-        }),
+        }]),
       );
     });
     return documentId;

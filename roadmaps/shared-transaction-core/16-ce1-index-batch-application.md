@@ -1,7 +1,8 @@
 # CE1 Bounded Index Batch Application
 
 Status: bounded index application is implemented under standing owner authorization.
-Unique ownership application remains subsequent CE1 work.
+Unique ownership application is now covered by the
+[unique batch slice](./17-ce1-unique-batch-application.md).
 
 ## Outcome And Boundary
 
@@ -10,7 +11,7 @@ Replace the scalar online index writer with a batch Effect operation at
 developer transition sets. The existing backfill entry point keeps historical
 authority/parent semantics and uses the same decoded batch application for its
 single transition. No new schema, transaction, lifecycle authority or framework
-capability is introduced. Unique ownership remains a subsequent CE1 slice.
+capability is introduced. Unique ownership has its separate CE1 slice above.
 
 The row-batching checkpoint leaves index scope/head/parent reads and writes
 linear per transition. Authenticate the online scope/epoch once per batch call,

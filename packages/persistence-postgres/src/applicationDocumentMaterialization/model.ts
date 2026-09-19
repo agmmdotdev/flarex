@@ -79,6 +79,8 @@ export type ApplicationDocumentMaterializationStep =
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"
   | "uniqueKeyWritten"
+  | "uniqueKeyBatchWriting"
+  | "uniqueKeyBatchWritten"
   | "relationEdgeWritten"
   | "relationRestrictValidated"
   | "uniqueConstraintCoverageAdvanced";
