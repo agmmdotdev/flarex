@@ -26,10 +26,11 @@ regression evidence, not the generic target benchmark.
 | Indexed key movement | `maintains developer-index key moves and rolls both entry changes back` protects old/new entries and rollback. Count materialization statements and encoded parameters. |
 | Shared enabled-index contention | The CE0 witness holds one writer after its intrinsic-index lock, identifies the second disjoint writer's actual backend as blocked by the first at the scope clock, and commits a different scope before releasing the barrier. Dense heads and both index entries survive settlement. This proves current serialization, not independent same-scope overlap or the absence of a later index-state bottleneck. |
 
-The initial native stored-attempt check is the exact C04A-VAL-001 reproduction
-listed in the [commit-compiler roadmap](../flarexdb-foundation/03-commit-compiler.md).
-A successful selected rerun does not establish the historical failure's cause,
-close its other cases, or establish the full stored-attempt lane.
+The initial native stored-attempt check uses the C04A-VAL-001 regression entry
+point in the [commit-compiler roadmap](../flarexdb-foundation/03-commit-compiler.md).
+That owner now retires the stale blocker with the full ordered PGlite lane and
+focused PostgreSQL publication/corruption/rollback evidence. This does not
+establish the historical failure's cause or complete native execution acceptance.
 
 ## Observation Owners And Limits
 

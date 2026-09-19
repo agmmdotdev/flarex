@@ -693,11 +693,11 @@ The work proceeds in bounded gates:
      key/contention files while C08-B2 prepends its definition-lowering proof.
      This removes repeated file spelling without splitting process, fixture,
      ordering, timeout, or lane boundaries.
-     The expanded O09-B PGlite lane currently reaches the intended tests but is
-     red on shared-owner issue `C04A-VAL-001`, recorded in
+     The expanded O09-B PGlite lane passes with its original process and fixture
+     boundaries. The former shared-owner blocker `C04A-VAL-001` is reconciled in
      [`03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md).
-     The former direct Vitest command reproduces the failure, so TQ-A2 stops at
-     that ownership boundary and does not weaken or repair the journal decoder.
+     TQ-A2 does not own journal decoding or authentication; future failures at
+     that boundary still require investigation in the responsible core owner.
 3. **`TQ-B` — one contract-suite pilot. Implemented; acceptance pending.** The
    Application-native query pair now defines its identical scenario name and
    proof assertion once behind a typed `runScenario<A>` adapter. The PGlite
@@ -831,12 +831,10 @@ The work proceeds in bounded gates:
    registrar receives only those explicit capabilities and registers the same
    two test names at the same position in the existing `describe`; it creates no
    second Vitest file, persistence lifecycle, lane command, package export, or
-   production abstraction. Both focused invariants pass independently and the
-   persistence package typecheck is green. The full 92-test file still reaches
-   all tests and remains at the recorded `C04A-VAL-001` baseline of 89 passing
-   and three failing; this slice does not weaken those failures or repair the
-   journal owner. This is an extraction-seam pilot only. Remaining loader
-   lifecycle, interruption, and authority groups, plus the later publication,
+   production abstraction. This is an extraction-seam pilot only. The full
+   stored-attempt file now passes; the former `C04A-VAL-001` blocker is reconciled
+   by the commit-compiler owner above, without a test-decomposition repair.
+   Remaining loader lifecycle, interruption, and authority groups, plus the later publication,
    OCC, and redelivery groups, require their own bounded review before moving.
 
    The second bounded stored-attempt slice moves the adjacent Application-
@@ -850,11 +848,8 @@ The work proceeds in bounded gates:
    One explicitly safety-justified invalid-command adapter now exercises the
    transition port's runtime decoder, replacing four scattered direct/chained
    assertions without weakening the malformed digest, mixed Legacy/Application,
-   unknown-pin, or unknown-session cases. The seven registrar-owned runtime
-   cases pass together, the persistence package typecheck is green, and the
-   full 92-test file remains at the recorded 89-pass/three-failure
-   `C04A-VAL-001` baseline. Lease-time, interruption, and broader lifecycle
-   coverage remain in the original file and outside this slice.
+   unknown-pin, or unknown-session cases. Lease-time, interruption, and broader
+   lifecycle coverage remain in the original file and outside this slice.
 
    The third bounded stored-attempt slice separates the hard-expiry lease proof
    and the ordinary lifecycle/integrity proofs into two registrar capabilities
@@ -865,12 +860,9 @@ The work proceeds in bounded gates:
    mutation through exact callbacks, including hard-expiry promotion, lifecycle
    and execution-claim changes, journal state changes, lease/root deletion, and
    database-time expiry. The registrar receives no persistence handle and does
-   not reproduce SQL or fixture construction. All 12 registrar-owned runtime
-   cases pass together, package typecheck is green, and the full 92-test file
-   remains at the recorded 89-pass/three-failure `C04A-VAL-001` baseline. The
-   monolith is now 9,375 lines and the registrar 473 lines; those counts are
-   review telemetry, not authority to move the adjacent interruption, stale-pin,
-   corruption, payload, publication, OCC, or redelivery groups.
+   not reproduce SQL or fixture construction. This extraction does not authorize
+   moving the adjacent interruption, stale-pin, corruption, payload, publication,
+   OCC, or redelivery groups.
 
    The fourth bounded stored-attempt slice moves the adjacent stale authority-
    pin matrix and the two malformed stored-record corruption proofs into one
@@ -879,10 +871,7 @@ The work proceeds in bounded gates:
    retains revocation-clock mutation plus both constraint-drop, invalid-row,
    repair, and constraint-restoration sequences through narrow callbacks whose
    `try/finally` cleanup still encloses the moved assertions. The registrar gains
-   no persistence handle or DDL authority. All 15 registrar-owned runtime cases
-   pass together, package typecheck is green, and the full 92-test file remains
-   at the recorded 89-pass/three-failure `C04A-VAL-001` baseline. The monolith
-   is now 9,316 lines and the registrar 603 lines. Point overflow, byte
+   no persistence handle or DDL authority. Point overflow, byte
    detachment, commit-authority payload/interruption, publication, OCC, and
    redelivery remain outside this slice.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete

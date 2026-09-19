@@ -35,36 +35,34 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   while C04C2 remains conditional and
   unapproved.
 
-## Open Validation Issue: C04A-VAL-001
+## Reconciled Validation Issue: C04A-VAL-001
 
-**Disposition (2026-08-23):** Open validation blocker; no shared-owner repair is
-authorized by test-quality work. The issue was exposed while validating the
-TQ-A2 O09-B ordered test-file-group pilot and reproduces through the former
-direct Vitest command, so it is not attributed to lane orchestration.
+**Disposition:** Retired as a current validation blocker. The original focused
+case, full stored-attempt PGlite file and ordered O09-B PGlite lane pass. The
+connected ordinary-role PostgreSQL B2a publication, root-sequence corruption
+and late-invariant rollback witnesses also pass. This reconciliation changes
+no runtime decoder or test expectation and does not identify the historical
+failure's cause or establish full native execution/scale acceptance.
 
-- **Reproduction:** from `packages/persistence-postgres`, run
+- **Regression entry point:** from `packages/persistence-postgres`, run
   `pnpm exec vitest run test/storedAttemptEvidence.test.ts --no-file-parallelism --testTimeout=180000 -t "consumes O08-B1 once and publishes through the same-process runtime-neutral B2a path"`.
-- **Expected:** the stored attempt's insert operation decodes its authenticated
-  commit syscall sequence and the O08-B1/B2a publication scenario succeeds.
-- **Actual:** `@flarex/executor` `pointMutationJournal` rejects the insert as
-  `UnsupportedPointMutationJournalOperationV1Error` with reason
-  `invalidSequence`; the nested Schema error is `Expected bigint, got "1"`.
-  The full O09-B PGlite command currently reports three failures: the same
-  invalid-sequence error in two publication scenarios and one current-authority
-  case returning `journalRootInvalid` instead of `sessionEvidenceInvalid`.
-- **Affected owner and boundary:** the C03/C04A journal decode and stored-attempt
-  authentication path, including the `CommitSyscallSequenceV1` runtime/schema
-  agreement. Test-lane manifest code does not own this protocol or decoder.
-- **Evidence:** the manifest lane reached the exact former O09-B files and
-  options in one Vitest process, with inherited PostgreSQL activation removed;
-  the focused former direct command reproduced the bigint/string failure.
-  Active concurrent changes overlap adjacent protocol and persistence work, so
-  root-cause attribution remains unsettled.
-
-Until separately approved and corrected by this owner, TQ-A2 may validate
-manifest expansion and fail-closed reporting but must not claim a passing
-O09-B application proof, weaken these assertions, add a compatibility decoder,
-or reproduce journal logic in the test harness.
+- **Runtime/wire contract:** `CommitSyscallSequenceV1` encodes as a canonical
+  decimal string but decodes to a positive bigint. The executor journal
+  validates runtime operations with `Schema.toType`; its tests explicitly
+  reject string sequences and accept bigint sequences. B2a supplies the runtime
+  bigint. A compatibility decoder accepting strings here would weaken this
+  boundary and is not part of this reconciliation.
+- **Current-authority classification:** open-attempt materialization reconstructs
+  the expected fresh root from session timing before classifying the stored
+  root. Advancing only the session timestamp breaks the root creation-time/seed
+  agreement and is correctly rejected as `journalRootInvalid` before the B2a
+  runner executes. The older expectation of `sessionEvidenceInvalid` is not
+  the current classification contract; rejection before execution is retained.
+- **Ownership:** C03/C04A journal decoding and stored-attempt authentication
+  own these contracts. TQ-A2's manifest continues to preserve the ordered
+  single-process lane and does not reproduce journal logic. Historical failure
+  observations belong to Git; do not retain their stale counts as current
+  acceptance status or infer that passing these witnesses closes other gates.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a

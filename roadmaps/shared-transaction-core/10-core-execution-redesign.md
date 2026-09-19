@@ -254,12 +254,15 @@ unpaired percentiles or hiding queue time.
 
 ## Evidence Reconciliation And Completion
 
-The commit-compiler roadmap records C04A-VAL-001 as an open issue. CE0 must check
-its current reproduction and disposition at the actual evaluated revision.
-Do not assume it still fails, silently declare it fixed, or omit it from a broad
-correctness claim. Other independently supported cases may be measured with
-that limitation explicitly scoped; affected acceptance remains blocked until
-its owner resolves or properly reclassifies it.
+The [commit-compiler roadmap](../flarexdb-foundation/03-commit-compiler.md)
+retires C04A-VAL-001 as a current blocker after validating the original cases,
+full ordered PGlite lane and focused ordinary-role PostgreSQL counterparts.
+Runtime bigint/wire-string separation and fail-closed current-authority
+classification remain enforced. This reconciliation does not establish the
+historical failure's cause, complete native request attribution or close CE0's
+equivalent-reference and capacity gates. Recheck affected witnesses when their
+owning contracts change instead of carrying historical failures forward as
+current status.
 
 Update the existing living status owners when verified truth changes. The
 storage redesign already describes implemented canonical row bodies, stable
