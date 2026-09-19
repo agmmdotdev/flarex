@@ -1,4 +1,4 @@
-import { fxSystemIndexBuildStates } from "../src/schema";
+import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { cmsHostFixture } from "./cmsHostFixture";
 import { assertCmsParticipantAdmission } from "./cmsParticipantAdmission";
 import { expect } from "vitest";
@@ -153,6 +153,23 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   const enabledBuilds = await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
   expect(enabledBuilds.length).toBeGreaterThan(0);
   expect(enabledBuilds.every(build => build.maintenanceBytes !== null)).toBe(true);
+  const uniqueBuilds = await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId);
+  expect(uniqueBuilds.length).toBeGreaterThan(0);
+  expect(uniqueBuilds.every(build => build.maintenanceBytes !== null)).toBe(true);
+  const uniqueBuild = uniqueBuilds[0];
+  if (uniqueBuild === undefined) throw new Error("Expected unique build");
+  const uniqueIdentity = and(eq(fxSystemUniqueConstraintBuilds.scopeId, uniqueBuild.scopeId),
+    eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, uniqueBuild.uniqueConstraintDefinitionId));
+  await expect(persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: null }).where(uniqueIdentity)).rejects.toBeDefined();
+  await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: null, maintenanceSha256: null, maintenanceActivationSequence: null }).where(uniqueIdentity);
+  try {
+    expect(Exit.isFailure(await runEffect(Effect.exit(host.run(host.newRequestKey(), create, { title: "uncertified" }))))).toBe(true);
+    expect(await inventory()).toEqual(initial);
+  } finally {
+    await persistence.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: uniqueBuild.maintenanceBytes,
+      maintenanceSha256: uniqueBuild.maintenanceSha256, maintenanceActivationSequence: uniqueBuild.maintenanceActivationSequence }).where(uniqueIdentity);
+    callbacks = 0;
+  }
   await assertCmsParticipantAdmission(input);
   expect(await inventory()).toEqual(initial);
   expect(await runEffect(host.read(read, null))).toEqual({ docs: [], total: 0 });
@@ -175,6 +192,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   expect(published.leases).toEqual(initial.leases);
   expect(published.indexRevisions.length).toBeGreaterThan(initial.indexRevisions.length);
   expect(published.uniqueKeys).toHaveLength(initial.uniqueKeys.length + 1);
+  expect(await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId)).toEqual(uniqueBuilds);
   expect(await runEffect(host.run(key, create, { title: "original" }))).toEqual(created);
   expect(callbacks).toBe(1);
   expect(await inventory()).toEqual(published);
@@ -303,6 +321,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
     })).rejects.toBe(rollbackProbe);
   }
   expect(await inventory()).toEqual(beforeBounds);
+  expect(await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId)).toEqual(uniqueBuilds);
   return { host, input, read, edit, create, netZero, inventory, created, key, fixture, bindings,
     activationRequest: dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "cms-host-activate", candidate.sha256, null), callbackCount: () => callbacks };
 }

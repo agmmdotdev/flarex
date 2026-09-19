@@ -1,4 +1,7 @@
 import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
+import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
+import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
+import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
 import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
 import { readApplicationWriteOwnershipInTransaction } from "./applicationWriteOwnership/Repository";
 import type { ScopeId } from "flarex-protocol/storage-authority";
@@ -2715,6 +2718,23 @@ export const readApplicationActivationRelatedPhysicalRequirements = Effect.fn("A
       state.prepared.requirements, schemaVersionId, target, tx,
       catalog === undefined ? undefined : { database: state.repository.context.controlDb, transaction: catalog.tx },
     );
+  },
+);
+
+export const readApplicationRelationActivationUniqueRequirements = Effect.fn("ApplicationRelationReadinessFold.readActivationUniqueRequirements")(
+  function* (repository: ApplicationRelationReadinessFoldRepository, issued: ApplicationRelationReadinessFoldResult,
+    schemaVersionId: string, target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction,
+    catalogLease: ApplicationActivationCatalogLease | undefined) {
+    const state = issuedReadyResults.get(issued);
+    const catalog = catalogLease === undefined ? undefined : activationCatalogLeases.get(catalogLease);
+    if (state === undefined || repositoryStates.get(repository) !== state.repository ||
+      (catalogLease !== undefined && (catalog === undefined || catalog.issued !== issued)) ||
+      (state.prepared.schema.writePolicy !== null && catalog === undefined)) {
+      return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    }
+    const db = state.repository.context.controlDb;
+    return yield* readUniqueMaintenanceRequirements(catalog?.tx ?? (hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : db),
+      state.deploymentId, schemaVersionId);
   },
 );
 

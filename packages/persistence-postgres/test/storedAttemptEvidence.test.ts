@@ -5270,7 +5270,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       async (current) => ({
         ...(await prepareUniqueConstraintForO06(current, false)),
         afterTransactionStep: async (event) => {
-          if (event.step === "uniqueConstraintCoverageAdvanced")
+          if (event.step === "uniquePublicationApplied")
             throw new PointCommitCorruptionV1Error({
               reason: "publicationInvariantInvalid",
             });

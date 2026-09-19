@@ -120,7 +120,7 @@ import type { ReadAppUniqueConstraintSetClosureV1Error } from "../appUniqueConst
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
   prepareActiveUniqueCoverageInTransactionEffect,
-  advanceActiveUniqueCoverageInTransactionEffect,
+  advanceUnboundUniqueCoverageInTransactionEffect,
 } from "../appUniqueConstraintSetBuildV1";
 import {
   applyAppUniqueKeyMutationsInTransactionEffect,
@@ -556,20 +556,15 @@ export async function materializeApplicationDocumentRows(
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<void> {
   const writeEpoch = clock.epoch;
-  const uniqueBuilds = await runUniqueCoverage(
-    prepareActiveUniqueCoverageInTransactionEffect(
-      tx,
-      clock,
-      command.authorityPins.schemaVersionId,
-      uniqueDefinitions,
-    ),
-  );
   const maintainedBuilds = [...intrinsicBuilds, ...developerBuilds];
   const coverageContext = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
     readIndexCoverageContextInTransactionEffect(tx, clock).pipe(Effect.mapError(cause =>
       cause.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("lockDeveloperIndexBuilds", cause.cause)
         : corruption("developerIndexBuildInvalid"))),
   ));
+  const uniqueBuilds = await runUniqueCoverage(
+    prepareActiveUniqueCoverageInTransactionEffect(tx, clock, command.authorityPins.schemaVersionId, uniqueDefinitions, coverageContext),
+  );
   for (const { build, definition } of maintainedBuilds) {
     if (coverageContext.active !== null && (build.lifecycle !== "enabled" || build.maintenance === null))
       throw new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({ reason: "definitionSetUnavailable" });
@@ -704,7 +699,7 @@ export async function materializeApplicationDocumentRows(
   }
 
   await runUniqueCoverage(
-    advanceActiveUniqueCoverageInTransactionEffect(
+    advanceUnboundUniqueCoverageInTransactionEffect(
       tx,
       uniqueBuilds,
       commitSeq,
@@ -715,7 +710,7 @@ export async function materializeApplicationDocumentRows(
     await emitTransactionStep(
       options,
       command,
-      "uniqueConstraintCoverageAdvanced",
+      "uniquePublicationApplied",
     );
 }
 

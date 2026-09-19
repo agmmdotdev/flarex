@@ -14,6 +14,10 @@ import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import { AppRowReadPersistenceError, type AppRowTransaction } from "./appRows";
 import { replaceActiveIndexMaintenanceInTransactionEffect } from "./indexMaintenance";
+import { replaceActiveUniqueMaintenanceInTransactionEffect, AppUniqueConstraintSetBuildIntegrationV1Error, type ReadUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
+import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
+import { readApplicationActivationUniqueRequirements } from "./applicationReadiness";
+import { readApplicationRelationActivationUniqueRequirements } from "./applicationRelationReadinessFold";
 import { loadRelatedPublishedPhysicalRequirementSnapshotV1, type ReadRelatedPublishedPhysicalRequirements } from "./indexBuildReconciliation";
 import { IndexMaintenanceError } from "./indexMaintenanceEvidence";
 import { fxSystemApplicationWriteOwnership } from "./applicationWriteOwnership/Schema";
@@ -208,7 +212,7 @@ export interface ApplicationActivationContext<SchemaFailure, ColdFailure> {
   >;
   /** Test-only failure or transaction gate after an owned persistence step. */
   readonly faultAfter?: (
-    point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "headWritten",
+    point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "uniqueMaintenanceClosed" | "uniqueMaintenanceOpened" | "headWritten",
   ) => void | Promise<void>;
 }
 
@@ -221,7 +225,7 @@ export interface ApplicationRelationActivationContext<SchemaFailure, ColdFailure
   >;
   /** Test-only failure or transaction gate after an owned persistence step. */
   readonly faultAfter?: (
-    point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "headWritten",
+    point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "uniqueMaintenanceClosed" | "uniqueMaintenanceOpened" | "headWritten",
   ) => void | Promise<void>;
 }
 
@@ -1255,6 +1259,7 @@ function* (
   return yield* persistActivationInTransaction(
     tx,
     schemaVersionId => loadRelatedPublishedPhysicalRequirementSnapshotV1(validated.basis.physicalRequirements, schemaVersionId, target, tx),
+    schemaVersionId => readApplicationActivationUniqueRequirements(readinessRepository, readiness, schemaVersionId, target, tx),
     Object.freeze({ kind: "legacy", basis: validated.basis }),
     clock,
     expected,
@@ -1308,6 +1313,7 @@ const activateRelationInTransaction = Effect.fn(
   return yield* persistActivationInTransaction(
     tx,
     schemaVersionId => readApplicationActivationRelatedPhysicalRequirements(readinessRepository, readiness, schemaVersionId, target, tx, catalogLease),
+    schemaVersionId => readApplicationRelationActivationUniqueRequirements(readinessRepository, readiness, schemaVersionId, target, tx, catalogLease),
     Object.freeze({ kind: "relation", basis: validated.basis }),
     clock,
     expected,
@@ -1398,6 +1404,7 @@ const persistActivationInTransaction = Effect.fn(
 )(function* (
   tx: AppRowTransaction,
   readRelatedRequirements: ReadRelatedPublishedPhysicalRequirements,
+  readUniqueRequirements: ReadUniqueMaintenanceRequirements,
   validated: ValidatedActivation,
   clock: ScopeClockRecord,
   expected: ApplicationActiveCasToken | null,
@@ -1523,6 +1530,15 @@ const persistActivationInTransaction = Effect.fn(
         (cause instanceof IndexMaintenanceError && cause.reason === "resourceFailure");
       return activationError("activate", resource ? "resourceFailure" : "storedState", basis.revisionId,
         resource && (cause instanceof IndexMaintenanceError ? (cause.retryable ?? retryableCause(cause.cause)) : retryableCause(cause.cause)), cause);
+    }));
+  yield* replaceActiveUniqueMaintenanceInTransactionEffect(tx, clock, readUniqueRequirements,
+    basis.deploymentId, basis.schemaVersionId, activationSequence, nextHead.sha256, faultAfter)
+    .pipe(Effect.mapError(cause => {
+      const resource = cause instanceof AppUniqueConstraintSetBuildIntegrationV1Error ||
+        ((cause instanceof UniqueMaintenanceError || cause instanceof IndexMaintenanceError) && cause.reason === "resourceFailure");
+      return activationError("activate", resource ? "resourceFailure" : "storedState", basis.revisionId,
+        resource && ((cause instanceof AppUniqueConstraintSetBuildIntegrationV1Error || cause instanceof UniqueMaintenanceError ||
+          cause instanceof IndexMaintenanceError) ? (cause.retryable ?? false) : false), cause);
     }));
   if (head === null) {
     const inserted = yield* query(

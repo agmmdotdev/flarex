@@ -45,10 +45,10 @@ charge native syscall journaling to a framework path that does not use it.
 The pure point OCC comparison is not evidence of a large CPU bottleneck. Current
 head reads already batch dependencies, and prepared row writes now batch at the
 shared row owner. Index and unique application also use bounded sets. Activated
-ordered indexes now use shared build protection without per-commit progress
-updates. Remaining concerns include exclusive unique-build-state access and
-coverage updates during normal commits, broad commit exclusion, and execution evidence
-across the request. These are source-derived risks, not measured regressions.
+ordered indexes and unique constraints now use shared build protection without
+per-commit progress updates. Remaining concerns include broad commit exclusion,
+execution evidence across the request, and the cost of validating continuous
+maintenance. These are source-derived risks, not measured regressions.
 
 [Materialization](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
 and the [point commit owner](../../packages/persistence-postgres/src/pointCommitTransaction.ts)
@@ -149,15 +149,17 @@ proof. Existing uncertified active heads require fresh validated activation.
 Bounded candidate history and the scope clock remain authoritative.
 [Exact unique selection](./24-ce2-exact-unique-constraint-selection.md) binds
 fresh touched definitions to the existing closed unique set, with one retained
-immutable closure per issued port. Unique workspace progress, matched complete-request measurements and wider lifecycle
-concurrency remain CE2 work. Broader CE0 references and connected CE1 acceptance
+immutable closure per issued port. [Unique maintenance](./26-ce2-unique-maintenance-cutover.md)
+now extends activation-bound coverage to unique workspaces; native/CMS serving
+writes preserve their certified build tuples. Matched complete-request measurements
+and wider lifecycle concurrency remain CE2 work. Broader CE0 references and connected CE1 acceptance
 also remain open.
 
 [Split-catalog activation](./25-ce2-split-catalog-activation.md) now borrows its
 existing catalog transaction for outgoing requirements. This closes the core
-transaction-reuse gap without changing adapter behavior. The next CE2 design
-slice is unique-build maintenance; matched measurements and wider lifecycle
-concurrency remain separate acceptance gates.
+transaction-reuse gap without changing adapter behavior. Ordered and unique
+maintenance retain the scope clock. The next CE2 acceptance work is matched
+measurement and wider lifecycle concurrency, with actual native/CMS publication.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution

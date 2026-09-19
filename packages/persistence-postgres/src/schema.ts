@@ -5115,6 +5115,9 @@ export const fxSystemUniqueConstraintBuilds = pgTable(
       .notNull(),
     coveredThroughCommitSeq: bigint("covered_through_commit_seq", { mode: "bigint" })
       .$type<CommitSeq>(),
+    maintenanceActivationSequence: bigint("maintenance_activation_sequence", { mode: "bigint" }),
+    maintenanceBytes: bytea("maintenance_bytes"),
+    maintenanceSha256: bytea("maintenance_sha256"),
     cursorRowId: bytea("cursor_row_id"),
     attemptFence: bigint("attempt_fence", { mode: "bigint" })
       .$type<AppUniqueConstraintSetBuildAttemptFenceV1>()
@@ -5131,6 +5134,15 @@ export const fxSystemUniqueConstraintBuilds = pgTable(
       name: "fx_system_unique_build_pk",
       columns: [table.scopeId, table.uniqueConstraintDefinitionId],
     }),
+    index("fx_system_unique_build_maintenance_idx")
+      .on(table.scopeId, table.maintenanceActivationSequence)
+      .where(sql`${table.maintenanceActivationSequence} is not null`),
+    check("fx_system_unique_build_maintenance_check", sql`
+      (${table.maintenanceActivationSequence} is null and ${table.maintenanceBytes} is null and ${table.maintenanceSha256} is null)
+      or (${table.maintenanceActivationSequence} is not null and ${table.maintenanceActivationSequence} > 0
+        and ${table.maintenanceBytes} is not null and octet_length(${table.maintenanceBytes}) between 1 and 16384
+        and ${table.maintenanceSha256} is not null and octet_length(${table.maintenanceSha256}) = 32
+        and ${table.lifecycle} = 'enabled' and ${table.coveredThroughCommitSeq} is not null)`),
     foreignKey({
       name: "fx_system_unique_build_scope_fk",
       columns: [table.scopeId],

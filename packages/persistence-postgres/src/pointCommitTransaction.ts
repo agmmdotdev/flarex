@@ -796,7 +796,7 @@ export type PointCommitTransactionProofStepV1 =
   | "relationTargetsValidated"
   | "relationEdgeWritten"
   | "relationRestrictValidated"
-  | "uniqueConstraintCoverageAdvanced"
+  | "uniquePublicationApplied"
   | "candidateSchemaValidationFailed"
   | "outcomeRechecked"
   | "commitHeaderWritten"

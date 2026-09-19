@@ -92,6 +92,8 @@ describe.skipIf(postgresUrl === null)("private scalar CMS host (Postgres)", () =
     let other: PoolClient | undefined;
     let buildClient: PoolClient | undefined;
     let buildDrain: Promise<unknown> | undefined;
+    let uniqueClient: PoolClient | undefined;
+    let uniqueDrain: Promise<unknown> | undefined;
     let activationFiber: ReturnType<typeof Effect.runFork<unknown, unknown>> | undefined;
     const separateScope = ScopeIdSchema.make(`scope_${crypto.randomUUID()}`);
     let blockedDrain: Promise<unknown> | undefined;
@@ -109,6 +111,12 @@ describe.skipIf(postgresUrl === null)("private scalar CMS host (Postgres)", () =
       const buildBlocked = buildClient.query("select index_definition_id from fx_system_index_build_state where scope_id=$1 for update", [tested.fixture.authority.scopeId]);
       buildDrain = buildBlocked.catch(() => undefined);
       await waitForQuery(buildPid, "fx_system_index_build_state", true);
+      uniqueClient = await persistence.pool.connect();
+      const uniquePid = (await uniqueClient.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0]?.pid;
+      if (uniquePid === undefined) throw new Error("Expected unique build contender PID");
+      const uniqueBlocked = uniqueClient.query("select unique_constraint_definition_id from fx_system_unique_constraint_build where scope_id=$1 for update", [tested.fixture.authority.scopeId]);
+      uniqueDrain = uniqueBlocked.catch(() => undefined);
+      await waitForQuery(uniquePid, "fx_system_unique_constraint_build", true);
       activationFiber = Effect.runFork(tested.bindings.activate({ ...tested.activationRequest, requestId: "competing-activation" }).pipe(Effect.exit));
       const activationDeadline = performance.now() + 5000;
       let activationBlocked = false;
@@ -131,6 +139,7 @@ describe.skipIf(postgresUrl === null)("private scalar CMS host (Postgres)", () =
       await runEffect(Fiber.join(held));
       await blocked;
       await buildBlocked;
+      await uniqueBlocked;
       expect(await runEffect(Fiber.join(activationFiber))).toMatchObject({ _tag: "Failure" });
     } finally {
       await runEffect(Deferred.succeed(release, undefined));
@@ -138,8 +147,10 @@ describe.skipIf(postgresUrl === null)("private scalar CMS host (Postgres)", () =
       if (activationFiber !== undefined) await runEffect(Fiber.interrupt(activationFiber));
       await blockedDrain;
       await buildDrain;
+      await uniqueDrain;
       other?.release();
       buildClient?.release();
+      uniqueClient?.release();
       await persistence.drizzle.delete(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, separateScope));
     }
 

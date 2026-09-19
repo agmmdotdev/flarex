@@ -1788,7 +1788,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
             if (event.step === "uniqueKeyWritten") {
               uniqueWrites += 1;
             }
-            if (event.step === "uniqueConstraintCoverageAdvanced") {
+            if (event.step === "uniquePublicationApplied") {
               throw new PointCommitCorruptionV1Error({
                 reason: "publicationInvariantInvalid",
               });

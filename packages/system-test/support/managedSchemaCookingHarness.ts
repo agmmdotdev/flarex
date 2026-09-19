@@ -72,7 +72,7 @@ import {
   createApplicationManagedSchemaPlanningPort,
 } from
   "@flarex/persistence-postgres/internal/application-managed-schema-planning";
-import { fxSystemScopeClocks, fxSystemIndexBuildStates, fxAppIndexEntryRevisions } from
+import { fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxAppIndexEntryRevisions } from
   "@flarex/persistence-postgres/internal/system-test/schema";
 import { PointCommitStaleAuthorityV1Error } from
   "@flarex/persistence-postgres/point-commit-transaction";
@@ -344,11 +344,19 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     const prepared = await runSystemTestEffectV1(prepareFlarexManagedSchemaDeployment({ candidatePublication: candidate.publication }).pipe(Effect.provide(planningLayer)));
     const activated = await applyManagedSchemaPlanUntilTerminal(scenario, prepared.prepared);
     if (activated.status !== "activated" || activated.revisionId !== candidate.publication.revisionId) throw new Error("Repaired unique candidate did not activate through normal managed apply.");
+    const maintainedBuilds = await fixture.target.query<{ build: string; certified: boolean }>(
+      "select to_jsonb(b)::text build, maintenance_bytes is not null certified from fx_system_unique_constraint_build b order by unique_constraint_definition_id");
+    if (maintainedBuilds.rows.length !== 1 || !maintainedBuilds.rows[0]?.certified) throw new Error("Activated unique build lacks maintenance authority.");
     const activeWrite = await scenario.mutation(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("recipes:rename"),
       { id: ids[1]!, name: "maintained by B" }, TransactionRequestKeyV1Schema.make("unique-coverage:active-B")));
     if (activeWrite.disposition !== "published") throw new Error("B could not maintain its activated unique constraint.");
     const afterWrite = await runSystemTestEffectV1(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(fixture.uniqueConstraintEligibility, { ...input, scopeId: fixture.authority.scopeId }));
-    if (afterWrite.status !== "eligible") throw new Error(`B publication did not advance its selected unique coverage: ${JSON.stringify(afterWrite)}`);
+    if (afterWrite.status !== "eligible") throw new Error(`B publication lost unique coverage: ${JSON.stringify(afterWrite)}`);
+    const builder = await runSystemTestEffectV1(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, pageSize: 1 }));
+    if (builder.status !== "replayed" || builder.scanned !== 0) throw new Error("Active unique build incorrectly entered catch-up.");
+    const afterMaintainedWrite = await fixture.target.query<{ build: string; certified: boolean }>(
+      "select to_jsonb(b)::text build, maintenance_bytes is not null certified from fx_system_unique_constraint_build b order by unique_constraint_definition_id");
+    if (JSON.stringify(afterMaintainedWrite.rows) !== JSON.stringify(maintainedBuilds.rows)) throw new Error("Native writer or builder changed certified unique build progress.");
     const beforeConflict = await durableCounts(fixture);
     const storageBeforeConflict = await applicationStorageCounts(fixture);
     const claimsBeforeConflict = await fixture.target.query("select to_jsonb(c)::text claim from fx_app_unique_key c order by constraint_id, row_id");
@@ -362,6 +370,64 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     const buildsAfterConflict = await fixture.target.query("select to_jsonb(b)::text build from fx_system_unique_constraint_build b order by unique_constraint_definition_id");
     if (JSON.stringify(claimsAfterConflict.rows) !== JSON.stringify(claimsBeforeConflict.rows) ||
       JSON.stringify(buildsAfterConflict.rows) !== JSON.stringify(buildsBeforeConflict.rows)) throw new Error("B unique conflict changed ownership or coverage.");
+    const readUniqueBuild = async () => {
+      const rows = await fixture.target.drizzle.select().from(fxSystemUniqueConstraintBuilds)
+        .where(eq(fxSystemUniqueConstraintBuilds.scopeId, fixture.authority.scopeId));
+      if (rows.length !== 1 || rows[0] === undefined) throw new Error("Expected one unique workspace");
+      return rows[0];
+    };
+    const activeBuild = await readUniqueBuild();
+    const switchUniqueSchema = async (version: "A" | "B", suffix: string) => {
+      const nextSource = await cookingSourceBundle(version);
+      scenario.sources.set(nextSource.sourceArtifact.rootSha256, nextSource);
+      const next = await fixture.registerRevision({ requestKey: `request:unique-maintenance:${suffix}`,
+        analysis: cookingAnalysis(nextSource, scenario.analysisLoader, `unique maintenance ${suffix}`) });
+      const nextSchema = await fixture.publishManagedSchemaCandidate(next.manifest);
+      const plan = await runSystemTestEffectV1(prepareFlarexManagedSchemaDeployment({ candidatePublication: next.publication }).pipe(Effect.provide(planningLayer)));
+      if (version === "A") {
+        const validation = { deploymentId: fixture.deploymentId, schemaVersionId: nextSchema.schemaVersionId };
+        await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(fixture.candidateValidation, validation));
+        await settleReadyCandidateValidation(fixture, validation, "unique maintenance A");
+        const original = await readUniqueBuild();
+        if (original.maintenanceBytes === null) throw new Error("Missing outgoing unique certificate");
+        const frame: unknown = JSON.parse(new TextDecoder().decode(original.maintenanceBytes));
+        if (!isJson(frame) || !isJsonObject(frame)) throw new Error("Invalid unique certificate fixture");
+        const beforeHead = await runSystemTestEffectV1(fixture.activation.readActive());
+        const identity = and(eq(fxSystemUniqueConstraintBuilds.scopeId, fixture.authority.scopeId),
+          eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, original.uniqueConstraintDefinitionId));
+        for (const patch of [{ physicalSpecSha256Hex: "0".repeat(64) }, { tableId: 999999 }, { headSha256: "0".repeat(64) }]) {
+          const bytes = new TextEncoder().encode(encodeCanonicalJson({ ...frame, ...patch }, () => { throw new Error("Invalid certificate fixture"); }));
+          await fixture.target.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: bytes,
+            maintenanceSha256: new Uint8Array(createHash("sha256").update(bytes).digest()) }).where(identity);
+          try {
+            const refused = await runSystemTestEffectV1(Effect.result(fixture.activation.activate({ revisionId: next.publication.revisionId,
+              expectedActiveHead: beforeHead.expectedActiveHead })));
+            if (Result.isSuccess(refused)) throw new Error("Outgoing-only forged unique certificate activated");
+          } finally {
+            await fixture.target.drizzle.update(fxSystemUniqueConstraintBuilds).set({ maintenanceBytes: original.maintenanceBytes,
+              maintenanceSha256: original.maintenanceSha256 }).where(identity);
+          }
+          deepStrictEqual(await runSystemTestEffectV1(fixture.activation.readActive()), beforeHead);
+        }
+      }
+      const result = await applyManagedSchemaPlanUntilTerminal(scenario, plan.prepared);
+      if (result.status !== "activated") throw new Error("Unique maintenance successor did not activate");
+    };
+    const beforeClose = await fixture.target.getScopeClock(fixture.authority.scopeId);
+    if (beforeClose === null) throw new Error("Missing unique scope clock");
+    await switchUniqueSchema("A", "close");
+    const closed = await readUniqueBuild();
+    if (closed.maintenanceBytes !== null || closed.coveredThroughCommitSeq !== beforeClose.lastCommitSeq) throw new Error("Unique deactivation did not seal coverage");
+    await scenario.mutation(invokeApplicationMutation(TransactionFunctionPathV1Schema.make("recipes:rename"),
+      { id: ids[1]!, name: "unique gap under A" }, TransactionRequestKeyV1Schema.make("unique-maintenance:gap")));
+    const inactive = await runSystemTestEffectV1(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(fixture.uniqueConstraintEligibility,
+      { ...input, scopeId: fixture.authority.scopeId }));
+    if (inactive.status !== "not_ready") throw new Error("Inactive unique workspace falsely covered an A-only write");
+    deepStrictEqual(await readUniqueBuild(), closed);
+    await switchUniqueSchema("B", "reopen");
+    const reopened = await readUniqueBuild();
+    if (reopened.maintenanceBytes === null || reopened.attemptFence !== activeBuild.attemptFence || reopened.startCommitSeq !== activeBuild.startCommitSeq ||
+      reopened.coveredThroughCommitSeq === closed.coveredThroughCommitSeq) throw new Error("Unique reactivation did not bridge its gap and preserve build identity");
     return true;
   });
 }

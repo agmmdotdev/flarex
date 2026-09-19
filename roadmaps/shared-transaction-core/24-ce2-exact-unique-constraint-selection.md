@@ -59,10 +59,11 @@ Observe that warm selection still performs only scope and touched-definition
 queries. Preserve connected unique publication and build regressions, affected
 failure-and-retry witnesses for hashing during cold selection and preparation,
 typechecks, lint and both project reviews. Reconcile current ordered-versus-unique
-maintenance status in the owning notes. Unique progress writes and broader CE2
-concurrency/measurement gates remain subsequent work.
+maintenance status in the owning notes. Serving unique progress writes are
+replaced by the [unique maintenance cutover](./26-ce2-unique-maintenance-cutover.md);
+broader CE2 concurrency/measurement gates remain subsequent work.
 
 This closes unique writer selection and its connected failure contracts.
 [Split-catalog activation](./25-ce2-split-catalog-activation.md) separately closes
-the catalog transaction-reuse gap. Unique-maintenance cutover remains subsequent
-work.
+the catalog transaction-reuse gap. The [unique-maintenance cutover](./26-ce2-unique-maintenance-cutover.md)
+owns the connected activation, writer and builder replacement.

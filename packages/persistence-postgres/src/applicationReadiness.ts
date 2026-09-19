@@ -1,4 +1,7 @@
 import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
+import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
+import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
+import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
 import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
@@ -408,6 +411,21 @@ const issuedReadinessStates = new WeakMap<
   Extract<ApplicationReadinessResult, { readonly status: "ready" }>,
   IssuedApplicationReadinessState
 >();
+
+export const readApplicationActivationUniqueRequirements = Effect.fn("ApplicationReadiness.readActivationUniqueRequirements")(
+  function* (repository: unknown, issued: ApplicationReadinessResult, schemaVersionId: string,
+    target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction) {
+    const state = typeof repository === "object" && repository !== null ? readinessRepositoryStates.get(repository) : undefined;
+    const ready = issued.status === "ready" ? issuedReadinessStates.get(issued) : undefined;
+    if (state === undefined || ready === undefined || ready.issuer !== state.issuer) {
+      return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    }
+    const bundle = ready.kind === "prepared" ? ready.prepared.bundle : ready.stored.bundle;
+    const db = state.context.controlDb;
+    return yield* readUniqueMaintenanceRequirements(hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : db,
+      bundle.deploymentId, schemaVersionId);
+  },
+);
 
 export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
   context: ApplicationReadinessContext<SchemaFailure, ColdFailure>,

@@ -83,7 +83,7 @@ export type ApplicationDocumentMaterializationStep =
   | "uniqueKeyBatchWritten"
   | "relationEdgeWritten"
   | "relationRestrictValidated"
-  | "uniqueConstraintCoverageAdvanced";
+  | "uniquePublicationApplied";
 
 export interface ApplicationDocumentMaterializationOptions {
   /**

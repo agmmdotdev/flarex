@@ -2,7 +2,8 @@
 
 Status: ordered-index activation, writer, reader and builder cutover implemented.
 The four writer prerequisites in [continuous maintenance](./18-ce2-continuous-index-maintenance.md)
-remain mandatory. Unique-workspace optimization, matched before/after request
+remain mandatory. [Unique maintenance](./26-ce2-unique-maintenance-cutover.md)
+extends the same activation boundary to current ownership workspaces. Matched before/after request
 measurements and wider concurrent-lifecycle acceptance remain subsequent CE2 work.
 
 [Split-catalog activation](./25-ce2-split-catalog-activation.md) now binds outgoing
@@ -157,7 +158,8 @@ and no covered-through UPDATE. Recheck lock acquisition order against existing
 readers/builders before weakening row locks. Non-enabled cursor resets and
 bounded primitive writes retain their actual write protection and progress
 work; these are different lifecycle states, not a compatibility serving engine.
-Keep unique-workspace progress unchanged for its separately recorded follow-on.
+The [unique cutover](./26-ce2-unique-maintenance-cutover.md) replaces serving
+unique-workspace progress with its own current-ownership certificate.
 
 The enabled builder uses the same coverage verdict: valid continuous maintenance
 is already complete through H and does not need catch-up. Without it, the

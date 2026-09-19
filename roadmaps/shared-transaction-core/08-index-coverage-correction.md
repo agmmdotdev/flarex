@@ -149,8 +149,11 @@ partial gap grants readiness. Regular reconciliation advances coverage across
 unchanged table suffixes so unrelated commits do not accumulate stale work.
 
 Active writers authenticate the selected physical workspaces and stored claim
-bytes before row publication, omit unchanged ownership writes, and advance only
-those workspaces atomically with the scope clock. Candidate-only constraints do
+bytes before row publication and omit unchanged ownership writes.
+[Activation-bound unique maintenance](./26-ce2-unique-maintenance-cutover.md)
+now preserves certified workspace progress during serving writes. Activation
+seals outgoing coverage and binds incoming obligations atomically with its head;
+uncertified inactive workspaces retain bounded catch-up. Candidate-only constraints do
 not impose candidate uniqueness on active writes. Build directory limits apply
 to new declarations, not a global scan or reset on every commit. Stable readiness
 binds the exact per-definition start/fence vector, excluding mutable coverage.

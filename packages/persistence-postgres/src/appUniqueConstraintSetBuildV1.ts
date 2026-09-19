@@ -8,11 +8,16 @@ import {
   isPhysicalUniqueBuildActiveInTransactionEffect,
   PhysicalDefinitionLifecyclePersistenceError,
 } from "./physicalDefinitionLifecycle";
-import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { readIndexCoverageContextInTransactionEffect, type IndexCoverageContext } from "./indexBuildStates";
+import { decodeUniqueMaintenanceEvidenceResult, verifyUniqueMaintenanceEvidence, hashUniqueMaintenanceEvidence, uniqueMaintenanceFrameBytes,
+  UniqueMaintenanceError, type UniqueMaintenanceEvidence, type UniqueMaintenanceFrame } from "./uniqueMaintenanceEvidence";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { DrizzleQueryError } from "drizzle-orm/errors";
+import { isRetryableSqlTransactionCause } from "./locatedReadCommittedEffect";
 import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
 import {
   appRowIdHexV1FromBytesResult,
@@ -34,6 +39,7 @@ import {
   AppUniqueConstraintSetBuildAttemptFenceV1Schema,
   AppUniqueConstraintSetBuildLifecycleV1Schema,
   MAX_APP_UNIQUE_CONSTRAINT_SET_BUILD_ATTEMPT_FENCE_V1,
+  MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   appUniqueConstraintSetSha256HexV1ToBytes,
   type AppUniqueConstraintSetBuildAttemptFenceV1,
   type AppUniqueConstraintSetSha256HexV1,
@@ -73,9 +79,12 @@ import {
 import {
   appUniqueConstraintDefinitionsMatchMembers,
   readAppUniqueConstraintSetClosureV1Effect,
+  AppUniqueConstraintSetClosureResourceError,
+  AppUniqueConstraintSetClosurePersistenceV1Error,
   type LocatedAppUniqueConstraintSetClosureV1,
   type ReadAppUniqueConstraintSetClosureV1Error,
 } from "./appUniqueConstraintSetClosureV1";
+import { AppUniqueConstraintCatalogPersistenceError } from "./appUniqueConstraintDefinitions";
 import {
   AppSchemaCandidateValidationPersistenceError,
   claimCurrentAppSchemaCandidateValidationHeadEffect,
@@ -689,6 +698,9 @@ const BuildStateSchema = Schema.Struct({
   uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionIdSchema,
   startCommitSeq: CommitSeqSchema,
   coveredThroughCommitSeq: Schema.NullOr(CommitSeqSchema),
+  maintenanceActivationSequence: Schema.NullOr(Schema.BigInt),
+  maintenanceBytes: Schema.NullOr(Schema.Uint8Array),
+  maintenanceSha256: Schema.NullOr(Schema.Uint8Array),
   attemptFence: AppUniqueConstraintSetBuildAttemptFenceV1Schema,
   storageGeneration: FlarexDbV1StorageGenerationSchema,
   storageGenerationFence: StorageGenerationFenceSchema,
@@ -702,9 +714,106 @@ const BuildStateSchema = Schema.Struct({
   createdAt: Schema.Date,
   updatedAt: Schema.Date,
 });
-type BuildState = typeof BuildStateSchema.Type;
+type BuildState = typeof BuildStateSchema.Type & { readonly maintenance: UniqueMaintenanceEvidence | null };
 const decodeBuildStateResult = Schema.decodeUnknownResult(
   Schema.toType(BuildStateSchema),
+);
+
+/** Called only through the activation owner's transaction-bound catalog reader. */
+export const readUniqueMaintenanceRequirements = Effect.fn("AppUniqueConstraintBuild.readMaintenanceRequirements")(
+  function* (db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: string) {
+    const id = yield* Effect.fromResult(decodeSchemaVersionIdResult(schemaVersionId))
+      .pipe(Effect.mapError(cause => new UniqueMaintenanceError({ reason: "storedState", cause })));
+    const closure = yield* readAppUniqueConstraintSetClosureV1Effect(db, deploymentId, id).pipe(Effect.mapError(cause => {
+      if (cause instanceof AppUniqueConstraintSetClosurePersistenceV1Error || cause instanceof AppUniqueConstraintCatalogPersistenceError) {
+        const providerCause = cause.cause instanceof DrizzleQueryError ? cause.cause.cause : cause.cause;
+        return new UniqueMaintenanceError({ reason: "resourceFailure", retryable: isRetryableSqlTransactionCause(providerCause), cause });
+      }
+      return new UniqueMaintenanceError({ reason: cause instanceof AppUniqueConstraintSetClosureResourceError
+        ? "resourceFailure" : "storedState", retryable: false, cause });
+    }));
+    if (closure === null) return yield* Effect.fail(new UniqueMaintenanceError({ reason: "unavailable" }));
+    return closure;
+  },
+);
+export type ReadUniqueMaintenanceRequirements = (schemaVersionId: string) => ReturnType<typeof readUniqueMaintenanceRequirements>;
+
+/** Open/carry/close obligations in the same scope transaction as the active head. */
+export const replaceActiveUniqueMaintenanceInTransactionEffect = Effect.fn("AppUniqueConstraintBuild.replaceActiveMaintenance")(
+  function* (tx: AppRowTransaction, clock: ScopeClockRecord, readRequirements: ReadUniqueMaintenanceRequirements,
+    deploymentId: string, schemaVersionId: string, activationSequence: bigint, headSha256: Uint8Array,
+    afterWrite?: (point: "uniqueMaintenanceClosed" | "uniqueMaintenanceOpened") => void | Promise<void>) {
+    const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock);
+    const incoming = yield* readRequirements(schemaVersionId);
+    if (incoming.closure.deploymentId !== deploymentId || incoming.closure.schemaVersionId !== schemaVersionId) {
+      return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    }
+    const outgoing = context.active === null ? null : yield* readRequirements(context.active.schema.schemaVersionId);
+    if (outgoing !== null && (outgoing.closure.deploymentId !== deploymentId || context.active?.schema.deploymentId !== deploymentId)) {
+      return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    }
+    const activeRows = yield* queryEffect(tx.select({ id: fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId })
+      .from(fxSystemUniqueConstraintBuilds).where(and(eq(fxSystemUniqueConstraintBuilds.scopeId, clock.scopeId),
+        isNotNull(fxSystemUniqueConstraintBuilds.maintenanceActivationSequence))).limit(MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 + 1));
+    if (activeRows.length > MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1) return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+    const incomingMembers = new Map(incoming.members.map(member => [member.uniqueConstraintDefinitionId, member]));
+    const outgoingMembers = new Map(outgoing?.members.map(member => [member.uniqueConstraintDefinitionId, member]));
+    const ids = [...new Set([...incomingMembers.keys(), ...activeRows.map(row => row.id)])].toSorted((a, b) => a - b);
+    if (ids.length === 0) return;
+    const allMembers = new Map([...outgoingMembers, ...incomingMembers]);
+    const snapshot = { schemaVersionId: incoming.closure.schemaVersionId, members: [...allMembers.values()] };
+    const rows = yield* queryEffect(tx.select().from(fxSystemUniqueConstraintBuilds).where(and(
+      eq(fxSystemUniqueConstraintBuilds.scopeId, clock.scopeId), inArray(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, ids),
+    )).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId).for("update"));
+    if (rows.length !== ids.length) return yield* Effect.fail(new UniqueMaintenanceError({ reason: "unavailable" }));
+    const states: BuildState[] = [];
+    for (const row of rows) {
+      const state = yield* decodeBuildStateEffect(clock, snapshot, row, clock.lastCommitSeq);
+      if (state.lifecycle !== "enabled" || !buildAuthorityIsCurrent(state, clock)) {
+        return yield* Effect.fail(new UniqueMaintenanceError({ reason: "unavailable" }));
+      }
+      if (state.maintenance !== null) {
+        const member = outgoingMembers.get(state.uniqueConstraintDefinitionId);
+        if (member === undefined || outgoing === null ||
+          !(yield* hasDefinitionCoverage(tx, clock, { schemaVersionId: outgoing.closure.schemaVersionId, members: outgoing.members }, state, member.tableId, clock, context))) {
+          return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+        }
+      }
+      const member = incomingMembers.get(state.uniqueConstraintDefinitionId);
+      if (member !== undefined && !(yield* hasDefinitionCoverage(tx, clock, snapshot, state, member.tableId, clock, context))) {
+        return yield* Effect.fail(new UniqueMaintenanceError({ reason: "unavailable" }));
+      }
+      states.push(state);
+    }
+    for (const state of states) {
+      const member = incomingMembers.get(state.uniqueConstraintDefinitionId);
+      let bytes: Uint8Array | null = null;
+      let sha256: Uint8Array | null = null;
+      if (member !== undefined) {
+        const frame: UniqueMaintenanceFrame = { format: "flarex.unique-maintenance", version: 1,
+          scopeId: state.scopeId, storageGeneration: state.storageGeneration, storageGenerationFence: state.storageGenerationFence.toString(),
+          epoch: state.epoch, uniqueConstraintDefinitionId: state.uniqueConstraintDefinitionId, tableId: member.tableId,
+          physicalSpecSha256Hex: member.physicalSpecSha256Hex, deploymentId, schemaVersionId,
+          startCommitSeq: state.startCommitSeq.toString(),
+          attemptFence: state.attemptFence.toString(), openedCommitSeq: clock.lastCommitSeq.toString(),
+          activationSequence: activationSequence.toString(), headSha256: encodeBytesToLowercaseHex(headSha256) };
+        bytes = uniqueMaintenanceFrameBytes(frame);
+        sha256 = yield* hashUniqueMaintenanceEvidence(bytes);
+      }
+      const updated = yield* queryEffect(tx.update(fxSystemUniqueConstraintBuilds).set({
+        coveredThroughCommitSeq: clock.lastCommitSeq, maintenanceActivationSequence: member === undefined ? null : activationSequence,
+        maintenanceBytes: bytes, maintenanceSha256: sha256, updatedAt: sql`clock_timestamp()`,
+      }).where(and(eq(fxSystemUniqueConstraintBuilds.scopeId, clock.scopeId),
+        eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, state.uniqueConstraintDefinitionId),
+        eq(fxSystemUniqueConstraintBuilds.attemptFence, state.attemptFence), eq(fxSystemUniqueConstraintBuilds.lifecycle, "enabled")))
+        .returning({ id: fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId }));
+      if (updated.length !== 1) return yield* Effect.fail(new UniqueMaintenanceError({ reason: "storedState" }));
+      if (afterWrite !== undefined) yield* Effect.tryPromise({
+        try: async () => { await afterWrite(member === undefined ? "uniqueMaintenanceClosed" : "uniqueMaintenanceOpened"); },
+        catch: cause => new UniqueMaintenanceError({ reason: "resourceFailure", retryable: isRetryableSqlTransactionCause(cause), cause }),
+      });
+    }
+  },
 );
 
 export const reconcileAppUniqueConstraintSetBuildV1Effect = Effect.fn(
@@ -1208,6 +1317,8 @@ const inspectEligibilityWithLockedClock = Effect.fn(
   expectedEvidence?: AppUniqueConstraintSetEligibilityEvidenceV1,
 ) {
   const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock);
+  const coverageContext = states.some(state => state.maintenance !== null)
+    ? yield* readUniqueCoverageContext(tx, clock, snapshot) : undefined;
   const identities: AppUniqueConstraintBuildIdentity[] = [];
   for (const member of snapshot.members) {
     const state = states.find(
@@ -1228,7 +1339,8 @@ const inspectEligibilityWithLockedClock = Effect.fn(
                   snapshot,
                   state,
                   member.tableId,
-                  clock.lastCommitSeq,
+                  clock,
+                  coverageContext,
                 ))
               ? "buildStale"
               : null;
@@ -1332,17 +1444,40 @@ const loadSelectedBuildStates = Effect.fn(
   return Object.freeze(states);
 });
 
+const readUniqueCoverageContext = Effect.fn("AppUniqueConstraintBuild.readCoverageContext")(
+  (tx: AppRowTransaction, clock: ScopeClockRecord, snapshot: Pick<BuildSnapshot, "schemaVersionId">) =>
+    readIndexCoverageContextInTransactionEffect(tx, clock).pipe(Effect.mapError(cause =>
+      cause.reason === "resourceFailure" ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: cause.retryable ?? false, cause })
+        : stateError(clock, snapshot, "storedStateInvalid", cause))),
+);
+
 const hasDefinitionCoverage = Effect.fn("AppUniqueConstraintBuild.hasCoverage")(
   function* (
     tx: AppRowTransaction,
-    authority: TrustedScopeAuthority,
-    snapshot: BuildSnapshot,
+    authority: Pick<TrustedScopeAuthority, "scopeId">,
+    snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
     state: BuildState,
     tableId: CatalogTableId,
-    head: CommitSeq,
+    clock: ScopeClockRecord,
+    coverageContext?: IndexCoverageContext,
   ) {
     if (state.coveredThroughCommitSeq === null) return false;
-    if (state.coveredThroughCommitSeq >= head) return true;
+    if (state.maintenance !== null) {
+      yield* verifyUniqueMaintenanceEvidence(state.maintenance).pipe(Effect.mapError(cause =>
+        cause.reason === "resourceFailure" ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: false, cause })
+          : stateError(authority, snapshot, "storedStateInvalid", cause)));
+      const context = coverageContext ?? (yield* readUniqueCoverageContext(tx, clock, snapshot));
+      const frame = state.maintenance.frame;
+      const member = snapshot.members.find(value => value.uniqueConstraintDefinitionId === state.uniqueConstraintDefinitionId);
+      if (member === undefined || frame.tableId !== tableId || frame.physicalSpecSha256Hex !== member.physicalSpecSha256Hex ||
+        context.active === null || frame.deploymentId !== context.active.schema.deploymentId ||
+        frame.schemaVersionId !== context.active.schema.schemaVersionId || frame.activationSequence !== context.active.head.activationSequence.toString() ||
+        frame.headSha256 !== encodeBytesToLowercaseHex(context.active.head.headSha256) || !buildAuthorityIsCurrent(state, clock)) {
+        return yield* Effect.fail(stateError(authority, snapshot, "storedStateInvalid"));
+      }
+      return true;
+    }
+    if (state.coveredThroughCommitSeq >= clock.lastCommitSeq) return true;
     const frontier = yield* readAppTableWriteFrontierInTransactionEffect(
       tx,
       authority.scopeId,
@@ -2270,6 +2405,8 @@ const advanceBackfillInTransaction = Effect.fn(
   let selected:
     | { state: BuildState; definition: LocatedAppUniqueConstraintDefinitionV1 }
     | undefined;
+  const coverageContext = states.some(state => state.maintenance !== null)
+    ? yield* readUniqueCoverageContext(tx, clock, snapshot) : undefined;
   let pending = 0;
   for (const definition of definitions) {
     const state = states.find(
@@ -2318,12 +2455,13 @@ const advanceBackfillInTransaction = Effect.fn(
         snapshot,
         state,
         definition.tableId,
-        clock.lastCommitSeq,
+        clock,
+        coverageContext,
       ))
     ) {
       pending += 1;
       selected ??= { state, definition };
-    } else if (state.coveredThroughCommitSeq !== clock.lastCommitSeq) {
+    } else if (state.maintenance === null && state.coveredThroughCommitSeq !== clock.lastCommitSeq) {
       // The current table frontier proves an unchanged suffix even when its feed expired.
       yield* transitionBuildLifecycle(
         tx,
@@ -2415,7 +2553,8 @@ const advanceBackfillInTransaction = Effect.fn(
       snapshot,
       state,
       definition.tableId,
-      clock.lastCommitSeq,
+      clock,
+      coverageContext,
     ))
   ) {
     const refreshed = yield* reconcileDefinitionGap(
@@ -3044,6 +3183,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
   clock: ScopeClockRecord,
   schemaVersionId: CatalogSchemaVersionId,
   definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  context: IndexCoverageContext,
 ) {
   if (definitions.length === 0) return Object.freeze([]);
   const snapshot = { schemaVersionId, members: definitions };
@@ -3062,7 +3202,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
       )
       .orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId)
       .limit(definitions.length + 1)
-      .for("update"),
+      .for(context.active === null ? "update" : "share"),
   );
   if (rows.length !== definitions.length)
     return yield* Effect.fail(stateError(clock, snapshot, "buildMissing"));
@@ -3085,34 +3225,24 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
         value.uniqueConstraintDefinitionId ===
         state.uniqueConstraintDefinitionId,
     )!;
-    if (state.coveredThroughCommitSeq < clock.lastCommitSeq) {
-      const frontier = yield* readAppTableWriteFrontierInTransactionEffect(
-        tx,
-        clock.scopeId,
-        definition.tableId,
-      ).pipe(
-        Effect.mapError((cause) =>
-          cause instanceof AppRowReadPersistenceError
-            ? new AppUniqueConstraintSetBuildIntegrationV1Error({
-                phase: "targetTransaction",
-                retryable: true,
-                cause,
-              })
-            : stateError(clock, snapshot, "storedStateInvalid", cause),
-        ),
-      );
-      if (frontier !== null && frontier > state.coveredThroughCommitSeq)
-        return yield* Effect.fail(
-          stateError(clock, snapshot, "coverageMissing"),
-        );
+    if (context.active !== null && state.maintenance === null) {
+      return yield* Effect.fail(stateError(clock, snapshot, "coverageMissing"));
+    }
+    if (state.maintenance !== null && (state.maintenance.frame.schemaVersionId !== schemaVersionId ||
+      state.maintenance.frame.deploymentId !== definition.deploymentId)) {
+      return yield* Effect.fail(stateError(clock, snapshot, "storedStateInvalid"));
+    }
+    if (!(yield* hasDefinitionCoverage(tx, clock, snapshot, state, definition.tableId, clock, context))) {
+      return yield* Effect.fail(stateError(clock, snapshot, "coverageMissing"));
     }
     states.push(state);
   }
   return Object.freeze(states);
 });
 
-export const advanceActiveUniqueCoverageInTransactionEffect = Effect.fn(
-  "AppUniqueConstraintBuild.advanceActiveCoverage",
+/** Only the lower-level no-active-head publication profile needs explicit progress. */
+export const advanceUnboundUniqueCoverageInTransactionEffect = Effect.fn(
+  "AppUniqueConstraintBuild.advanceUnboundCoverage",
 )(function* (
   tx: AppRowTransaction,
   states: ReadonlyArray<BuildState>,
@@ -3120,6 +3250,7 @@ export const advanceActiveUniqueCoverageInTransactionEffect = Effect.fn(
   schemaVersionId: CatalogSchemaVersionId,
 ) {
   for (const state of states) {
+    if (state.maintenance !== null) continue;
     const rows = yield* queryEffect(
       tx
         .update(fxSystemUniqueConstraintBuilds)
@@ -3431,8 +3562,22 @@ const decodeBuildStateEffect = Effect.fn(
     return yield* Effect.fail(
       stateError(authority, snapshot, "frontierAheadOfClock"),
     );
+  const maintenance = yield* Effect.fromResult(decodeUniqueMaintenanceEvidenceResult(
+    state.maintenanceActivationSequence, state.maintenanceBytes, state.maintenanceSha256,
+  )).pipe(Effect.mapError(cause => stateError(authority, snapshot, "storedStateInvalid", cause)));
+  if (maintenance !== null) {
+    const frame = maintenance.frame;
+    if (state.lifecycle !== "enabled" || frame.scopeId !== state.scopeId ||
+      frame.uniqueConstraintDefinitionId !== state.uniqueConstraintDefinitionId || frame.storageGeneration !== state.storageGeneration ||
+      frame.storageGenerationFence !== state.storageGenerationFence.toString() || frame.epoch !== state.epoch ||
+      frame.startCommitSeq !== state.startCommitSeq.toString() || frame.attemptFence !== state.attemptFence.toString() ||
+      frame.openedCommitSeq !== state.coveredThroughCommitSeq?.toString()) {
+      return yield* Effect.fail(stateError(authority, snapshot, "storedStateInvalid", "Maintenance certificate does not match build state"));
+    }
+  }
   return Object.freeze({
     ...state,
+    maintenance,
     cursorRowId:
       state.cursorRowId === null ? null : new Uint8Array(state.cursorRowId),
   });
@@ -3551,7 +3696,7 @@ function queryEffect<Value>(query: PromiseLike<Value>) {
       catch: (cause) =>
         new AppUniqueConstraintSetBuildIntegrationV1Error({
           phase: "targetTransaction",
-          retryable: true,
+          retryable: isRetryableSqlTransactionCause(cause instanceof DrizzleQueryError ? cause.cause : cause),
           cause,
         }),
     }),

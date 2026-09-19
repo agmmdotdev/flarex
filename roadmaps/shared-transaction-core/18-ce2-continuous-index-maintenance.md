@@ -1,8 +1,8 @@
 # CE2 Continuous Index Maintenance Preflight
 
 Status: ordered-index continuous maintenance implemented through the
-[activation cutover](./23-ce2-activation-maintenance-cutover.md). Unique-workspace
-optimization, matched request measurements and wider concurrency acceptance
+[activation cutover](./23-ce2-activation-maintenance-cutover.md), followed by
+[unique maintenance](./26-ce2-unique-maintenance-cutover.md). Matched request measurements and wider concurrency acceptance
 remain open; this is not complete CE2.
 
 ## Outcome And Evidence
