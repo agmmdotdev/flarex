@@ -5,6 +5,17 @@ The four writer prerequisites in [continuous maintenance](./18-ce2-continuous-in
 remain mandatory. Unique-workspace optimization, matched before/after request
 measurements and wider concurrent-lifecycle acceptance remain subsequent CE2 work.
 
+Split-catalog activation has an unresolved transaction-reuse gap. The private
+Payload relation scenario stalls with separate PGlite control and target stores,
+including without the later exact-unique-selection changes; ordinary-role
+PostgreSQL completes the scenario. Activation holds the control-catalog lease,
+but outgoing physical-requirement lookup only borrows the target transaction for
+a colocated catalog. A separate catalog lookup still uses the original database
+handle and can queue behind its already-held lease. Correct this at the existing
+activation/catalog owners, retain the failing connected scenario, and prove
+lease reuse and cleanup before treating split-catalog lifecycle acceptance as
+complete. Do not bypass the lease or change adapter behavior to hide the stall.
+
 ## Outcome And Boundaries
 
 An ordinary native or shared CMS commit must maintain the exact active ordered

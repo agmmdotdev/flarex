@@ -9,7 +9,9 @@ import { ApplicationWriteOwnershipError } from "./Model";
 import type { ApplicationWriteOwnershipHistoryBudget } from "./Policy";
 
 const projectFailure = (cause: ReadAppUniqueConstraintSetClosureV1Error) => new ApplicationWriteOwnershipError({
-  reason: cause._tag === "AppUniqueConstraintSetClosurePersistenceV1Error" || cause._tag === "AppUniqueConstraintCatalogPersistenceError" ? "resourceFailure" : "invalidEvidence", cause,
+  reason: cause._tag === "AppUniqueConstraintSetClosurePersistenceV1Error" ||
+    cause._tag === "AppUniqueConstraintSetClosureResourceError" ||
+    cause._tag === "AppUniqueConstraintCatalogPersistenceError" ? "resourceFailure" : "invalidEvidence", cause,
 });
 
 /** Closed catalog sets are immutable. Reserve each binding/definition before restoring its payload. */

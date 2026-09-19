@@ -231,6 +231,7 @@ const DIRECT_QUERY_OWNER_REASON = Object.freeze({
   AppSchemaVersionIndexBindingPersistenceError: "unavailable",
   AppUniqueConstraintCatalogPersistenceError: "unavailable",
   AppUniqueConstraintSetClosurePersistenceV1Error: "unavailable",
+  AppUniqueConstraintSetClosureResourceError: "unavailable",
   PhysicalDefinitionLifecyclePersistenceError: "unavailable",
   SchemaVersionArtifactPersistenceError: "unavailable",
   ScopeClockCorruptionError: "corruptData",

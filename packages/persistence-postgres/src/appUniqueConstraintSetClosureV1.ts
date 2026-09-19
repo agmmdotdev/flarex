@@ -25,6 +25,7 @@ import {
 
 import {
   listAppUniqueConstraintDefinitionSetMembersV1Effect,
+  type LocatedAppUniqueConstraintDefinitionV1,
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -101,6 +102,22 @@ export interface LocatedAppUniqueConstraintSetClosureV1 {
   readonly members: ReadonlyArray<AppUniqueConstraintSetMemberV1>;
 }
 
+/** Compare decoded selections against the canonical closed member authority. */
+export function appUniqueConstraintDefinitionsMatchMembers(
+  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  members: ReadonlyArray<AppUniqueConstraintSetMemberV1>,
+): boolean {
+  if (definitions.length !== members.length) return false;
+  return definitions.every((definition, index) => {
+    const member = members[index];
+    return member !== undefined &&
+      definition.uniqueConstraintDefinitionId === member.uniqueConstraintDefinitionId &&
+      definition.logicalUniqueConstraintId === member.logicalUniqueConstraintId &&
+      definition.tableId === member.tableId &&
+      definition.physicalSpecSha256Hex === member.physicalSpecSha256Hex;
+  });
+}
+
 export class InvalidAppUniqueConstraintSetClosureInputV1Error
   extends Data.TaggedError("InvalidAppUniqueConstraintSetClosureInputV1Error")<{
     readonly field: "input" | "deploymentId" | "schemaVersionId";
@@ -135,12 +152,20 @@ export class AppUniqueConstraintSetClosurePersistenceV1Error
     readonly cause: unknown;
   }> {}
 
+export class AppUniqueConstraintSetClosureResourceError
+  extends Data.TaggedError("AppUniqueConstraintSetClosureResourceError")<{
+    readonly reason: "digestUnavailable";
+    readonly cause: unknown;
+  }> {}
+
 export type PrepareAppUniqueConstraintSetClosureV1Error =
   | InvalidAppUniqueConstraintSetClosureInputV1Error
   | AppUniqueConstraintSetClosureParentV1Error
   | ReadAppUniqueConstraintDefinitionV1Error
   | SchemaVersionArtifactCorruptionError
-  | SchemaVersionArtifactPersistenceError;
+  | SchemaVersionArtifactPersistenceError
+  | AppUniqueConstraintSetClosureCorruptionV1Error
+  | AppUniqueConstraintSetClosureResourceError;
 
 export type CloseAppUniqueConstraintSetV1Error =
   | InvalidPreparedAppUniqueConstraintSetClosureV1Error
@@ -158,6 +183,7 @@ export type EnsureAppUniqueConstraintSetClosureV1Error =
 
 export type ReadAppUniqueConstraintSetClosureV1Error =
   | AppUniqueConstraintSetClosureCorruptionV1Error
+  | AppUniqueConstraintSetClosureResourceError
   | AppUniqueConstraintSetClosurePersistenceV1Error
   | ReadAppUniqueConstraintDefinitionV1Error;
 
@@ -192,10 +218,7 @@ export const readAppUniqueConstraintSetClosureV1Effect = Effect.fn(
     schemaVersionId,
     maximumDefinitions,
   );
-  const canonical = yield* Effect.tryPromise({
-    try: () => canonicalizeAppUniqueConstraintSetV1(members),
-    catch: (cause) => corruption("canonical unique-constraint set failed", cause),
-  });
+  const canonical = yield* canonicalizeClosureMembers(members);
   if (
     canonical.memberCount !== closure.definitionCount ||
     canonical.sha256Hex !== closure.definitionSetSha256Hex
@@ -232,10 +255,7 @@ export const prepareAppUniqueConstraintSetClosureV1Effect = Effect.fn(
     decoded.schemaVersionId,
     MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   );
-  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: invariant - set members are already decoded; canonicalize throwing is an invariant defect because PrepareAppUniqueConstraintSetClosureV1Error has no corruption variant
-  const canonical = yield* Effect.promise(() =>
-    canonicalizeAppUniqueConstraintSetV1(members)
-  );
+  const canonical = yield* canonicalizeClosureMembers(members);
   const token = Object.freeze({
     ...decoded,
     [preparedBrand]: true,
@@ -463,6 +483,12 @@ function queryEffect<A>(operation: string, query: () => Promise<A>) {
       new AppUniqueConstraintSetClosurePersistenceV1Error({ operation, cause }),
   }).pipe(Effect.uninterruptible);
 }
+
+const canonicalizeClosureMembers = (members: ReadonlyArray<AppUniqueConstraintSetMemberV1>) =>
+  canonicalizeAppUniqueConstraintSetV1(members).pipe(Effect.mapError(cause =>
+    cause.reason === "digestUnavailable"
+      ? new AppUniqueConstraintSetClosureResourceError({ reason: cause.reason, cause: cause.cause })
+      : corruption("canonical unique-constraint set failed", cause)));
 
 function corruption(detail: string, cause?: unknown) {
   return new AppUniqueConstraintSetClosureCorruptionV1Error({ detail, cause });

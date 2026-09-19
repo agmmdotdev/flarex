@@ -21,7 +21,7 @@ import { withPostgresExecutionObservation, type PostgresExecutionPhase } from ".
 import { setTimeout as delay } from "node:timers/promises";
 
 import { and, eq } from "drizzle-orm";
-import { fxControlSchemaVersionIndexBindings } from "../src/schema";
+import { fxControlSchemaVersionIndexBindings, fxControlSchemaVersionUniqueConstraintBindings } from "../src/schema";
 import { Effect, Exit, Fiber, Result } from "effect";
 import type { PoolClient } from "pg";
 import {
@@ -1237,6 +1237,39 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     },
     120_000,
   );
+
+  it("refuses missing unique bindings before publication and preserves durable replay", async () => {
+    await withPostgresPersistence(async persistence => {
+      const randomUuid = uuidFactory("96417100");
+      const scope = await createScope(persistence, randomUuid, "exact_unique_selection");
+      const options = await prepareUniqueConstraintForPostgres(persistence, scope);
+      const publisher = createPublisher(persistence, options);
+      const first = await createAttempt(persistence, randomUuid, scope, "exact_unique_first");
+      const published = await runEffect(publisher.publish(first.publicationCommand));
+      const next = await createAttempt(persistence, randomUuid, scope, "exact_unique_next");
+      const scopeUuid = next.command.sealIdentity.scopeUuid;
+      const before = await durableState(persistence, scopeUuid);
+      const beforeUnique = await uniqueKeyState(persistence, scopeUuid);
+      const identity = and(eq(fxControlSchemaVersionUniqueConstraintBindings.deploymentId, scope.deploymentId),
+        eq(fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId, scope.schemaVersionId));
+      const [binding] = await persistence.drizzle.select().from(fxControlSchemaVersionUniqueConstraintBindings).where(identity);
+      if (!binding) throw new Error("Missing unique binding before corruption");
+      await persistence.drizzle.delete(fxControlSchemaVersionUniqueConstraintBindings).where(identity);
+      try {
+        expect(await runEffect(publisher.publish(first.publicationCommand))).toMatchObject({
+          kind: "replayed", token: published.token,
+        });
+        expect(await runFailure(publisher.publish(next.publicationCommand))).toMatchObject({
+          _tag: "AppUniqueConstraintSetClosureCorruptionV1Error",
+        });
+        expect(await durableState(persistence, scopeUuid)).toEqual(before);
+        expect(await uniqueKeyState(persistence, scopeUuid)).toEqual(beforeUnique);
+      } finally {
+        await persistence.drizzle.insert(fxControlSchemaVersionUniqueConstraintBindings).values(binding);
+      }
+      expect(await runEffect(publisher.publish(next.publicationCommand))).toMatchObject({ kind: "published" });
+    });
+  }, 60_000);
 
   it("refuses missing developer bindings before publication and preserves durable replay", async () => {
     await withPostgresPersistence(async persistence => {

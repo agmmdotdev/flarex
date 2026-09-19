@@ -30,7 +30,7 @@ import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction
 
 import { type LocateAppDeveloperIndexDefinitionsV1Error } from "./appDeveloperIndexCommitV1";
 
-import { type ReadAppUniqueConstraintDefinitionV1Error } from "./appUniqueConstraintDefinitions";
+import { type ReadAppUniqueConstraintSetClosureV1Error } from "./appUniqueConstraintSetClosureV1";
 
 import {
   AppUniqueKeyConflictError,
@@ -269,7 +269,7 @@ export type PointCommitRollbackProofV1Error =
   | ApplicationRelationTargetDeleteRestrictedError
   | ReadApplicationRelationBindingError
   | LocateAppDeveloperIndexDefinitionsV1Error
-  | ReadAppUniqueConstraintDefinitionV1Error
+  | ReadAppUniqueConstraintSetClosureV1Error
   | ReadAppIndexDefinitionError
   | AppendAppIndexEntryRevisionV1Error
   | AppUniqueKeyConflictError

@@ -44,9 +44,10 @@ charge native syscall journaling to a framework path that does not use it.
 
 The pure point OCC comparison is not evidence of a large CPU bottleneck. Current
 head reads already batch dependencies, and prepared row writes now batch at the
-shared row owner. Index and unique application also use bounded sets. Remaining concerns include
-exclusive index-build-state access and coverage
-updates during normal commits, broad commit exclusion, and execution evidence
+shared row owner. Index and unique application also use bounded sets. Activated
+ordered indexes now use shared build protection without per-commit progress
+updates. Remaining concerns include exclusive unique-build-state access and
+coverage updates during normal commits, broad commit exclusion, and execution evidence
 across the request. These are source-derived risks, not measured regressions.
 
 [Materialization](../../packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts)
@@ -145,10 +146,17 @@ now binds ordered-index coverage to the coherent active head and its verified
 schema/physical requirements. Native/CMS serving writes no longer update enabled
 ordered-build progress; readers, activation and builders share the replacement
 proof. Existing uncertified active heads require fresh validated activation.
-Bounded candidate history and the scope clock remain authoritative. Unique
-workspace progress, matched complete-request measurements and wider lifecycle
+Bounded candidate history and the scope clock remain authoritative.
+[Exact unique selection](./24-ce2-exact-unique-constraint-selection.md) binds
+fresh touched definitions to the existing closed unique set, with one retained
+immutable closure per issued port. Unique workspace progress, matched complete-request measurements and wider lifecycle
 concurrency remain CE2 work. Broader CE0 references and connected CE1 acceptance
 also remain open.
+
+The next CE2 correction is the split-catalog activation transaction-reuse gap
+recorded in the activation cutover note. The private Payload relation scenario
+stalls with separate PGlite catalogs, independently of unique-selection work.
+Resolve that existing core owner before proceeding to unique-build optimization.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution

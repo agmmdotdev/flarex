@@ -89,6 +89,7 @@ export function projectTaskAdmissionError(
     case "AppSchemaVersionIndexBindingPersistenceError":
     case "AppUniqueConstraintCatalogPersistenceError":
     case "AppUniqueConstraintSetClosurePersistenceV1Error":
+    case "AppUniqueConstraintSetClosureResourceError":
     case "PhysicalDefinitionLifecyclePersistenceError":
     case "SchemaVersionArtifactPersistenceError":
       return taskAdmissionError("unavailable", error);

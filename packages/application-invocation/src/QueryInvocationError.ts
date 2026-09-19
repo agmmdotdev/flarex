@@ -100,6 +100,7 @@ export function projectQueryInvocationError(
     case "AppSchemaVersionIndexBindingPersistenceError":
     case "AppUniqueConstraintCatalogPersistenceError":
     case "AppUniqueConstraintSetClosurePersistenceV1Error":
+    case "AppUniqueConstraintSetClosureResourceError":
     case "PhysicalDefinitionLifecyclePersistenceError":
     case "SchemaVersionArtifactPersistenceError":
       return queryInvocationError("unavailable", error);

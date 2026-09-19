@@ -115,8 +115,8 @@ import {
 import {
   isLocatedAppUniqueConstraintDefinitionV1,
   type LocatedAppUniqueConstraintDefinitionV1,
-  type ReadAppUniqueConstraintDefinitionV1Error,
 } from "../appUniqueConstraintDefinitions";
+import type { ReadAppUniqueConstraintSetClosureV1Error } from "../appUniqueConstraintSetClosureV1";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
   prepareActiveUniqueCoverageInTransactionEffect,
@@ -334,7 +334,7 @@ export const prepareUniqueConstraintDefinitions = Effect.fn(
   options: ApplicationDocumentMaterializationOptions,
 ): Effect.fn.Return<
   ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
-  | ReadAppUniqueConstraintDefinitionV1Error
+  | ReadAppUniqueConstraintSetClosureV1Error
   | PointCommitUniqueConstraintMaintenanceUnavailableV1Error
   | PointCommitCorruptionV1Error
 > {

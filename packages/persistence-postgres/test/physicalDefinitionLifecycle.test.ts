@@ -355,12 +355,12 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         fixture.active.basis.schemaVersionId,
       ],
     );
-    const uniqueSet = await canonicalizeAppUniqueConstraintSetV1([{
+    const uniqueSet = await runEffect(canonicalizeAppUniqueConstraintSetV1([{
       logicalUniqueConstraintId: 9_001,
       uniqueConstraintDefinitionId,
       tableId: 1,
       physicalSpecSha256Hex: canonical.sha256Hex,
-    }]);
+    }]));
     await fixture.control.query(
       `update fx_control_schema_unique_constraint_set
           set definition_count = 1,
@@ -657,7 +657,7 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       [fixture.deploymentId],
     );
 
-    const emptyUniqueSet = await canonicalizeAppUniqueConstraintSetV1([]);
+    const emptyUniqueSet = await runEffect(canonicalizeAppUniqueConstraintSetV1([]));
     await fixture.control.query(
       `delete from fx_control_schema_version_unique_constraint_binding
         where deployment_id = $1

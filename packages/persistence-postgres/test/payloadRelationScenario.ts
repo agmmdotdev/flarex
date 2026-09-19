@@ -118,7 +118,7 @@ export async function payloadRelationScenario(input: {
       const retainedUnique = (await catalog.select().from(fxControlSchemaVersionUniqueConstraintSets).where(uniqueWhere))[0];
       const retainedBindings = await catalog.select().from(fxControlSchemaVersionUniqueConstraintBindings).where(bindingWhere);
       if (retainedUnique === undefined) throw new Error("Missing unique closure");
-      const empty = await canonicalizeAppUniqueConstraintSetV1([]);
+      const empty = await runEffect(canonicalizeAppUniqueConstraintSetV1([]));
       try {
         await catalog.delete(fxControlSchemaVersionUniqueConstraintBindings).where(bindingWhere);
         await catalog.update(fxControlSchemaVersionUniqueConstraintSets).set({ definitionCount: 0, definitionSetSha256: Buffer.from(empty.sha256Hex, "hex") }).where(uniqueWhere);

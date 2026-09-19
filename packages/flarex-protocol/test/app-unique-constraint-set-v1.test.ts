@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 
 import {
   canonicalizeAppUniqueConstraintSetV1,
@@ -18,10 +19,10 @@ const member = (
 
 describe("app unique constraint set v1", () => {
   it("sorts and commits the exact definition set", async () => {
-    const canonical = await canonicalizeAppUniqueConstraintSetV1([
+    const canonical = await Effect.runPromise(canonicalizeAppUniqueConstraintSetV1([
       member(2, 9, 4, "bb".repeat(32)),
       member(1, 3, 2, "aa".repeat(32)),
-    ]);
+    ]));
 
     expect(canonical.memberCount).toBe(2);
     expect(canonical.members.map((entry) => entry.uniqueConstraintDefinitionId))
@@ -40,13 +41,13 @@ describe("app unique constraint set v1", () => {
       [member(1, 3, 2, "aa".repeat(32)), member(1, 4, 2, "bb".repeat(32))],
       [member(1, 3, 2, "aa".repeat(32)), member(2, 3, 2, "bb".repeat(32))],
     ]) {
-      await expect(canonicalizeAppUniqueConstraintSetV1(candidate)).rejects
-        .toBeDefined();
+      expect(await Effect.runPromise(Effect.flip(canonicalizeAppUniqueConstraintSetV1(candidate))))
+        .toMatchObject({ reason: "invalidMembers" });
     }
   });
 
   it("commits the empty closed set", async () => {
-    const canonical = await canonicalizeAppUniqueConstraintSetV1([]);
+    const canonical = await Effect.runPromise(canonicalizeAppUniqueConstraintSetV1([]));
     expect(canonical.memberCount).toBe(0);
     expect(canonical.canonicalText).toBe(
       '{"format":"flarexdb-app-unique-constraint-set","members":[],"setCodecVersion":1}',
@@ -54,5 +55,19 @@ describe("app unique constraint set v1", () => {
     expect(canonical.sha256Hex).toBe(
       "df81e359d9cbbaa113a0e43a6cde675212b7b3d4d1ef6f79249a3fdf079647bf",
     );
+  });
+
+  it("preserves hashing failure separately from invalid members", async () => {
+    const cause = new Error("digest provider unavailable");
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(cause);
+    try {
+      expect(await Effect.runPromise(Effect.flip(canonicalizeAppUniqueConstraintSetV1([]))))
+        .toMatchObject({ reason: "digestUnavailable", cause });
+      expect(await Effect.runPromise(Effect.flip(canonicalizeAppUniqueConstraintSetV1([{}]))))
+        .toMatchObject({ reason: "invalidMembers" });
+      expect(digest).toHaveBeenCalledTimes(1);
+    } finally {
+      digest.mockRestore();
+    }
   });
 });

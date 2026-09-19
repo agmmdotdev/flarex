@@ -71,6 +71,7 @@ import {
   type ValidateAppUniqueKeyClaimV1Error,
 } from "./appUniqueKeys";
 import {
+  appUniqueConstraintDefinitionsMatchMembers,
   readAppUniqueConstraintSetClosureV1Effect,
   type LocatedAppUniqueConstraintSetClosureV1,
   type ReadAppUniqueConstraintSetClosureV1Error,
@@ -786,7 +787,7 @@ export const advanceAppUniqueConstraintSetBackfillV1Effect = Effect.fn(
     );
   if (
     definitions === null ||
-    !definitionsMatchClosure(definitions, locatedClosure)
+    !appUniqueConstraintDefinitionsMatchMembers(definitions, locatedClosure.members)
   ) {
     return yield* Effect.fail(
       stateError(located.authority, snapshot, "definitionAuthorityMismatch"),
@@ -1021,25 +1022,6 @@ function buildSnapshot(
     definitionCount: locatedClosure.closure.definitionCount,
     definitionSetSha256Hex: locatedClosure.closure.definitionSetSha256Hex,
     members: locatedClosure.members,
-  });
-}
-
-function definitionsMatchClosure(
-  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
-  closure: LocatedAppUniqueConstraintSetClosureV1,
-): boolean {
-  if (definitions.length !== closure.members.length) return false;
-  return definitions.every((definition, index) => {
-    const member = closure.members[index];
-    return (
-      member !== undefined &&
-      definition.uniqueConstraintDefinitionId ===
-        member.uniqueConstraintDefinitionId &&
-      definition.logicalUniqueConstraintId ===
-        member.logicalUniqueConstraintId &&
-      definition.tableId === member.tableId &&
-      definition.physicalSpecSha256Hex === member.physicalSpecSha256Hex
-    );
   });
 }
 

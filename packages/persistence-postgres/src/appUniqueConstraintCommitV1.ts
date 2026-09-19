@@ -19,8 +19,14 @@ import { lowerAppDocumentOrderedFieldValuesV1 } from
 import {
   locateAppUniqueConstraintDefinitionsForSchemaEffect,
   type LocatedAppUniqueConstraintDefinitionV1,
-  type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
+import {
+  appUniqueConstraintDefinitionsMatchMembers,
+  AppUniqueConstraintSetClosureCorruptionV1Error,
+  readAppUniqueConstraintSetClosureV1Effect,
+  type LocatedAppUniqueConstraintSetClosureV1,
+  type ReadAppUniqueConstraintSetClosureV1Error,
+} from "./appUniqueConstraintSetClosureV1";
 import {
   canonicalizeAppUniqueKeyV1Result,
   type AppUniqueKeyProjectionV1,
@@ -42,7 +48,7 @@ export interface AppUniqueConstraintDefinitionPortV1 {
     input: LocateAppUniqueConstraintDefinitionsV1Input,
   ) => Effect.Effect<
     ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1> | null,
-    ReadAppUniqueConstraintDefinitionV1Error
+    ReadAppUniqueConstraintSetClosureV1Error
   >;
 }
 
@@ -72,17 +78,40 @@ export function hasAppUniqueConstraintDefinitionAuthorityForControlDbV1(
 export function createAppUniqueConstraintDefinitionPortV1(
   controlDb: FlarexMetadataDatabase,
 ): AppUniqueConstraintDefinitionPortV1 {
+  // Retain immutable requirements only; scope ownership and the selected
+  // definitions remain fresh. Concurrent misses can repeat verification, and
+  // only successful loads replace this bounded single-schema slot.
+  let retained: LocatedAppUniqueConstraintSetClosureV1 | null = null;
   const port = Object.freeze({
     locate: Effect.fn("AppUniqueConstraintDefinition.locate")(
-      (input: LocateAppUniqueConstraintDefinitionsV1Input) =>
-        locateAppUniqueConstraintDefinitionsForSchemaEffect(
+      function* (input: LocateAppUniqueConstraintDefinitionsV1Input) {
+        const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(
           controlDb,
           input.deploymentId,
           input.scopeId,
           input.schemaVersionId,
           input.tableIds,
           input.maximumDefinitions,
-        ),
+        );
+        if (definitions === null || input.tableIds.length === 0) return definitions;
+        let snapshot = retained;
+        if (snapshot === null || snapshot.closure.deploymentId !== input.deploymentId ||
+          snapshot.closure.schemaVersionId !== input.schemaVersionId) {
+          snapshot = yield* readAppUniqueConstraintSetClosureV1Effect(
+            controlDb, input.deploymentId, input.schemaVersionId,
+          );
+          if (snapshot === null) return null;
+          retained = snapshot;
+        }
+        const tables = new Set(input.tableIds);
+        const required = snapshot.members.filter(member => tables.has(member.tableId));
+        if (!appUniqueConstraintDefinitionsMatchMembers(definitions, required)) {
+          return yield* Effect.fail(new AppUniqueConstraintSetClosureCorruptionV1Error({
+            detail: "the touched unique definitions do not match the closed schema requirements",
+          }));
+        }
+        return definitions;
+      },
     ),
   });
   appUniqueConstraintDefinitionPortsV1.set(port, controlDb);

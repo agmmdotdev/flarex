@@ -278,6 +278,7 @@ import {
 } from
   "../src/transactionExecutionClaimLiveness";
 import {
+  fxControlSchemaVersionUniqueConstraintBindings,
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemIndexBuildStates,
@@ -5293,6 +5294,46 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it("refuses missing unique bindings before publication and preserves durable replay", async () => {
+    const prepared = await prepareO07BScenario(
+      "exact_unique_selection",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "exact-unique" },
+        });
+      },
+      current => prepareUniqueConstraintForO06(current),
+    );
+    const identity = and(eq(fxControlSchemaVersionUniqueConstraintBindings.deploymentId, prepared.current.anchor.deploymentId),
+      eq(fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId, prepared.current.schemaVersionId));
+    const [binding] = await persistence.drizzle.select().from(fxControlSchemaVersionUniqueConstraintBindings).where(identity);
+    if (!binding) throw new Error("Missing unique binding before corruption");
+    const before = await o06DurableState(prepared.scopeUuid);
+    const beforeBuilds = await uniqueBuildStates(prepared.current);
+    await persistence.drizzle.delete(fxControlSchemaVersionUniqueConstraintBindings).where(identity);
+    try {
+      expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan)))
+        .toMatchObject({ _tag: "AppUniqueConstraintSetClosureCorruptionV1Error" });
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual(before);
+      expect(await uniqueBuildStates(prepared.current)).toEqual(beforeBuilds);
+      expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
+    } finally {
+      await persistence.drizzle.insert(fxControlSchemaVersionUniqueConstraintBindings).values(binding);
+    }
+    const published = await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
+    expect(published).toMatchObject({ kind: "published" });
+    const committed = await o06DurableState(prepared.scopeUuid);
+    await persistence.drizzle.delete(fxControlSchemaVersionUniqueConstraintBindings).where(identity);
+    try {
+      expect(await runEffect(prepared.authentication.publishPointCommit(prepared.plan)))
+        .toMatchObject({ kind: "replayed", token: published.token });
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual(committed);
+    } finally {
+      await persistence.drizzle.insert(fxControlSchemaVersionUniqueConstraintBindings).values(binding);
+    }
+  });
+
   it("rejects structurally copied unique locator authority before transaction", async () => {
     const prepared = await prepareO07BScenario(
       "c08b2_forged_unique_definition",
@@ -7963,6 +8004,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
       ),
     );
+    const closure = await runEffect(
+      prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle, {
+        deploymentId: current.anchor.deploymentId,
+        schemaVersionId: current.schemaVersionId,
+      }),
+    );
+    await persistence.drizzle.transaction((tx) =>
+      runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure)),
+    );
     const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
       persistence.drizzle,
     );
@@ -8029,15 +8079,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       },
     } as const;
-    const closure = await runEffect(
-      prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle, {
-        deploymentId: current.anchor.deploymentId,
-        schemaVersionId: current.schemaVersionId,
-      }),
-    );
-    await persistence.drizzle.transaction((tx) =>
-      runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure)),
-    );
     await runEffect(
       reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts, {
         deploymentId: current.anchor.deploymentId,

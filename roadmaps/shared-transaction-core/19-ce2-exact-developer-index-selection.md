@@ -1,7 +1,7 @@
 # CE2 Exact Developer Index Selection
 
-Status: implemented for the control-catalog developer-index factory. Complete
-native/CMS writer composition remains open under preflight 18.
+Status: implemented for the control-catalog developer-index factory. Native/CMS
+composition and ordered maintenance cutover are implemented in preflights 20–23.
 
 ## Outcome And Ownership
 
@@ -61,5 +61,6 @@ The [required composition slice](./20-ce2-required-ordered-index-composition.md)
 now enforces correctly issued ports at native Application and shared participant
 boundaries. [Legacy-writer exclusion](./21-ce2-legacy-writer-exclusion.md) now
 refuses legacy writes against active obligations.
-Coverage updates, locks, activation and reader behavior remain unchanged until
-the continuous-maintenance cutover in preflight 18 is complete.
+The [ordered maintenance cutover](./23-ce2-activation-maintenance-cutover.md)
+now connects coverage, locks, activation and readers. Unique progress and wider
+CE2 concurrency/measurement gates remain open.
