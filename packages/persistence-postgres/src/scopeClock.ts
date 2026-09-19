@@ -96,7 +96,7 @@ export class ScopeAuthorizationRevocationEpochPersistenceError
   extends Data.TaggedError(
     "ScopeAuthorizationRevocationEpochPersistenceError",
   )<{
-    readonly operation: "readForShare" | "readForKeyShare" | "lockForUpdate" | "lockForSnapshotRead" | "lockForPublication" | "update";
+    readonly operation: "readForShare" | "readForKeyShare" | "lockForUpdate" | "lockForSnapshotRead" | "lockForOrdinaryWrite" | "update";
     readonly cause: unknown;
   }> {}
 
@@ -296,18 +296,18 @@ export const lockScopeClockForSnapshotReadInTransactionEffect = Effect.fn(
   "ScopeClock.lockForSnapshotRead",
 )((db: ScopeClockTransaction, scopeId: ScopeId) => lockScopeClockForDataAccess(db, scopeId, "snapshotRead"));
 
-/** Sequence/time publication only; authority and history transitions require the strong helper. */
-export const lockScopeClockForPublicationInTransactionEffect = Effect.fn(
-  "ScopeClock.lockForPublication",
-)((db: ScopeClockTransaction, scopeId: ScopeId) => lockScopeClockForDataAccess(db, scopeId, "publication"));
+/** Attempt/data writes and sequence publication; scope transitions require the strong helper. */
+export const lockScopeClockForOrdinaryWriteInTransactionEffect = Effect.fn(
+  "ScopeClock.lockForOrdinaryWrite",
+)((db: ScopeClockTransaction, scopeId: ScopeId) => lockScopeClockForDataAccess(db, scopeId, "ordinaryWrite"));
 
 const lockScopeClockForDataAccess = Effect.fn("ScopeClock.lockForDataAccess")(function* (
-  db: ScopeClockTransaction, scopeId: ScopeId, access: "snapshotRead" | "publication",
+  db: ScopeClockTransaction, scopeId: ScopeId, access: "snapshotRead" | "ordinaryWrite",
 ) {
   const query = db.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId))
     .limit(1).for(access === "snapshotRead" ? "key share" : "no key update");
   const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
-    access === "snapshotRead" ? "lockForSnapshotRead" : "lockForPublication", query,
+    access === "snapshotRead" ? "lockForSnapshotRead" : "lockForOrdinaryWrite", query,
   );
   const row = rows[0];
   if (row === undefined) return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));

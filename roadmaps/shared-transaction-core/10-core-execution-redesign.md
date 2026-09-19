@@ -125,8 +125,10 @@ exclusion and stale-snapshot refusal. The [CMS snapshot cutover](./38-ce3-cms-sn
 applies this contract at the physical/session, admission and publication owners.
 Standalone CMS reads overlap ordinary CMS publication with coherent document
 and incoming-relation snapshots. [Native publication](./39-ce3-native-publication-snapshots.md)
-also overlaps these readers after native preparation and finishing have completed.
-Attempt replacement, recovery and finishing retain their stronger locks. Commerce
+also overlaps these readers. [Native attempt protection](./40-ce3-native-attempt-snapshots.md)
+extends overlap through active selection, session activation, journal work and
+finishing. Attempt replacement, recovery and terminalization use ordinary-write
+protection; actual scope transitions retain their strong locks. Commerce
 publication profiles and concurrent same-scope writers remain open.
 The [active readiness lock correction](./37-ce3-active-readiness-locks.md) replaces
 exclusive stored-active validation locks with shared protection at the existing

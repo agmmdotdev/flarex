@@ -87,6 +87,26 @@ describe("scope execution", { timeout: 120_000 }, () => {
     expectCapabilityDefect(expired, "closed");
   });
 
+  it.each(["ordinaryWrite", "scopeTransition"] as const)("closes write capabilities after success and rollback with %s protection", async clockProtection => {
+    const located = await scopeFixture(`deployment_scope_execution_${clockProtection}`);
+    let retained: ScopedTransaction | undefined;
+    const operation = defineScopedWriteOperation((_tx, context, rollback: boolean, scoped) => Effect.gen(function* () {
+      retained = scoped;
+      expect(context.mode).toBe("write");
+      expect(context.clock.scopeId).toBe(located.authority.scopeId);
+      expect(Reflect.ownKeys(scoped)).toEqual([]);
+      if (rollback) return yield* Effect.fail("test rollback");
+      return "completed";
+    }));
+    for (const rollback of [false, true]) {
+      const result = await runEffect(Effect.result(liveScopeExecution.runWrite(located,
+        { ...settlement, clockProtection }, operation, rollback)));
+      expect(result).toEqual(rollback ? Result.fail("test rollback") : Result.succeed("completed"));
+      expect(retained).toBeDefined();
+      expectCapabilityDefect(await runEffect(Effect.exit(inspectScopedTransactionContextEffect(retained!))), "closed");
+    }
+  });
+
   it("rejects a forged capability as a defect before invoking package work", async () => {
     let invoked = 0;
     const forged = Object.freeze({}) as unknown as ScopedTransaction;
@@ -119,7 +139,7 @@ describe("scope execution", { timeout: 120_000 }, () => {
     );
     const result = await runEffect(Effect.result(liveScopeExecution.runWrite(
       stale,
-      settlement,
+      { ...settlement, clockProtection: "scopeTransition" },
       operation,
       undefined,
     )));

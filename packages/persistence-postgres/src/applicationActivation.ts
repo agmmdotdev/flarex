@@ -1689,7 +1689,7 @@ const readActiveRelationInTransaction = Effect.fn(
     { readonly status: "ready" }
   >,
 ) {
-  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+  const clock = yield* lockScopeClockForShareInTransactionEffect(
     tx,
     authority.scopeId,
   );

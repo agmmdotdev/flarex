@@ -20,7 +20,7 @@ import type { ApplicationBindingSelectionReader } from "../applicationActivation
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect, type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
-import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForPublicationInTransactionEffect } from "../scopeClock";
+import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForOrdinaryWriteInTransactionEffect } from "../scopeClock";
 import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
 import { RelationalSessionError } from "../relationalTransaction/model";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -166,7 +166,7 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`),
           cause => cmsError("statementFailure", cause));
         const clock = yield* (requestKey === null ? lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId) :
-          lockScopeClockForPublicationInTransactionEffect(tx, located.authority.scopeId));
+          lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId));
         return yield* withCmsAdmission(prepared, tx, located.authority, clock, admission => Effect.gen(function* () {
           const state = yield* requireCmsAdmission(admission);
           // Native join capabilities borrow this acceptance; no extra readiness transaction.

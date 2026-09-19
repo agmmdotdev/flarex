@@ -1,7 +1,8 @@
 # Native Publication Alongside CMS Snapshots
 
 Status: implemented for the native final-publication and rollback-proof kernel.
-Native preparation/lifecycle exclusion and broader CE3 work remain open.
+[Native attempt protection](./40-ce3-native-attempt-snapshots.md) extends this
+contract through preparation and attempt lifecycle. Broader CE3 work remains open.
 
 ## Outcome And Boundaries
 
@@ -17,10 +18,10 @@ across framework ownership boundaries.
 
 `pointCommitTransaction.ts` uses `lockPointCommitClock` for publication and for
 attempt replacement, running-relation recovery and finishing transitions. These
-callers must select their protection explicitly. The publication/rollback-proof
-kernel selects `FOR NO KEY UPDATE`; the other four callers retain `FOR UPDATE`.
-Keep the existing query observation, exact clock decoder and error projection.
-Do not globally weaken the helper or add a parallel commit implementation.
+callers all select `FOR NO KEY UPDATE` under the attempt-owner audit in the
+native attempt protection design. They do not change scope identity, authority or
+retained history. Keep the existing query observation, exact clock decoder and
+error projection; no parallel commit implementation is introduced.
 
 The publication kernel retains clock-first ordering, active-head/readiness shared
 locks, exact session/lease/journal locks, fresh OCC checks and sequence-bound
@@ -29,14 +30,16 @@ Scope authority/revocation/history changes retain their strong locks. Metadata
 transitions required by candidate guards may still contend; this is not a claim
 that every native lifecycle phase overlaps a reader.
 
-Native request preparation and entering finishing precede the selected overlap
-witness. Those phases retain their existing protection. Clearly distinguish
-final-publication overlap from complete invocation overlap or writer concurrency.
+The publisher-first witness prepares and enters finishing before holding
+publication. The native attempt witness additionally holds a CMS reader throughout
+preparation and finishing. Neither witness proves a complete Workerd invocation
+or writer concurrency.
 
 ## Compatibility And Cleanup
 
-Break the private clock helper signature to require a protection choice at every
-caller. No public API, physical schema, codec or durable-data migration changes.
+The private clock helper's temporary protection selector is removed by the native
+attempt cutover after auditing all callers. No public API, physical schema, codec
+or durable-data migration changes.
 Reuse the existing native command test setup for a prepared, authenticated range
 read and optional Application-owned audit insert. Keep native ownership refusal;
 the CMS snapshot reads its own Payload content. Existing mixed-command OCC tests

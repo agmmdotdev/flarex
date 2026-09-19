@@ -4,7 +4,8 @@ Status: lock-contract witnesses implemented against the existing PostgreSQL
 clock schema and revocation owner. The [CMS snapshot cutover](./38-ce3-cms-snapshot-publication.md)
 now applies this contract through the existing physical/session and admission
 owners. The [native publication cutover](./39-ce3-native-publication-snapshots.md)
-extends it to the prepared native final kernel. Commerce profiles retain stronger
+extends it to the native final kernel, and [native attempt protection](./40-ce3-native-attempt-snapshots.md)
+covers preparation and attempt lifecycle. Commerce profiles retain stronger
 exclusion pending cutover.
 
 ## Decision And Ownership
@@ -20,8 +21,8 @@ The lock contract is:
 | Operation | Clock protection | Isolation and meaning |
 | --- | --- | --- |
 | Standalone snapshot read | `FOR KEY SHARE` | Repeatable read; preserve one data/clock snapshot and exclude strong authority transitions. |
-| Ordinary publication | `FOR NO KEY UPDATE` | Existing write isolation and clock-first order; mutually exclusive sequence allocation remains. Only sequence/time may change under this mode. |
-| Authority, retention or lifecycle transition | `FOR UPDATE` before inspecting/changing protected state | Retain strong exclusion against readers and publishers, including non-key authority fields. |
+| Ordinary attempt/data write and publication | `FOR NO KEY UPDATE` | Existing write isolation and clock-first order; mutually exclusive sequence allocation remains. Only sequence/time may change under this mode. |
+| Authority, retention or scope lifecycle transition | `FOR UPDATE` before inspecting/changing protected state | Retain strong exclusion against readers and publishers, including non-key authority fields. |
 
 `FOR KEY SHARE` alone does not protect non-key fields. The explicit strong lock
 at every transition owner is essential. Do not downgrade the general lifecycle
@@ -45,9 +46,10 @@ compatibility of two locks alone is insufficient.
 - `commitPublication/publication.ts` advances only sequence/time. CMS selects
   no-key-update protection, as does the native final-publication kernel; commerce,
   atomic commerce and cross-domain hosts retain stronger clock locks. Native
-  attempt replacement, recovery and finishing retain lifecycle protection. All
-  retain clock-first ordering.
-- Activation, binding, schema-candidate, relation/index/unique build and readiness
+  activation, journal work, replacement, recovery, finishing and terminalization
+  use ordinary-write protection without changing scope authority. All retain
+  clock-first ordering.
+- Schema activation, binding, schema-candidate, relation/index/unique build and readiness
   transitions also take strong clock protection. Do not classify them as ordinary
   publishers merely because they write metadata rather than the clock itself.
 - `physicalSession/postgres.ts` selects isolation before its configuration query.

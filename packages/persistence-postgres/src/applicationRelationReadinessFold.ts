@@ -1686,7 +1686,7 @@ const readActiveReadyInTransaction = Effect.fn(
   ApplicationRelationReadinessFoldResult,
   | InternalApplicationRelationReadinessFoldError
 > {
-  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+  const clock = yield* lockScopeClockForShareInTransactionEffect(
     tx,
     prepared.bundle.authority.scopeId,
   );

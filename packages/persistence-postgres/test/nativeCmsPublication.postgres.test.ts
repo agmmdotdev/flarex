@@ -16,6 +16,33 @@ describe.skipIf(postgresUrl === null)("native publication with CMS snapshots", (
     await nativeCmsPublicationCorrectness(await cmsExecutionMeasurementFixture(persistence, makePostgresRelationalSession(persistence)));
   }), 120_000);
 
+  it("prepares, seals and publishes a native attempt while a CMS snapshot stays admitted", () => withPersistence(async persistence => {
+    const entered = await runEffect(Deferred.make<void>());
+    const release = await runEffect(Deferred.make<void>());
+    let armed = false;
+    const tested = await cmsExecutionMeasurementFixture(persistence, makePostgresRelationalSession(persistence), {
+      afterAdmission: () => armed ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))) : Effect.void,
+    });
+    const seeded = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 1, prefix: "before-native-attempt" }));
+    const ids = decodeIds(seeded).map(document => document._id);
+    armed = true;
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const reader = yield* tested.host.read(tested.read, ids).pipe(Effect.forkScoped);
+      yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
+      const prepared = yield* prepareNativeRangePublication(tested.fixture, "during-snapshot");
+      const before = yield* Effect.promise(() => tested.inventory());
+      const publisher = createPointCommitPublisherPortV1(tested.fixture.pointCommitAuthority, prepared.options);
+      expect(yield* publisher.publish(prepared.command)).toMatchObject({ kind: "published" });
+      const after = yield* Effect.promise(() => verifyNativeAuditPublication(tested, before));
+      expect(yield* publisher.publish(prepared.command)).toMatchObject({ kind: "replayed" });
+      expect(yield* Effect.promise(() => tested.inventory())).toEqual(after);
+      expect(yield* Deferred.isDone(release)).toBe(false);
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(reader)).toEqual(seeded);
+    }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
+    expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
+  }), 120_000);
+
   it.each(["reader", "publisher"] as const)("overlaps with %s first without exposing uncommitted publication", first => withPersistence(async persistence => {
     const entered = await runEffect(Deferred.make<void>());
     const release = await runEffect(Deferred.make<void>());

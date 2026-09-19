@@ -2,7 +2,8 @@
 
 Status: implemented for the existing CMS host. The subsequent
 [native publication cutover](./39-ce3-native-publication-snapshots.md) also permits
-prepared native publication alongside these snapshots. Commerce publication
+native publication alongside these snapshots. [Native attempt protection](./40-ce3-native-attempt-snapshots.md)
+also permits session preparation and finishing while a snapshot stays open. Commerce publication
 hosts retain strong exclusion; general concurrent writers and CE3 remain open.
 
 ## Contract And Owners

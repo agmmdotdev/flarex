@@ -67,7 +67,7 @@ import {
   observeDrizzleRawQuery,
 } from "../drizzleQueryObservation";
 import {
-  lockScopeClockForPublicationInTransactionEffect,
+  lockScopeClockForOrdinaryWriteInTransactionEffect,
 } from "../scopeClock";
 import {
   fxAppEdgeAdjacencyVersions,
@@ -213,7 +213,7 @@ const applyPreparedMutationEffect = Effect.fn(
   options: AppRelationEdgeMutationOptions,
 ): Effect.fn.Return<ApplyAppRelationEdgeChangesResult, AppRelationEdgeMutationError> {
   observeMutationStatement(options, "lockScopeClock");
-  const clock = yield* lockScopeClockForPublicationInTransactionEffect(
+  const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(
     tx,
     prepared.scopeId,
   ).pipe(Effect.mapError(mapScopeClockError));
@@ -1649,7 +1649,7 @@ function positionMatchesDefinition(
 }
 
 function mapScopeClockError(
-  error: Effect.Error<ReturnType<typeof lockScopeClockForPublicationInTransactionEffect>>,
+  error: Effect.Error<ReturnType<typeof lockScopeClockForOrdinaryWriteInTransactionEffect>>,
 ): AppRelationEdgeInputError | AppRelationEdgeCorruptionError |
   AppRelationEdgePersistenceError {
   switch (error._tag) {

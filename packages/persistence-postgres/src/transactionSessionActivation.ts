@@ -1455,6 +1455,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
         input.preliminaryAuthority,
       ),
       {
+        clockProtection: "ordinaryWrite",
         rollbackMessage: "Point-mutation session activation rolled back.",
         cleanupDefect: mapActivationTransactionError,
       },
@@ -1473,6 +1474,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
         input.preliminaryAuthority,
       ),
       {
+        clockProtection: "ordinaryWrite",
         rollbackMessage: "Application mutation session activation rolled back.",
         cleanupDefect: mapApplicationActivationTransactionError,
       },
@@ -1498,7 +1500,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       input,
       work,
       afterLoadLock,
-      "update",
+      "attempt",
     ),
     [RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1]: <
       Result,
@@ -2512,7 +2514,7 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
   afterLoadLock:
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
-  scopeClockLockMode: "share" | "update",
+  clockProtection: "share" | "attempt",
 ): Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error> {
   return Effect.suspend(() => {
     let callbackCause: EffectCause<Failure> | undefined;
@@ -2526,7 +2528,7 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
             tx,
             input,
             afterLoadLock,
-            scopeClockLockMode,
+            clockProtection,
           );
           const exit = await Effect.runPromise(Effect.exit(
             Effect.uninterruptible(Effect.suspend(() => work(tx, context))),
@@ -2791,7 +2793,7 @@ async function loadAttemptInTransaction(
     tx,
     input,
     afterLoadLock,
-    "update",
+    "attempt",
   );
   return attemptLoadResult(loaded);
 }
@@ -2804,10 +2806,10 @@ async function loadExactRunningAttemptForKernelInTransaction(
   afterLoadLock:
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
-  scopeClockLockMode: "share" | "update",
+  clockProtection: "share" | "attempt",
 ): Promise<ExactRunningAttemptKernelContextV1> {
   const selector = input.selector;
-  const clock = scopeClockLockMode === "share"
+  const clock = clockProtection === "share"
     ? await lockPointMutationSessionClockForShare(tx, selector.scopeId)
     : await lockPointMutationSessionClock(tx, selector.scopeId);
   await afterLoadLock?.("clockLocked");
@@ -3750,7 +3752,7 @@ async function lockPointMutationSessionClock(
   tx: FlarexMetadataDatabase,
   scopeId: ReplacementScopeIdV1,
 ): Promise<LockedPointMutationSessionClockV1> {
-  return lockPointMutationSessionClockWithMode(tx, scopeId, "update");
+  return lockPointMutationSessionClockWithMode(tx, scopeId, "attempt");
 }
 
 async function lockPointMutationSessionClockForShare(
@@ -3763,7 +3765,7 @@ async function lockPointMutationSessionClockForShare(
 async function lockPointMutationSessionClockWithMode(
   tx: FlarexMetadataDatabase,
   scopeId: ReplacementScopeIdV1,
-  lockMode: "share" | "update",
+  lockMode: "share" | "attempt",
 ): Promise<LockedPointMutationSessionClockV1> {
   const query = tx
     .select()
@@ -3772,7 +3774,7 @@ async function lockPointMutationSessionClockWithMode(
     .limit(1);
   const rows = lockMode === "share"
     ? await query.for("share")
-    : await query.for("update");
+    : await query.for("no key update");
   const row = rows[0];
   if (row === undefined) throw new ScopeClockNotFoundError(scopeId);
   const record = decodeScopeClockRecord(row);

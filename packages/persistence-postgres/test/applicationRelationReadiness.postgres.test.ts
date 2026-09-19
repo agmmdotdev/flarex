@@ -627,6 +627,8 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       });
       expect(timeline).toEqual([
         "activation:activationInserted",
+        "activation:maintenanceOpened",
+        "activation:maintenanceOpened",
         "activation:headWritten",
         "builder:afterScopeClockLock",
       ]);

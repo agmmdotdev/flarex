@@ -10,6 +10,7 @@ import {
 import {
   lockScopeClockForShareInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
+  lockScopeClockForOrdinaryWriteInTransactionEffect,
   type LockScopeClockForShareError,
   type LockScopeClockForUpdateError,
   type ScopeClockRecord,
@@ -40,6 +41,10 @@ export interface ScopeExecutionSettlementOptions {
   ) => unknown;
 }
 
+export interface ScopeExecutionWriteOptions extends ScopeExecutionSettlementOptions {
+  readonly clockProtection: "ordinaryWrite" | "scopeTransition";
+}
+
 export type ScopeExecutionError =
   | ScopeExecutionAuthorityError
   | LockScopeClockForShareError
@@ -59,7 +64,7 @@ export interface ScopeExecutionApi {
     located: LocatedTrustedScopeAuthority<
       LocatedReadCommittedAttemptTargetV1
     >,
-    settlement: ScopeExecutionSettlementOptions,
+    settlement: ScopeExecutionWriteOptions,
     operation: ScopedWriteOperation<Input, Value, Failure>,
     input: Input,
   ) => Effect.Effect<Value, Failure | ScopeExecutionError>;
@@ -78,7 +83,7 @@ const runRead: ScopeExecutionApi["runRead"] = Effect.fn(
 const runWrite: ScopeExecutionApi["runWrite"] = Effect.fn(
   "ScopeExecution.runWrite",
 )((located, settlement, operation, input) =>
-  runLocated("write", located, settlement, operation, input));
+  runLocated(settlement.clockProtection, located, settlement, operation, input));
 
 /** Fixed, lifecycle-free package capability; request authority stays per call. */
 export const liveScopeExecution = ScopeExecution.of(Object.freeze({
@@ -92,7 +97,7 @@ export const ScopeExecutionLive = Layer.succeed(
 );
 
 const runLocated = Effect.fn("ScopeExecution.runLocated")(function* <
-  Mode extends "read" | "write",
+  Mode extends "read" | "ordinaryWrite" | "scopeTransition",
   Input,
   Value,
   Failure,
@@ -125,9 +130,11 @@ const runLocated = Effect.fn("ScopeExecution.runLocated")(function* <
     tx => Effect.gen(function* () {
       const clock = mode === "read"
         ? yield* lockScopeClockForShareInTransactionEffect(tx, authority.scopeId)
+        : mode === "ordinaryWrite"
+        ? yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, authority.scopeId)
         : yield* lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId);
       yield* requireStableAuthority(authority, clock);
-      const context = scopedContext(mode, authority, clock);
+      const context = scopedContext(mode === "read" ? "read" : "write", authority, clock);
       return yield* Effect.acquireUseRelease(
         Effect.sync(() => issueScopedTransaction(tx, context)),
         capability => runOperation(capability, operation, input),

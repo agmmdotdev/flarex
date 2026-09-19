@@ -97,6 +97,47 @@ describePostgres(
   "real PostgreSQL scoped execution",
   { timeout: 180_000 },
   () => {
+    it("distinguishes ordinary writes from scope transitions under snapshot protection", async () => {
+      await withScopedPostgres(3, async fixture => {
+        const located = await fixture.provision("deployment_scope_snapshot_protection",
+          locatedTarget(fixture.persistence, fixture.pool, locator),
+          uuidSequence("e1000000-0000-4000-8000-000000000001", "e1000000-0000-4000-8000-000000000002"));
+        const held = await fixture.pool.connect();
+        let opened = false;
+        const release = async () => { if (opened) { await held.query("rollback"); opened = false; } };
+        let calls = 0;
+        const operation = defineScopedWriteOperation((_tx, context, _input: void) => Effect.sync(() => {
+          calls++; return context.mode;
+        }));
+        try {
+          await held.query("begin isolation level repeatable read");
+          opened = true;
+          const owner = await held.query<{ pid: number }>("select pg_backend_pid() as pid from fx_system_scope_clock where scope_id=$1 for key share", [located.authority.scopeId]);
+          const pid = owner.rows[0]?.pid;
+          expect(pid).toBeTypeOf("number");
+          expect(await runEffect(liveScopeExecution.runWrite(located,
+            { ...settlement, clockProtection: "ordinaryWrite" }, operation, undefined))).toBe("write");
+          expect(calls).toBe(1);
+          await runEffect(Effect.scoped(Effect.gen(function* () {
+            const transition = yield* liveScopeExecution.runWrite(located,
+              { ...settlement, clockProtection: "scopeTransition" }, operation, undefined).pipe(Effect.forkScoped);
+            yield* Effect.gen(function* () {
+              for (;;) {
+                const waiters = yield* postgresTestQueryEffect(() => fixture.pool.query<{ blocked: boolean }>(
+                  "select exists(select 1 from pg_stat_activity where datname=current_database() and $1::int=any(pg_blocking_pids(pid))) as blocked", [pid]));
+                if (waiters.rows[0]?.blocked) break;
+                yield* Effect.sleep("10 millis");
+              }
+            }).pipe(Effect.timeout("5 seconds"));
+            expect(calls).toBe(1);
+            yield* postgresTestQueryEffect(release);
+            expect(yield* Fiber.join(transition)).toBe("write");
+            expect(calls).toBe(2);
+          }).pipe(Effect.ensuring(postgresTestQueryEffect(release).pipe(Effect.orDie)))));
+        } finally { await release(); held.release(); }
+      });
+    });
+
     it("reuses one backend across scopes without leaking transaction or listener state and isolates concurrent scopes", async () => {
       await withScopedPostgres(2, async fixture => {
         const oneConnectionPool = fixture.poolWithMaximum(1);
@@ -355,7 +396,7 @@ describePostgres(
       });
     });
 
-    it("fails closed before work and reuses a connection only after rollback, timeout, and interruption settlement", async () => {
+    it.each(["ordinaryWrite", "scopeTransition"] as const)("fails closed and cleans up rollback, timeout and interruption with %s protection", async clockProtection => {
       await withScopedPostgres(1, async fixture => {
         const acquisitions: number[] = [];
         const target = locatedTarget(
@@ -449,7 +490,7 @@ describePostgres(
           const result = await runEffect(Effect.result(
             liveScopeExecution.runWrite(
               located,
-              settlement,
+              { ...settlement, clockProtection },
               forbidden,
               undefined,
             ),
@@ -507,7 +548,7 @@ describePostgres(
         );
         await expect(runEffect(liveScopeExecution.runWrite(
           stable,
-          settlement,
+          { ...settlement, clockProtection },
           rollback,
           undefined,
         ))).rejects.toMatchObject({ reason: "rollback" });
@@ -568,7 +609,7 @@ describePostgres(
         );
         const fiber = Effect.runFork(liveScopeExecution.runWrite(
           stable,
-          settlement,
+          { ...settlement, clockProtection },
           interruptible,
           undefined,
         ));
