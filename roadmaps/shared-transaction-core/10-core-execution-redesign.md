@@ -141,7 +141,10 @@ now refuses material, attempted and unauthenticated legacy writes under active
 Application heads. [Required intrinsic build state](./22-ce2-required-intrinsic-build-state.md)
 also prevents selected creation-time definitions from silently skipping missing
 build metadata. Continuous maintenance is not
-implemented; broader CE0 references and connected CE1 acceptance remain open.
+implemented. The [activation maintenance cutover](./23-ce2-activation-maintenance-cutover.md)
+records the concrete durable proof, serving break, lifecycle transitions and
+connected validation for the next implementation slice. Broader CE0 references
+and connected CE1 acceptance remain open.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution

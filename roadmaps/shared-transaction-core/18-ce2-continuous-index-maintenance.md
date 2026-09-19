@@ -57,7 +57,10 @@ an expiring lease, host cache, adapter boolean or independent registry. Existing
 covered-through state remains the last explicitly sealed complete prefix.
 First-readable stays immutable. A missing, mismatched or malformed binding never
 grants continuous coverage. Final columns and codecs belong to the focused
-schema implementation, with exact decoding and cross-field constraints.
+schema implementation, with exact decoding and cross-field constraints. The
+[activation maintenance cutover](./23-ce2-activation-maintenance-cutover.md)
+selects the per-build certificate, activation transitions, transaction-local
+coverage context and existing-data cutover for that implementation.
 
 ## Necessary Writer Boundary
 
