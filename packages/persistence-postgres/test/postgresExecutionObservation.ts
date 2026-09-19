@@ -11,6 +11,8 @@ import {
   fxAppIndexEntryCurrent,
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
+  fxSystemUniqueConstraintBuilds,
+  fxAppUniqueKeys,
 } from "../src/schema";
 
 const hasQueryText = Schema.is(Schema.Struct({ text: Schema.String }));
@@ -22,6 +24,8 @@ const families = [
   fxAppIndexEntryCurrent,
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
+  fxSystemUniqueConstraintBuilds,
+  fxAppUniqueKeys,
 ].map(getTableName);
 
 export type PostgresExecutionPhase =
@@ -39,6 +43,7 @@ export type PostgresExecutionPhase =
   | "finishingEvidenceCapture"
   | "commandProjection"
   | "publication"
+  | "cmsRequest"
   | "replay";
 interface Counters {
   queryCalls: number;
@@ -74,6 +79,7 @@ export async function withPostgresExecutionObservation<Value>(
   const phases = new Map<PostgresExecutionPhase, Counters>();
   const commands = new Map<string, number>();
   const familyQueries = new Map<string, number>();
+  const familyCommands = new Map<string, Map<string, number>>();
   let phase: PostgresExecutionPhase = "resolveAndLock";
   let unsupported = false;
   let checkouts = 0;
@@ -143,8 +149,12 @@ export async function withPostgresExecutionObservation<Value>(
               : "other";
           commands.set(command, (commands.get(command) ?? 0) + 1);
           for (const family of families) {
-            if (text.includes(family))
+            if (text.includes(family)) {
               familyQueries.set(family, (familyQueries.get(family) ?? 0) + 1);
+              let counts = familyCommands.get(family);
+              if (counts === undefined) { counts = new Map(); familyCommands.set(family, counts); }
+              counts.set(command, (counts.get(command) ?? 0) + 1);
+            }
           }
         }
         return Reflect.apply(target, receiver, args);
@@ -209,6 +219,9 @@ export async function withPostgresExecutionObservation<Value>(
         ),
         commands: Object.fromEntries(commands),
         familyQueries: Object.fromEntries(familyQueries),
+        // Top-level verb of statements mentioning a family, not a SQL parser or
+        // affected-row count. WITH is deliberately separate from direct DML.
+        familyCommands: Object.fromEntries([...familyCommands].map(([family, counts]) => [family, Object.fromEntries(counts)])),
         phases: Object.fromEntries(phases),
       },
     };

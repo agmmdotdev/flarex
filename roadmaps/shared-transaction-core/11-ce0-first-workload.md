@@ -49,6 +49,14 @@ text, parameters or result values are retained. Unsupported query/transport form
 overlapping observation or incomplete checkout/release evidence invalidate the
 measurement. The caller retains all resource and settlement ownership.
 
+The observer also reports the top-level command for statements mentioning each
+family, including unique builds and claims. `WITH` stays distinct from direct
+DML; these are statement-mention counters, not a SQL parser or affected-row
+counts. The [active CMS workload](./27-ce2-active-request-measurement.md) pairs
+them with unchanged build tuples and complete durable-state assertions. Its
+whole-request boundary includes preparation transactions and cannot be compared
+directly with this primitive publication interval.
+
 `afterTransactionStep` groups counters by the most recently completed proof
 step. These are observational intervals, not exact logical-operation attribution:
 loops revisit steps and the final interval can include post-COMMIT reads.

@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result,
@@ -11,6 +11,7 @@ import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputErr
 import { deriveApplicationSyscallValidator, validateApplicationRevisionSyscallDocumentInTransactionV1 } from "../applicationRevisionSyscallValidatorV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../appUniqueConstraintCommitV1";
+import { readAppUniqueKeySlotInTransactionEffect, AppUniqueKeyPersistenceError, AppUniqueKeyHashError } from "../appUniqueKeys";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { PointCommitDependencyV1 } from "../pointCommitTransaction";
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
@@ -183,11 +184,23 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   const ensureUnique = Effect.fn("CmsDocuments.validateUnique")(function* (pending: PendingDocument, document: CanonicalFlarexValueV1) {
     const definitions = uniqueDefinitions.filter(definition => definition.tableId === pending.tableId);
     if (definitions.length === 0) return;
-    if (!scanned.has(pending.tableId)) yield* readBase(pending.tableId);
     for (const definition of definitions) {
       const projected = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, document)
         .pipe(Result.mapError(cause => cmsError("documentInvalid", cause))));
       if (projected.canonical.kind !== "claim") continue;
+      const slot = yield* readAppUniqueKeySlotInTransactionEffect(state.tx, { scopeId: state.authority.scopeId,
+        constraintId: definition.uniqueConstraintDefinitionId, key: projected.projection }).pipe(Effect.mapError(cause =>
+        cmsError(cause instanceof AppUniqueKeyPersistenceError ? "statementFailure" : cause instanceof AppUniqueKeyHashError ? "resourceFailure" : "storedCorruption", cause)));
+      if (Option.isSome(slot)) {
+        const owner = slot.value;
+        if (owner.tableId !== pending.tableId) return yield* Effect.fail(cmsError("storedCorruption"));
+        const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(owner));
+        if (owned?.base?.kind !== "live") return yield* Effect.fail(cmsError("storedCorruption"));
+        const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
+          .pipe(Result.mapError(cause => cmsError("storedCorruption", cause))));
+        if (base.canonical.kind !== "claim" || base.canonical.localeKey !== projected.canonical.localeKey ||
+          base.canonical.encodedKey !== projected.canonical.encodedKey) return yield* Effect.fail(cmsError("storedCorruption"));
+      }
       for (const other of rows.values()) {
         if (other.tableId !== pending.tableId || other.documentId === pending.documentId || other.current === null) continue;
         const existing = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, other.current)

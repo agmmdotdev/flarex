@@ -6,6 +6,30 @@ import { withPostgresExecutionObservation } from "./postgresExecutionObservation
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("CE0 PostgreSQL observation", () => {
+  it("separates family statement verbs without treating WITH as a direct write", async () => {
+    if (postgresUrl === null) throw new Error("PostgreSQL URL required.");
+    const pool = new Pool({ connectionString: postgresUrl, max: 1 });
+    try {
+      await pool.query("create temporary table fx_system_unique_constraint_build (value integer)");
+      const measured = await withPostgresExecutionObservation(pool, async () => {
+        const client = await pool.connect();
+        try {
+          await client.query("begin");
+          await client.query("insert into fx_system_unique_constraint_build values ($1)", [1]);
+          await client.query("update fx_system_unique_constraint_build set value=$1", [2]);
+          expect((await client.query("select value from fx_system_unique_constraint_build")).rows).toEqual([{ value: 2 }]);
+          await client.query("with selected as (select * from fx_system_unique_constraint_build) select * from selected");
+        } finally { try { await client.query("rollback"); } finally { client.release(); } }
+      });
+      expect(measured.observation.familyQueries.fx_system_unique_constraint_build).toBe(4);
+      expect(measured.observation.familyCommands.fx_system_unique_constraint_build).toEqual({ insert: 1, update: 1, select: 1, with: 1 });
+      expect(measured.observation.queryCalls).toBe(6);
+      expect(JSON.stringify(measured.observation)).not.toContain("set value");
+      expect(pool.listenerCount("acquire")).toBe(0);
+      expect(pool.listenerCount("release")).toBe(0);
+    } finally { await pool.end(); }
+  });
+
   it("preserves callback queries, rollback failures, release and query identity without retaining data", async () => {
     if (postgresUrl === null) throw new Error("PostgreSQL URL required.");
     const pool = new Pool({ connectionString: postgresUrl, max: 1 });

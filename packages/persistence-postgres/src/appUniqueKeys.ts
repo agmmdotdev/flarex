@@ -4,7 +4,7 @@ import {
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { and, eq, or, isNull } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import {
   AppRowIdHexV1Schema,
   appRowIdHexV1FromBytesResult,
@@ -1397,6 +1397,38 @@ function decodeStoredValidationClaimResult(stored: unknown) {
     });
   });
 }
+
+const decodeSlotIdentity = Schema.decodeUnknownResult(Schema.Struct({
+  scopeId: ScopeIdSchema, constraintId: CatalogUniqueConstraintDefinitionIdSchema,
+}));
+
+/** Bounded committed-slot lookup. The caller owns admission and transaction
+ * protection; pending changes and final claiming remain with their existing owners. */
+export const readAppUniqueKeySlotInTransactionEffect = Effect.fn("AppUniqueKeys.readSlot")(
+  function* (tx: AppUniqueKeyTransaction, input: {
+    readonly scopeId: ScopeId; readonly constraintId: AppUniqueConstraintIdV1; readonly key: AppUniqueKeyProjectionV1;
+  }) {
+    const identity = yield* Effect.fromResult(decodeSlotIdentity(input)).pipe(Effect.mapError(cause => invalid("invalidTransition", cause)));
+    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(identity.scopeId)).pipe(Effect.mapError(cause => invalid("invalidScopeId", cause)));
+    const canonical = yield* Effect.fromResult(canonicalizeAppUniqueKeyV1Result(input.key)).pipe(Effect.mapError(cause => invalid("invalidNextKey", cause)));
+    if (canonical.kind === "omitted") return Option.none();
+    const expected = yield* hashClaimEffect(canonical, liveSha256);
+    const rows = yield* persistenceEffect(tx.select().from(fxAppUniqueKeys).where(and(
+      eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid), eq(fxAppUniqueKeys.constraintId, identity.constraintId),
+      eq(fxAppUniqueKeys.localeKey, expected.localeKey), eq(fxAppUniqueKeys.canonicalKeySha256, expected.canonicalKeySha256),
+    )).limit(2));
+    if (rows.length > 1) return yield* Effect.fail(corruption("one unique-key slot has multiple owners"));
+    const stored = rows[0];
+    if (stored === undefined) return Option.none();
+    const row = yield* Effect.fromResult(storedField(decodeStoredClaimRowResult(stored)));
+    yield* Effect.fromResult(compareStoredKeyResult(row, expected, identity.constraintId));
+    const claim = yield* Effect.fromResult(decodeStoredClaimResult(identity.scopeId, row, expected));
+    if (claim.scopeUuid !== scope.scopeUuid || claim.constraintId !== identity.constraintId) {
+      return yield* Effect.fail(corruption("slot lookup returned a foreign identity"));
+    }
+    return Option.some(claim);
+  },
+);
 
 /** Authenticate current ownership before a writer may omit an unchanged-key operation. */
 export const readAppUniqueKeyOwnersInTransactionEffect = Effect.fn(

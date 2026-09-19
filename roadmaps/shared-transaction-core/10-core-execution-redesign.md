@@ -161,6 +161,15 @@ transaction-reuse gap without changing adapter behavior. Ordered and unique
 maintenance retain the scope clock. The next CE2 acceptance work is matched
 measurement and wider lifecycle concurrency, with actual native/CMS publication.
 
+[Active CMS request measurement](./27-ce2-active-request-measurement.md) now
+exercises admission through settlement and durable replay with certified ordered
+and unique builds. Its growing-catalog witness exposed and removed the CMS core's
+whole-table uniqueness scan: indexed claim lookup plus the bounded pending
+overlay preserves eager conflict semantics without tying selective writes to
+total stored rows. Request limits and final claim/publication authority remain.
+Repeated catalog/readiness preparation is still a full-request and replay cost;
+native attribution, matched references and wider concurrency remain open.
+
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution
 with a supported native and CMS mutation and follows the Medusa consumer as
