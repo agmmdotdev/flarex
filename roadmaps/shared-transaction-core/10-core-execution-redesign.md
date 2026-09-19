@@ -211,6 +211,13 @@ total stored rows. Request limits and final claim/publication authority remain.
 Repeated catalog/readiness preparation is still a full-request and replay cost;
 native attribution, matched references and wider concurrency remain open.
 
+The [complete-request comparison contract](./47-ce0-complete-request-contract.md)
+maps the missing authority, materialization and recovery obligations beyond the
+existing row/publication references. Its empty-operation baseline distinguishes
+a standalone read from a successful zero-row mutation and mutation replay from
+a repeated read. Neither composing the existing references nor timing these
+real core requests establishes an independent complete-request comparator.
+
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its
 identity and byte verdict gates body transfer, while scope-clock validation,

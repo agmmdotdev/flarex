@@ -20,7 +20,7 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
 import { cmsHostFixture } from "./cmsHostFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
-const decodeInput = Schema.decodeUnknownResult(Schema.Struct({ count: Schema.Literals([1, 8, 32]), prefix: Schema.NonEmptyString }));
+const decodeInput = Schema.decodeUnknownResult(Schema.Struct({ count: Schema.Literals([0, 1, 8, 32]), prefix: Schema.NonEmptyString }));
 const decodeDocuments = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ _id: Schema.String, title: Schema.String, _creationTime: Schema.Number })));
 const decodeIds = Schema.decodeUnknownResult(Schema.Array(Schema.String));
 const decodeMove = Schema.decodeUnknownResult(Schema.Struct({ firstId: Schema.String, secondId: Schema.String, firstTitle: Schema.String, temporaryTitle: Schema.String }));
@@ -31,6 +31,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
   const { fixture } = await cmsHostFixture(persistence);
   const scope = Result.getOrThrow(projectScopeIdUuidV1Result(fixture.authority.scopeId));
   let executions = 0;
+  let readExecutions = 0;
   let priorDocumentReads = 0;
   const insert = defineCmsCommand({ name: "measuredInsert", mode: "write", run: Effect.fn("CmsMeasurement.insert")(function* (ctx, args) {
     const input = yield* Effect.fromResult(decodeInput(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
@@ -43,6 +44,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
   }) });
   const read = defineCmsCommand({ name: "measuredReadback", mode: "read", run: Effect.fn("CmsMeasurement.readback")(function* (ctx, args) {
     const ids = yield* Effect.fromResult(decodeIds(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
+    readExecutions++;
     const documents: Json[] = [];
     for (const id of ids) documents.push(yield* ctx.documents.get(ctx.context, undefined, id));
     return documents;
@@ -99,12 +101,23 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     expect(after.facts.length - before.facts.length).toBe(count);
     expect(after.indexes.length - before.indexes.length).toBe(count * 2);
     expect(after.indexRevisions.length - before.indexRevisions.length).toBe(count * 2);
+    if (count === 0) {
+      for (const family of ["rows", "revisions", "indexes", "indexRevisions", "claims", "facts"] as const) {
+        expect(after[family]).toEqual(before[family]);
+      }
+    }
     const priorSequence = before.clock[0]?.lastCommitSeq;
     if (priorSequence === undefined) throw new Error("Missing scope clock");
     const sequences = inserts.map((_, index) => priorSequence + BigInt(index + 1));
     for (const family of ["commits", "outcomes", "wakes"] as const) {
       expect(after[family].length - before[family].length).toBe(inserts.length);
       expect(after[family].filter(row => row.commitSeq > priorSequence).map(row => row.commitSeq)).toEqual(sequences);
+    }
+    for (const commit of after.commits.filter(row => row.commitSeq > priorSequence)) {
+      expect(commit).toMatchObject({
+        changeCount: after.facts.filter(fact => fact.commitSeq === commit.commitSeq).length,
+        relationAdjacencyChangeCount: 0, payloadPreferenceDeletionCount: 0, relationalChangeCount: 0, eventCount: 0, eventSha256: null,
+      });
     }
     expect(after.clock[0]?.lastCommitSeq).toBe(priorSequence + BigInt(inserts.length));
     expect(before.builds.length).toBeGreaterThan(0);
@@ -117,22 +130,38 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     return after;
   };
   const verifyInsert = (before: Awaited<ReturnType<typeof inventory>>, value: Json, count: number, prefix: string) => verifyInserts(before, [{ value, count, prefix }]);
-  return { fixture, host, insert, read, moveAndReuse, inventory, verifyInsert, verifyInserts, scope, priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions };
+  return { fixture, host, insert, read, moveAndReuse, inventory, verifyInsert, verifyInserts, scope,
+    priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions, readExecutionCount: () => readExecutions };
 }
 
 export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {
   const tested = await cmsExecutionMeasurementFixture(persistence, session);
-  for (const count of [1, 8, 32]) {
+  for (const count of [1, 0, 8, 32]) {
     const before = await tested.inventory();
     const args = { count, prefix: `correct-${count}` };
     const key = tested.host.newRequestKey();
     const value = await runEffect(tested.host.run(key, tested.insert, args));
-    const after = await tested.verifyInsert(before, value, count, args.prefix);
+    let after = await tested.verifyInsert(before, value, count, args.prefix);
     const executed = tested.executionCount();
     expect(await runEffect(tested.host.run(key, tested.insert, args))).toEqual(value);
     expect(tested.executionCount()).toBe(executed);
     expect(await tested.inventory()).toEqual(after);
-    expect(await runEffectFailure(tested.host.run(tested.host.newRequestKey(), tested.insert, args))).toMatchObject({ reason: "uniqueConflict" });
+    if (count === 0) {
+      // Identical empty results do not make different request inputs equivalent.
+      expect(await runEffectFailure(tested.host.run(key, tested.insert, { ...args, prefix: "different-empty-request" })))
+        .toMatchObject({ reason: "requestConflict" });
+      expect(tested.executionCount()).toBe(executed);
+      const reads = tested.readExecutionCount();
+      expect(await runEffect(tested.host.read(tested.read, []))).toEqual([]);
+      expect(await runEffect(tested.host.read(tested.read, []))).toEqual([]);
+      expect(tested.readExecutionCount()).toBe(reads + 2);
+      expect(await tested.inventory()).toEqual(after);
+      const fresh = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, args));
+      expect(tested.executionCount()).toBe(executed + 1);
+      after = await tested.verifyInsert(after, fresh, count, args.prefix);
+    } else {
+      expect(await runEffectFailure(tested.host.run(tested.host.newRequestKey(), tested.insert, args))).toMatchObject({ reason: "uniqueConflict" });
+    }
     expect(await tested.inventory()).toEqual(after);
   }
   // Preserve the actual growing-catalog failure: more stored identities than

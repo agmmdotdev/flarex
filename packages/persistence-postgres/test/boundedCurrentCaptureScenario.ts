@@ -167,7 +167,7 @@ export async function verifyBoundedCurrentCapture(
     for (const rowId of [undefined, firstId]) {
       captured.length = 0;
       const inspectAccepted = async () => {
-        const result = await runEffect(read({ rowId }));
+        const result = await runEffect(read(rowId === undefined ? {} : { rowId }));
         expect(result.map((row) => [row.rowId, row.kind])).toEqual(
           rowId === undefined
             ? [

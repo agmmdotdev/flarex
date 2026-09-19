@@ -13,9 +13,11 @@ attribute continuous-maintenance request cost. Reuse `cmsHostFixture`, the
 production CMS host/session/materializer, the pool observer and CE0 environment
 provenance. No new framework capability or alternate execution engine is added.
 
-The measured interval is `host.run`: fresh admission, document calls, publication,
-settlement and recovery for replay. This includes catalog/readiness preparation
-transactions as well as the one material publication transaction. Host construction, schema installation,
+The mutation interval is `host.run`: fresh admission, document calls, publication,
+settlement and recovery for replay. The empty read uses `host.read`, with its
+snapshot admission and settlement but no publication. Both include catalog/readiness
+preparation transactions; mutations additionally own one publication transaction.
+Host construction, schema installation,
 activation, request-key generation and assertion/read-back work stay outside.
 This is the private trusted CMS core profile, not Payload Local API callbacks,
 Cloudflare transport, native user-code execution or a matched independent SQL
@@ -23,21 +25,27 @@ reference. Those comparisons and broader lifecycle races remain open.
 
 ## Design, Alternatives And Acceptance
 
-Use 1/8/32 unique-title inserts, one warm-up pair and five measured pairs at
-offered concurrency one. Alternate normal/instrumented order in a shared
+Use an empty standalone read and 0/1/8/32 unique-title inserts, one warm-up pair
+and five measured pairs at offered concurrency one. Alternate normal/instrumented order in a shared
 activated scope per size. Fixed-width unique inputs avoid conflicts; physical
 tables grow during the run, so this is not a large-catalog capacity experiment.
 Record normal and instrumented duration, query/transport bytes, command/family
-counts and replay separately. A 5% median paired observer tolerance governs
+counts and follow-up requests separately. `Workload.kind` distinguishes the two
+zero-count profiles; `Sample.followup.kind` distinguishes mutation replay from
+a repeated read that executes again. The private report's old `replay` field is
+retired. A 5% median paired observer tolerance governs
 interpretation; failure limits timing claims and must not discard samples.
 Do not invent a throughput-improvement target from diagnostic local runs.
 
-Require exact row/revision/claim/fact/outcome/wake increments, read-back of every
+For mutations, require exact row/revision/claim/fact/outcome/wake increments, read-back of every
 returned document, one dense commit increment, unchanged ordered/unique build
 tuples, and durable replay without reexecuting the command or changing state.
 Also retain uniqueness-conflict rollback. Normal requests must issue no ordinary
-build progress UPDATE; count SELECT and WITH separately instead of treating all
-mentions as writes. Family/command counters classify top-level statement verbs
+build progress UPDATE. The [empty-operation contract](./47-ce0-complete-request-contract.md)
+additionally preserves all data/build tuples for zero-row mutations, matches
+header counts to facts, and requires no durable changes from reads. Count SELECT
+and WITH separately instead of treating all mentions as writes. Family/command
+counters classify top-level statement verbs
 mentioning known family names, not SQL syntax trees or affected-row counts.
 Pair these counters with tuple/state proofs; never infer absence of writes from
 the counters alone. Observer tests must preserve forwarding, cleanup and secrecy.
