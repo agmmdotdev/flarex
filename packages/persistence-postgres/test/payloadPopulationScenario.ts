@@ -17,7 +17,7 @@ import { dataBindingActivationRequest, makeDataBindingHost } from "../src/framew
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { preparePayloadRelationSuccessor, preparePayloadRelationRevision } from "./payloadRelationFixture";
-import { barrier, withDeadline, heldNativeRace, type payloadRelationScenario } from "./payloadRelationScenario";
+import { barrier, withDeadline, heldNativeRace, overlappingSnapshotRace, type payloadRelationScenario } from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const object = (value: Json): JsonObject => {
@@ -165,6 +165,7 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
       if ("pool" in input.persistence) {
         const persistence = input.persistence;
         for (const first of ["reader", "writer"] as const) {
+          const beforeRace = await runEffect(host.read(relation.runtime.commands.findByID, { collection: "posts", id: second, depth: 1 }));
           const entered = barrier<void>();
           const release = barrier<void>();
           const held = await runEffect(makeCmsHost(composition, first === "reader" ? { documentReads: {
@@ -173,11 +174,13 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
           const reading = (first === "reader" ? held : host).read(relation.runtime.commands.findByID, { collection: "posts", id: second, depth: 1 });
           const writer = first === "writer" ? held : host;
           const writing = writer.run(writer.newRequestKey(), relation.runtime.commands.update, { collection: "posts", id: target, data: { title: `population-race-${first}` } });
-          const results = await heldNativeRace(persistence, first === "reader" ? reading : writing, first === "reader" ? writing : reading, entered.promise, () => release.resolve());
+          const results = await runEffect(overlappingSnapshotRace(first === "reader" ? reading : writing, first === "reader" ? writing : reading, entered.promise, () => release.resolve()));
           expect(results).toEqual([expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) }),
             expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) })]);
           const result = results[first === "reader" ? 0 : 1];
-          expect(result).toMatchObject({ status: "fulfilled", value: { success: { relatedPost: { title: first === "reader" ? "population-updated" : "population-race-writer" } } } });
+          expect(result).toMatchObject({ status: "fulfilled", value: { success: beforeRace } });
+          expect(await runEffect(host.read(relation.runtime.commands.findByID, { collection: "posts", id: second, depth: 1 })))
+            .toMatchObject({ relatedPost: { title: `population-race-${first}` } });
         }
         const snapshot = await input.inventory();
         const entered = barrier<void>();
@@ -219,7 +222,13 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
           const reading = (first === "reader" ? held : host).read(relation.runtime.commands.findByID, { collection: "posts", id: second, depth: 1 });
           const results = await heldNativeRace(persistence, first === "reader" ? reading : changing, first === "reader" ? changing : reading, entered.promise, () => release.resolve());
           expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
-          expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: change === "activation" && first === "change" ? "Failure" : "Success" } });
+          expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: first === "change" ? "Failure" : "Success" } });
+          if (change === "binding" && first === "change") {
+            expect(results[1]).toMatchObject({ value: { failure: { reason: "invalidAuthority",
+              cause: { cause: { cause: { code: "40001" } } } } } });
+            expect(await runEffect(host.read(relation.runtime.commands.findByID, { collection: "posts", id: second, depth: 1 })))
+              .toMatchObject({ relatedPost: { id: target } });
+          }
           if (change === "activation") {
             if (first === "change") expect(results[1]).toMatchObject({ value: { failure: { reason: "bindingChanged" } } });
             const application = await runEffect(bindings.readApplicationReference());

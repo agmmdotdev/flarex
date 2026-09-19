@@ -947,11 +947,12 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
     } else {
       candidate = yield* runLocatedTransaction(
         inputs.target,
-        tx => loadStoredActiveCandidateValidationReceiptInTransaction(
-          tx,
-          bundle.authority,
-          bundle.revision.revisionId,
-        ),
+        tx => Effect.gen(function* () {
+          const clock = yield* lockScopeClockForShareInTransactionEffect(tx, bundle.authority.scopeId);
+          return yield* loadStoredActiveCandidateValidationReceiptInTransaction(
+            tx, bundle.authority, bundle.revision.revisionId, clock,
+          );
+        }),
       );
     }
     const unique = yield*
@@ -1005,14 +1006,11 @@ const loadStoredActiveCandidateValidationReceiptInTransaction = Effect.fn(
   tx: AppRowTransaction,
   authority: ApplicationReadinessAuthority,
   revisionId: string,
+  clock: ScopeClockRecord,
 ): Effect.fn.Return<
   StoredActivePreparedCandidateValidation,
-  ApplicationRelationReadinessFoldIssue | LockScopeClockForShareError
+  ApplicationRelationReadinessFoldIssue
 > {
-  const clock = yield* lockScopeClockForShareInTransactionEffect(
-    tx,
-    authority.scopeId,
-  );
   yield* requireExactAuthority(authority, clock);
   const rows = yield* query(
     tx.select({
@@ -1295,7 +1293,7 @@ const validatePreparedFoldInTransaction = Effect.fn(
       if (unique.status === "not_ready") return notReady(preparation.bundle.revision.revisionId,
         uniqueNotReadyReason(unique.reason), unique.lifecycle);
       const candidate = yield* loadStoredActiveCandidateValidationReceiptInTransaction(tx,
-        preparation.bundle.authority, preparation.bundle.revision.revisionId);
+        preparation.bundle.authority, preparation.bundle.revision.revisionId, clock);
       prepared = Object.freeze({ ...preparation, kind: "checked", candidate, unique,
         uniqueSha256: yield* digestCanonicalJson(appUniqueConstraintEligibilityFrame(unique)) });
     } else {

@@ -271,7 +271,7 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
   function* (
     tx: FlarexMetadataTransaction,
     location: BindingLocation,
-    lock: boolean,
+    lock: "none" | "share" | "update",
   ) {
     const query = tx
       .select({
@@ -286,7 +286,7 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
         ),
       )
       .limit(1);
-    const rows = yield* bindingStatement(lock ? query.for("update") : query);
+    const rows = yield* bindingStatement(lock === "none" ? query : query.for(lock));
     const row = rows[0];
     if (row === undefined) return Option.none();
     const head = yield* decode(

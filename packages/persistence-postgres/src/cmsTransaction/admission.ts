@@ -66,10 +66,10 @@ export const prepareCmsPreferences = Effect.fn("CmsAdmission.preparePreferences"
 ) {
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
   if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
-  const reference = yield* runRelationalSession(session, tx => Effect.gen(function* () {
+  const reference = yield* runRelationalSession(session, "command", tx => Effect.gen(function* () {
     const clock = yield* lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId);
     if (!cmsClockMatches(located.authority, clock)) return yield* Effect.fail(cmsError("invalidAuthority"));
-    const head = yield* readBindingHead(tx, located.authority, false);
+    const head = yield* readBindingHead(tx, located.authority, "none");
     if (Option.isNone(head)) return yield* Effect.fail(cmsError("bindingChanged"));
     const candidate = yield* readBindingCandidate(tx, located.authority, head.value.frame.candidateSha256);
     if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));
@@ -118,7 +118,7 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   if (!prepared.has(application) || !cmsClockMatches(authority, clock)) return yield* Effect.fail(cmsError("invalidAuthority"));
   return yield* withAcceptedApplicationBinding(application.selection, tx, clock, binding => Effect.gen(function* () {
     const projection = yield* readAcceptedApplicationBindingProjection(binding, tx, clock);
-    const head = yield* readBindingHead(tx, authority, false);
+    const head = yield* readBindingHead(tx, authority, "share");
     if (Option.isNone(head)) return yield* Effect.fail(cmsError("bindingChanged"));
     const candidate = yield* readBindingCandidate(tx, authority, head.value.frame.candidateSha256);
     if (Option.isNone(candidate)) return yield* Effect.fail(cmsError("storedCorruption"));

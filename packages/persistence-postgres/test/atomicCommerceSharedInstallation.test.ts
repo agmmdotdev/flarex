@@ -196,7 +196,7 @@ describe("atomic participants sharing physical installation", () => {
 
   it("recovers uncertain settlement without repeating any shared participant write", async () => {
     let lose = true; let executions = 0;
-    const session = issueRelationalSession(shared.persistence.drizzle, work => runRelationalSession(shared.session, work).pipe(
+    const session = issueRelationalSession(shared.persistence.drizzle, (profile, work) => runRelationalSession(shared.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => {
         if (!lose) return Effect.succeed(value);

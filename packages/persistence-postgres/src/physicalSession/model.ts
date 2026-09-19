@@ -116,6 +116,7 @@ export type PhysicalRestore = <Value, Failure>(
 ) => Effect.Effect<Value, Failure, never>;
 
 export interface PhysicalInitialTransactionInput {
+  readonly isolationLevel: "read committed" | "repeatable read";
   readonly deadline: PhysicalDeadline;
   readonly lockTimeoutMilliseconds: number;
   readonly recoveryTimeoutMilliseconds: number;

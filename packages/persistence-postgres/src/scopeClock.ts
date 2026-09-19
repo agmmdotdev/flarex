@@ -96,7 +96,7 @@ export class ScopeAuthorizationRevocationEpochPersistenceError
   extends Data.TaggedError(
     "ScopeAuthorizationRevocationEpochPersistenceError",
   )<{
-    readonly operation: "readForShare" | "lockForUpdate" | "update";
+    readonly operation: "readForShare" | "readForKeyShare" | "lockForUpdate" | "lockForSnapshotRead" | "lockForPublication" | "update";
     readonly cause: unknown;
   }> {}
 
@@ -146,12 +146,12 @@ export const requireScopeAuthorizationRevocationEpochInTransactionEffect =
       TransactionAuthorizationRevocationEpoch,
       ScopeAuthorizationRevocationEpochReadError
     > {
-      const query = selectScopeAuthorizationRevocationEpochForShare(
+      const query = selectScopeAuthorizationRevocationEpochForKeyShare(
         db,
         scopeId,
       );
       const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
-        "readForShare",
+        "readForKeyShare",
         query,
       );
       const row = rows[0];
@@ -167,7 +167,9 @@ export const requireScopeAuthorizationRevocationEpochInTransactionEffect =
     },
   );
 
-function selectScopeAuthorizationRevocationEpochForShare(
+// Revocation always obtains FOR UPDATE before changing its non-key epoch.
+// Protect that transition without excluding ordinary sequence publication.
+function selectScopeAuthorizationRevocationEpochForKeyShare(
   db: ScopeClockTransaction,
   scopeId: ScopeId,
 ) {
@@ -180,7 +182,7 @@ function selectScopeAuthorizationRevocationEpochForShare(
     .from(fxSystemScopeClocks)
     .where(eq(fxSystemScopeClocks.scopeId, scopeId))
     .limit(1)
-    .for("share");
+    .for("key share");
 }
 
 /**
@@ -286,6 +288,29 @@ export const lockScopeClockForShareInTransactionEffect = Effect.fn(
   if (row === undefined) {
     return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
   }
+  return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
+});
+
+/** Standalone repeatable-read admission only; strong lifecycle writers retain FOR UPDATE. */
+export const lockScopeClockForSnapshotReadInTransactionEffect = Effect.fn(
+  "ScopeClock.lockForSnapshotRead",
+)((db: ScopeClockTransaction, scopeId: ScopeId) => lockScopeClockForDataAccess(db, scopeId, "snapshotRead"));
+
+/** Sequence/time publication only; authority and history transitions require the strong helper. */
+export const lockScopeClockForPublicationInTransactionEffect = Effect.fn(
+  "ScopeClock.lockForPublication",
+)((db: ScopeClockTransaction, scopeId: ScopeId) => lockScopeClockForDataAccess(db, scopeId, "publication"));
+
+const lockScopeClockForDataAccess = Effect.fn("ScopeClock.lockForDataAccess")(function* (
+  db: ScopeClockTransaction, scopeId: ScopeId, access: "snapshotRead" | "publication",
+) {
+  const query = db.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId))
+    .limit(1).for(access === "snapshotRead" ? "key share" : "no key update");
+  const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
+    access === "snapshotRead" ? "lockForSnapshotRead" : "lockForPublication", query,
+  );
+  const row = rows[0];
+  if (row === undefined) return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
   return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
 });
 

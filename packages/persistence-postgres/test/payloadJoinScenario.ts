@@ -21,7 +21,7 @@ import { makeCmsHost, defineCmsCommand, type CmsCommandContext } from "../src/cm
 import { cmsError } from "../src/cmsTransaction/model";
 import { decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
 import { Result } from "effect";
-import { barrier, heldNativeRace, withDeadline, type payloadRelationScenario } from "./payloadRelationScenario";
+import { barrier, overlappingSnapshotRace, withDeadline, type payloadRelationScenario } from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const object = (value: Json): JsonObject => { if (!isJsonObject(value)) throw new Error("Expected document"); return value; };
@@ -228,12 +228,15 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
           const reading = (first === "reader" ? held : host).read(conformance.runtime.commands.findByID, { collection: "posts", id: raceTarget, depth: 1 });
           const writing = (first === "writer" ? held : host).run(host.newRequestKey(), mutation === "delete" ? conformance.runtime.commands.delete : conformance.runtime.commands.update,
             mutation === "delete" ? { collection: "posts", id: raceSource } : { collection: "posts", id: raceSource, data: { relatedPost: null, relatedPosts: [] } });
-          const results = await heldNativeRace(input.persistence, first === "reader" ? reading : writing, first === "reader" ? writing : reading, entered.promise, () => release.resolve());
+          const results = await runEffect(overlappingSnapshotRace(first === "reader" ? reading : writing, first === "reader" ? writing : reading, entered.promise, () => release.resolve()));
           expect(results).toEqual([expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) }), expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) })]);
           expect(results[first === "reader" ? 0 : 1]).toMatchObject({ status: "fulfilled", value: { _tag: "Success", success: {
-            referencedBy: { docs: first === "reader" ? [expect.objectContaining({ id: raceSource })] : [], hasNextPage: false },
-            referencedByMany: { docs: first === "reader" ? [expect.objectContaining({ id: raceSource })] : [], hasNextPage: false },
+            referencedBy: { docs: [expect.objectContaining({ id: raceSource })], hasNextPage: false },
+            referencedByMany: { docs: [expect.objectContaining({ id: raceSource })], hasNextPage: false },
           } } });
+          expect(await read(raceTarget)).toMatchObject({
+            referencedBy: { docs: [], hasNextPage: false }, referencedByMany: { docs: [], hasNextPage: false },
+          });
         }
       }
       const entered = barrier<void>();

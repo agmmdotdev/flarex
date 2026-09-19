@@ -384,6 +384,7 @@ const runControlLifecycle = Effect.fn(
 
   const initial = yield* state.driver.runInitialTransactionEffect(
     {
+      isolationLevel: "read committed",
       deadline: input.initialDeadline,
       lockTimeoutMilliseconds: input.lockTimeoutMilliseconds,
       recoveryTimeoutMilliseconds: input.recoveryTimeoutMilliseconds,

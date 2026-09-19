@@ -252,7 +252,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
     })));
     expect(await inventory()).toEqual(before);
     let lose = true, validations = 0;
-    const session = issueRelationalSession(product.persistence.drizzle, work => runRelationalSession(product.session, work).pipe(
+    const session = issueRelationalSession(product.persistence.drizzle, (profile, work) => runRelationalSession(product.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
         return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: "lost variant-image acknowledgement" })); }),

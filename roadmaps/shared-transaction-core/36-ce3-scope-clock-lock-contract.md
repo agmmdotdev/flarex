@@ -1,8 +1,9 @@
 # Scope Clock Lock Contract Before Snapshot Reads
 
 Status: lock-contract witnesses implemented against the existing PostgreSQL
-clock schema and revocation owner. Production lock modes and transaction
-profiles remain unchanged; connected snapshot-read cutover is open.
+clock schema and revocation owner. The [CMS snapshot cutover](./38-ce3-cms-snapshot-publication.md)
+now applies this contract through the existing physical/session and admission
+owners. Other publication profiles retain stronger exclusion pending cutover.
 
 ## Decision And Ownership
 
@@ -12,7 +13,7 @@ publication throughout a standalone CMS read. Before adding a second fence row,
 test whether PostgreSQL row-lock modes can separate these responsibilities at
 the existing owner without duplicating authority.
 
-The candidate contract is:
+The lock contract is:
 
 | Operation | Clock protection | Isolation and meaning |
 | --- | --- | --- |
@@ -23,7 +24,7 @@ The candidate contract is:
 `FOR KEY SHARE` alone does not protect non-key fields. The explicit strong lock
 at every transition owner is essential. Do not downgrade the general lifecycle
 lock helper or substitute an unguarded `UPDATE` of authority columns. This is a
-candidate protocol for the supported PostgreSQL version, not a new public API.
+protocol for the supported PostgreSQL version, not a new public API.
 
 PostgreSQL documents compatible key-share/no-key-update modes and snapshot
 failure on conflicting row changes in its [locking contract](https://www.postgresql.org/docs/18/explicit-locking.html#LOCKING-ROWS)
@@ -39,21 +40,20 @@ compatibility of two locks alone is insufficient.
   strong clock lock. That protection must remain.
 - `scopeClockInitialization.ts` owns initial identity; publication must never
   alter scope identity, generation, fence, epoch or revocation fields.
-- `commitPublication/publication.ts` advances only sequence/time. Its callers
-  currently obtain stronger clock locks in native point commit, CMS, commerce,
-  atomic commerce and cross-domain hosts. They retain clock-first ordering.
+- `commitPublication/publication.ts` advances only sequence/time. CMS selects
+  no-key-update protection; native point commit, commerce, atomic commerce and
+  cross-domain hosts retain stronger clock locks. All retain clock-first ordering.
 - Activation, binding, schema-candidate, relation/index/unique build and readiness
   transitions also take strong clock protection. Do not classify them as ordinary
   publishers merely because they write metadata rather than the clock itself.
-- `physicalSession/postgres.ts` currently starts read-committed transactions.
-  `relationalTransaction/session.ts` exposes one such execution profile. CMS
-  standalone reads and nested reads currently share that lifetime model; only a
-  standalone read can select a future repeatable-read profile. Nested reads must
-  retain their mutation's pending state.
+- `physicalSession/postgres.ts` selects isolation before its configuration query.
+  `relationalTransaction/session.ts` names command and snapshot-read profiles. CMS
+  standalone reads select repeatable read; nested reads retain their mutation's
+  pending state and transaction profile.
 
-This inventory identifies owners, not a completed audit of every SQL statement.
-The connected cutover must trace direct and implicit locks and every affected
-writer before claiming admission or overlap safety.
+The CMS cutover traces its direct and nested acquisitions, including epoch reads
+and relation lowering. This inventory is not a completed audit of all remaining
+publication profiles; their cutovers must trace every affected writer.
 
 A strong clock lock without a clock-row update is not a durable version stamp.
 Transitions that change active heads or readiness in other rows require their
@@ -82,10 +82,10 @@ both reviews, and stop owned resources.
 
 ## Connected Cutover Gate
 
-If these witnesses pass, implement the named standalone snapshot profile at the
-existing physical/session owners and migrate CMS read admission plus all selected
-ordinary publishers coherently. Preserve strong transition locks and replace the
-displaced read-lock path. Keep a read-only data capability: PostgreSQL SQL `READ
+The CMS implementation uses the named standalone snapshot profile at the existing
+physical/session owners and migrates its ordinary publisher coherently. Further
+profile cutovers must preserve strong transition locks and replace displaced
+read-lock paths. Keep a read-only data capability: PostgreSQL SQL `READ
 ONLY` does not admit locking selects. No command callback may be retried merely
 because repeatable-read admission can reject a stale snapshot.
 

@@ -293,7 +293,7 @@ describe("local Product service through shared Flarex core", () => {
 
   it("recovers an ambiguous COMMIT result while discarding unauthenticated local events", async () => {
     let loseAcknowledgement = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, work => runRelationalSession(fixture.session, work).pipe(
+    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => {
         if (!loseAcknowledgement) return Effect.succeed(value);
@@ -320,10 +320,10 @@ describe("local Product service through shared Flarex core", () => {
 
   it("loses only the local buffer when recovery is unavailable, then replays the retained result without messages", async () => {
     let attempts = 0;
-    const session = issueRelationalSession(fixture.persistence.drizzle, work => Effect.suspend(() => {
+    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => Effect.suspend(() => {
       attempts += 1;
       if (attempts > 1) return Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause: new Error("Recovery unavailable") }));
-      return runRelationalSession(fixture.session, work).pipe(
+      return runRelationalSession(fixture.session, profile, work).pipe(
         Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
         Effect.andThen(Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost acknowledgement") }))),
       );
@@ -349,14 +349,14 @@ describe("local Product service through shared Flarex core", () => {
     const competitor = await localHost([command]);
     const key = competitor.host.newRequestKey();
     let first = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, work => Effect.gen(function* () {
-      if (!first) return yield* runRelationalSession(fixture.session, work).pipe(
+    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => Effect.gen(function* () {
+      if (!first) return yield* runRelationalSession(fixture.session, profile, work).pipe(
         Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))));
       first = false;
       const uncertain = new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Rolled back, acknowledgement lost") });
       // Finalize A, roll it back, then commit B before reporting uncertainty to A.
       // Both use the same IDs/result, so neither proves the buffer's ownership.
-      const outcome = yield* Effect.exit(runRelationalSession(fixture.session, tx => work(tx).pipe(Effect.andThen(Effect.fail(uncertain)))).pipe(
+      const outcome = yield* Effect.exit(runRelationalSession(fixture.session, profile, tx => work(tx).pipe(Effect.andThen(Effect.fail(uncertain)))).pipe(
         Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       ));
       if (Exit.isSuccess(outcome)) return outcome.value;
@@ -613,7 +613,7 @@ describe("local Product service through shared Flarex core", () => {
   it("recovers an ambiguous update commit without delivering or replaying the local event", async () => {
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTypes, { id: "ptyp_uncertain_update", value: "uncertain-before" }));
     let loseAcknowledgement = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, work => runRelationalSession(fixture.session, work).pipe(
+    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => {
         if (!loseAcknowledgement) return Effect.succeed(value);

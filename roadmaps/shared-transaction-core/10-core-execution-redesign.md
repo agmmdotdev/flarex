@@ -121,13 +121,16 @@ dependency validation remain; coordinated parallel materialization is still open
 The [scope-clock lock contract](./36-ce3-scope-clock-lock-contract.md) provides
 PostgreSQL witnesses for separating snapshot-reader protection from ordinary
 sequence advancement on the existing row, while retaining strong transition
-exclusion and stale-snapshot refusal. The connected CMS snapshot profile and
-publisher cutover remain open; no production lock mode changes in that witness.
+exclusion and stale-snapshot refusal. The [CMS snapshot cutover](./38-ce3-cms-snapshot-publication.md)
+applies this contract at the physical/session, admission and publication owners.
+Standalone CMS reads overlap ordinary CMS publication with coherent document
+and incoming-relation snapshots. Other publication profiles and concurrent
+same-scope writers remain open.
 The [active readiness lock correction](./37-ce3-active-readiness-locks.md) replaces
 exclusive stored-active validation locks with shared protection at the existing
-fold owner. Same-scope CMS reads can admit concurrently; lifecycle updates and
-ordinary publication remain excluded until those reads finish. The connected
-snapshot/publication cutover remains open.
+fold owner. Same-scope CMS reads can admit concurrently; lifecycle updates remain
+excluded until those reads finish. The snapshot cutover preserves these checks
+while removing ordinary CMS publication exclusion.
 The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
 extends the matched comparison at the existing shared publication owner, without
 duplicating native authentication or transaction recovery in a benchmark engine.

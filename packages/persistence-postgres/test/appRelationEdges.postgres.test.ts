@@ -754,7 +754,7 @@ async function waitForBlockedScopeLock(
         and activity.datname = current_database()
         and activity.wait_event_type = 'Lock'
         and activity.query ilike '%fx_system_scope_clock%'
-        and activity.query ilike '%for update%'
+        and activity.query ilike '%for no key update%'
     `, [blockerPid]);
     if ((result.rows[0]?.blocked ?? 0) >= expectedBlocked) return;
     await delay(25);

@@ -291,7 +291,7 @@ describe("connected native Product Variant Pricing", () => {
   it("recovers uncertain maximum settlement without repeating native callbacks", async () => {
     await seed("uncertain");
     let lose = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, work => runRelationalSession(fixture.session, work).pipe(
+    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => {
         if (!lose) return Effect.succeed(value);

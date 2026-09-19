@@ -248,7 +248,7 @@ describe("native composed Product workflows", () => {
 
   it("recovers a lost root acknowledgement without repeating either child", async () => {
     const called = vi.fn(); let lose = true;
-    const session = issueRelationalSession(currency.persistence.drizzle, work => runRelationalSession(currency.session, work).pipe(
+    const session = issueRelationalSession(currency.persistence.drizzle, (profile, work) => runRelationalSession(currency.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
         return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: "lost composition acknowledgement" })); }),

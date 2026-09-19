@@ -233,7 +233,7 @@ export const makeRelationalHost = Effect.fn("RelationalHost.make")(function* (
         )
       )
         return yield* Effect.fail(relationalError("invalidAuthority"));
-      return yield* runRelationalSession(session, (tx) =>
+      return yield* runRelationalSession(session, "command", (tx) =>
         Effect.gen(function* () {
           yield* runDrizzleStatementEffect(
             tx.execute(

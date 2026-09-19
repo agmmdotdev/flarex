@@ -26,7 +26,9 @@ declare const sessionBrand: unique symbol;
 export interface RelationalSession {
   readonly [sessionBrand]: true;
 }
+export type RelationalSessionProfile = "command" | "snapshotRead";
 export type RunRelationalSession = <Value, Failure>(
+  profile: RelationalSessionProfile,
   work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
 ) => Effect.Effect<Value, Failure | RelationalSessionError>;
 const sessions = new WeakMap<
@@ -53,12 +55,13 @@ export function hasRelationalSessionDatabase(
 export const runRelationalSession = Effect.fn("RelationalSession.run")(
   function* <Value, Failure>(
     session: RelationalSession,
+    profile: RelationalSessionProfile,
     work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
   ) {
     const state = sessions.get(session);
     if (state === undefined)
       return yield* Effect.fail(relationalError("invalidAuthority"));
-    return yield* state.run(work);
+    return yield* state.run(profile, work);
   },
 );
 
@@ -75,6 +78,7 @@ export function makePostgresRelationalSession(
   ).runInitialTransactionEffect;
   const run: RunRelationalSession = Effect.fn("RelationalSession.postgres")(
     <Value, Failure>(
+      profile: RelationalSessionProfile,
       work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
     ) =>
       Effect.uninterruptibleMask((restore) =>
@@ -85,6 +89,7 @@ export function makePostgresRelationalSession(
           );
           const result = yield* initial(
             {
+              isolationLevel: profile === "snapshotRead" ? "repeatable read" : "read committed",
               deadline,
               lockTimeoutMilliseconds: relationalLimits.lockMs,
               recoveryTimeoutMilliseconds: relationalLimits.cleanupMs,

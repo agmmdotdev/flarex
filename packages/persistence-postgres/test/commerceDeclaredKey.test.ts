@@ -208,7 +208,7 @@ it("serializes concurrent replacement and recovers a lost acknowledgement withou
   expect(after.facts.slice(before.facts.length).map(fact => fact.operation)).toEqual(["insert", "update"]);
   let lose = true;
   let executions = 0;
-  const session = issueRelationalSession(fixture.persistence.drizzle, work => runRelationalSession(fixture.session, work).pipe(
+  const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
     Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
     Effect.flatMap(value => {
       if (!lose) return Effect.succeed(value);

@@ -105,7 +105,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(commerceError("invalidAuthority"));
       const active = yield* prepareApplicationBindingSelection(application);
-      return yield* runRelationalSession(session, tx => Effect.scoped(Effect.gen(function* () {
+      return yield* runRelationalSession(session, "command", tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`), cause => commerceError("statementFailure", cause));
         const clock = yield* (key === null ? lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId) : lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId));
         return yield* withCommerceAdmission(profile, target, reference, active, tx, located.authority, clock, bootstrap, installationRuntime, admission => Effect.gen(function* () {

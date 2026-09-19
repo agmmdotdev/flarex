@@ -54,7 +54,7 @@ export async function commercePublicationScenario(fixture: CommerceHostTestFixtu
   // Simulate a lost acknowledgement only after the real physical COMMIT. The
   // host must use a second session to recover; the command cannot execute twice.
   let loseAcknowledgement = true;
-  const session = issueRelationalSession(db, work => runRelationalSession(fixture.session, work).pipe(Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))), Effect.flatMap(value => {
+  const session = issueRelationalSession(db, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))), Effect.flatMap(value => {
     if (!loseAcknowledgement) return Effect.succeed(value);
     loseAcknowledgement = false;
     return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost COMMIT acknowledgement") }));

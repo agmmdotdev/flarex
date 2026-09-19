@@ -401,3 +401,19 @@ export async function heldNativeRace(persistence: PostgresFlarexPersistence, fir
   }
   return results;
 }
+
+/** The second operation must settle before the first admission is released. */
+export const overlappingSnapshotRace = Effect.fn("PayloadTest.overlappingSnapshotRace")(
+  (first: Effect.Effect<unknown, unknown>, second: Effect.Effect<unknown, unknown>, entered: Promise<void>, release: () => void) =>
+    Effect.scoped(Effect.gen(function* () {
+      const firstFiber = yield* first.pipe(Effect.result, Effect.forkScoped);
+      yield* Effect.raceFirst(Effect.promise(() => entered), Fiber.join(firstFiber).pipe(
+        Effect.andThen(Effect.fail(new Error("Snapshot race exited before its barrier"))),
+      ));
+      const secondFiber = yield* second.pipe(Effect.result, Effect.forkScoped);
+      const secondResult = yield* Fiber.join(secondFiber);
+      yield* Effect.sync(release);
+      const firstResult = yield* Fiber.join(firstFiber);
+      return [{ status: "fulfilled" as const, value: firstResult }, { status: "fulfilled" as const, value: secondResult }];
+    }).pipe(Effect.ensuring(Effect.sync(release)), Effect.timeout("5 seconds"))),
+);

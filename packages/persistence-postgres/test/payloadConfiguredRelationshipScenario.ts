@@ -28,7 +28,7 @@ import type { RelationalSession } from "../src/relationalTransaction/session";
 import { cmsHostFixture } from "./cmsHostFixture";
 import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
 import { installationBindingReference } from "./frameworkDataBindingPhysicalTestSupport";
-import { barrier, heldNativeRace } from "./payloadRelationScenario";
+import { barrier, overlappingSnapshotRace } from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 function document(value: Json): JsonObject & { id: string } {
@@ -210,8 +210,8 @@ export async function payloadConfiguredRelationshipScenario(
         const reading = (first === "reader" ? held : host).read(runtime.commands.findByID, { collection: "articles", id: second.id, depth: 1 });
         const writer = first === "writer" ? held : host;
         const writing = writer.run(writer.newRequestKey(), runtime.commands.delete, { collection: authorCollection, id: author.id });
-        const results = await heldNativeRace(persistence, first === "reader" ? reading : writing, first === "reader" ? writing : reading,
-          entered.promise, () => release.resolve());
+        const results = await runEffect(overlappingSnapshotRace(first === "reader" ? reading : writing, first === "reader" ? writing : reading,
+          entered.promise, () => release.resolve()));
         expect(results[first === "reader" ? 0 : 1]).toMatchObject({ status: "fulfilled", value: { _tag: "Success", success: { [relationName]: author } } });
         expect(results[first === "writer" ? 0 : 1]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: "relationDeleteRestricted" } } });
       }

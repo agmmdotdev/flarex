@@ -263,7 +263,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
   >(work: (selection: AdmittedDataBinding) => Effect.Effect<Value, Failure>) {
     const located = yield* resolve();
     const hint = yield* run(located, (tx, authority) =>
-      readBindingHead(tx, authority, false),
+      readBindingHead(tx, authority, "none"),
     );
     if (Option.isNone(hint))
       return yield* Effect.fail(bindingError("missingDependency"));
@@ -296,7 +296,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           payloadProfiles,
           commerceProfiles,
         );
-        const current = yield* readBindingHead(tx, authority, true);
+        const current = yield* readBindingHead(tx, authority, "update");
         if (
           Option.isNone(current) ||
           current.value.sha256 !== hint.value.sha256
@@ -396,7 +396,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           payloadProfiles,
           commerceProfiles,
         );
-        const current = yield* readBindingHead(tx, authority, true);
+        const current = yield* readBindingHead(tx, authority, "update");
         const matches = Option.isNone(current)
           ? request.expectedHead === null
           : request.expectedHead !== null &&

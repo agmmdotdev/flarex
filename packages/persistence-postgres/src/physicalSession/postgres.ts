@@ -15,6 +15,7 @@ import {
 import {
   makePhysicalConnectionIdentity,
   type PhysicalConnectionIdentity,
+  type PhysicalInitialTransactionInput,
   type PhysicalRestore,
   type PhysicalSessionPhase,
   type PhysicalSessionQuarantine,
@@ -368,11 +369,7 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
         Value,
         Failure,
       >(
-        input: {
-          readonly deadline: PhysicalDeadline;
-          readonly lockTimeoutMilliseconds: number;
-          readonly recoveryTimeoutMilliseconds: number;
-        },
+        input: PhysicalInitialTransactionInput,
         restore: PhysicalRestore,
         work: (
           transaction: FlarexMetadataTransaction,
@@ -405,7 +402,9 @@ export function makePostgresPhysicalSessionDriver<ResourceIssue, DeadlineIssue>(
               connection,
               input.deadline,
               "isolation",
-              "set transaction isolation level read committed",
+              input.isolationLevel === "repeatable read"
+                ? "set transaction isolation level repeatable read"
+                : "set transaction isolation level read committed",
             ),
           ),
         );

@@ -499,7 +499,7 @@ describe("private atomic commerce command", () => {
     let executions = 0;
     const counted = withCommand("retained", Effect.fn("AtomicTest.retained")(function* (ctx, value) { executions++; return yield* business(ctx, value); }));
     let lose = true;
-    const session = issueRelationalSession(currency.persistence.drizzle, work => runRelationalSession(currency.session, work).pipe(
+    const session = issueRelationalSession(currency.persistence.drizzle, (profile, work) => runRelationalSession(currency.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => {
         if (!lose) return Effect.succeed(value);
@@ -611,10 +611,10 @@ describe("private atomic commerce command", () => {
     expect(stable.currency.commits).toHaveLength(before.currency.commits.length + 1);
     const blocker = await postgres.pool.connect();
     try {
-      const session = issueRelationalSession(postgres.drizzle, work => Effect.gen(function* () {
+      const session = issueRelationalSession(postgres.drizzle, (profile, work) => Effect.gen(function* () {
         yield* Effect.promise(() => blocker.query("begin"));
         yield* Effect.promise(() => blocker.query("select 1 from fx_system_scope_clock for update"));
-        return yield* runRelationalSession(currency.session, work).pipe(Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))));
+        return yield* runRelationalSession(currency.session, profile, work).pipe(Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))));
       }));
       const contended = await runEffect(makeAtomicCommerceHost({ ...input, session, commands: [counted.command] }));
       const start = performance.now();

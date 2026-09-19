@@ -119,6 +119,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const settlementPromise = Effect.runPromise(
       driver.runInitialTransactionEffect(
         {
+          isolationLevel: "read committed",
           deadline,
           lockTimeoutMilliseconds: 700,
           recoveryTimeoutMilliseconds: 1_000,
@@ -184,6 +185,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const settlementPromise = Effect.runPromise(
       driver.runInitialTransactionEffect(
         {
+          isolationLevel: "read committed",
           deadline,
           lockTimeoutMilliseconds: 700,
           recoveryTimeoutMilliseconds: 1_000,
@@ -242,6 +244,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       const fiber = yield* Effect.forkChild(
         driver.runInitialTransactionEffect(
           {
+            isolationLevel: "read committed",
             deadline,
             lockTimeoutMilliseconds: 20,
             recoveryTimeoutMilliseconds: 20,
@@ -294,6 +297,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const settlement = await Effect.runPromise(
       driver.runInitialTransactionEffect(
         {
+          isolationLevel: "read committed",
           deadline,
           lockTimeoutMilliseconds: 700,
           recoveryTimeoutMilliseconds: 1_000,
@@ -357,6 +361,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const settlement = await Effect.runPromise(
       driver.runInitialTransactionEffect(
         {
+          isolationLevel: "read committed",
           deadline,
           lockTimeoutMilliseconds: 700,
           recoveryTimeoutMilliseconds: 1_000,
@@ -456,6 +461,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
       const fiber = yield* Effect.forkChild(
         driver.runInitialTransactionEffect(
           {
+            isolationLevel: "read committed",
             deadline,
             lockTimeoutMilliseconds: 20,
             recoveryTimeoutMilliseconds: 20,
@@ -985,6 +991,7 @@ describe("PostgreSQL framework artifact control-session adapter", () => {
     const initial = await Effect.runPromise(
       driver.runInitialTransactionEffect(
         {
+          isolationLevel: "read committed",
           deadline,
           lockTimeoutMilliseconds: 700,
           recoveryTimeoutMilliseconds: 1_000,
@@ -1254,6 +1261,7 @@ describePostgres("PostgreSQL framework artifact control-session server proof", (
       const settlement = await Effect.runPromise(
         driver.runInitialTransactionEffect(
           {
+            isolationLevel: "read committed",
             deadline: transactionDeadline,
             lockTimeoutMilliseconds: 731,
             recoveryTimeoutMilliseconds: 5_000,

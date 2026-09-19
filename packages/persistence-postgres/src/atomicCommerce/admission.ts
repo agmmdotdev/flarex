@@ -27,7 +27,7 @@ export const withAtomicCommerceAdmissions = Effect.fn("AtomicCommerce.withAdmiss
   authority: TrustedScopeAuthority, clock: ScopeClockRecord,
   work: (admissions: readonly CommerceAdmission[]) => Effect.Effect<Value, CommerceTransactionError>,
 ): Effect.fn.Return<Value, CommerceTransactionError> {
-  const current = yield* readBindingHead(tx, authority, false).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const current = yield* readBindingHead(tx, authority, "none").pipe(Effect.mapError(projectCommerceRequestFailure));
   if (Option.isNone(current)) return yield* Effect.fail(commerceError("bindingChanged"));
   const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256).pipe(Effect.mapError(projectCommerceRequestFailure));
   if (Option.isNone(candidate)) return yield* Effect.fail(commerceError("storedCorruption"));

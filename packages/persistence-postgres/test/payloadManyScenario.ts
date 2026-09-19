@@ -14,7 +14,7 @@ import { openApplicationRelationQuerySnapshot, readApplicationRelationQueryIncom
 import { ScopeExecutionLive } from "../src/scopeExecution/ScopeExecution";
 import { fxAppEdgeCurrent, fxSystemCommits } from "../src/schema";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../src/payloadPreferences/factsSchema";
-import { barrier, heldNativeRace, withDeadline, type payloadRelationScenario } from "./payloadRelationScenario";
+import { barrier, overlappingSnapshotRace, heldNativeRace, withDeadline, type payloadRelationScenario } from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const object = (value: Json): JsonObject => {
@@ -155,9 +155,11 @@ export async function payloadManyScenario(input: Parameters<typeof payloadRelati
           const held = await runEffect(makeCmsHost(composition, { afterAdmission: () => Effect.promise(async () => { entered.resolve(); await release.promise; }) }));
           const reading = (first === "reader" ? held : host).read(conformance.runtime.commands.findByID, { collection: "posts", id: source, depth: 1 });
           const writing = (first === "writer" ? held : host).run(host.newRequestKey(), conformance.runtime.commands.update, { collection: "posts", id: source, data: { relatedPosts: [b, a] } });
-          const results = await heldNativeRace(persistence, first === "reader" ? reading : writing, first === "reader" ? writing : reading, entered.promise, () => release.resolve());
+          const results = await runEffect(overlappingSnapshotRace(first === "reader" ? reading : writing, first === "reader" ? writing : reading, entered.promise, () => release.resolve()));
           expect(results).toEqual([expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) }), expect.objectContaining({ status: "fulfilled", value: expect.objectContaining({ _tag: "Success" }) })]);
-          expect(results[first === "reader" ? 0 : 1]).toMatchObject({ value: { success: { relatedPosts: (first === "reader" ? [a, b] : [b, a]).map(id => expect.objectContaining({ id })) } } });
+          expect(results[first === "reader" ? 0 : 1]).toMatchObject({ value: { success: { relatedPosts: [a, b].map(id => expect.objectContaining({ id })) } } });
+          expect(await runEffect(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: source, depth: 1 })))
+            .toMatchObject({ relatedPosts: [b, a].map(id => expect.objectContaining({ id })) });
           await update(source, { relatedPosts: [a, b] });
         }
         let lost = false;

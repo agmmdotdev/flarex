@@ -179,7 +179,7 @@ describe("Product-tag updates with selected atomic participants", () => {
     } finally { release?.(); }
     expect(await inventory()).toEqual(before);
     let lose = true; let calls = 0;
-    const session = issueRelationalSession(product.persistence.drizzle, work => runRelationalSession(product.session, work).pipe(
+    const session = issueRelationalSession(product.persistence.drizzle, (profile, work) => runRelationalSession(product.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
         return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: "lost update acknowledgement" })); }),

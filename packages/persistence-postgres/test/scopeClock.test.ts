@@ -577,7 +577,7 @@ describe("scope clock", () => {
     );
     expect(failure).toMatchObject({
       _tag: "ScopeAuthorizationRevocationEpochPersistenceError",
-      operation: "readForShare",
+      operation: "readForKeyShare",
       cause: rejection,
     });
   });

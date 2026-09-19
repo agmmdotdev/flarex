@@ -8,7 +8,7 @@ import { createPGlitePersistence } from "../src/pglite";
 import type { QueryResult } from "../src/index";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { issueRelationalSession } from "../src/relationalTransaction/session";
-import type { RunRelationalSession } from "../src/relationalTransaction/session";
+import type { RelationalSessionProfile, RunRelationalSession } from "../src/relationalTransaction/session";
 import {
   RelationalSessionError,
   relationalLimits,
@@ -144,6 +144,7 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
   const run: RunRelationalSession = Effect.fn(
     "RelationalPGliteTestSession.run",
   )(function* <Value, Failure>(
+    profile: RelationalSessionProfile,
     work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
   ) {
     // Preserve caller services (including its tracer) across the owned Promise bridge.
@@ -166,7 +167,7 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
             throw rollback;
           }
           return exit.value;
-        });
+        }, { isolationLevel: profile === "snapshotRead" ? "repeatable read" : "read committed" });
         settled.then(
           (value) => resume(Effect.succeed(value)),
           (cause) =>

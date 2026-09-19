@@ -124,7 +124,7 @@ it("settles real Currency, Payload and Application participants once, with compl
         expect((yield* Effect.promise(inventory))).toEqual(stable);
       }
       let lost = true;
-      const session = issueRelationalSession(db, work => runRelationalSession(resource.session, work).pipe(
+      const session = issueRelationalSession(db, (profile, work) => runRelationalSession(resource.session, profile, work).pipe(
         Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
         Effect.flatMap(value => { if (!lost) return Effect.succeed(value); lost = false; return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost composite COMMIT reply") })); })));
       const recovering = (yield* makeCurrencyAnnouncementHost({ ...input, session }));
@@ -151,10 +151,10 @@ it("settles real Currency, Payload and Application participants once, with compl
             Effect.promise(() => client.query("rollback")).pipe(Effect.ensuring(Effect.sync(() => client.release()))));
           // This awaited session barrier runs after authority preparation and before
           // physical entry, so the command deterministically meets the competing lock.
-          const contendedSession = issueRelationalSession(db, work => Effect.gen(function* () {
+          const contendedSession = issueRelationalSession(db, (profile, work) => Effect.gen(function* () {
             yield* Effect.promise(() => blocker.query("begin"));
             yield* Effect.promise(() => blocker.query("select 1 from fx_system_scope_clock for update"));
-            return yield* runRelationalSession(resource.session, work).pipe(
+            return yield* runRelationalSession(resource.session, profile, work).pipe(
               Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))));
           }));
           const contended = yield* makeCurrencyAnnouncementHost({ ...input, session: contendedSession });

@@ -38,7 +38,7 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
         return yield* Effect.fail(commerceError("invalidAuthority"));
       const active = yield* prepareApplicationBindingSelection(application);
-      return yield* runRelationalSession(session, (tx) =>
+      return yield* runRelationalSession(session, "command", (tx) =>
         Effect.scoped(
           Effect.gen(function* () {
             yield* runDrizzleStatementEffect(

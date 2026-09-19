@@ -82,6 +82,7 @@ describePostgres("physical session owner composition", () => {
           const coreDeadline = yield* deadlines.start("initial", 1000);
           const core = yield* physical.runInitialTransactionEffect(
             {
+              isolationLevel: "read committed",
               deadline: coreDeadline,
               lockTimeoutMilliseconds: 500,
               recoveryTimeoutMilliseconds: 1000,
@@ -96,6 +97,7 @@ describePostgres("physical session owner composition", () => {
           );
           const control = yield* artifact.runInitialTransactionEffect(
             {
+              isolationLevel: "read committed",
               deadline: artifactDeadline,
               lockTimeoutMilliseconds: 500,
               recoveryTimeoutMilliseconds: 1000,
@@ -140,6 +142,7 @@ describePostgres("physical session owner composition", () => {
           const deadline = yield* deadlines.start("initial", 1000);
           return yield* physical.runInitialTransactionEffect(
             {
+              isolationLevel: "read committed",
               deadline,
               lockTimeoutMilliseconds: 500,
               recoveryTimeoutMilliseconds: 1000,

@@ -362,7 +362,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
       );
 
       // Keep physical entry, lock order and borrowed admission scopes visible together.
-      return yield* runRelationalSession(session, (tx) =>
+      return yield* runRelationalSession(session, "command", (tx) =>
         Effect.scoped(
           Effect.gen(function* () {
             yield* runDrizzleStatementEffect(

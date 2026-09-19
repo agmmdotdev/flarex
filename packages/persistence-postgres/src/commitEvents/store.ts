@@ -47,7 +47,7 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
     const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
     if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(eventError("invalidAuthority"));
     const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
-    return yield* runRelationalSession(session, tx => Effect.gen(function* () {
+    return yield* runRelationalSession(session, "command", tx => Effect.gen(function* () {
       yield* statement(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`));
       const clock = yield* lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
       if (clock.epoch !== located.authority.epoch || clock.storageGeneration !== located.authority.storageGeneration || clock.storageGenerationFence !== located.authority.storageGenerationFence) return yield* Effect.fail(eventError("invalidAuthority"));

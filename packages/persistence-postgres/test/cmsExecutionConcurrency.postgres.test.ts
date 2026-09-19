@@ -51,16 +51,13 @@ const waitForScopeClockWaiter = Effect.fn(function* (persistence: PostgresFlarex
 describe.skipIf(postgresUrl === null)("active CMS request concurrency", () => {
   const withPersistence = useFileScopedPostgresPersistence();
 
-  it("admits concurrent same-scope reads while retaining publication exclusion", () => withPersistence(async persistence => {
+  it("admits concurrent same-scope reads while publication commits", () => withPersistence(async persistence => {
     expect(decodeRole((await persistence.query("select rolsuper as superuser from pg_roles where rolname=current_user")).rows))
       .toEqual([{ superuser: false }]);
     const entered = await runEffect(Deferred.make<void>());
     const release = await runEffect(Deferred.make<void>());
     let holdNextAdmission = false;
-    let activePid = 0;
-    const session = makePostgresRelationalSession(persistence, { lifecycleFault: event => {
-      if (event.phase === "begin" && event.edge === "after") activePid = decodePid(Reflect.get(event.client, "processID"));
-    } });
+    const session = makePostgresRelationalSession(persistence);
     const tested = await cmsExecutionMeasurementFixture(persistence, session, {
       afterAdmission: Effect.fn(function* () {
         if (!holdNextAdmission) return;
@@ -78,18 +75,14 @@ describe.skipIf(postgresUrl === null)("active CMS request concurrency", () => {
     await runEffect(Effect.scoped(Effect.gen(function* () {
       const first = yield* tested.host.read(tested.read, ids).pipe(Effect.forkScoped);
       yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
-      const readerPid = activePid;
       // This must finish while the first read still owns its admission locks.
       expect(yield* tested.host.read(tested.read, ids)).toEqual(seeded);
       expect(yield* Deferred.isDone(release)).toBe(false);
-      const writer = yield* tested.host.run(key, tested.insert, args).pipe(Effect.forkScoped);
-      const waiter = yield* waitForScopeClockWaiter(persistence, readerPid);
-      expect(waiter.shared).toBe(false);
-      expect(waiter.pid).not.toBe(readerPid);
-      expect(tested.executionCount()).toBe(1);
+      const value = yield* tested.host.run(key, tested.insert, args);
+      expect(yield* Deferred.isDone(release)).toBe(false);
+      expect(tested.executionCount()).toBe(2);
       yield* Deferred.succeed(release, undefined);
       expect(yield* Fiber.join(first)).toEqual(seeded);
-      const value = yield* Fiber.join(writer);
       const after = yield* Effect.promise(() => tested.verifyInsert(before, value, 1, args.prefix));
       expect(yield* tested.host.run(key, tested.insert, args)).toEqual(value);
       expect(tested.executionCount()).toBe(2);
@@ -97,6 +90,28 @@ describe.skipIf(postgresUrl === null)("active CMS request concurrency", () => {
     }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
     expect(persistence.pool.waitingCount).toBe(0);
     expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
+  }), 120_000);
+
+  it("reads through an uncommitted same-scope publication", () => withPersistence(async persistence => {
+    const barrier = await runEffect(makePublicationBarrier());
+    let armed = false;
+    const tested = await cmsExecutionMeasurementFixture(persistence, makePostgresRelationalSession(persistence), {
+      afterPreferenceFacts: () => armed ? barrier.hooks.afterPreferenceFacts() : Effect.void,
+    });
+    const seeded = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 1, prefix: "before-held" }));
+    const ids = decodeDocuments(seeded).map(document => document._id);
+    const before = await tested.inventory();
+    armed = true;
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const held = yield* tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 1, prefix: "held-new" }).pipe(Effect.forkScoped);
+      yield* barrier.entered;
+      expect(yield* tested.host.read(tested.read, ids)).toEqual(seeded);
+      expect(yield* barrier.isOpen).toBe(false);
+      expect(yield* Effect.promise(() => tested.inventory())).toEqual(before);
+      yield* barrier.open;
+      const value = yield* Fiber.join(held);
+      yield* Effect.promise(() => tested.verifyInsert(before, value, 1, "held-new"));
+    }).pipe(Effect.ensuring(barrier.open), Effect.timeout("20 seconds"))));
   }), 120_000);
 
   it("expires a stalled publication through the physical owner and permits explicit retry after rollback", () => withPersistence(async persistence => {

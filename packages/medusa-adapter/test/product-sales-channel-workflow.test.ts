@@ -319,7 +319,7 @@ describe("native Product Sales Channel workflow", () => {
 
   it("recovers uncertain root settlement without repeating native callbacks", async () => {
     let lose = true;
-    const session = issueRelationalSession(fixture.persistence.drizzle, work => runRelationalSession(fixture.session, work).pipe(
+    const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work) => runRelationalSession(fixture.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => {
         if (!lose) return Effect.succeed(value);
