@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import type { CatalogIndexDefinitionId } from "flarex-protocol/catalog";
 import type { AppRowTransaction } from "./appRows";
-import { loadRelatedPublishedPhysicalRequirementSnapshotV1, MAX_RECONCILED_DEFINITIONS, type PublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
+import { MAX_RECONCILED_DEFINITIONS, type PublishedPhysicalRequirementSnapshotV1, type ReadRelatedPublishedPhysicalRequirements } from "./indexBuildReconciliation";
 import { AppIndexDefinitionReadPersistenceError, AppSchemaVersionIndexBindingPersistenceError } from "./appIndexDefinitions";
 import { SchemaVersionArtifactPersistenceError } from "./schemaVersionArtifacts";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
@@ -12,12 +12,11 @@ import { decodeIndexBuildStateRowResult, isIndexBuildSnapshotCoveredInTransactio
 import { hashIndexMaintenanceEvidence, indexMaintenanceFrameBytes, IndexMaintenanceError,
   type IndexMaintenanceFrame } from "./indexMaintenanceEvidence";
 import { fxSystemIndexBuildStates } from "./schema";
-import type { LocatedReadCommittedAttemptTargetV1 } from "./transactionSessionAttemptKernel";
 import type { ScopeClockRecord } from "./scopeClock";
 
 /** Called only by activation after issued readiness validation, under its scope clock. */
 export const replaceActiveIndexMaintenanceInTransactionEffect = Effect.fn("IndexMaintenance.replaceActive")(
-  function* (tx: AppRowTransaction, target: LocatedReadCommittedAttemptTargetV1, clock: ScopeClockRecord, requirements: PublishedPhysicalRequirementSnapshotV1,
+  function* (tx: AppRowTransaction, readRelatedRequirements: ReadRelatedPublishedPhysicalRequirements, clock: ScopeClockRecord, requirements: PublishedPhysicalRequirementSnapshotV1,
     activationSequence: bigint, headSha256: Uint8Array,
     afterWrite?: (point: "maintenanceClosed" | "maintenanceOpened") => void | Promise<void>) {
     const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock);
@@ -25,7 +24,7 @@ export const replaceActiveIndexMaintenanceInTransactionEffect = Effect.fn("Index
     if (context.active !== null) {
       const schema = context.active.schema;
       if (schema.deploymentId !== requirements.deploymentId) return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
-      outgoingRequirements = yield* loadRelatedPublishedPhysicalRequirementSnapshotV1(requirements, schema.schemaVersionId, target, tx)
+      outgoingRequirements = yield* readRelatedRequirements(schema.schemaVersionId)
         .pipe(Effect.mapError(cause => cause instanceof SchemaVersionArtifactPersistenceError ||
           cause instanceof AppIndexDefinitionReadPersistenceError || cause instanceof AppSchemaVersionIndexBindingPersistenceError
           ? new IndexMaintenanceError({ reason: "resourceFailure", cause: cause.cause })

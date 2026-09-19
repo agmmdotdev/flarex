@@ -39,6 +39,7 @@ import {
 } from "./appIndexDefinitions";
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   decodeIndexBuildStateRowResult,
@@ -377,22 +378,30 @@ function decodeInputResult(
 /** Activation-only lookup: retain the catalog authority of an already issued snapshot. */
 export const loadRelatedPublishedPhysicalRequirementSnapshotV1 = Effect.fn("IndexBuildReconciliation.loadRelatedRequirements")(
   function* (source: PublishedPhysicalRequirementSnapshotV1, schemaVersionId: string,
-    target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction) {
+    target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction,
+    borrowedCatalog?: Readonly<{ database: FlarexMetadataDatabase; transaction: FlarexMetadataTransaction }>) {
     const db = publishedPhysicalRequirementSnapshots.get(source);
-    if (db === undefined) return yield* Effect.fail(new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidInputShape" }));
+    if (db === undefined || (borrowedCatalog !== undefined && borrowedCatalog.database !== db)) {
+      return yield* Effect.fail(new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidInputShape" }));
+    }
     const id = yield* Effect.fromResult(decodeSchemaVersionIdResult(schemaVersionId)).pipe(Effect.mapError(() =>
       new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidSchemaVersionId" })));
     if (id === source.schemaVersionId) return source;
-    // A colocated catalog must borrow the already held transaction rather than
-    // queue a second connection/transaction behind itself (notably PGlite).
+    // Prefer the explicitly held catalog lease, including split deployments.
+    // Without one, a colocated catalog borrows the target transaction.
     const related = yield* loadPublishedPhysicalRequirementSnapshotV1(
-      hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : db,
+      borrowedCatalog?.transaction ?? (hasLocatedReadCommittedTargetDatabaseV1(target, db) ? tx : db),
       { deploymentId: source.deploymentId, schemaVersionId: id },
     );
     if (related !== null) publishedPhysicalRequirementSnapshots.set(related, db);
     return related;
   },
 );
+
+/** One activation's related-schema reader, bound to its existing transactions. */
+export type ReadRelatedPublishedPhysicalRequirements = (
+  schemaVersionId: string,
+) => ReturnType<typeof loadRelatedPublishedPhysicalRequirementSnapshotV1>;
 
 export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   "IndexBuildReconciliation.loadPublishedRequirements",

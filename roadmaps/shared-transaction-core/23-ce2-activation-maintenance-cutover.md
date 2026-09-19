@@ -5,16 +5,13 @@ The four writer prerequisites in [continuous maintenance](./18-ce2-continuous-in
 remain mandatory. Unique-workspace optimization, matched before/after request
 measurements and wider concurrent-lifecycle acceptance remain subsequent CE2 work.
 
-Split-catalog activation has an unresolved transaction-reuse gap. The private
-Payload relation scenario stalls with separate PGlite control and target stores,
-including without the later exact-unique-selection changes; ordinary-role
-PostgreSQL completes the scenario. Activation holds the control-catalog lease,
-but outgoing physical-requirement lookup only borrows the target transaction for
-a colocated catalog. A separate catalog lookup still uses the original database
-handle and can queue behind its already-held lease. Correct this at the existing
-activation/catalog owners, retain the failing connected scenario, and prove
-lease reuse and cleanup before treating split-catalog lifecycle acceptance as
-complete. Do not bypass the lease or change adapter behavior to hide the stall.
+[Split-catalog activation](./25-ce2-split-catalog-activation.md) now binds outgoing
+requirement reads to the existing catalog lease. The readiness owner checks the
+issued readiness, repository and live lease; the loader preserves the snapshot's
+original catalog identity. This removes the second-handle dependency that could
+queue behind the held lease on separate PGlite control and target stores.
+Maintenance receives the bound reader and still authenticates catalog membership
+and certificates. This correction does not complete broader CE2 acceptance.
 
 ## Outcome And Boundaries
 
@@ -103,9 +100,10 @@ deterministic build-row order for all incoming and outgoing definitions.
    the outgoing coherent head, its independently resolved schema binding and
    build identities. Resolve outgoing physical requirements through the incoming
    issued snapshot's existing control-catalog authority; reuse that snapshot only
-   for the same schema identity. When the existing located-target registry proves
-   that catalog and target share a database, borrow the held transaction for the
-   catalog read instead of queuing a second read behind it. The candidate target
+   for the same schema identity. Policy activation borrows its live control
+   catalog lease, including for split catalogs. Without that lease, when the
+   existing located-target registry proves that catalog and target share a
+   database, borrow the held target transaction. The candidate target
    factory records its database identity in that existing registry. Every outgoing
    certificate must match actual
    catalog membership, table and physical spec. Never use its own fields as its

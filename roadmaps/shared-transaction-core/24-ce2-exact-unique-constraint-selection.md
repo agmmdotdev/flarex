@@ -62,7 +62,7 @@ typechecks, lint and both project reviews. Reconcile current ordered-versus-uniq
 maintenance status in the owning notes. Unique progress writes and broader CE2
 concurrency/measurement gates remain subsequent work.
 
-This closes unique writer selection and its connected failure contracts. It does
-not close the existing split-catalog activation stall documented in
-[activation maintenance](./23-ce2-activation-maintenance-cutover.md); that core
-transaction correction takes priority before the unique-maintenance cutover.
+This closes unique writer selection and its connected failure contracts.
+[Split-catalog activation](./25-ce2-split-catalog-activation.md) separately closes
+the catalog transaction-reuse gap. Unique-maintenance cutover remains subsequent
+work.

@@ -14,9 +14,10 @@ import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import { AppRowReadPersistenceError, type AppRowTransaction } from "./appRows";
 import { replaceActiveIndexMaintenanceInTransactionEffect } from "./indexMaintenance";
+import { loadRelatedPublishedPhysicalRequirementSnapshotV1, type ReadRelatedPublishedPhysicalRequirements } from "./indexBuildReconciliation";
 import { IndexMaintenanceError } from "./indexMaintenanceEvidence";
 import { fxSystemApplicationWriteOwnership } from "./applicationWriteOwnership/Schema";
-import { readApplicationRelationOwnershipInTransaction } from "./applicationRelationReadinessFold";
+import { readApplicationRelationOwnershipInTransaction, readApplicationActivationRelatedPhysicalRequirements } from "./applicationRelationReadinessFold";
 import { ApplicationWriteOwnershipError } from "./applicationWriteOwnership/Model";
 import { ApplicationWriteOwnershipHistoryBudget } from "./applicationWriteOwnership/Policy";
 import {
@@ -1253,7 +1254,7 @@ function* (
   }
   return yield* persistActivationInTransaction(
     tx,
-    target,
+    schemaVersionId => loadRelatedPublishedPhysicalRequirementSnapshotV1(validated.basis.physicalRequirements, schemaVersionId, target, tx),
     Object.freeze({ kind: "legacy", basis: validated.basis }),
     clock,
     expected,
@@ -1306,7 +1307,7 @@ const activateRelationInTransaction = Effect.fn(
   }
   return yield* persistActivationInTransaction(
     tx,
-    target,
+    schemaVersionId => readApplicationActivationRelatedPhysicalRequirements(readinessRepository, readiness, schemaVersionId, target, tx, catalogLease),
     Object.freeze({ kind: "relation", basis: validated.basis }),
     clock,
     expected,
@@ -1396,7 +1397,7 @@ const persistActivationInTransaction = Effect.fn(
   "ApplicationActivation.persistTransaction",
 )(function* (
   tx: AppRowTransaction,
-  target: LocatedReadCommittedAttemptTargetV1,
+  readRelatedRequirements: ReadRelatedPublishedPhysicalRequirements,
   validated: ValidatedActivation,
   clock: ScopeClockRecord,
   expected: ApplicationActiveCasToken | null,
@@ -1516,7 +1517,7 @@ const persistActivationInTransaction = Effect.fn(
     readiness,
     activationSha256: encodeBytesToLowercaseHex(activation.sha256),
   }), "activate", basis.revisionId);
-  yield* replaceActiveIndexMaintenanceInTransactionEffect(tx, target, clock, basis.physicalRequirements, activationSequence, nextHead.sha256, faultAfter)
+  yield* replaceActiveIndexMaintenanceInTransactionEffect(tx, readRelatedRequirements, clock, basis.physicalRequirements, activationSequence, nextHead.sha256, faultAfter)
     .pipe(Effect.mapError(cause => {
       const resource = cause instanceof AppRowReadPersistenceError ||
         (cause instanceof IndexMaintenanceError && cause.reason === "resourceFailure");

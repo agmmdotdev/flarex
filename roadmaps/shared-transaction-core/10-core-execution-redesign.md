@@ -153,10 +153,11 @@ immutable closure per issued port. Unique workspace progress, matched complete-r
 concurrency remain CE2 work. Broader CE0 references and connected CE1 acceptance
 also remain open.
 
-The next CE2 correction is the split-catalog activation transaction-reuse gap
-recorded in the activation cutover note. The private Payload relation scenario
-stalls with separate PGlite catalogs, independently of unique-selection work.
-Resolve that existing core owner before proceeding to unique-build optimization.
+[Split-catalog activation](./25-ce2-split-catalog-activation.md) now borrows its
+existing catalog transaction for outgoing requirements. This closes the core
+transaction-reuse gap without changing adapter behavior. The next CE2 design
+slice is unique-build maintenance; matched measurements and wider lifecycle
+concurrency remain separate acceptance gates.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution

@@ -98,6 +98,8 @@ import { detachDriverRows } from "./detachDriverRows";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
+  loadRelatedPublishedPhysicalRequirementSnapshotV1,
+  InvalidIndexBuildReconciliationInputV1Error,
   type IndexBuildReconciliationCatalogV1Error,
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
@@ -2694,6 +2696,27 @@ export const readApplicationRelationOwnershipInTransaction = Effect.fn("Applicat
   if (state === undefined || (catalogLease !== undefined && (catalog === undefined || issuedReadyResults.get(catalog.issued)?.repository !== state))) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
   return yield* readApplicationWriteOwnershipInTransaction(tx, scopeId, budget, catalog?.tx ?? state.context.controlDb);
 });
+
+/** Activation-only related requirements; never release the existing catalog lease
+ * or reacquire its database handle while the target transaction is running. */
+export const readApplicationActivationRelatedPhysicalRequirements = Effect.fn("ApplicationRelationReadinessFold.readRelatedPhysicalRequirements")(
+  function* (repository: ApplicationRelationReadinessFoldRepository,
+    issued: ApplicationRelationReadinessFoldResult, schemaVersionId: string,
+    target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction,
+    catalogLease: ApplicationActivationCatalogLease | undefined) {
+    const state = issuedReadyResults.get(issued);
+    const catalog = catalogLease === undefined ? undefined : activationCatalogLeases.get(catalogLease);
+    if (state === undefined || repositoryStates.get(repository) !== state.repository ||
+      (catalogLease !== undefined && (catalog === undefined || catalog.issued !== issued)) ||
+      (state.prepared.schema.writePolicy !== null && catalog === undefined)) {
+      return yield* Effect.fail(new InvalidIndexBuildReconciliationInputV1Error({ reason: "invalidInputShape" }));
+    }
+    return yield* loadRelatedPublishedPhysicalRequirementSnapshotV1(
+      state.prepared.requirements, schemaVersionId, target, tx,
+      catalog === undefined ? undefined : { database: state.repository.context.controlDb, transaction: catalog.tx },
+    );
+  },
+);
 
 const canonicalBytes = Effect.fn(
   "ApplicationRelationReadinessFold.canonicalBytes",
