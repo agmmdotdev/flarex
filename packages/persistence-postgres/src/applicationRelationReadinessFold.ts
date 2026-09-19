@@ -78,6 +78,7 @@ import {
   hasApplicationRelationSchemaAuthorityComposition,
   type ApplicationRelationSchemaAuthority,
   type ApplicationRelationSchemaAuthorityPort,
+  resolveApplicationRelationSchemaAuthorityInTransaction,
   type ResolveApplicationRelationSchemaAuthorityError,
 } from "./applicationRelationSchemaAuthority";
 import {
@@ -391,16 +392,18 @@ export const acceptPreparedApplicationRelationActiveRead = Effect.fn("Applicatio
     yield* requireExactAuthority(current.bundle.authority, clock);
     // Fresh read-only catalog observations before issuing prepared admission;
     // not an atomic snapshot across separately placed control/target databases.
-    const schema = yield* state.repository.context.schema.resolve({
+    const schema = yield* resolveApplicationRelationSchemaAuthorityInTransaction(state.repository.context.schema, current.target, tx, {
       deploymentId: current.bundle.deploymentId,
       applicationManifestSha256: encodeBytesToLowercaseHex(current.bundle.revision.manifestSha256),
       manifest: current.bundle.manifest,
     });
     yield* requireSchemaCorrelation(current.bundle, schema);
     yield* validatePhysicalDefinitionLifecycleReadinessCatalogEffect(
-      state.repository.context.physicalDefinitionLifecycle, current.physicalLifecycle,
+      state.repository.context.physicalDefinitionLifecycle, current.physicalLifecycle, tx,
     );
-    const validated = yield* validatePreparedFoldInTransaction(tx, current, state.repository.context, clock, "storedActive");
+    const controlDb = state.repository.context.controlDb;
+    const catalog = hasLocatedReadCommittedTargetDatabaseV1(current.target, controlDb) ? tx : controlDb;
+    const validated = yield* validatePreparedFoldInTransaction(tx, current, state.repository.context, clock, "storedActive", catalog);
     if ("status" in validated) return yield* failure("authorityChanged");
     const replay = yield* loadStoredRelationReadinessReplay(tx, validated.prepared, validated);
     const ready = issueReadyResult("active", "replayed", state.repository, validated.prepared,
@@ -801,6 +804,7 @@ interface PreparedFold extends PreparedFoldInputs {
 }
 interface PreparedActiveFold extends PreparedFoldInputs {
   readonly kind: "planning";
+  readonly target: LocatedReadCommittedAttemptTargetV1;
   readonly uniquePreparation: AppUniqueConstraintSetPreparation;
 }
 
@@ -994,7 +998,7 @@ const prepareActiveFold = Effect.fn("ApplicationRelationReadinessFold.preparePla
     if (unique.status === "not_ready") return notReady(inputs.bundle.revision.revisionId, uniqueNotReadyReason(unique.reason));
     const definitions = yield* prepareFoldDefinitions(context, inputs);
     const prepared: PreparedActiveFold = Object.freeze({ kind: "planning", ownershipBudget: new ApplicationWriteOwnershipHistoryBudget(),
-      bundle: inputs.bundle, schema: inputs.schema, requirements: inputs.requirements,
+      target: inputs.target, bundle: inputs.bundle, schema: inputs.schema, requirements: inputs.requirements,
       uniquePreparation: unique.preparation, ...definitions });
     return { prepared };
   },
@@ -1277,6 +1281,7 @@ const validatePreparedFoldInTransaction = Effect.fn(
   context: ApplicationRelationReadinessFoldContext,
   clock: ScopeClockRecord,
   relationMode: "current" | "storedActive" = "current",
+  catalog: FlarexMetadataDatabase = context.controlDb,
 ): Effect.fn.Return<
   ValidatedPreparedFold | Extract<
     ApplicationRelationReadinessFoldResult,
@@ -1316,7 +1321,7 @@ const validatePreparedFoldInTransaction = Effect.fn(
     if (!storedBundlesEqual(prepared.bundle, current)) {
       return yield* failure("storedState");
     }
-    const uniqueDeclarationsMatch = yield* applicationUniqueDeclarationsMatch(context.controlDb, current.manifest, prepared.schema).pipe(
+    const uniqueDeclarationsMatch = yield* applicationUniqueDeclarationsMatch(catalog, current.manifest, prepared.schema).pipe(
       Effect.mapError(cause => failureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", false, cause)));
     if (!uniqueDeclarationsMatch) return notReady(current.revision.revisionId, "uniqueDeclarationMismatch");
     if (relationMode === "current") {
@@ -1418,7 +1423,7 @@ const validatePreparedFoldInTransaction = Effect.fn(
         context.relations,
       );
     }
-    const writeOwnership = yield* prepareApplicationWriteOwnershipInTransaction(tx, context.controlDb, {
+    const writeOwnership = yield* prepareApplicationWriteOwnershipInTransaction(tx, catalog, {
       scopeId: clock.scopeId, deploymentId: prepared.bundle.deploymentId,
       schemaVersionId: prepared.schema.schemaVersionId,
       revisionId: prepared.bundle.revision.revisionId, policy: prepared.schema.writePolicy,

@@ -233,8 +233,13 @@ The [concurrent CMS load baseline](./43-ce0-concurrent-cms-load.md) extends thes
 barriers to finite complete-request bursts on one and four scopes sharing a
 pool. It separates bounded client queueing from host execution, records SQL and
 sampled pool pressure, and verifies successful publications and explicit replay.
-Both twelve-slot configurations miss the zero-refusal performance target:
-the existing lock timeout rejects scope-clock waiters before command execution.
+The [colocated admission correction](./44-ce3-colocated-admission-catalog.md)
+reuses the held transaction for catalog checks when registered database identity
+matches, preserving separate catalog placement and integrity validation. It
+removes the observed nested pool demand and lets both twelve-slot grid cases
+complete without refusals. The separate overload witness still exposes
+scope-clock lock or statement deadline refusals before command execution, so
+zero-refusal behavior is not established across runs.
 Those refusals must leave no durable effects and support an explicit untimed
 retry after rollback. This preserves a measured CE3 limitation; it neither raises
 timeouts nor establishes sustained capacity or complete-reference equivalence.

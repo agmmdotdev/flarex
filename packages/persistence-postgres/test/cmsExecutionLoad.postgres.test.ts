@@ -53,7 +53,7 @@ describe.skipIf(postgresUrl === null)("CE0 concurrent CMS core load", () => {
           arrival:
             "finite burst: all 24 requests offered together; bounded request slots; no automatic retry; three measured bursts per configuration",
           target:
-            "zero refusals is recorded per burst, not assumed; only verified SQLSTATE 55P03 lock refusals are accepted by correctness checks; explicit confirmed-rollback retries are untimed and excluded from throughput",
+            "zero refusals is recorded per burst, not assumed; only scope-clock admission failures carrying SQLSTATE 55P03 or 57014 with no command execution or durable effects are accepted by correctness checks; explicit confirmed-rollback retries are untimed and excluded from throughput",
           timing:
             "queue before request slot + host execution = response; fixture setup, keys, assertions, readback and replay excluded",
           observation:

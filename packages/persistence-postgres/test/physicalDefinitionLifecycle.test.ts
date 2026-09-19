@@ -671,8 +671,8 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         appUniqueConstraintSetSha256HexV1ToBytes(emptyUniqueSet.sha256Hex),
       ],
     );
-    await expect(runEffectFailure(
-      validatePhysicalDefinitionLifecycleReadinessCatalogEffect(port, readiness),
-    )).resolves.toMatchObject({ reason: "storedStateInvalid" });
+    await expect(fixture.target.drizzle.transaction(tx => runEffectFailure(
+      validatePhysicalDefinitionLifecycleReadinessCatalogEffect(port, readiness, tx),
+    ))).resolves.toMatchObject({ reason: "storedStateInvalid" });
   });
 });

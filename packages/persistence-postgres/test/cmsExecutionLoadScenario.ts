@@ -6,6 +6,8 @@ import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import { findSqlState } from "../src/pointCommitErrors";
+import { CmsTransactionError } from "../src/cmsTransaction/model";
+import { ScopeAuthorizationRevocationEpochPersistenceError } from "../src/scopeClock";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
 import { runEffect } from "./effectTestRuntime";
@@ -238,22 +240,12 @@ export async function cmsExecutionLoadScenario(
     expect(timing.settled).toBe(configuration.requests);
     for (const result of measured.results) {
       if (Exit.isSuccess(result.exit)) continue;
-      // Preserve the unsuccessful performance target. Only the existing bounded
-      // lock refusal is admitted to the correctness baseline, never a defect,
-      // interruption, arbitrary resource failure or uncertain settlement.
+      // Both PostgreSQL deadlines can expire before scope-clock admission.
+      // Require that exact owner/operation, plus every failure reason below;
+      // SQLSTATE alone cannot establish pre-command rollback or safe retry.
       expect(pool).toBeDefined();
       expect(configuration.concurrency).toBeGreaterThan(1);
-      expect(result.exit.cause.reasons.length).toBeGreaterThan(0);
-      for (const reason of result.exit.cause.reasons) {
-        if (!Cause.isFailReason(reason))
-          throw new Error("Unexpected load failure", {
-            cause: result.exit.cause,
-          });
-        expect(
-          findSqlState(reason.error),
-          Cause.pretty(result.exit.cause),
-        ).toBe("55P03");
-      }
+      assertCmsLoadAdmissionRefusal(result.exit.cause);
     }
     expect(timing.peakActive).toBeLessThanOrEqual(configuration.concurrency);
     for (const result of measured.results) {
@@ -378,4 +370,36 @@ function distribution(values: readonly number[]) {
   if (median === undefined || p95 === undefined || maximum === undefined)
     throw new Error("Missing load samples");
   return { samples: values.length, median, p95, maximum };
+}
+
+/** Only the error gate. The scenario separately proves no execution/effects before retry. */
+export function assertCmsLoadAdmissionRefusal(
+  cause: Cause.Cause<CmsTransactionError>,
+): void {
+  expect(cause.reasons.length).toBeGreaterThan(0);
+  expect(
+    cause.reasons.some(
+      (reason) =>
+        Cause.isFailReason(reason) &&
+        reason.error instanceof CmsTransactionError &&
+        reason.error.reason === "invalidAuthority" &&
+        reason.error.cause instanceof
+          ScopeAuthorizationRevocationEpochPersistenceError &&
+        reason.error.cause.operation === "lockForOrdinaryWrite",
+    ),
+    Cause.pretty(cause),
+  ).toBe(true);
+  for (const reason of cause.reasons) {
+    if (!Cause.isFailReason(reason))
+      throw new Error("Unexpected load failure", {
+        cause: cause,
+      });
+    expect(reason.error).toBeInstanceOf(CmsTransactionError);
+    expect(["invalidAuthority", "resourceFailure"]).toContain(
+      reason.error.reason,
+    );
+    expect(["55P03", "57014"], Cause.pretty(cause)).toContain(
+      findSqlState(reason.error),
+    );
+  }
 }

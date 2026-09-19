@@ -1,7 +1,8 @@
 # Concurrent CMS Core Request Baseline
 
-Status: implemented bounded load baseline; the zero-refusal performance target
-remains unmet for both twelve-slot configurations.
+Status: implemented bounded load baseline. Colocated admission no longer requires
+nested pool acquisitions, but zero-refusal behavior is not established across
+overload runs and sustained capacity remains unproved.
 
 ## Decision And Boundary
 
@@ -59,20 +60,23 @@ This changes only disposable fixture identities, not production ID generation.
 ## Completion Gates
 
 The numerical performance target remains every offered request succeeding with
-zero refusals. The twelve-slot witnesses for one and four scopes do not meet it:
-the unchanged CMS 500 ms lock timeout refuses competing scope-clock acquisitions
-while the shared control/data pool is saturated. Record
+zero refusals. The [colocated catalog correction](./44-ce3-colocated-admission-catalog.md)
+removes nested acquisitions during prepared admission. Both twelve-slot grid
+configurations can complete without refusals, while the separate overload witness
+still exposes deadline refusals at scope-clock admission. Record
 `zeroRefusalTargetMet` and failure counts in the report; do not raise limits or
-claim the target passed. This is an open CE3 limitation, not a settlement failure
+turn a passing burst into a capacity claim. This is an open CE3 limitation, not a settlement failure
 merely because requests were refused. Correctness requires every offered request
 to settle, successful requests to publish exactly once, and refused requests to
 leave no command execution or durable effects. No replay execution, state leakage
-or remaining borrowed clients is permitted. Exact SQLSTATE 55P03 is the only
-accepted refusal in this selected workload; other failures remain test failures.
-The next investigation must attribute request-wide SQL and nested connection
-use as well as scope-clock serialization. Pool pressure and timeout observations
-alone do not establish which source path caused the throughput loss; retain the
-bounded witness before selecting a core correction.
+or remaining borrowed clients is permitted. Require a typed scope-clock failure
+for `lockForOrdinaryWrite`, and SQLSTATE `55P03` or `57014` on every failure reason.
+Defects, interruption, uncertain decisions, unrelated operations or SQL states
+remain test failures. The statement-deadline case is demonstrated by PostgreSQL
+errors on the clock acquisition; a lock deadline is not its only possible result.
+Continue attributing pre-transaction preparation and serialized execution cost.
+Pool pressure and timeout observations alone do not establish every cause of
+throughput loss; retain the witness before selecting further core corrections.
 Concurrency never exceeds the selected slots. Timing is diagnostic without a
 predeclared production speedup: preserve all samples and report dispersion and
 the limits of three short bursts. Do not extrapolate p99 or thousands of shops.

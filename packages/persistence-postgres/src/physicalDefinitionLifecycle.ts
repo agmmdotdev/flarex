@@ -89,6 +89,7 @@ import {
   type PhysicalDefinitionLifecycleV1,
 } from "./schema";
 import {
+  hasLocatedReadCommittedTargetDatabaseV1,
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
@@ -508,18 +509,19 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
   return prepared;
 });
 
-/** Fresh control-catalog observation for prepared Application admission. No
- * target transaction or control write lock is acquired by this operation. */
+/** Revalidate the catalog using the accepting client when placement is exact.
+ * Separate catalogs retain their reader. No transaction or write lock is opened. */
 export const validatePhysicalDefinitionLifecycleReadinessCatalogEffect = Effect.fn(
   "PhysicalDefinitionLifecycle.validateReadinessCatalog",
-)(function* (port: PhysicalDefinitionLifecyclePort, prepared: PreparedPhysicalDefinitionLifecycleReadiness):
+)(function* (port: PhysicalDefinitionLifecyclePort, prepared: PreparedPhysicalDefinitionLifecycleReadiness, tx: AppRowTransaction):
   Effect.fn.Return<void, ValidatePhysicalDefinitionLifecycleReadinessCatalogError> {
   const catalog = portStates.get(port);
   const state = preparedReadinessStates.get(prepared);
   if (catalog === undefined) return yield* Effect.fail(new InvalidPhysicalDefinitionLifecyclePortError());
   if (state === undefined || state.port !== port) return yield* Effect.fail(new InvalidPreparedPhysicalDefinitionLifecycleReadinessError());
   const closure = yield* readAppUniqueConstraintSetClosureV1Effect(
-    catalog.controlDb, state.deploymentId, state.schemaVersionId,
+    hasLocatedReadCommittedTargetDatabaseV1(state.located.target, catalog.controlDb) ? tx : catalog.controlDb,
+    state.deploymentId, state.schemaVersionId,
   );
   if (closure === null || closure.closure.definitionSetSha256Hex !== state.uniqueSetSha256) {
     return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({ reason: "storedStateInvalid" }));

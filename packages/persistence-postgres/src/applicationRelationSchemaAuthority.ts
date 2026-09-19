@@ -32,6 +32,8 @@ import type {
   ApplicationSchemaTableBinding,
 } from "./applicationSchemaAuthority";
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { AppRowTransaction } from "./appRows";
+import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "./transactionSessionAttemptKernel";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 
 export interface ApplicationRelationSchemaAuthority {
@@ -80,7 +82,11 @@ export interface ApplicationRelationSchemaAuthorityPort {
   >;
 }
 
-const schemaAuthorityControlDatabases = new WeakMap<object, FlarexMetadataDatabase>();
+const schemaAuthorityStates = new WeakMap<object, Readonly<{
+  controlDb: FlarexMetadataDatabase;
+  resolve: (input: Parameters<ApplicationRelationSchemaAuthorityPort["resolve"]>[0],
+    reader: FlarexMetadataDatabase) => ReturnType<ApplicationRelationSchemaAuthorityPort["resolve"]>;
+}>>();
 const resolvedBindings = new WeakMap<ApplicationRelationSchemaAuthority, Readonly<{
   controlDb: FlarexMetadataDatabase;
   binding: LocatedApplicationRelationManifestBinding;
@@ -109,12 +115,12 @@ export const readResolvedApplicationRelationManifestBinding = Effect.fn("Applica
 export function createApplicationRelationSchemaAuthorityPort(
   controlDb: FlarexMetadataDatabase,
 ): ApplicationRelationSchemaAuthorityPort {
-  const resolve = Effect.fn("ApplicationRelationSchemaAuthority.resolve")(
+  const resolveInDatabase = Effect.fn("ApplicationRelationSchemaAuthority.resolve")(
     function* (input: {
       readonly deploymentId: string;
       readonly applicationManifestSha256: string;
       readonly manifest: ApplicationManifestWithRelations;
-    }): Effect.fn.Return<
+    }, reader: FlarexMetadataDatabase): Effect.fn.Return<
       ApplicationRelationSchemaAuthority,
       ResolveApplicationRelationSchemaAuthorityError
     > {
@@ -132,7 +138,7 @@ export function createApplicationRelationSchemaAuthorityPort(
           input.applicationManifestSha256
       ) return yield* failure("invalidInput");
       const located = yield* locateApplicationRelationManifestBindingEffect(
-        controlDb,
+        reader,
         {
           deploymentId: input.deploymentId,
           applicationManifestSha256: input.applicationManifestSha256,
@@ -212,17 +218,29 @@ export function createApplicationRelationSchemaAuthorityPort(
       return schema;
     },
   );
-  const port = Object.freeze({ resolve });
-  schemaAuthorityControlDatabases.set(port, controlDb);
+  const port = Object.freeze<ApplicationRelationSchemaAuthorityPort>({
+    resolve: input => resolveInDatabase(input, controlDb),
+  });
+  schemaAuthorityStates.set(port, { controlDb, resolve: resolveInDatabase });
   return port;
 }
+
+/** Trusted admission keeps colocated catalog reads on its already held client. */
+export const resolveApplicationRelationSchemaAuthorityInTransaction = Effect.fn("ApplicationRelationSchemaAuthority.resolveInTransaction")(
+  function* (port: ApplicationRelationSchemaAuthorityPort, target: LocatedReadCommittedAttemptTargetV1,
+    tx: AppRowTransaction, input: Parameters<ApplicationRelationSchemaAuthorityPort["resolve"]>[0]) {
+    const state = schemaAuthorityStates.get(port);
+    if (state === undefined) return yield* failure("invalidInput");
+    return yield* state.resolve(input, hasLocatedReadCommittedTargetDatabaseV1(target, state.controlDb) ? tx : state.controlDb);
+  },
+);
 
 export function hasApplicationRelationSchemaAuthorityComposition(
   port: unknown,
   controlDb: FlarexMetadataDatabase,
 ): port is ApplicationRelationSchemaAuthorityPort {
   return typeof port === "object" && port !== null &&
-    schemaAuthorityControlDatabases.get(port) === controlDb;
+    schemaAuthorityStates.get(port)?.controlDb === controlDb;
 }
 
 function sha256(bytes: Uint8Array): Effect.Effect<Uint8Array> {
