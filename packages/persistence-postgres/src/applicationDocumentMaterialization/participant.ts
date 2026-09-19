@@ -2,6 +2,9 @@
 import { ApplicationDocumentMaterializationOptions, PointCommitDependencyV1, ApplicationDocumentDefinitionCommand, ApplicationDocumentMaterializationCommand, PreparedPointCommitCandidateSchemaWriteGuard, PreparedPointCommitApplicationRelations } from "../applicationDocumentMaterialization/model";
 
 import { hasApplicationRelationCommitAuthorityForPointCommit } from "../applicationRelationCommit";
+import { hasApplicationDocumentOrderedIndexComposition } from "./indexComposition";
+import { hasResolvedApplicationRelationSchemaAuthorityDatabase } from "../applicationRelationSchemaAuthority";
+import type { FlarexMetadataDatabase } from "../deployments";
 import { hasAppSchemaCandidateWriteGuardComposition } from "../appSchemaCandidateValidation";
 import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, validatePointCommitDependenciesResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidation } from "../applicationDocumentMaterialization/materialization";
 import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, mapTransactionFailure } from "../pointCommitErrors";
@@ -59,14 +62,15 @@ const decodeParticipantDeploymentId = Schema.decodeUnknownResult(
 export const prepareApplicationDocumentParticipant = Effect.fn("ApplicationParticipant.prepare")(
   function* (
     schema: ApplicationRelationSchemaAuthority,
+    controlDb: FlarexMetadataDatabase,
     authority: TrustedScopeAuthority,
     ports: PointMutationSessionAuthorityResolutionPortsV1,
     options: ApplicationParticipantOptions,
     tableIds: readonly CatalogTableId[],
   ) {
     if (
-      options.intrinsicCreationTimeIndexes === undefined ||
-      options.developerIndexes === undefined ||
+      !hasResolvedApplicationRelationSchemaAuthorityDatabase(schema, controlDb) ||
+      !hasApplicationDocumentOrderedIndexComposition(controlDb, options) ||
       options.uniqueConstraints === undefined ||
       options.candidateSchemaWriteGuard === undefined
     ) {

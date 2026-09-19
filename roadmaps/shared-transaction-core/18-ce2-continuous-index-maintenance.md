@@ -124,9 +124,10 @@ same-scope commits overlap; CE3 owns that separate protocol and measurement.
 
 The [exact developer selection slice](./19-ce2-exact-developer-index-selection.md)
 closes partial lookup in the issued control-catalog port using the verified
-published requirement snapshot. The complete writer boundary remains open:
-publication must require the correct issued composition, including intrinsic
-selection, and exclude legacy writers against active obligations.
+published requirement snapshot. The [required composition slice](./20-ce2-required-ordered-index-composition.md)
+requires genuine intrinsic/developer ports from the serving control database
+for Application material publication and shared participants. The complete
+writer boundary still requires legacy-writer exclusion against active obligations.
 
 1. Close exact writer composition and its refusal witnesses through the existing
    shared owner. Migrate native/CMS construction and named legacy publication

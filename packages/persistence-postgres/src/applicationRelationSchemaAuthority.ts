@@ -91,6 +91,14 @@ const resolvedBindings = new WeakMap<ApplicationRelationSchemaAuthority, Readonl
   binding: LocatedApplicationRelationManifestBinding;
 }>>();
 
+/** Provenance of immutable preparation, never current serving authorization. */
+export function hasResolvedApplicationRelationSchemaAuthorityDatabase(
+  schema: ApplicationRelationSchemaAuthority,
+  controlDb: FlarexMetadataDatabase,
+): boolean {
+  return resolvedBindings.get(schema)?.controlDb === controlDb;
+}
+
 /** Request-local planning reuse, never a fresh acceptance verdict. Return a
  * detached copy so a consumer cannot mutate the resolver's captured evidence. */
 export const readResolvedApplicationRelationManifestBinding = Effect.fn("ApplicationRelationSchemaAuthority.readResolvedBinding")(

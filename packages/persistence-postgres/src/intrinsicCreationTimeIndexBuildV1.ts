@@ -127,11 +127,21 @@ export interface IntrinsicCreationTimeIndexDefinitionPortV1 {
   >;
 }
 
+const intrinsicDefinitionControlDatabases = new WeakMap<object, FlarexMetadataDatabase>();
+
+export function hasIntrinsicCreationTimeIndexDefinitionAuthorityForControlDbV1(
+  value: unknown,
+  controlDb: FlarexMetadataDatabase,
+): value is IntrinsicCreationTimeIndexDefinitionPortV1 {
+  return typeof value === "object" && value !== null &&
+    intrinsicDefinitionControlDatabases.get(value) === controlDb;
+}
+
 /** Control-catalog adapter used by the private C08 point-commit composition. */
 export function createIntrinsicCreationTimeIndexDefinitionPortV1(
   controlDb: FlarexMetadataDatabase,
 ): IntrinsicCreationTimeIndexDefinitionPortV1 {
-  return Object.freeze({
+  const port = Object.freeze({
     locate: Effect.fn("IntrinsicCreationTimeIndexDefinition.locate")(
       (input: LocateIntrinsicCreationTimeIndexV1Input) =>
         locateAppCreationTimeIndexDefinitionForTableEffect(
@@ -142,6 +152,8 @@ export function createIntrinsicCreationTimeIndexDefinitionPortV1(
         ),
     ),
   });
+  intrinsicDefinitionControlDatabases.set(port, controlDb);
+  return port;
 }
 
 export interface BuildAppOrderedIndexV1Input {

@@ -134,9 +134,10 @@ admission remains capped at 32 transitions. The
 [CE2 continuous-maintenance preflight](./18-ce2-continuous-index-maintenance.md)
 selects activation-bound coverage and identifies exact writer composition as
 its prerequisite. [Exact developer selection](./19-ce2-exact-developer-index-selection.md)
-now rejects incomplete touched sets from the issued catalog port. Required
-native/CMS composition and legacy-writer exclusion still need to close before
-any coverage UPDATE or lock is removed. Continuous maintenance is not
+now rejects incomplete touched sets from the issued catalog port.
+[Required composition](./20-ce2-required-ordered-index-composition.md) verifies
+issued native/CMS ports against their control database. Legacy-writer exclusion
+still needs to close before any coverage UPDATE or lock is removed. Continuous maintenance is not
 implemented; broader CE0 references and connected CE1 acceptance remain open.
 
 Candidate admission is already implemented and does not need its producer/identity

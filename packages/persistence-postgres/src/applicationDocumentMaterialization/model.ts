@@ -87,12 +87,12 @@ export type ApplicationDocumentMaterializationStep =
 
 export interface ApplicationDocumentMaterializationOptions {
   /**
-   * Private C08 composition. Absence keeps the lower-level O07/C07 proof lane
-   * independent of a published schema; presence requires the exact intrinsic
-   * definition and fails closed when it cannot be located.
+   * Issued composition is required for Application material publication and
+   * shared CMS/cross-domain participants. Absence is confined to the retained
+   * lower-level legacy proof profile; it is not an empty serving requirement.
    */
   readonly intrinsicCreationTimeIndexes?: IntrinsicCreationTimeIndexDefinitionPortV1;
-  /** Private C08-A composition; absence preserves the lower O07 proof lane. */
+  /** Required with the intrinsic port for serving document materialization. */
   readonly developerIndexes?: AppDeveloperIndexDefinitionPortV1;
   /** Private C08-B2 composition; absence preserves the lower proof lane. */
   readonly uniqueConstraints?: AppUniqueConstraintDefinitionPortV1;

@@ -161,7 +161,7 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
       const prepared = yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId);
-      const commit = requestKey === null ? null : yield* prepareCmsApplicationCommit(prepared, located.authority, pointCommitAuthority, materialization);
+      const commit = requestKey === null ? null : yield* prepareCmsApplicationCommit(prepared, controlDatabase, located.authority, pointCommitAuthority, materialization);
       return yield* runRelationalSession(session, tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`),
           cause => cmsError("statementFailure", cause));

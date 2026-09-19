@@ -1,4 +1,10 @@
 import { expect } from "vitest";
+import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
+import { orderedIndexCompositionRefusals } from "./orderedIndexCompositionRefusals";
+import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
+import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
+import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions,
+  fxSystemCommits, fxSystemIdempotency, fxSystemScopeClocks } from "../src/schema";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
@@ -165,8 +171,11 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   const running = await runEffect(loader.loadEffect(authority));
   if (running.kind !== "loaded") throw new Error("Expected authenticated running evidence");
   const unique = createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle);
-  const options = { uniqueConstraints: unique, uniqueConstraintEligibility: createAppUniqueConstraintSetEligibilityPortV1({ controlDb: fixture.control.drizzle,
+  const intrinsicCreationTimeIndexes = createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle);
+  const developerIndexes = createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle);
+  const otherOptions = { uniqueConstraints: unique, uniqueConstraintEligibility: createAppUniqueConstraintSetEligibilityPortV1({ controlDb: fixture.control.drizzle,
     authority: fixture.authorityPorts }, unique), applicationRelations: fixture.relationCommit };
+  const options = { ...otherOptions, intrinsicCreationTimeIndexes, developerIndexes };
   const finishing = createPointCommitFinishingTransitionPortV1(fixture.pointCommitAuthority, options);
   await runEffect(finishing.enterFinishing(await pointCommitFinishingCommandFromStoredAttemptV1(authority, running.evidence)));
   const finished = await runEffect(loader.loadFinishingEffect(selectorFromRelationAnchor(session.anchor)));
@@ -176,6 +185,29 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
     semanticSizeBytes: result.semanticSizeBytes, sha256Hex: result.evidence.sha256Hex };
   const command = { ...base, journalBytes: journal.canonicalBytes, successfulResult };
   const publisher = createPointCommitPublisherPortV1(fixture.pointCommitAuthority, options);
+  expect(command.authorityPins.executionAuthorityGeneration).toBe("application_v1");
+  expect(command.rowIntents.length).toBeGreaterThan(0);
+  const publicationState = async () => ({
+    rows: await persistence.drizzle.select().from(fxAppRowCurrent),
+    revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
+    indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent),
+    indexRevisions: await persistence.drizzle.select().from(fxAppIndexEntryRevisions),
+    commits: await persistence.drizzle.select().from(fxSystemCommits),
+    outcomes: await persistence.drizzle.select().from(fxSystemIdempotency),
+    clocks: await persistence.drizzle.select().from(fxSystemScopeClocks),
+  });
+  const beforeCompositionRefusal = await publicationState();
+  const foreign = await createMigratedPGlitePersistence();
+  const invalidPublishers = orderedIndexCompositionRefusals(intrinsicCreationTimeIndexes, developerIndexes, foreign.drizzle)
+    .map(invalid => createPointCommitPublisherPortV1(fixture.pointCommitAuthority, { ...otherOptions, ...invalid }));
+  const { applicationControlDb: _applicationControlDb, ...missingControlAuthority } = fixture.pointCommitAuthority;
+  invalidPublishers.push(createPointCommitPublisherPortV1(missingControlAuthority, options));
+  for (const invalid of invalidPublishers) {
+    expect(await runEffectFailure(invalid.publish(command))).toMatchObject({ reason: "orderedIndexCompositionInvalid" });
+    expect(await runEffectFailure(invalid.prove({ ...base, journalBytes: journal.canonicalBytes })))
+      .toMatchObject({ reason: "orderedIndexCompositionInvalid" });
+    expect(await publicationState()).toEqual(beforeCompositionRefusal);
+  }
   const staleAuthority = relationAuthorityFromAnchor(stale.anchor, fixture.relation.binding.schemaVersionId, stale.executionClaim);
   const staleRunning = await runEffect(loader.loadEffect(staleAuthority));
   if (staleRunning.kind !== "loaded") throw new Error("Expected stale running evidence");
@@ -207,6 +239,9 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   const published = hooks.publish ? await hooks.publish(fixture, publish) : await publish();
   expect(published).toMatchObject({ kind: "published" });
   expect(await runEffect(publisher.publish(command))).toMatchObject({ kind: "replayed" });
+  for (const invalid of invalidPublishers) {
+    expect(await runEffect(invalid.publish(command))).toMatchObject({ kind: "replayed" });
+  }
   // Corrupt retained ownership refuses independently of a valid earlier admission.
   await persistence.drizzle.transaction(async tx => {
     const rows = await tx.select().from(fxSystemApplicationWriteOwnership).where(eq(fxSystemApplicationWriteOwnership.scopeId, fixture.authority.scopeId));

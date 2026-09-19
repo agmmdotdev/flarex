@@ -12,7 +12,9 @@ import type { CmsHostInput } from "../src/cmsTransaction/host";
 import { makeCmsRequestLifetime } from "../src/cmsTransaction/lifetime";
 import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../src/scopeAuthorityResolution";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
+import { orderedIndexCompositionRefusals } from "./orderedIndexCompositionRefusals";
 
 /** The extracted participant must reject structural copies and expired admission. */
 export async function assertCmsParticipantAdmission<Failure>(
@@ -30,11 +32,26 @@ export async function assertCmsParticipantAdmission<Failure>(
   const prepared = await runEffect(
     prepareCmsApplicationCommit(
       application,
+      input.controlDatabase,
       authority,
       input.pointCommitAuthority,
       input.materialization,
     ),
   );
+  const { intrinsicCreationTimeIndexes, developerIndexes, ...otherOptions } = input.materialization;
+  if (!intrinsicCreationTimeIndexes || !developerIndexes) throw new Error("Expected valid participant index ports");
+  // An unused foreign catalog tests exact issuer identity; refused ports must
+  // never reach that database on either physical-driver lane.
+  const foreign = await createMigratedPGlitePersistence();
+  for (const invalid of orderedIndexCompositionRefusals(intrinsicCreationTimeIndexes, developerIndexes, foreign.drizzle)) {
+    expect(await runEffectFailure(prepareCmsApplicationCommit(application, input.controlDatabase, authority,
+      input.pointCommitAuthority, { ...otherOptions, ...invalid }))).toMatchObject({ reason: "invalidAuthority" });
+  }
+  expect(await runEffectFailure(prepareCmsApplicationCommit({ ...application, schema: { ...application.schema } },
+    input.controlDatabase, authority, input.pointCommitAuthority, input.materialization)))
+    .toMatchObject({ reason: "invalidAuthority" });
+  expect(await runEffectFailure(prepareCmsApplicationCommit(application, foreign.drizzle, authority,
+    input.pointCommitAuthority, input.materialization))).toMatchObject({ reason: "invalidAuthority" });
   await input.database.transaction((tx) =>
     runEffect(
       Effect.gen(function* () {

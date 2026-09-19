@@ -3,6 +3,7 @@ import { prepareApplicationDocumentParticipant, enterApplicationDocumentParticip
 import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock } from "../commitPublication/pointCommitProjection";
 import type { ApplicationDocumentMaterializationOptions } from "../applicationDocumentMaterialization/model";
 import type { CmsMaterializationTestHooks } from "./testSupport";
+import type { FlarexMetadataDatabase } from "../deployments";
 
 import { PointCommitSqlErrorV1, mapTransactionFailure } from "../pointCommitErrors";
 
@@ -36,9 +37,9 @@ export type CmsMaterializationOptions =
   ApplicationDocumentMaterializationOptions & ScopePublicationOptions;
 
 export const prepareCmsApplicationCommit = Effect.fn("CmsCommit.prepare")(
-  function* (application: PreparedCmsApplication, authority: TrustedScopeAuthority,
+  function* (application: PreparedCmsApplication, controlDb: FlarexMetadataDatabase, authority: TrustedScopeAuthority,
     ports: PointMutationSessionAuthorityResolutionPortsV1, options: CmsMaterializationOptions) {
-    const core = yield* prepareApplicationDocumentParticipant(application.schema, authority, ports, options,
+    const core = yield* prepareApplicationDocumentParticipant(application.schema, controlDb, authority, ports, options,
       application.schema.writePolicy?.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId) ?? [])
       .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
     const prepared = Object.freeze({ application, core, options });

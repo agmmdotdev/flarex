@@ -57,7 +57,8 @@ despite the missing binding. Retain connected native/CMS and journal regressions
 typechecks, lint and both required reviews as the change gate.
 
 This closes the factory lookup defect, not the entire writer-composition gate.
-Requiring correctly issued composition at every native/CMS publication boundary
-and excluding legacy writers against active obligations remain necessary.
+The [required composition slice](./20-ce2-required-ordered-index-composition.md)
+now enforces correctly issued ports at native Application and shared participant
+boundaries. Excluding legacy writers against active obligations remains necessary.
 Coverage updates, locks, activation and reader behavior remain unchanged until
 the continuous-maintenance cutover in preflight 18 is complete.

@@ -1,4 +1,6 @@
 import { sqlCall } from "./pointCommitErrors";
+import { hasApplicationDocumentOrderedIndexComposition } from "./applicationDocumentMaterialization/indexComposition";
+import type { StoredCommitAuthorityEvidenceLoaderPortsV1 } from "./storedCommitAuthority/postgresLoader";
 import { runPointCommitInTransactionEffect, projectPointCommitTransactionResult } from "./pointCommitPromiseBoundary";
 import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock } from "./commitPublication/pointCommitProjection";
 import { PointCommitDependencyV1, PointCommitRowIntentV1, PreparedLivePointCommitRowIntentV1, PreparedPointCommitRowIntentV1, PreparedPointCommitCandidateSchemaWriteGuard, PreparedPointCommitApplicationRelations, LocatedPreparedPointCommitApplicationRelations, LoadedPointCommitHeadV1 } from "./applicationDocumentMaterialization/model";
@@ -811,13 +813,13 @@ export type PointCommitTransactionProofStepV1 =
 
 export interface PointCommitTransactionProofOptionsV1 {
   /**
-   * Private C08 composition. Absence keeps the lower-level O07/C07 proof lane
-   * independent of a published schema; presence requires the exact intrinsic
-   * definition and fails closed when it cannot be located.
+   * Required issued composition for Application material writes. Absence is
+   * retained only for lower-level legacy proof/runtime callers, whose active
+   * Application exclusion is an explicit CE2 cutover gate.
    */
   readonly intrinsicCreationTimeIndexes?:
     IntrinsicCreationTimeIndexDefinitionPortV1;
-  /** Private C08-A composition; absence preserves the lower O07 proof lane. */
+  /** Required from the same control database for Application material writes. */
   readonly developerIndexes?: AppDeveloperIndexDefinitionPortV1;
   /** Private C08-B2 composition; absence preserves the lower proof lane. */
   readonly uniqueConstraints?: AppUniqueConstraintDefinitionPortV1;
@@ -1321,10 +1323,11 @@ export function createPointMutationAttemptReplacementPortV1(
 }
 
 export function createPointCommitRollbackProofPortV1(
-  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
 ): PointCommitRollbackProofPortV1 {
   const capturedOptions = capturePointCommitTransactionProofOptionsV1(options);
+  const hasOrderedIndexes = hasApplicationDocumentOrderedIndexComposition(ports.applicationControlDb, capturedOptions);
   const prove: PointCommitRollbackProofPortV1["prove"] = Effect.fn(
     "PointCommitTransaction.proveRollback",
   )(function* (input) {
@@ -1347,6 +1350,10 @@ export function createPointCommitRollbackProofPortV1(
       return yield* Effect.fail(corruption(
         "readCommittedCapabilityMissing",
       ));
+    }
+    if (command.authorityPins.executionAuthorityGeneration === "application_v1" &&
+      command.rowIntents.length > 0 && !hasOrderedIndexes) {
+      return yield* Effect.fail(corruption("orderedIndexCompositionInvalid"));
     }
     const intrinsicDefinitions = yield* prepareIntrinsicIndexDefinitions(
       command,
@@ -1404,10 +1411,11 @@ export function createPointCommitRollbackProofPortV1(
 }
 
 export function createPointCommitPublisherPortV1(
-  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
 ): PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1 {
   const capturedOptions = capturePointCommitTransactionProofOptionsV1(options);
+  const hasOrderedIndexes = hasApplicationDocumentOrderedIndexComposition(ports.applicationControlDb, capturedOptions);
   const rollback = createPointCommitRollbackProofPortV1(ports, capturedOptions);
 
   const resolveOutcome = Effect.fn(
@@ -1450,6 +1458,10 @@ export function createPointCommitPublisherPortV1(
       return yield* Effect.fail(preliminaryFailure);
     }
 
+    if (command.authorityPins.executionAuthorityGeneration === "application_v1" &&
+      command.rowIntents.length > 0 && !hasOrderedIndexes) {
+      return yield* Effect.fail(corruption("orderedIndexCompositionInvalid"));
+    }
     const intrinsicDefinitions = yield* prepareIntrinsicIndexDefinitions(
       command,
       capturedOptions,

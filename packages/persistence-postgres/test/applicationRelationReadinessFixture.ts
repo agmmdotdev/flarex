@@ -400,6 +400,7 @@ export async function relationReadinessFixture(
     scopeMetadata: control,
     provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeSessionTargets,
+    applicationControlDb: control.drizzle,
   });
   const relationCommit = createApplicationRelationCommitPort(
     control.drizzle,

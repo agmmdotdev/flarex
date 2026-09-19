@@ -225,6 +225,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
       ];
       const documents = yield* prepareApplicationDocumentParticipant(
         prepared.schema,
+        controlDatabase,
         located.authority,
         pointCommitAuthority,
         materialization,

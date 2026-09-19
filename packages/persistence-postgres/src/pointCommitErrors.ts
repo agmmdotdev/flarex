@@ -120,6 +120,7 @@ export type PointCommitCorruptionReasonV1 =
   | "commandInvalid"
   | "finishingTransitionInvalid"
   | "readCommittedCapabilityMissing"
+  | "orderedIndexCompositionInvalid"
   | "scopeClockInvalid"
   | "activeApplicationHeadInvalid"
   | "applicationWritePolicyDenied"

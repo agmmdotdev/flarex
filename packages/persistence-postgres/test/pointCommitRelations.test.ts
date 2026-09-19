@@ -72,6 +72,9 @@ import {
 } from "../src/transactionSessionActivation";
 import { createApplicationNativeMutationPGliteFixture } from
   "./fixtures/applicationNativeMutationTestFixture";
+import { enableApplicationPhysicalBuilds } from "./applicationRelationReadinessFixture";
+import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
+import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import {
   bridgeActiveApplicationReadinessForRelationCommitTest,
   installApplicationRelationCommitAuthorityForTest,
@@ -476,6 +479,12 @@ describe("C09 point-commit relation maintenance", () => {
       ),
     );
     expect(targetPublication.binding).toEqual(controlPublication.binding);
+    await enableApplicationPhysicalBuilds(fixture.control.drizzle, fixture.authorityPorts,
+      fixture.authority.scopeId, fixture.deploymentId, controlPublication.binding.schemaVersionId);
+    const orderedIndexes = {
+      intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
+      developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
+    };
 
     const scope: RelationScope = Object.freeze({
       deploymentId,
@@ -542,6 +551,7 @@ describe("C09 point-commit relation maintenance", () => {
       scope,
       fixture.control,
       {
+        ...orderedIndexes,
         afterTransactionStep: event => {
           rejectedSteps.push(event.step);
           return Promise.resolve();
@@ -567,6 +577,7 @@ describe("C09 point-commit relation maintenance", () => {
       scope,
       fixture.control,
       {
+        ...orderedIndexes,
         afterTransactionStep: event => {
           acceptedSteps.push(event.step);
           return Promise.resolve();
