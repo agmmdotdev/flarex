@@ -3,6 +3,12 @@
 Status: approved prerequisite to the authorized membership/unique storage rewrite.
 The owner approved the coverage contract; implementation and validation are in progress.
 
+The [CE2 maintenance preflight](./18-ce2-continuous-index-maintenance.md) plans
+to replace per-commit active coverage updates after closing all writer and
+activation obligations. Its continuous-maintenance contract is not implemented.
+Candidate-only bounded coverage and the historical-snapshot protections below
+remain required by that replacement.
+
 ## Problem And Evidence
 
 The current writer prepares developer indexes only for its pinned schema. A

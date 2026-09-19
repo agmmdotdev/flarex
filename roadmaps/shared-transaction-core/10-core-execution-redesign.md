@@ -130,9 +130,12 @@ updates while retaining the existing transaction and locks. The
 execution to membership/parent checks and index revisions/current pointers.
 The [unique ownership slice](./17-ce1-unique-batch-application.md) replaces scalar
 unique writes with bounded validation and release/claim phases. Native unique
-admission remains capped at 32 transitions. Next execution work is the CE2
-readable-index/lifecycle preflight; broader CE0 references and connected CE1
-acceptance remain open.
+admission remains capped at 32 transitions. The
+[CE2 continuous-maintenance preflight](./18-ce2-continuous-index-maintenance.md)
+selects activation-bound coverage and identifies exact writer composition as
+its prerequisite. Next implementation closes that native/CMS writer boundary
+before any coverage UPDATE or lock is removed. Continuous maintenance is not
+implemented; broader CE0 references and connected CE1 acceptance remain open.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution
