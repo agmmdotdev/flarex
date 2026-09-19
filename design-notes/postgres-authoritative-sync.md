@@ -1,470 +1,152 @@
 # Postgres-Authoritative Sync And Cloudflare Coordination
 
-Status: accepted Flarex Postgres/Cloudflare adapter design; portable engine
-semantics are owned by `runtime-agnostic-query-sync-engine.md`; caches remain
-deferred optimizations
+## Status And Authority
 
-Last reviewed: 2026-08-29
+Accepted replacement integration direction; implementation is incomplete.
+[Runtime-agnostic query sync](./runtime-agnostic-query-sync-engine.md) owns the
+versioned live-query service, fixed targets and portable session semantics.
+[FlarexDB's accepted design](./flarex-db-accepted-design.md) continues to own
+application-data, transaction, snapshot and committed-change authority.
 
-This note defines the sync design that follows from
-`flarex-db-accepted-design.md`. It replaces the earlier assumption that
-`VersionDO`, `DocCacheDO`, and `QueryCacheDO` must be built before Flarex can
-provide correct live queries.
+This note replaces its former moving-latest activation, mandatory exact result
+publication and per-client Postgres reconnect-registry prescriptions. Where
+[roadmap 21](../roadmaps/21-cloudflare-freshness-cache.md) or older preflights repeat
+those prescriptions, use this note and the
+[current query-sync roadmap](../roadmaps/query-sync-engine/README.md).
+Postgres authority, gap recovery, safe mutation reads and deferred cache actors
+are unchanged. The docs do not implement the replacement or delete old state.
 
-The 2026-08-27 Query Sync Engine decision narrows this note without rejecting
-its concrete topology. The per-scope Durable Object, Postgres feed, snapshot,
-cursor, gap recovery, and Flarex identity rules below are the first
-Flarex/Cloudflare adapter composition over the portable engine. References to
-`DeploymentSyncDO` owning query state mean that its SQLite adapter is the sole
-durable Flarex coordination-state authority; portable transition semantics are
-owned by the independent engine. `ConnectionDO` remains current Flarex gateway
-and session evidence, while upstream Durable Streams is evaluated separately
-as a replaceable outbound delivery log. See
-[`runtime-agnostic-query-sync-engine.md`](./runtime-agnostic-query-sync-engine.md)
-and
-[`../roadmaps/query-sync-engine/`](../roadmaps/query-sync-engine/README.md).
+## Ownership Map
 
-## Verdict
+| Layer | Owns | Does not own |
+| --- | --- | --- |
+| FlarexDB / trusted executor | Logical catalog, business rows/history/indexes/relations, transactions, exact reads, authoritative source positions and change feed | Browser subscriptions, query-set transitions or sync-result queues |
+| Flarex bridge | Authenticated query resolution, bounded executable material/resolver, dependency/authority projections and source/evaluator composition | Another database, invalidation algorithm or subscriber registry |
+| Portable query-sync | Query instances, fixed targets, versioned result reuse, sessions, leases, bounded progress and reset/recovery | Business data, SQL layouts for the core, sockets or framework schemas |
+| Sync state adapter | Atomic infrastructure storage and internal migrations for derived query/session state | Application schema definitions or per-collection DDL |
+| Cloudflare host/gateway | Scope placement, private service calls, local transaction bridge, scheduling and transport | Portable session policy or authoritative committed data |
 
-Postgres-authoritative sync is the right direction. The earlier cache topology
-was too complex for the correctness proof and did not define gap-free ordering,
-initial subscription activation, identity-safe cache keys, or lost-wake
-recovery.
+Existing business families such as `fx_app_row_rev`, `fx_app_row_current`,
+`fx_app_index_entry_rev`, `fx_app_index_entry_current`, `fx_app_unique_key`,
+`fx_app_edge_current` and `fx_app_edge_adjacency_version` are not subscription
+registries. The shared logical storage redesign owns their evolution.
 
-V1 is:
+The current generation-4 adapter's seven `deployment_sync_*` tables store
+contract/scope state, queries, dependencies, pending publications, an in-flight
+publication and publication bookkeeping. These are current infrastructure
+representation, not tables generated for each business collection or the required
+replacement layout. Source: `packages/flarex-backend/src/deploymentSync/StorageContractGeneration4.ts`.
 
-```text
-Postgres commit feed per scope
-  -> Flarex change/query adapters
-  -> portable Query Sync Engine
-  -> deterministic per-scope DeploymentSyncDO and SQLite state adapter
-  -> authenticated delivery adapter
-       current ConnectionDO/WebSocket evidence
-       candidate upstream Durable Streams composition
-```
-
-Direct wakes reduce latency. A durable sweep and Postgres catch-up provide
-recovery. Live-query reruns use authoritative Postgres reads. Cache DOs are
-optional later layers.
-
-## Authority Model
-
-Postgres owns:
-
-- authoritative rows and revision history;
-- the scope epoch and commit sequence;
-- canonical commit/change atoms;
-- canonical commit/change recovery feed plus transactional commit-wake
-  evidence; and
-- a conservative fenced DeploymentSyncDO cursor mirror for the external sweep.
-
-The Flarex Cloudflare composition owns:
-
-- sandboxed function execution;
-- WebSocket sessions;
-- the durable adapter for active query coordination and dependency indexes;
-- ordered delivery state;
-- disposable cached results when later enabled.
-
-Cloudflare does not own committed data, portable engine semantics, or the only
-copy of source recovery state.
-
-## Tokens And Freshness
-
-Use the same scope-local token as the transaction engine:
-
-```ts
-type SnapshotToken = {
-  scopeId: ScopeId;
-  epoch: ScopeEpoch;
-  commitSeq: CommitSeq;
-};
-```
-
-Commit/outbox sequences are scope-monotonic and never reset or reused. Epoch
-rollover fences old sessions/subscriptions and requires a full client/query
-resnapshot, but it does not copy or reset authoritative data.
-
-There are two different correctness rules.
-
-### Mutation/session reads
-
-Mutation reads require the exact begin snapshot plus the supported staged-write
-overlay. A value from a newer commit is not valid merely because its sequence
-is greater:
+## Initial Placement
 
 ```text
-mutation begins at commit 100
-row changes at commit 103
-cache holds commit 105
-
-105 >= 100 does not make that value valid at snapshot 100
+ordinary query / reactive client
+               |
+      authenticated Flarex gateway
+               |
+       Flarex bridge and scope host
+          /                    \
+private executor         query-sync service + sync SQLite
+Postgres snapshots       query tracking + session coordination
+and committed changes              |
+                            connection delivery
 ```
 
-V1 uses Postgres history for mutation/session reads. A future cache needs an
-MVCC version valid at the exact token and absence/range proofs.
-
-### Live-query publication
-
-A live-query result may be computed at a snapshot at or after
-`requiredFreshThrough` when:
-
-- the whole result is from one consistent snapshot;
-- the executor returns its actual snapshot token and dependency set;
-- the sync cursor reached every commit in between without gaps;
-- package, schema, policy, and identity inputs still match;
-- publication is generation-checked and ordered.
-
-Hyperdrive response caching is not a freshness proof. Correct live-query reruns
-use a no-cache authoritative path until an explicit versioned cache protocol is
-proven.
-
-## V1 Components
-
-### Postgres commit feed
-
-Each scope has one current epoch and a monotonically increasing scope-lifetime
-`commit_seq`. The final
-data transaction writes:
-
-```text
-authoritative data/history
-derived index/edge/unique sidecars
-commit row
-typed change atoms / dependency summary
-transactional outbox rows
-```
-
-The commit feed, not generic side-effect delivery order, is the canonical sync
-ordering source. Outbox workers can transport wake hints and other effects, but
-DeploymentSyncDO catches up by `(scope_id, epoch, commit_seq)`.
-
-### DeploymentSyncDO per scope
-
-Use one deterministic name initially:
-
-```text
-deployment-sync:{scopeId}
-```
-
-Durable Object SQLite stores:
-
-```text
-local SQLite adapter-contract generation
-scope / epoch / fixed sync model / Flarex storage generation and fence
-applied-through commit sequence
-canonical query identities and active/provisional generations
-active and completion-fingerprint dependency memberships
-dirty frontiers, completion evidence, work revision, and fairness anchor
-pending/in-flight/latest-delivered publication state and replay evidence
-exact bounded-state counters
-```
-
-Do not keep correctness state only in JavaScript memory. Do not use one global
-SchedulerDO singleton for unrelated scopes.
-
-Evaluation scan continuations are revision-fenced, process-local nominal
-capabilities, not persisted coordination rows. Connection targets and
-recoverable session registration belong to the later gateway/delivery owner,
-not to the nine-operation query-sync semantic state adapter. `QSYNC-FX01-B`
-identified the missing operation-scoped portable transition-plan seam; the
-accepted docs-only
-[`QSYNC01-D0` record](../roadmaps/query-sync-engine/preflight/09-qsync01-d-operation-scoped-transition-plans.md)
-now freezes its design. The exact SQLite schema remains blocked until D1-D4
-implement all nine planners and a fresh adapter checkpoint is approved.
-
-The first per-scope DO is a correctness boundary and may be a throughput hot
-spot. Add coordination buckets only after measurement and an explicit rule for
-query ownership and cursor handoff.
-
-### ConnectionDO
-
-ConnectionDO owns:
-
-- the WebSocket/session attachment;
-- client query identifiers and transition ordering;
-- scope, epoch, active package, schema/policy, and identity metadata;
-- mapping client subscriptions to canonical DeploymentSyncDO queries;
-- reconnect/resubscribe behavior.
-
-ConnectionDO must not become the only copy of a subscription needed for
-post-eviction recovery.
-
-Each reconnectable session has a bounded Postgres reconnect lease containing
-scope, epoch, minimum required commit sequence, generation, and expiry. Commit
-history retention respects the minimum live lease. Epoch mismatch or a cursor
-below the retained floor produces an explicit reset/resnapshot response.
-
-### One target query-state owner
-
-The current implementation relies on Postgres live-query subscription and
-connection-lease rows, but that unshipped prototype does not require a live
-dual-registry migration. The target authority split is:
-
-```text
-Postgres
-  authoritative commit feed + conservative fenced cursor mirror
-
-DeploymentSyncDO SQLite
-  canonical query/dependency/generation/rerun coordination owner
-```
-
-Do not run two independent query-state authorities. Hibernation and restart
-retain DO storage. If required query state is explicitly lost, fail closed into
-reset/resubscribe and rebuild from authoritative Postgres query execution rather
-than treating the prototype registry as a second owner. Remove that registry
-after target-only hibernation, reconnect, state-loss reset, lease cleanup, and
-lost-wake tests pass.
-
-## Canonical Query Identity
-
-The key must include every input that can change a result:
-
-```text
-scope
-scope epoch
-active package hash
-schema version
-policy version
-function/component path
-canonical encoded arguments
-identity/access-policy fingerprint
-```
-
-Do not share results across identities unless authoritative analysis proves the
-query is identity-independent. Package activation invalidates or namespaces old
-query entries even when the path and arguments are unchanged.
-
-Canonical identical queries rerun once and fan out to many client
-subscriptions. Overlapping but non-identical queries share dependency keys,
-not result identity.
-
-## Initial Subscription Activation
-
-Executing first and registering afterward can miss a commit. Use two-phase
-activation:
-
-1. ConnectionDO asks DeploymentSyncDO to create a provisional canonical query
-   registration with the current contiguous cursor.
-2. The trusted query executor runs at a known Postgres snapshot and returns
-   result, result hash, dependency set, and snapshot token.
-3. DeploymentSyncDO installs/refines the dependency set for that provisional
-   generation.
-4. It refreshes the token against every commit through the current contiguous
-   cursor.
-5. If no relevant change invalidated the result, it marks the DO generation
-   active and publishes it. Otherwise it reruns before publication.
-
-Removal must eventually be idempotent in the same DeploymentSyncDO coordination
-authority, but release/removal is not one of the current nine semantic state
-operations and requires a separate transition preflight. The Postgres cursor
-mirror remains conservative operational evidence, not a query registry or
-independent activation authority.
-
-This follows the Convex idea that a query token is refreshed against already
-processed writes before the subscription is accepted.
-
-## Commit Processing And Gap Recovery
-
-`appliedThroughCommitSeq` means every commit through that number has been
-examined. It is not the maximum sequence observed.
-
-An epoch mismatch stops incremental processing. DeploymentSyncDO fences the old
-query generations and adopts the new epoch only through a full authoritative
-resnapshot. It then records the current scope-monotonic commit sequence; it does
-not reset the cursor to zero.
-
-```text
-receive N == appliedThrough + 1
-  -> apply change atoms
-  -> advance cursor
-
-receive N <= appliedThrough
-  -> duplicate; ignore idempotently
-
-receive N > appliedThrough + 1
-  -> do not advance
-  -> load the missing Postgres commit interval
-  -> apply commits in order
-```
-
-Changed dependencies mark canonical queries dirty. Per query:
-
-```text
-dirtyThrough = max(dirtyThrough, changedCommitSeq)
-single-flight one rerun generation
-execute authoritatively at snapshot >= dirtyThrough
-compare-and-swap expected generation
-publish only if result hash changed
-advance freshness even when result is unchanged
-```
-
-If another commit arrives while a rerun is in flight, the query remains dirty
-and runs again or refreshes its dependency token before publication.
-
-## Wake And Recovery Ownership
-
-The final commit or outbox dispatcher may directly call
-`DeploymentSyncDO.wake(scope, epoch, commitSeq)` as a fast path. Failure of that
-call must not lose invalidation.
-
-At least one durable external owner periodically compares the latest Postgres
-scope commit with the sync cursor and wakes lagging scopes. This may be a queue
-consumer, cron sweep, or executor dispatcher, but it must run even when no
-delivery row has been created yet.
-
-DeploymentSyncDO SQLite is the actor's cursor authority. After committing its
-local cursor, the DO may advance a fenced Postgres checkpoint mirror. That
-mirror may lag but must never lead. The external sweep reads the Postgres
-mirror; lag creates a duplicate idempotent wake, not missed work.
-
-Recovery flow:
-
-```text
-lost direct wake / DO eviction / Worker crash
-  -> durable sweep observes scope cursor behind latest commit
-  -> wakes deterministic DeploymentSyncDO
-  -> DO catches up the contiguous Postgres interval
-  -> rebuilds or validates query registrations
-  -> reruns dirty canonical queries
-  -> ConnectionDO delivers ordered transitions
-```
-
-Delivery rows and claim leases remain useful after changed results exist, but a
-delivery reconciler alone cannot recover a trigger lost before reruns created
-those rows.
-
-## Dependency Model
-
-V1 dependency types:
-
-- exact app row;
-- declared app index/range with typed ordered bounds;
-- relation/edge occurrence or relation range;
-- conservative table/index version fence for adapter reads that do not yet
-  have precise interval conflict data.
-
-The safe fallback is broader invalidation and rerun, not stale publication.
-Opaque strings are insufficient for precise range overlap. Bounds must carry
-codec version, inclusivity, and ordered key bytes.
-
-Maintain a dependency-to-query inverted index in DeploymentSyncDO SQLite. The
-current `all active subscriptions x all dependencies` scan is prototype
-behavior, not the target scaling model.
-
-## Cache Layers Are Deferred
-
-### VersionDO
-
-A maximum observed sequence is not an applied-through proof. A sharded
-VersionDO would need a transactionally generated contiguous bucket stream or a
-catch-up rule before it could claim freshness. Defer it.
-
-### DocCacheDO
-
-Hot row images can later accelerate exact-snapshot reads only when each entry
-has version validity intervals and tombstone/absence proofs. Otherwise use it
-for non-authoritative one-shot reads only.
-
-### QueryCacheDO
-
-DeploymentSyncDO can initially own canonical result hashes and single-flight
-reruns. Split query results into QueryCacheDO only after memory/load measurements
-justify another actor and generation handoff is specified.
-
-All cache state is disposable. An uncertain cache entry is marked dirty and
-rebuilt from Postgres.
-
-## Implemented P0 Problems To Fix Before Claiming V1 Safety
-
-The current code remains an unshipped prototype baseline and has known P0 gaps:
-
-- `packages/flarex-backend/src/connectionDO.ts` executes a query before its
-  durable registration, exposing a missed-commit activation race.
-- `packages/flarex-backend/src/schedulerRoutes.ts` routes unrelated deployments
-  to one scheduler name, while `schedulerDO.ts` has singleton pending/in-flight
-  rerun state.
-- `packages/executor/src/sessions.ts` performs post-commit notification
-  best-effort, while current scheduled recovery does not own the pre-rerun
-  trigger gap.
-- current query cache proposals omit active package and identity/access-policy
-  fingerprints.
-- concurrent reruns need compare-and-swap generations so Postgres/DO/delivery
-  state cannot retain different winners.
-
-These are implementation findings, not evidence that the Postgres-authoritative
-direction is wrong.
-
-## Phased Plan
-
-Phase 1, correctness:
-
-1. Adopt `SnapshotToken` and scope-local contiguous commit feed.
-2. Fix initial subscription activation.
-3. Route deterministic per-scope DeploymentSyncDO instances.
-4. Persist cursor, query definitions, dependency index, and generations in DO
-   SQLite.
-5. Add durable lagging-scope sweep and ordered Postgres catch-up.
-6. Prove target-only hibernation, reconnect, state-loss reset, and lost-wake
-   recovery without dual-registering the prototype Postgres registry.
-7. Execute live-query reruns through authoritative no-cache Postgres reads.
-
-Phase 2, scaling:
-
-1. Canonical query deduplication and inverted dependency indexes.
-2. Bounded rerun continuations, backpressure, and per-scope load tests.
-3. Remove the prototype Postgres registry after recovery parity and caller
-   migration.
-
-Phase 3, measured caches:
-
-1. MVCC-aware DocCacheDO for proven hot point reads.
-2. QueryCacheDO split for large shared results.
-3. VersionDO only with a gap-free bucket-feed protocol.
-
-## Correctness Tests
-
-- a commit lands during initial query execution/registration;
-- duplicate, reverse-ordered, and gapped commit notifications;
-- lost direct wake before any changed-result delivery exists;
-- simultaneous triggers for two scopes;
-- concurrent reruns of one canonical query;
-- commit arrives while a rerun is running;
-- package activation and identity/policy change;
-- mutation at snapshot 100 while a cache has a row from 103;
-- DeploymentSyncDO and ConnectionDO eviction/hibernation;
-- reconnect with cursor or epoch mismatch;
-- broad dependency fallback for inserts, deletes, key moves, and pagination;
-- real Postgres mutation-to-WebSocket recovery, not PGlite alone.
-
-## Convex Comparison
-
-Relevant Convex sources:
-
-- `../../../crates/database/src/subscription.rs`
-  - refreshes subscription tokens against processed writes.
-- `../../../crates/sync/src/worker.rs`
-  - query execution, subscription activation, rerun, and ordered updates.
-- `../../../crates/sync/src/state.rs`
-  - active query state and result-hash suppression.
-- `../../../crates/database/src/committer.rs`
-  - commit/write metadata feeds invalidation.
-
-Convex keeps these pieces close in one backend. Flarex bridges Postgres and
-Cloudflare, so it needs explicit cursors, deterministic actor routing, durable
-lag detection, and idempotent catch-up. The developer-facing query model can
-remain Convex-like; the internal recovery protocol cannot be implicit.
-
-## Remaining Questions
-
-- How much durable query state fits safely in one DeploymentSyncDO before
-  coordination buckets are necessary?
-- Which precise typed interval encoding should be shared by OCC and sync?
-- What is the operational owner and cadence for lagging-scope sweeps?
-- What reconnect-lease duration and history budget are operationally feasible?
-  The semantic floor is already the minimum live snapshot/reconnect lease plus
-  safety margin; older cursors reset/resnapshot.
-- Which queries can be proven identity-independent and safely shared?
-
-These are implementation choices to prove after the v1 correctness topology,
-not reasons to add cache actors early.
+One scope coordinator DO is the initial capacity hypothesis. Engine identities
+remain platform-neutral; do not mandate an actor per query, table or subscriber.
+Executor query work and network delivery occur outside its local state
+transactions. Gateway connection resources may be separated for capacity, but
+session consistency/reconnect logic is not reimplemented in that gateway.
+
+`DeploymentSyncDO` currently exposes only a private catch-up probe. The source,
+tracked-query producer and generation-4 state adapter are private baseline work,
+not completed fixed-target sessions or production delivery. The
+[source/host record](../roadmaps/query-sync-engine/preflight/13-qsync-fx02-postgres-host-composition.md)
+and [producer record](../roadmaps/query-sync-engine/preflight/14-qsync-fx02-c-application-query-evidence.md)
+retain that evidence and the known durable-execution-material gap.
+
+## Exact Source Contract
+
+Postgres remains the only committed-data authority. Source positions use the
+existing scope/epoch/commit contract, not timestamps or transport offsets.
+Epoch rollover fences old work but does not reset authoritative data or reuse
+scope-lifetime commit numbers. The source feed captures complete committed
+facts, retention and authority coherently; direct wakes never supply truth.
+
+The bridge must prove selected-target logical snapshots or an equivalent
+certified coherent query-set snapshot. Existing current-snapshot producer evidence
+alone does not prove that capability. Reuse row/history/index and snapshot
+owners; do not hold a database transaction across untrusted code or remote I/O,
+create a second read engine or relabel an arbitrary newer result as target-valid.
+
+At target `T`, all required session query values must be valid together.
+Reconcile dependencies around installation and preserve every relevant change
+after `T` as subsequent work. Source progress may advance while the session
+finishes its fixed target; that alone must not force rerunning the target. A
+missing retained interval, schema/head incompatibility or authority revocation
+requires explicit handling, not fabricated validity.
+
+Mutation reads still require their exact begin snapshot plus admitted pending
+write overlay. A cached row from 105 is not a valid read at 100 merely because
+105 is newer. Database commit and its outcome recovery never wait for sync.
+Reactive client mutation visibility is a separate post-commit session barrier;
+transport failure cannot be called transaction rollback.
+
+## Dependency And Authority Mapping
+
+Reuse logical read observation from the actual query runtime. Successful missing
+point reads and empty ranges are dependencies, and nested reads share one
+snapshot. The current query producer conservatively captures table dependencies
+for index reads; retain correctness before optimizing precision. Do not leak
+physical OCC handles into the service or claim fine-grained range support already
+exists. Framework and relation consumers must supply complete receipts through
+the same execution owner, not add their own sync algorithms.
+
+The bridge binds canonical function/arguments, code/schema/runtime policy and
+effective authorization. Query sharing never uses equal text alone. All mutable
+authority must have defined observation/fencing; reconnect reauthorizes, and
+observed revocation fences buffered frames. A hash is neither executable input
+nor a permanent credential. Store bounded executable material/resolver references
+within the sync registration lifecycle, with privacy and expiry limits.
+
+## Recovery And Data Disposition
+
+Sync owns leased subscriber interest, derived results/dependencies and session
+progress. The initial host retains useful state for restart, but expired/lost
+state can require generation-fenced reset and automatic re-registration. A
+gateway must detect state-generation loss; old frames cannot enter the rebuilt
+session. Corruption is not authorized fresh absence.
+
+No mandatory database-core subscription or browser reconnect table is added.
+An actual source snapshot pin needed to complete a bounded target remains
+source-owned and requires its retention contract. It is not an indefinite lease
+on all history for every disconnected browser. A resume request older than
+retained evidence resets rather than claiming complete incremental replay.
+
+Preserve the replayable commit feed and reliable wake evidence. A host recovery
+owner must close lost direct wakes before any results are queued, plus missed
+notifications on active connections. A checkpoint mirror, if justified, may lag
+actual progress but never lead, and cannot become a second query registry.
+
+Prototype Postgres subscription/delivery/connection tables and exact publication
+attempt state are retirement candidates, not deletion instructions. Inventory
+named stored state and real consumers; switch a complete target-only path and
+remove displaced callers together. No dual engine, dual registry or fallback.
+The database's business-event outbox and mutation journals/outcomes are unaffected.
+
+## Deferred Work And Exit Gate
+
+Cache actors, sharding, precise range matching, external result stores and
+additional transports require measured need and separate ownership proofs.
+Durable Streams is optional, not a blocker for the ordinary query path or the
+owner of portable session consistency. App schema evolution does not normally
+change sync DDL; internal sync migrations belong to its state adapter.
+
+The permanent standalone source/SQLite/loopback suite and a narrow early Flarex
+feasibility witness progress together. The real integration must prove mutation
+visibility, fixed-target progress, query-set consistency, permission changes,
+lease cleanup, lost wake/send, restart/reset, two-scope isolation and bounded
+resource use. Local reopen is not deployed eviction or WebSocket hibernation.
+Use [conformance and adoption](../roadmaps/query-sync-engine/04-conformance-and-flarex-adoption.md)
+and the [redesign preflight](../roadmaps/query-sync-engine/preflight/15-live-query-service-redesign.md)
+before runtime changes.

@@ -1,256 +1,117 @@
 # Product, Authority, And Package Boundary
 
-## Product Contract
+## Status And Product
 
-The Flarex Query Sync Engine is an independently testable server-side framework
-that turns an authoritative ordered change source plus trusted query evaluation
-into current query-result publications.
+Accepted target under the
+[live-query design](../../design-notes/runtime-agnostic-query-sync-engine.md);
+implementation pending the [roadmap](./README.md). This replaces the former
+product boundary that excluded portable client-session semantics.
 
-It serves applications with different data models through model adapters. The
-engine does not inspect Flarex rows, tables, relations, Postgres WAL records, or
-application code. A trusted adapter canonicalizes each model's queries,
-committed facts, dependency keys, results, and authority evidence.
+The framework maintains a consistent reactive view of ordinary server queries.
+The developer declares each query once against the application schema. Existing
+reactive client usage automatically creates/releases subscription interest;
+one-shot use stays one-shot. No sync manifest, second schema, `defineSync()`,
+`liveQuery()` registration or explicit sync flag is required.
 
-The first consumer is Flarex, but neither Cloudflare nor FlarexDB is embedded in
-the portable package. The Cloudflare composition is a host adapter, and the
-Postgres commit feed is one change-source adapter.
-
-## Deliberate Non-Goals
-
-The engine does not initially provide:
-
-- arbitrary row replication or an Electric Shape equivalent;
-- client-authored/offline writes;
-- conflict resolution, CRDTs, or peer-to-peer synchronization;
-- a general durable event bus or lossless application event history;
-- arbitrary tenant-supplied code running inside the engine;
-- a database, query planner, or SQL incremental-view engine;
-- WebSocket, SSE, HTTP, Durable Streams, or client reconnection protocols; or
-- public Flarex SDK syntax.
-
-The initial delivery contract is **latest authoritative query state**. The
-engine may coalesce obsolete rerun work, but it must never skip the latest dirty
-frontier or publish a stale generation. A future lossless-event profile would
-be a different contract and must not be implied by this package.
+This is not a row/Shape replication product, offline database, workflow engine,
+SQL planner, schema compiler or lossless application-event system. Existing
+public/internal function visibility and authorization remain mandatory.
 
 ## Vocabulary
 
-| Term | Meaning |
+| Concept | Meaning |
 | --- | --- |
-| tenant | Control-plane customer or billing owner. It is not a data-plane key that an untrusted caller may choose. |
-| application | A deployed product/model owner. One tenant may own several applications. |
-| sync namespace | The concrete isolated ordering and state authority processed by one engine instance. The host authenticates and binds it. |
-| sync model | A trusted, statically admitted version of query, change, dependency, result, and authority semantics. |
-| source epoch | A replacement boundary for one namespace's ordered change history. |
-| source sequence | An exact, monotonic, precision-safe position inside one source epoch. |
-| canonical query identity | Complete bounded model-owned query and authorization evidence used for sharing and collision checks. |
-| canonical query key | Deterministic lookup key for a complete canonical identity; never identity or authorization authority by itself. |
-| dependency key | Bounded canonical model-owned invalidation key. The engine compares keys; it does not interpret their contents. |
-| generation | Fenced candidate evaluation for one canonical query. Active and provisional generations may coexist. |
-| dirty frontier | Highest admitted source sequence requiring the active query to be refreshed. |
-| publication | Idempotently identified current-result transition sent to an external delivery log after durable state acceptance. |
-| delivery offset | Transport-owned position used by a client to resume a stream. It is not the source sequence. |
+| Source namespace | One authenticated transactional snapshot/ordering domain, not an arbitrary client-chosen tenant string |
+| Source epoch and position | Source-issued fencing and precision-safe committed progress; positions do not mean wall-clock freshness |
+| Query definition | Existing deployed read-only function plus code/schema/runtime-policy revision |
+| Query instance | Canonical arguments and effective execution authority bound to a definition and namespace |
+| Subscriber interest | A bounded renewable claim that a session still needs an instance |
+| Session query set | Versioned set of interests receiving atomic transitions at common snapshot targets |
+| Connection | Host-owned transport carrying session messages; not query identity or recovery authority |
+| Target | Fixed source snapshot chosen for one session advancement |
+| Result version | Value, dependency and validity evidence usable at certified targets; not necessarily the newest evaluated result |
+| Reset generation | Fence for a rebuilt session/host instance; not a source epoch or database-data reset |
 
-Use plain unversioned names for these current domain concepts. Add a suffix only
-when a concrete wire, persisted, or codec contract must coexist or be decoded
-exactly.
+A namespace coordinator and session are distinct multi-instance values. Identical
+query text or arguments alone cannot authorize sharing. Code, schema, source
+and effective access identity are part of sharing and invalidation decisions.
+Clients do not author trusted dependency sets, source positions, result digests
+or access fingerprints.
 
-## Namespace Authority And Isolation
+## Three API Audiences
 
-An operation must not accept a free-form tenant, application, deployment, or
-scope ID and treat that value as authority.
+**Application developer:** ordinary query/mutation definitions and generated
+references with reactive hooks or imperative one-shot APIs. No engine planners,
+storage generations, execution receipts or adapter wiring.
 
-The host authenticates the caller, resolves one sync namespace, selects one
-admitted sync model, and constructs a namespace-bound engine instance with
-namespace-bound capabilities. Normal engine operations then omit caller-chosen
-scope authority.
+**Flarex integrator:** construct a scope-bound service with a compatible query
+source/runtime, sync state and host/transport. The Flarex bridge authenticates
+and translates; it does not implement missing engine or database guarantees.
 
-The host must prove one of these physical boundaries:
+**Adapter author:** implement narrow contracts for snapshot/change correlation,
+semantic atomic storage, or platform I/O. Provide conformance evidence. Do not
+expose a generic get/set repository and leave atomicity to every consumer.
 
-- one durable state instance per namespace; or
-- a shared store whose every key, unique constraint, transaction predicate,
-  quota, and read result is namespace-bound and revalidated.
+Exact export names and signature counts remain implementation decisions. The
+current internal entry points are not the target user-facing API. A small service
+surface must cover attach/update/release interest, bounded progress, session
+transitions and reset/recovery without exposing every transition planner.
 
-Canonical queries may be shared only when namespace, source epoch, sync model,
-and the complete canonical query identity all match. That identity must include
-the model-owned effective authorization/access evidence. Equal query text or an
-equal digest is insufficient.
+## Source Contract
 
-Clients never submit trusted dependency keys, source positions, result hashes,
-model code, namespace capabilities, or the authorization/access component of a
-canonical identity.
+Initially admit one source category: deterministic tracked query execution over
+a transactional source with coherent snapshots and replayable ordered changes.
+The source must support a selected target or an equivalent certified coherent
+query-set snapshot. Arbitrary callbacks, external APIs and best-effort change
+notifications are insufficient.
 
-## Two API Planes
+Query evaluation and changes share one explicit epoch/position/dependency model.
+The source adapter reports retention loss and authority drift; it cannot forge
+validity or quietly evaluate each query at a different newer snapshot. Runtime
+instrumentation captures point reads including absence, empty ranges and any
+supported relation traversal. Conservative dependencies may over-invalidate;
+false negatives are forbidden. All nested reads participate in the same snapshot.
 
-### Trusted system plane
+The runtime may reuse core logical read observation. The sync boundary does not
+receive locks, journals, mutable transaction handles or an independently copied
+schema. Time/randomness/external reads require a defined deterministic policy.
+Authorization changes must be observable and pending delivery fenced when they
+are observed; comparing hashes during one evaluation is not continuous revocation.
 
-The application or database side supplies:
-
-- a replayable `ChangeSource` for one bound namespace;
-- an optional wake that means only "new work may exist";
-- a trusted model adapter that converts admitted committed facts into bounded
-  canonical dependency keys;
-- a `QueryEvaluator` that returns one coherent snapshot, result, result digest,
-  dependency set, and authority witness; and
-- a durable state and publication composition.
-
-A direct producer notification is never sufficient recovery authority. The
-application may commit data and crash before notifying the engine. The source
-must therefore be replayable from a transactionally correlated feed/outbox.
-Best-effort pushes are not admitted under the authoritative query-state
-contract; any future degraded profile needs a different explicit product name
-and preflight. Flarex uses its existing transactionally correlated commit feed.
-
-### Consumer plane
-
-The consumer side is host-mediated:
-
-1. the gateway authenticates the user and binds the namespace;
-2. a Flarex/model adapter canonicalizes the requested server query together
-   with its effective authorization/access evidence into one complete identity;
-3. the engine begins or attaches to the matching canonical query lifecycle;
-4. the gateway returns only an authorized delivery target/capability; and
-5. the client consumes that target through the delivery protocol.
-
-The generic engine does not accept browser connections and does not expose a
-network endpoint. The Flarex SDK may later wrap `@durable-streams/client`, but
-that transport is not an engine dependency.
-
-This is a deliberate reuse boundary, not a missing half of the framework. The
-framework owns the trusted registration/publication contract needed by any host
-and can be developed independently with an in-memory delivery adapter. It does
-not create another portable reconnect/client engine when the selected upstream
-protocol already supplies one. If a later non-Durable-Streams host proves a
-stable client-state abstraction that upstream cannot provide, that is a new
-package preflight backed by the second real owner.
-
-## Package Boundary
-
-`QSYNC01-A/B` created and extended one private package. Its current boundary is:
+## Package Direction
 
 ```text
-packages/query-sync/
-  package.json
-  src/
-    kernel/
-      CanonicalValue.ts
-      Errors.ts
-      Model.ts
-      Policy.ts
-      index.ts
-    change/
-      Admission.ts
-      Errors.ts
-      Model.ts
-      index.ts
-    state/
-      Errors.ts
-      Port.ts
-      Receipts.ts
-      index.ts
-    testing/
-      ReferenceModel.ts
-      conformance/
-      index.ts
-  test/
+Flarex runtime / SDK -> Flarex bridge -> source/executor contracts
+                                    -> query-sync contracts
+query-sync -> generic sync-state capability
+host adapter -> query-sync + platform APIs
 ```
 
-The package name is `@flarex/query-sync`. The permanent product name does not
-need `core` or a version suffix. The package has no root public SDK export. Its
-current explicit subpaths are `./internal/kernel`, `./internal/change`,
-`./internal/state`, `./testing/conformance`, and
-`./testing/reference-model`. The completed C3/C4 slices add the separately
-reviewed private `./internal/orchestration` subpath; there is still no package
-root or public SDK export.
+The engine may depend on Effect and exact dependency-leaf utilities. It must not
+import Flarex protocol/database, framework models, Cloudflare, SQL drivers,
+HTTP/WebSocket implementations or React. The database core must remain usable
+without importing the engine or owning subscriber state.
 
-The package owns:
+Portable session/transition/reconnect decisions belong inside the framework.
+The client-facing protocol implementation must also be testable over loopback;
+framework-specific hooks and actual sockets remain adapters. Do not outsource
+session consistency to a stream library or duplicate it in gateways.
 
-- runtime-neutral model and transition semantics;
-- pure canonical-value capture and boundedness rules;
-- typed domain failures;
-- later narrow Effect service contracts for shared asynchronous capabilities;
-- semantic durable-state operations; and
-- deterministic reference/conformance behavior.
+Extract reusable SQLite schema/operations from `flarex-backend/deploymentSync`
+into an appropriate query-sync-owned adapter boundary. Keep the Cloudflare
+transaction bridge and Flarex scope authentication outside it. Prefer deliberate
+subpaths in existing packages over package proliferation. Moving neutral runtime
+contracts out of a backend host can correct an import cycle; adding wrappers
+around the cycle is not the goal.
 
-Existing owners retain:
+## Non-Negotiable Boundaries
 
-| Owner | Retained responsibility |
-| --- | --- |
-| `flarex-protocol` | Flarex-specific versioned scope/query/dependency/publication frames and codecs |
-| `@flarex/persistence-postgres` | commit facts, epochs, retained floors, snapshots, Postgres source and outbox adapters |
-| `flarex-backend` | Durable Object construction, object-local SQLite, service bindings, auth gateway, alarms/wakes, runtime bridges, publication composition |
-| `flarex` | developer/client API and eventual Durable Streams client wrapper |
-| upstream Durable Streams | stream append/read protocol, opaque delivery offsets, SSE/long-poll delivery, producer retry deduplication |
+The database owns authoritative business data and committed outcomes. Reliable
+snapshot/feed capabilities stay with their producer; subscription registries do
+not. The engine owns derived query/session coordination and bounded recovery.
+The host owns placement, scheduling and transport resources. The bridge joins
+these contracts without a second registry, reducer, cursor authority or fallback.
 
-Do not create `query-sync-contracts`, `query-sync-testing`,
-`query-sync-cloudflare`, `query-sync-postgres`, or `query-sync-client` packages
-until a concrete independent owner justifies each split. Adapters remain with
-their existing platform/domain owner initially.
-
-## Model Admission
-
-The portable engine should consume a statically trusted `SyncModel` selected by
-an admitted model ID. The model adapter owns:
-
-- canonical query construction;
-- committed-fact decoding and invalidation projection;
-- dependency canonicalization and comparison;
-- result encoding/digest construction;
-- authority-witness validation; and
-- compatibility between a query generation and a source epoch/model version.
-
-The authority witness is an opaque, bounded model-owned digest over mutable
-result-authorizing state that is not already immutable in the complete query
-identity, such as an active schema/head or policy revision. It is captured with
-the evaluation and re-derived for the exact refreshed-through source cursor.
-The engine compares those two canonical witnesses during atomic completion; a
-mismatch requires resnapshot. Every authority change capable of changing a
-result must either change the complete query identity, epoch/model ID, or
-advance the replayable source cursor and therefore change the witness. An
-out-of-band mutable authority that can change without one of those fences is
-not an admissible model adapter.
-
-Do not execute dynamically uploaded tenant plugins inside the engine. A model
-implementation is trusted platform code, even when it interprets opaque
-application-specific canonical values.
-
-Avoid making the entire engine generic over every application's TypeScript row
-types. Durable and wire boundaries need bounded canonical values plus a model
-identity; the trusted model adapter owns typed decoding on either side.
-
-## Host-Facing API Shape
-
-The names below describe responsibilities, not frozen TypeScript exports:
-
-```text
-QuerySyncEngineFactory.open(namespaceCapability, adapters)
-  -> NamespaceQuerySync
-
-NamespaceQuerySync.catchUp(sourceHint?)
-NamespaceQuerySync.beginQuery(trustedQuery)
-NamespaceQuerySync.completeEvaluation(evidence)
-NamespaceQuerySync.runDirtyWork(budget)
-NamespaceQuerySync.releaseQuery(lease)
-NamespaceQuerySync.recover(budget)
-```
-
-The factory may eventually be an application-scoped Effect service. The
-returned namespace coordinator is a scoped/plain multi-instance value, because
-many namespaces and Durable Objects coexist. It must not be a singleton Context
-tag.
-
-## Extraction Standard
-
-The framework is independently developable when:
-
-- its package has no platform/database/application imports;
-- an immutable reference model executes all semantic transitions;
-- synthetic models with unrelated data shapes pass the same contract;
-- host adapters implement semantic operations instead of exposing driver CRUD;
-- Cloudflare and a later second durable host pass the same conformance suite;
-  and
-- Flarex can replace an adapter without changing engine semantics.
-
-An in-memory reference model proves determinism, not durable runtime
-portability. Do not claim production runtime agnosticism until a second real
-durable host/store passes the contract.
+A second production database/host is not required to test the service. Conversely,
+a synthetic source is not proof that every real database can implement its
+contract, or that a deployed Cloudflare adapter is correct or economical.
