@@ -123,6 +123,11 @@ PostgreSQL witnesses for separating snapshot-reader protection from ordinary
 sequence advancement on the existing row, while retaining strong transition
 exclusion and stale-snapshot refusal. The connected CMS snapshot profile and
 publisher cutover remain open; no production lock mode changes in that witness.
+The [active readiness lock correction](./37-ce3-active-readiness-locks.md) replaces
+exclusive stored-active validation locks with shared protection at the existing
+fold owner. Same-scope CMS reads can admit concurrently; lifecycle updates and
+ordinary publication remain excluded until those reads finish. The connected
+snapshot/publication cutover remains open.
 The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
 extends the matched comparison at the existing shared publication owner, without
 duplicating native authentication or transaction recovery in a benchmark engine.

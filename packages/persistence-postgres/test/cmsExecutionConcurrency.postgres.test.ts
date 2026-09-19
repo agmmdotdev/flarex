@@ -51,6 +51,54 @@ const waitForScopeClockWaiter = Effect.fn(function* (persistence: PostgresFlarex
 describe.skipIf(postgresUrl === null)("active CMS request concurrency", () => {
   const withPersistence = useFileScopedPostgresPersistence();
 
+  it("admits concurrent same-scope reads while retaining publication exclusion", () => withPersistence(async persistence => {
+    expect(decodeRole((await persistence.query("select rolsuper as superuser from pg_roles where rolname=current_user")).rows))
+      .toEqual([{ superuser: false }]);
+    const entered = await runEffect(Deferred.make<void>());
+    const release = await runEffect(Deferred.make<void>());
+    let holdNextAdmission = false;
+    let activePid = 0;
+    const session = makePostgresRelationalSession(persistence, { lifecycleFault: event => {
+      if (event.phase === "begin" && event.edge === "after") activePid = decodePid(Reflect.get(event.client, "processID"));
+    } });
+    const tested = await cmsExecutionMeasurementFixture(persistence, session, {
+      afterAdmission: Effect.fn(function* () {
+        if (!holdNextAdmission) return;
+        holdNextAdmission = false;
+        yield* Deferred.succeed(entered, undefined);
+        yield* Deferred.await(release);
+      }),
+    });
+    const seeded = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 1, prefix: "shared-read" }));
+    const ids = decodeDocuments(seeded).map(document => document._id);
+    const before = await tested.inventory();
+    const key = tested.host.newRequestKey();
+    const args = { count: 1, prefix: "after-shared-read" };
+    holdNextAdmission = true;
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const first = yield* tested.host.read(tested.read, ids).pipe(Effect.forkScoped);
+      yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
+      const readerPid = activePid;
+      // This must finish while the first read still owns its admission locks.
+      expect(yield* tested.host.read(tested.read, ids)).toEqual(seeded);
+      expect(yield* Deferred.isDone(release)).toBe(false);
+      const writer = yield* tested.host.run(key, tested.insert, args).pipe(Effect.forkScoped);
+      const waiter = yield* waitForScopeClockWaiter(persistence, readerPid);
+      expect(waiter.shared).toBe(false);
+      expect(waiter.pid).not.toBe(readerPid);
+      expect(tested.executionCount()).toBe(1);
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(first)).toEqual(seeded);
+      const value = yield* Fiber.join(writer);
+      const after = yield* Effect.promise(() => tested.verifyInsert(before, value, 1, args.prefix));
+      expect(yield* tested.host.run(key, tested.insert, args)).toEqual(value);
+      expect(tested.executionCount()).toBe(2);
+      expect(yield* Effect.promise(() => tested.inventory())).toEqual(after);
+    }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
+    expect(persistence.pool.waitingCount).toBe(0);
+    expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
+  }), 120_000);
+
   it("expires a stalled publication through the physical owner and permits explicit retry after rollback", () => withPersistence(async persistence => {
     let activePid = 0;
     const session = makePostgresRelationalSession(persistence, { lifecycleFault: event => {

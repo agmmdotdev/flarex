@@ -1309,7 +1309,9 @@ const validatePreparedFoldInTransaction = Effect.fn(
         revisionId: prepared.bundle.revision.revisionId,
       },
       context.taskCatalog,
-      "update",
+      // Active admission only validates this revision. Settlement retains
+      // exclusive protection; neither path releases lifecycle protection.
+      relationMode === "storedActive" ? "share" : "update",
       clock,
     );
     if ("status" in current) return current;
@@ -1448,7 +1450,7 @@ const loadStoredActiveRelationEvidence = Effect.fn(
         fxSystemApplicationReadiness.revisionId,
         prepared.bundle.revision.revisionId,
       ),
-    )).limit(2).for("update"),
+    )).limit(2).for("share"),
   );
   const root = roots[0];
   if (roots.length !== 1 || root === undefined ||
@@ -1474,7 +1476,7 @@ const loadStoredActiveRelationEvidence = Effect.fn(
       ),
     )).orderBy(
       asc(fxSystemApplicationReadinessRelations.relationOrdinal),
-    ).for("update"),
+    ).for("share"),
   );
   if (children.length !== root.relationCount) {
     return yield* failure("storedState");
@@ -1736,7 +1738,7 @@ const loadStoredRelationReadinessReplay = Effect.fn(
           prepared.bundle.revision.revisionId),
       ))
       .limit(1)
-      .for("update"),
+      .for("share"),
   );
   const readyAt = databaseTimestampFromUnknown(rows[0]?.readyAt);
   if (readyAt === null) return yield* failure("storedState");
