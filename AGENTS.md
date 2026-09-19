@@ -46,8 +46,19 @@ which callers/data/formats are affected, and how cutover, validation and removal
 will work. Keep that inventory in the focused preflight. Do not hide breaking
 changes or ask to preserve an old contract merely because it exists. Once the
 slice is approved, necessary in-scope breaking changes need no separate
-compatibility permission; materially different core corrections still follow
-the approval rule below.
+compatibility permission. The standing approval below governs the active core
+redesign; other work follows the approval rule below.
+
+The owner grants standing approval for the Flarex DB core redesign tracked in
+[core execution redesign](roadmaps/shared-transaction-core/10-core-execution-redesign.md).
+For this work, record and explain each focused preflight, then implement,
+validate, review, clean up and commit without waiting for another approval.
+This overrides per-slice approval and core-correction pause requirements below
+within that goal, including necessary breaking changes. Explain materially
+different decisions before proceeding and preserve the evidence and ownership
+checks. New Medusa integration, unrelated capability expansion and silent
+durable-data deletion are outside this standing approval. Keep deferred work
+within its recorded gates.
 
 Do not add compatibility wrappers, dual writes/readers, fallback engines or
 legacy APIs to avoid updating consumers. Migrate affected callers and remove
