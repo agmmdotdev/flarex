@@ -130,7 +130,10 @@ for Application material publication and shared participants. [Legacy-writer exc
 closes material and attempted legacy publication against active obligations,
 including net-zero attempts and missing write evidence. Natural relation-source
 fixtures use Application admission; retained read-only attempts carry their
-authenticated journals. These prerequisites do not establish continuous coverage.
+authenticated journals. [Required intrinsic build state](./22-ce2-required-intrinsic-build-state.md)
+closes the materializer's remaining missing-row skip: each selected intrinsic
+definition must have its build metadata. These prerequisites do not establish
+continuous coverage.
 
 1. Close exact writer composition and its refusal witnesses through the existing
    shared owner. Migrate native/CMS construction and named legacy publication

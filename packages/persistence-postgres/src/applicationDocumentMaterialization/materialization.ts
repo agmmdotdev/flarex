@@ -2229,7 +2229,7 @@ export async function lockPointCommitIntrinsicIndexBuilds(
         .for("update"),
     );
     const row = rows[0];
-    if (row === undefined) continue;
+    if (row === undefined) throw corruption("intrinsicIndexBuildInvalid");
     const state = projectPointCommitTransactionResult(
       decodeIndexBuildStateRowResult(
         row,

@@ -4,7 +4,7 @@ import { orderedIndexCompositionRefusals } from "./orderedIndexCompositionRefusa
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions,
-  fxSystemCommits, fxSystemIdempotency, fxSystemScopeClocks } from "../src/schema";
+  fxSystemCommits, fxSystemIdempotency, fxSystemScopeClocks, fxSystemIndexBuildStates } from "../src/schema";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
@@ -197,6 +197,22 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
     clocks: await persistence.drizzle.select().from(fxSystemScopeClocks),
   });
   const beforeCompositionRefusal = await publicationState();
+  const intrinsic = await runEffect(intrinsicCreationTimeIndexes.locate({ deploymentId: fixture.deploymentId,
+    scopeId: fixture.authority.scopeId, tableId: ordinary.tableId }));
+  if (intrinsic === null) throw new Error("Expected required audit creation-time definition");
+  const removedBuild = await persistence.drizzle.delete(fxSystemIndexBuildStates).where(and(
+    eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId),
+    eq(fxSystemIndexBuildStates.indexDefinitionId, intrinsic.indexDefinitionId),
+  )).returning();
+  expect(removedBuild).toHaveLength(1);
+  try {
+    expect(await runEffectFailure(publisher.prove({ ...base, journalBytes: journal.canonicalBytes })))
+      .toMatchObject({ reason: "intrinsicIndexBuildInvalid" });
+    expect(await runEffectFailure(publisher.publish(command))).toMatchObject({ reason: "intrinsicIndexBuildInvalid" });
+    expect(await publicationState()).toEqual(beforeCompositionRefusal);
+  } finally {
+    await persistence.drizzle.insert(fxSystemIndexBuildStates).values(removedBuild);
+  }
   const foreign = await createMigratedPGlitePersistence();
   const invalidPublishers = orderedIndexCompositionRefusals(intrinsicCreationTimeIndexes, developerIndexes, foreign.drizzle)
     .map(invalid => createPointCommitPublisherPortV1(fixture.pointCommitAuthority, { ...otherOptions, ...invalid }));

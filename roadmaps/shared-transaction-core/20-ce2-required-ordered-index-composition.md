@@ -60,7 +60,8 @@ and issued ports while preserving its locked-active-schema rejection witness.
 The write-policy fixture provides its actual control database and ordered ports;
 lower legacy proof fixtures keep their explicitly limited profile.
 
-This establishes required issued composition. Binding
+This establishes required issued composition. The [required build-state correction](./22-ce2-required-intrinsic-build-state.md)
+also rejects missing intrinsic build metadata after definition selection. Binding
 to continuous maintenance, reader/build/activation cutover and removal of
 coverage updates remain subsequent CE2 work. Existing locks, coverage updates,
 unique-constraint behavior and request isolation remain in force.

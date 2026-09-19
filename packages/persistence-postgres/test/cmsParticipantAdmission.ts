@@ -1,5 +1,7 @@
 import { Effect } from "effect";
 import { expect } from "vitest";
+import { and, eq } from "drizzle-orm";
+import { fxSystemIndexBuildStates } from "../src/schema";
 import {
   prepareCmsApplication,
   withCmsAdmission,
@@ -40,6 +42,11 @@ export async function assertCmsParticipantAdmission<Failure>(
   );
   const { intrinsicCreationTimeIndexes, developerIndexes, ...otherOptions } = input.materialization;
   if (!intrinsicCreationTimeIndexes || !developerIndexes) throw new Error("Expected valid participant index ports");
+  const payloadTable = application.schema.writePolicy?.writePolicies.find(policy => policy.owner === "payload");
+  if (payloadTable === undefined) throw new Error("Expected managed participant table");
+  const intrinsic = await runEffect(intrinsicCreationTimeIndexes.locate({ deploymentId: input.deploymentId,
+    scopeId: authority.scopeId, tableId: payloadTable.tableId }));
+  if (intrinsic === null) throw new Error("Expected managed table creation-time definition");
   // An unused foreign catalog tests exact issuer identity; refused ports must
   // never reach that database on either physical-driver lane.
   const foreign = await createMigratedPGlitePersistence();
@@ -92,6 +99,18 @@ export async function assertCmsParticipantAdmission<Failure>(
                   _tag: "Failure",
                   failure: { reason: "invalidAuthority" },
                 });
+                // Admission is already authenticated: prove the shared materializer
+                // refuses the missing build instead of relying on readiness to fail.
+                const removed = yield* Effect.promise(() => tx.delete(fxSystemIndexBuildStates).where(and(
+                  eq(fxSystemIndexBuildStates.scopeId, authority.scopeId),
+                  eq(fxSystemIndexBuildStates.indexDefinitionId, intrinsic.indexDefinitionId),
+                )).returning());
+                expect(removed).toHaveLength(1);
+                const missingBuild = yield* Effect.result(enterCmsApplicationCommit(prepared, admission, lifetime));
+                expect(missingBuild).toMatchObject({ _tag: "Failure", failure: {
+                  reason: "storedCorruption", cause: { reason: "intrinsicIndexBuildInvalid" },
+                } });
+                yield* Effect.promise(() => tx.insert(fxSystemIndexBuildStates).values(removed));
                 yield* enterCmsApplicationCommit(prepared, admission, lifetime);
                 return admission;
               }),
