@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-Status: owner-requested design and implementation-gate plan; execution changes,
-reference benchmarks and measured improvements remain pending. Documentation
+Status: owner-requested design and implementation-gate plan, with initial CE0
+publication instrumentation and a bounded baseline implemented; execution changes,
+equivalent-reference benchmarks and measured improvements remain pending. Documentation
 approval does not activate new storage, remove locks or broaden any framework
 capability. This is a workstream within the existing shared transaction core,
 not another runtime or metadata authority.
@@ -79,19 +80,20 @@ consumers and removes what it displaces before reporting completion.
 ## First Implementation Handoff
 
 The [first workload handoff](./11-ce0-first-workload.md) names the selected
-executing path, existing correctness witnesses and gaps in its observation
-coverage. It is an initial inventory, not a complete baseline or measured win.
+executing path, implemented publication observation, correctness witnesses and
+remaining coverage gaps. It is not complete CE0 acceptance or a measured win.
 
-The next recommended executable slice is CE0: instrument current supported core
-entry points and establish the benchmark equivalence and failure baseline. It
+Continue CE0 with complete request attribution and an equivalent PostgreSQL
+reference before selecting an execution change. The initial publication slice
+provides repeated core samples and a deterministic scope-clock contention witness. It
 changes observability/test support, not the authoritative lock or storage
 protocol. Discover actual package/lane commands and reuse existing observation
 hooks; count SQL that bypasses those hooks through the physical execution
 boundary without logging tenant data. Keep overhead bounded and report the
 instrumented versus normal measurement boundary.
 
-Complete this alongside the existing candidate-admission work rather than
-reopening its producer/identity scope. CE1 begins actual shared storage execution
+Candidate admission is already implemented and does not need its producer/identity
+scope reopened for measurements. CE1 begins actual shared storage execution
 with a supported native and CMS mutation and follows the Medusa consumer as
 GLS2/GLS3 admits it. Do not optimize a growing set of generated commerce schemas
 as a second destination just to obtain a benchmark result.

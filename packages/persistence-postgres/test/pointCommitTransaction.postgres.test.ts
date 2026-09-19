@@ -15,10 +15,15 @@ import {
   expectSessionPayloadScrubbed,
 } from "./terminalSessionStorageScenario";
 import { performance } from "node:perf_hooks";
+import { createRequire } from "node:module";
+import { writeFile, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { eq } from "drizzle-orm";
-import { Effect, Exit, Fiber, Result } from "effect";
+import { Effect, Exit, Fiber, Result, Schema } from "effect";
 import type { PoolClient } from "pg";
 import {
   canonicalizeAppDocumentV1,
@@ -2077,18 +2082,403 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     });
   }, 120_000);
 
+  it("measures CE0 publication SQL and paired observer overhead through real COMMIT", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96440000");
+      const configurationSchema = Schema.Struct({
+        server_version: Schema.String,
+        fsync: Schema.String,
+        synchronous_commit: Schema.String,
+        full_page_writes: Schema.String,
+        shared_buffers: Schema.String,
+        superuser: Schema.Boolean,
+      });
+      const configuration = Schema.decodeUnknownSync(configurationSchema)(
+        (
+          await persistence.query(`
+          select current_setting('server_version') as server_version,
+            current_setting('fsync') as fsync,
+            current_setting('synchronous_commit') as synchronous_commit,
+            current_setting('full_page_writes') as full_page_writes,
+            current_setting('shared_buffers') as shared_buffers,
+            (select rolsuper from pg_roles where rolname = current_user) as superuser
+        `)
+        ).rows[0],
+      );
+      expect(configuration.superuser).toBe(false);
+      expect(configuration.fsync).toBe("on");
+      expect(configuration.synchronous_commit).toBe("on");
+      expect(configuration.full_page_writes).toBe("on");
+      const driver = Schema.decodeUnknownSync(
+        Schema.Struct({ version: Schema.String }),
+      )(createRequire(import.meta.url)("pg/package.json"));
+      const samples: Array<{
+        readonly rowCount: number;
+        readonly pair: number;
+        readonly instrumented: boolean;
+        readonly elapsedMilliseconds: number;
+        readonly preCommitKernelMilliseconds: number | null;
+        readonly settlementInclusiveMilliseconds: number | null;
+        readonly observation: Awaited<ReturnType<typeof withPostgresExecutionObservation>>["observation"] | null;
+      }> = [];
+      // One warm-up pair, then five pairs per size, alternating order. Each
+      // sample starts with a fresh empty scope and one enabled intrinsic index.
+      // Journal creation/sealing and index installation are outside timing.
+      for (const rowCount of [1, 8, 32, 128]) {
+        for (let pair = -1; pair < 5; pair += 1) {
+          for (const instrumented of pair % 2 === 0
+            ? [false, true]
+            : [true, false]) {
+            const label = `ce0_${rowCount}_${pair + 1}_${instrumented ? "obs" : "raw"}`;
+            const scope = await createScope(persistence, randomUuid, label);
+            const attempt = await createAttempt(
+              persistence,
+              randomUuid,
+              scope,
+              label,
+              rowCount,
+            );
+            const intrinsic = await enableIntrinsicIndexForPostgres(
+              persistence,
+              scope,
+            );
+            const coarseQueries: PointCommitSqlOperationV1[] = [];
+            let clockLockedAt: number | undefined;
+            let beforeCommitAt: number | undefined;
+            const started = performance.now();
+            const measured = instrumented
+              ? await withPostgresExecutionObservation(
+                  persistence.pool,
+                  async (markStep) =>
+                    runEffect(
+                      createPublisher(persistence, {
+                        ...intrinsic,
+                        observeQuery: (query) => {
+                          coarseQueries.push(query.name);
+                        },
+                        afterTransactionStep: (event) => {
+                          markStep(event.step);
+                          if (event.step === "clockLocked")
+                            clockLockedAt = performance.now();
+                          if (event.step === "beforeCommit")
+                            beforeCommitAt = performance.now();
+                          return Promise.resolve();
+                        },
+                      }).publish(attempt.publicationCommand),
+                    ),
+                )
+              : {
+                  value: await runEffect(
+                    createPublisher(persistence, intrinsic).publish(
+                      attempt.publicationCommand,
+                    ),
+                  ),
+                  observation: null,
+                };
+            const elapsedMilliseconds = performance.now() - started;
+            expect(measured.value).toMatchObject({
+              kind: "published",
+              token: { commitSeq: 1n },
+            });
+            expect(
+              await durableState(
+                persistence,
+                attempt.command.sealIdentity.scopeUuid,
+              ),
+            ).toEqual({
+              revisions: String(rowCount),
+              current_rows: String(rowCount),
+              commit_headers: "1",
+              commit_changes: String(rowCount),
+              outcomes: "1",
+              wakes: "1",
+              last_commit_seq: "1",
+            });
+            const indexState = await intrinsicIndexState(
+              persistence,
+              attempt.command.sealIdentity.scopeUuid,
+            );
+            const expectedSidecars = attempt.command.rowIntents
+              .map((intent) => ({
+                tableId: intent.tableId.toString(),
+                rowIdHex: intent.rowId.replaceAll("-", ""),
+                commitSeq: "1",
+                isTombstone: false,
+              }))
+              .sort(compareIntrinsicIndexRows);
+            expect(indexState).toEqual({
+              revisions: expectedSidecars,
+              current: expectedSidecars.map(({ isTombstone: _, ...row }) => row),
+            });
+            if (measured.observation !== null) {
+              expect(measured.observation.commands.begin).toBe(1);
+              expect(measured.observation.commands.commit).toBe(1);
+              expect(measured.observation.commands.rollback ?? 0).toBe(0);
+              expect(measured.observation.queryCalls).toBeGreaterThan(
+                coarseQueries.length,
+              );
+              expect(measured.observation.transmittedBytes).toBeGreaterThan(0);
+              expect(
+                measured.observation.familyQueries.fx_app_row_rev,
+              ).toBeGreaterThanOrEqual(rowCount);
+              expect(
+                measured.observation.familyQueries.fx_app_index_entry_rev,
+              ).toBeGreaterThanOrEqual(rowCount);
+              expect(clockLockedAt).toBeTypeOf("number");
+              expect(beforeCommitAt).toBeTypeOf("number");
+            }
+            if (pair >= 0)
+              samples.push({
+                rowCount,
+                pair,
+                instrumented,
+                elapsedMilliseconds,
+                preCommitKernelMilliseconds:
+                  clockLockedAt === undefined || beforeCommitAt === undefined
+                    ? null
+                    : beforeCommitAt - clockLockedAt,
+                settlementInclusiveMilliseconds:
+                  clockLockedAt === undefined
+                    ? null
+                    : started + elapsedMilliseconds - clockLockedAt,
+                observation: measured.observation,
+              });
+          }
+        }
+      }
+      const sourceHashes = Object.fromEntries(
+        await Promise.all(
+          [
+            "./pointCommitTransaction.postgres.test.ts",
+            "./postgresExecutionObservation.ts",
+          ].map(async (path) => [
+            path,
+            createHash("sha256")
+              .update(await readFile(new URL(path, import.meta.url)))
+              .digest("hex"),
+          ]),
+        ),
+      );
+      const summaries = [1, 8, 32, 128].map((rowCount) => {
+        const normal = samples.filter(
+          (sample) => sample.rowCount === rowCount && !sample.instrumented,
+        );
+        const observed = samples.filter(
+          (sample) => sample.rowCount === rowCount && sample.instrumented,
+        );
+        const pairedRatios = observed.map((sample) => {
+          const partner = normal.find((other) => other.pair === sample.pair);
+          if (partner === undefined)
+            throw new Error("Missing CE0 normal/instrumented pair.");
+          return sample.elapsedMilliseconds / partner.elapsedMilliseconds;
+        });
+        const medianPairedRatio = percentileNearestRank(
+          pairedRatios.sort((a, b) => a - b),
+          0.5,
+        );
+        return {
+          rowCount,
+          medianPairedRatio,
+          observerWithinTolerance: Math.abs(medianPairedRatio - 1) <= 0.05,
+          normalMedianMilliseconds: percentileNearestRank(
+            normal
+              .map((sample) => sample.elapsedMilliseconds)
+              .sort((a, b) => a - b),
+            0.5,
+          ),
+          observedMedianMilliseconds: percentileNearestRank(
+            observed
+              .map((sample) => sample.elapsedMilliseconds)
+              .sort((a, b) => a - b),
+            0.5,
+          ),
+        };
+      });
+      const report = {
+        configuration,
+        node: process.version,
+        pg: driver.version,
+        platform: process.platform,
+        architecture: process.arch,
+        poolMax: persistence.pool.options.max,
+        transport: "pg TCP socket",
+        sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], {
+          encoding: "utf8",
+          windowsHide: true,
+        }).trim(),
+        trackedDiffSha256: createHash("sha256").update(execFileSync("git", ["diff", "HEAD", "--"], {
+          windowsHide: true, maxBuffer: 16 * 1024 * 1024,
+        })).digest("hex"),
+        sourceHashes,
+        workload:
+          "private native publisher; fresh scopes; intrinsic index; concurrency 1",
+        warmupPairs: 1,
+        measuredPairs: 5,
+        observerMedianTolerance: 0.05,
+        summaries,
+        samples,
+      };
+      // Optional local artifact; no timing receipts belong in living roadmaps.
+      if (process.env.FLAREX_CE0_REPORT_PATH !== undefined) {
+        await writeFile(
+          process.env.FLAREX_CE0_REPORT_PATH,
+          JSON.stringify(report, null, 2) + "\n",
+        );
+      }
+      console.info("CE0 publication baseline", JSON.stringify(report));
+    });
+  }, 900_000);
+
+  it("proves CE0 same-index disjoint commits wait on the scope clock while another scope progresses", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96450000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "ce0_shared_index",
+      );
+      const other = await createScope(persistence, randomUuid, "ce0_other_scope");
+      const intrinsic = await enableIntrinsicIndexForPostgres(persistence, scope);
+      const otherIntrinsic = await enableIntrinsicIndexForPostgres(
+        persistence,
+        other,
+      );
+      const first = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "ce0_first",
+      );
+      const second = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "ce0_second",
+      );
+      const independent = await createAttempt(
+        persistence,
+        randomUuid,
+        other,
+        "ce0_independent",
+      );
+      expect(first.command.rowIntents[0]?.rowId).not.toEqual(
+        second.command.rowIntents[0]?.rowId,
+      );
+      const entered = deferredSignal();
+      const release = deferredSignal();
+      let blockerPid = 0;
+      let waiterPid = 0;
+      let secondLocked = false;
+      const firstPublication = runEffect(
+        createPublisherWithRunner(
+          persistence,
+          {
+            afterAcquire: async (client) => {
+              blockerPid = await postgresBackendPid(client);
+            },
+          },
+          {
+            ...intrinsic,
+            afterTransactionStep: async (event) => {
+              if (event.step === "intrinsicIndexBuildLocked") {
+                entered.resolve();
+                await release.promise;
+              }
+            },
+          },
+        ).publish(first.publicationCommand),
+      );
+      let secondPublication: typeof firstPublication | undefined;
+      // Attach rejection handlers immediately, but preserve the original
+      // promises for outcome assertions. Timed-out work still owns its
+      // connection; all three operations must settle before fixture reset.
+      const settlements = [Promise.allSettled([firstPublication])];
+      try {
+        await withTimeout(
+          Promise.race([
+            entered.promise,
+            firstPublication.then(() => {
+              throw new Error("Missing CE0 index-lock barrier.");
+            }),
+          ]),
+          10_000,
+          "CE0 first writer",
+        );
+        secondPublication = runEffect(
+          createPublisherWithRunner(
+            persistence,
+            {
+              afterAcquire: async (client) => {
+                waiterPid = await postgresBackendPid(client);
+              },
+            },
+            {
+              ...intrinsic,
+              afterTransactionStep: async (event) => {
+                if (event.step === "clockLocked") secondLocked = true;
+              },
+            },
+          ).publish(second.publicationCommand),
+        );
+        settlements.push(Promise.allSettled([secondPublication]));
+        await waitForBlockedPointCommit(persistence, 1);
+        expect(blockerPid).not.toBe(waiterPid);
+        expect(waiterPid).toBeGreaterThan(0);
+        const blocked = await persistence.query<{ blocked: boolean }>(
+          "select $1::int = any(pg_blocking_pids($2::int)) as blocked",
+          [blockerPid, waiterPid],
+        );
+        expect(blocked.rows).toEqual([{ blocked: true }]);
+        expect(secondLocked).toBe(false);
+        const independentPublication = runEffect(
+          createPublisher(persistence, otherIntrinsic).publish(
+            independent.publicationCommand,
+          ),
+        );
+        settlements.push(Promise.allSettled([independentPublication]));
+        const independentResult = await withTimeout(
+          independentPublication,
+          10_000,
+          "CE0 independent scope",
+        );
+        expect(independentResult).toMatchObject({
+          kind: "published",
+          token: { commitSeq: 1n },
+        });
+        expect(secondLocked).toBe(false);
+      } finally {
+        release.resolve();
+        await Promise.all(settlements);
+      }
+      if (secondPublication === undefined)
+        throw new Error("CE0 second writer did not start.");
+      const results = await Promise.all([firstPublication, secondPublication]);
+      expect(results.map((result) => result.token.commitSeq)).toEqual([1n, 2n]);
+      expect(
+        await durableState(persistence, first.command.sealIdentity.scopeUuid),
+      ).toEqual({
+        revisions: "2",
+        current_rows: "2",
+        commit_headers: "2",
+        commit_changes: "2",
+        outcomes: "2",
+        wakes: "2",
+        last_commit_seq: "2",
+      });
+      expect(
+        (
+          await intrinsicIndexState(
+            persistence,
+            first.command.sealIdentity.scopeUuid,
+          )
+        ).current,
+      ).toHaveLength(2);
+    });
+  }, 120_000);
+
   it("keeps the exact material-row ceiling operable and rejects plus one", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96420000");
-      const profile: Array<
-        Readonly<{
-          rowCount: number;
-          preCommitKernelMilliseconds: number;
-          settlementInclusiveMilliseconds: number;
-          publicationMilliseconds: number;
-        }>
-      > = [];
-
       for (const rowCount of [1, 8, 32, 64, 127, 128] as const) {
         const label = `material_profile_${rowCount}`;
         const scope = await createScope(persistence, randomUuid, label);
@@ -2105,7 +2495,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         );
         let clockLockedAt: number | undefined;
         let beforeCommitAt: number | undefined;
-        const publicationStartedAt = performance.now();
         const published = await runEffect(
           createPublisher(persistence, {
             ...intrinsicOptions,
@@ -2120,22 +2509,11 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           }).publish(attempt.publicationCommand),
         );
         const publicationSettledAt = performance.now();
-        const publicationMilliseconds =
-          publicationSettledAt - publicationStartedAt;
         if (clockLockedAt === undefined || beforeCommitAt === undefined) {
           throw new Error("Missing O09-A PostgreSQL lock-window evidence.");
         }
-        const preCommitKernelMilliseconds = beforeCommitAt - clockLockedAt;
         const settlementInclusiveMilliseconds =
           publicationSettledAt - clockLockedAt;
-        profile.push(
-          Object.freeze({
-            rowCount,
-            preCommitKernelMilliseconds,
-            settlementInclusiveMilliseconds,
-            publicationMilliseconds,
-          }),
-        );
         expect(published).toMatchObject({
           kind: "published",
           token: { commitSeq: 1n },
@@ -2207,9 +2585,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         await durableState(persistence, atLimit.command.sealIdentity.scopeUuid),
       ).toEqual(emptyDurableState());
 
-      if (process.env.FLAREX_PRINT_POINT_COMMIT_PROFILE === "1") {
-        console.info("O09-A PostgreSQL material-row profile", profile);
-      }
     });
   }, 480_000);
 
