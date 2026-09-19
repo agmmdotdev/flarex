@@ -1,7 +1,9 @@
 # Native Invocation Attribution Before Concurrent Publication
 
-Status: implemented for the existing native acceptance fixture. Actual Worker
-source execution, hosted attribution and a complete-request reference remain open.
+Status: implemented for the existing native acceptance fixture. The
+[source-execution extension](./35-ce0-native-workerd-attribution.md) replaces
+the scripted measurement body with local Workerd. Hosted attribution and a
+complete-request reference remain open.
 
 ## Decision And Boundary
 
@@ -17,11 +19,12 @@ real admission/crypto/journal/compiler/publisher and ordinary PostgreSQL, with
 separately observed control and target pools. The fixture uses existing legacy
 Application readiness; record and assert that profile instead of claiming the
 new relation/CMS readiness path. Reuse the native acceptance harness
-and its scripted Worker transport. This measures the actual invocation and host
-owners, but the Worker body is a deterministic journal insert through a test RPC
-stub; it does not measure source evaluation, Workerd scheduling, network transport
-or production application capacity. Real hosted execution and an equivalent
-complete-request reference remain open CE0 requirements.
+and its shared Miniflare Application Worker loader. The measurement executes the
+registered insertion source in real local Workerd, including startup and the
+test capability bridge. The scripted acceptance loader remains for named
+failure-injection scenarios. Deployed scheduling, network transport, production
+application capacity and an equivalent complete-request reference remain open
+CE0 requirements.
 
 ## Owners And Measurement Contract
 

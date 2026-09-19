@@ -103,9 +103,11 @@ separates native journal cost from publication and admits only a bounded
 first-revision storage comparison. Full publication/reference equivalence remains open.
 [Native invocation attribution](./32-ce0-native-invocation-attribution.md) extends
 measurement through real admission, cryptographic grants, execution host, journal
-and finalization with independently observed control/target pools. It reuses a
-scripted Worker RPC body; actual source evaluation, Workerd/transport, broader
-workloads and equivalent complete-request references remain open. Its calibrated
+and finalization with independently observed control/target pools. The
+[source-execution extension](./35-ce0-native-workerd-attribution.md) now executes
+the registered body in local Workerd through the existing test capability bridge.
+Deployed transport/scheduling, broader workloads and equivalent complete-request
+references remain open. Its calibrated
 phase observations guide owner selection without treating pool elapsed times as
 additive or client intervals as server lock-hold measurements.
 The [bounded authority capture](./33-ce4-bounded-authority-capture.md) replaces

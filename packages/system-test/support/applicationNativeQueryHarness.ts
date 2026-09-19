@@ -256,6 +256,8 @@ export async function proveApplicationNativeQuery(
   }
 }
 
+type ApplicationWorkerRuntime = Pick<Miniflare, "dispose">;
+
 export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   loads = 0;
   revalidations = 0;
@@ -263,8 +265,8 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   incomingRelationReads = 0;
   readonly revisionIds: string[] = [];
   readonly documentIds: string[] = [];
-  readonly #runtimes = new Set<Miniflare>();
-  readonly #disposals: Array<Promise<void>> = [];
+  readonly #runtimes = new Set<ApplicationWorkerRuntime>();
+  readonly #disposals: Array<Promise<PromiseSettledResult<void>[]>> = [];
   #nextInvocationBlock: InvocationBlock | undefined;
 
   blockNextInvocation(): Readonly<{
@@ -307,13 +309,15 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
     this.documentIds.push(documentId);
   }
 
-  attach(runtime: Miniflare): void {
+  attach(runtime: ApplicationWorkerRuntime): void {
     this.#runtimes.add(runtime);
   }
 
-  release(runtime: Miniflare): void {
+  release(runtime: ApplicationWorkerRuntime): void {
     if (!this.#runtimes.delete(runtime)) return;
-    this.#disposals.push(runtime.dispose());
+    // Host result release starts cleanup before its caller can join it. Capture
+    // rejection now, retain the failure, and let dispose drain every runtime.
+    this.#disposals.push(Promise.allSettled([runtime.dispose()]));
   }
 
   async waitForNextInvocationBlock(): Promise<void> {
@@ -325,12 +329,15 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   }
 
   async dispose(): Promise<void> {
-    const live = [...this.#runtimes];
-    this.#runtimes.clear();
-    await Promise.all([
-      ...this.#disposals.splice(0),
-      ...live.map(runtime => runtime.dispose()),
-    ]);
+    for (const runtime of this.#runtimes) this.release(runtime);
+    const settlements = await Promise.all(this.#disposals.splice(0));
+    const failures: unknown[] = [];
+    for (const result of settlements.flat()) {
+      if (result.status === "rejected") failures.push(result.reason);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Application Worker runtime disposal failed.");
+    }
   }
 }
 
