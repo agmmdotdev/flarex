@@ -1,13 +1,14 @@
 import { Effect, Result, Schema } from "effect";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { appRowIdHexV1ToBytes, decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
+import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import { and, eq } from "drizzle-orm";
 import { expect } from "vitest";
 import type { Json } from "flarex-protocol/json";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
-import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
+import { defineCmsCommand, makeCmsHost, type CmsHostTestHooks } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
@@ -25,8 +26,10 @@ const decodeIds = Schema.decodeUnknownResult(Schema.Array(Schema.String));
 const decodeMove = Schema.decodeUnknownResult(Schema.Struct({ firstId: Schema.String, secondId: Schema.String, firstTitle: Schema.String, temporaryTitle: Schema.String }));
 
 /** Actual active CMS core composition; setup and assertions are outside timing. */
-export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {
+export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession,
+  hooks?: CmsHostTestHooks) {
   const { fixture } = await cmsHostFixture(persistence);
+  const scope = Result.getOrThrow(projectScopeIdUuidV1Result(fixture.authority.scopeId));
   let executions = 0;
   const insert = defineCmsCommand({ name: "measuredInsert", mode: "write", run: Effect.fn("CmsMeasurement.insert")(function* (ctx, args) {
     const input = yield* Effect.fromResult(decodeInput(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
@@ -58,23 +61,23 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
       developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
       candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }),
-    } }));
-  // This fixture exclusively owns its database schema. Full state snapshots
-  // verify replay and rollback, and are never included in telemetry reports.
+    } }, hooks));
+  // Multiple active scopes may share this fixture's physical schema. Each
+  // inventory observes only its scope and is never included in telemetry.
   const inventory = async () => ({
-    rows: await persistence.drizzle.select().from(fxAppRowCurrent).orderBy(fxAppRowCurrent.rowId),
-    revisions: await persistence.drizzle.select().from(fxAppRowRevisions).orderBy(fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
-    indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent).orderBy(fxAppIndexEntryCurrent.indexDefinitionId, fxAppIndexEntryCurrent.rowId),
-    indexRevisions: await persistence.drizzle.select().from(fxAppIndexEntryRevisions).orderBy(fxAppIndexEntryRevisions.indexDefinitionId, fxAppIndexEntryRevisions.rowId, fxAppIndexEntryRevisions.commitSeq),
-    claims: await persistence.drizzle.select().from(fxAppUniqueKeys).orderBy(fxAppUniqueKeys.constraintId, fxAppUniqueKeys.rowId),
-    builds: await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId),
-    uniqueBuilds: await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId),
+    rows: await persistence.drizzle.select().from(fxAppRowCurrent).where(eq(fxAppRowCurrent.scopeUuid, scope.scopeUuid)).orderBy(fxAppRowCurrent.rowId),
+    revisions: await persistence.drizzle.select().from(fxAppRowRevisions).where(eq(fxAppRowRevisions.scopeUuid, scope.scopeUuid)).orderBy(fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
+    indexes: await persistence.drizzle.select().from(fxAppIndexEntryCurrent).where(eq(fxAppIndexEntryCurrent.scopeUuid, scope.scopeUuid)).orderBy(fxAppIndexEntryCurrent.indexDefinitionId, fxAppIndexEntryCurrent.rowId),
+    indexRevisions: await persistence.drizzle.select().from(fxAppIndexEntryRevisions).where(eq(fxAppIndexEntryRevisions.scopeUuid, scope.scopeUuid)).orderBy(fxAppIndexEntryRevisions.indexDefinitionId, fxAppIndexEntryRevisions.rowId, fxAppIndexEntryRevisions.commitSeq),
+    claims: await persistence.drizzle.select().from(fxAppUniqueKeys).where(eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid)).orderBy(fxAppUniqueKeys.constraintId, fxAppUniqueKeys.rowId),
+    builds: await persistence.drizzle.select().from(fxSystemIndexBuildStates).where(eq(fxSystemIndexBuildStates.scopeId, scope.scopeId)).orderBy(fxSystemIndexBuildStates.indexDefinitionId),
+    uniqueBuilds: await persistence.drizzle.select().from(fxSystemUniqueConstraintBuilds).where(eq(fxSystemUniqueConstraintBuilds.scopeId, scope.scopeId)).orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId),
     clock: await persistence.drizzle.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId)),
-    commits: await persistence.drizzle.select().from(fxSystemCommits).orderBy(fxSystemCommits.commitSeq),
-    outcomes: await persistence.drizzle.select().from(fxSystemIdempotency).orderBy(fxSystemIdempotency.commitSeq),
-    wakes: await persistence.drizzle.select().from(fxSystemCommitWakes).orderBy(fxSystemCommitWakes.commitSeq),
-    facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges).orderBy(fxSystemCommitAppRowChanges.commitSeq, fxSystemCommitAppRowChanges.rowId),
-    sessions: await persistence.drizzle.select().from(fxSystemTransactionSessions),
+    commits: await persistence.drizzle.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommits.commitSeq),
+    outcomes: await persistence.drizzle.select().from(fxSystemIdempotency).where(eq(fxSystemIdempotency.scopeUuid, scope.scopeUuid)).orderBy(fxSystemIdempotency.commitSeq),
+    wakes: await persistence.drizzle.select().from(fxSystemCommitWakes).where(eq(fxSystemCommitWakes.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitWakes.commitSeq),
+    facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges).where(eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitAppRowChanges.commitSeq, fxSystemCommitAppRowChanges.rowId),
+    sessions: await persistence.drizzle.select().from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.scopeUuid, scope.scopeUuid)),
   });
   const verifyInsert = async (before: Awaited<ReturnType<typeof inventory>>, value: Json, count: number, prefix: string) => {
     const documents = decodeDocuments(value);
@@ -99,7 +102,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     expect(after.sessions).toEqual(before.sessions);
     return after;
   };
-  return { host, insert, read, moveAndReuse, inventory, verifyInsert, executionCount: () => executions };
+  return { host, insert, read, moveAndReuse, inventory, verifyInsert, scope, executionCount: () => executions };
 }
 
 export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {

@@ -89,5 +89,7 @@ guarded execution/recovery transaction. Attribute and correct that work at the
 existing preparation owner with fresh authorization/activation checks; do not
 introduce an adapter readiness flag or bypass verification on replay. The active
 CMS profile remains distinct from native persistence and the primitive SQL
-reference. Scope-clock concurrency and matched before/after comparisons remain
+reference. The [active concurrency baseline](./29-ce3-active-request-concurrency.md)
+now exercises cross-scope publication and same-scope disjoint/duplicate requests.
+Mixed-profile/lifecycle concurrency and matched before/after comparisons remain
 required before claiming CE2 or broader execution acceptance.

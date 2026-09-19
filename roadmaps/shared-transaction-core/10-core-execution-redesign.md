@@ -177,6 +177,14 @@ remain independent; the normalized relation-set query still detects unexpected
 rows even for an empty root. This does not implement cross-request preparation
 retention or the broader readiness/audit contract.
 
+[Active request concurrency](./29-ce3-active-request-concurrency.md) proves that
+another active CMS scope can settle through the shared physical families while a
+publication remains uncommitted. Within one scope, even disjoint requests wait
+on preparation's shared scope-clock read; duplicates settle once after that wait.
+This is a concrete CE3 baseline, not a concurrency replacement or capacity result.
+The replacement must account for that earlier admission dependency as well as
+the main materialization/publication transaction.
+
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution
 with a supported native and CMS mutation and follows the Medusa consumer as

@@ -102,12 +102,14 @@ candidates. Retain bounded fresh-attempt retries and an overall deadline.
 
 ### Current Risk
 
-Ordinary writes can lock the same index-build row and update its coverage even
-when they modify disjoint records. Those locks are currently nested inside a
-broader serialized commit path. Removing the scope lock alone may therefore
-move contention rather than remove it. PostgreSQL row locks normally last until
-the owning transaction ends; inspect every late waiter and shared metadata row,
-not just the first acquired lock.
+Activated ordinary writes now retain shared build protection without per-commit
+coverage updates. The broader scope-clock exclusion still serializes disjoint
+same-scope work: the [active request witness](../roadmaps/shared-transaction-core/29-ce3-active-request-concurrency.md)
+observes a competing request waiting on its preparatory shared clock read before
+entering its main transaction. Another active scope can complete publication
+through the same physical families during that wait. A concurrency replacement
+must cover preparation as well as execution; inspect every late waiter and
+shared metadata row rather than removing only the main transaction's first lock.
 
 ### Proposed Replacement Contract
 

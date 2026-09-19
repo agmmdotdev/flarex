@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
-import { eq, sql } from "drizzle-orm";
-import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { fxSystemScopeClocks } from "../src/schema";
+import { sql } from "drizzle-orm";
 import type { PoolClient } from "pg";
 import { postgresUrl, useFileScopedPostgresPersistence } from "./postgresHelpers";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
@@ -95,7 +93,6 @@ describe.skipIf(postgresUrl === null)("private scalar CMS host (Postgres)", () =
     let uniqueClient: PoolClient | undefined;
     let uniqueDrain: Promise<unknown> | undefined;
     let activationFiber: ReturnType<typeof Effect.runFork<unknown, unknown>> | undefined;
-    const separateScope = ScopeIdSchema.make(`scope_${crypto.randomUUID()}`);
     let blockedDrain: Promise<unknown> | undefined;
     try {
       await runEffect(Deferred.await(entered));
@@ -129,12 +126,6 @@ describe.skipIf(postgresUrl === null)("private scalar CMS host (Postgres)", () =
       const waiters = await persistence.query<{ pid: number; query: string; blockers: number[] }>(
         "select pid, query, pg_blocking_pids(pid) as blockers from pg_stat_activity where datname=current_database() and state='active' and cardinality(pg_blocking_pids(pid))>0");
       expect(activationBlocked, JSON.stringify({ heldPid: activePid, waiters: waiters.rows })).toBe(true);
-      // A distinct scope progresses while the CMS scope and build locks are held.
-      await persistence.drizzle.insert(fxSystemScopeClocks).values({ scopeId: separateScope,
-        storageGeneration: tested.fixture.authority.storageGeneration, storageGenerationFence: tested.fixture.authority.storageGenerationFence,
-        epoch: tested.fixture.authority.epoch });
-      const progressed = await persistence.query<{ scope_id: string }>("select scope_id from fx_system_scope_clock where scope_id=$1 for update nowait", [separateScope]);
-      expect(progressed.rows[0]?.scope_id).toBe(separateScope);
       await runEffect(Deferred.succeed(release, undefined));
       await runEffect(Fiber.join(held));
       await blocked;
@@ -151,7 +142,6 @@ describe.skipIf(postgresUrl === null)("private scalar CMS host (Postgres)", () =
       other?.release();
       buildClient?.release();
       uniqueClient?.release();
-      await persistence.drizzle.delete(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, separateScope));
     }
 
     let cleanupFault = true;
