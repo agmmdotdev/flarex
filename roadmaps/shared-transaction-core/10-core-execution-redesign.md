@@ -101,6 +101,13 @@ remaining coverage gaps. It is not complete CE0 acceptance or a measured win.
 The [native lifecycle and row-store reference](./12-ce0-native-lifecycle-and-reference.md)
 separates native journal cost from publication and admits only a bounded
 first-revision storage comparison. Full publication/reference equivalence remains open.
+[Native invocation attribution](./32-ce0-native-invocation-attribution.md) extends
+measurement through real admission, cryptographic grants, execution host, journal
+and finalization with independently observed control/target pools. It reuses a
+scripted Worker RPC body; actual source evaluation, Workerd/transport, broader
+workloads and equivalent complete-request references remain open. Its calibrated
+phase observations guide owner selection without treating pool elapsed times as
+additive or client intervals as server lock-hold measurements.
 The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
 extends the matched comparison at the existing shared publication owner, without
 duplicating native authentication or transaction recovery in a benchmark engine.

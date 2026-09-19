@@ -105,11 +105,12 @@ candidates. Retain bounded fresh-attempt retries and an overall deadline.
 Activated ordinary writes now retain shared build protection without per-commit
 coverage updates. The broader scope-clock exclusion still serializes disjoint
 same-scope work: the [active request witness](../roadmaps/shared-transaction-core/29-ce3-active-request-concurrency.md)
-observes a competing request waiting on its preparatory shared clock read before
-entering its main transaction. Another active scope can complete publication
-through the same physical families during that wait. A concurrency replacement
-must cover preparation as well as execution; inspect every late waiter and
-shared metadata row rather than removing only the main transaction's first lock.
+now observes a competing request completing preparation and waiting at its main
+exclusive clock acquisition. [Planning/acceptance separation](../roadmaps/shared-transaction-core/31-ce3-unlocked-planning.md)
+removed preliminary binding and candidate-guard exclusion while retaining fresh
+acceptance. Another active scope can complete publication through the same
+physical families during that wait. A concurrency replacement must still
+coordinate every late waiter and shared metadata row.
 
 ### Proposed Replacement Contract
 

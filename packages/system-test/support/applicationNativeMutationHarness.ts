@@ -1293,7 +1293,7 @@ type ApplicationJournalCapability = Readonly<{
   patchPointDocument: (documentId: string, value: unknown) => Promise<void>;
 }>;
 
-class ApplicationNativeWorkerLoader implements WorkerLoader {
+export class ApplicationNativeWorkerLoader implements WorkerLoader {
   loads = 0;
   caughtValidation = 0;
   mode:
@@ -1528,7 +1528,7 @@ function applicationHostPolicy() {
   });
 }
 
-async function durableCounts(persistence: ApplicationNativeMutationPersistence) {
+export async function durableCounts(persistence: ApplicationNativeMutationPersistence) {
   const result = await persistence.query<{
     commits: string;
     outcomes: string;

@@ -1,8 +1,10 @@
 # CE0 Native Persistence Lifecycle And Row-Store Reference
 
 Status: implemented bounded lifecycle attribution and a first-row storage
-reference. Complete native executor/host attribution and an equivalent full
-publication reference remain open. This extends the
+reference. [Native invocation attribution](./32-ce0-native-invocation-attribution.md)
+now measures the real invocation/host owners with a scripted Worker RPC body.
+Actual Worker/source execution and an equivalent full publication reference remain
+open. This extends the
 [first workload](./11-ce0-first-workload.md); it does not complete CE0 or activate
 an execution replacement.
 

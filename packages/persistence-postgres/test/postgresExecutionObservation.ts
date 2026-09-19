@@ -44,6 +44,9 @@ export type PostgresExecutionPhase =
   | "commandProjection"
   | "publication"
   | "cmsRequest"
+  | "nativeAdmission"
+  | "nativeExecution"
+  | "nativeFinalization"
   | "replay";
 interface Counters {
   queryCalls: number;
