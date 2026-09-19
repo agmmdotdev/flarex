@@ -50,8 +50,6 @@ import {
 
 import {
   encodeBytesToLowercaseHex,
-  isUint8Array,
-  isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
@@ -61,6 +59,7 @@ import { Effect, Result, Schema } from "effect";
 
 import {
   AppCreationTimeV1Schema,
+  decodeCanonicalAppDocumentEvidenceV1Effect,
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
 
@@ -96,11 +95,6 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import {
-  FLAREX_VALUE_CODEC_VERSION_V1,
-  FlarexValueCodecV1Error,
-  FlarexValueEvidenceV1Error,
-  decodeCanonicalFlarexValueEvidenceV1,
-  isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexValueV1,
 } from "flarex-protocol/value";
 import {
@@ -528,19 +522,6 @@ export function pointDependenciesEqual(
   );
 }
 
-function isCanonicalDocumentForLoadedHead(
-  document: CanonicalFlarexValueV1,
-  documentId: AppDocumentIdV1,
-  creationTime: AppCreationTimeV1,
-): boolean {
-  const value = document.value;
-  return (
-    isCanonicalFlarexRuntimeObjectV1(value) &&
-    value._id === documentId &&
-    value._creationTime === creationTime
-  );
-}
-
 /** The existing Application row/index/unique lowering order, shared by both participants. */
 export async function materializeApplicationDocumentRows(
   tx: AppRowTransaction,
@@ -738,35 +719,15 @@ async function runUniqueCoverage<A>(
 export async function preparePointCommitApplicationRelationPlan(
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
-  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  priorState: ApplicationDocumentPriorState,
   relations: LocatedPreparedPointCommitApplicationRelations | null,
   lastCommitSeq: bigint,
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<PreparedPointCommitApplicationRelationPlan | null> {
   if (relations === null) return null;
-  const headsByDocumentId = new Map<AppDocumentIdV1, LoadedPointCommitHeadV1>();
-  for (let index = 0; index < command.dependencies.length; index += 1) {
-    const dependency = command.dependencies[index];
-    const loaded = loadedHeads[index];
-    if (
-      dependency === undefined ||
-      loaded === undefined ||
-      headsByDocumentId.has(dependency.documentId)
-    ) {
-      throw corruption("relationTransitionInvalid");
-    }
-    headsByDocumentId.set(dependency.documentId, loaded);
-  }
+  const { headsByDocumentId, documents: priorDocuments } = priorState;
   const sourceTableIds = new Set(
-    relations.definitions.definitions.map(
-      (definition) => definition.binding.sourceTableId,
-    ),
-  );
-  const priorDocuments = await loadPointCommitRelationDocuments(
-    tx,
-    command,
-    headsByDocumentId,
-    sourceTableIds,
+    relations.definitions.definitions.map(definition => definition.binding.sourceTableId),
   );
   const relationTableIds = new Set(
     relations.definitions.definitions.flatMap((definition) => [
@@ -781,7 +742,9 @@ export async function preparePointCommitApplicationRelationPlan(
     if (loaded === undefined) {
       throw corruption("relationTransitionInvalid");
     }
-    const prior = priorDocuments.get(intent.documentId) ?? null;
+    const prior = sourceTableIds.has(intent.tableId)
+      ? priorDocuments.get(intent.documentId) ?? null
+      : null;
     if (
       sourceTableIds.has(intent.tableId) &&
       loaded.head.kind === "live" &&
@@ -1337,31 +1300,11 @@ export async function lockPointCommitDeveloperIndexBuilds(
 export async function preparePointCommitDeveloperIndexActions(
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
-  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  priorState: ApplicationDocumentPriorState,
   builds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
 ): Promise<ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>> {
   const plans: PointCommitDeveloperIndexRowPlanV1[] = [];
-  const loadedHeadsByDocumentId = new Map<
-    AppDocumentIdV1,
-    LoadedPointCommitHeadV1
-  >();
-  for (let index = 0; index < command.dependencies.length; index += 1) {
-    const dependency = command.dependencies[index];
-    const loaded = loadedHeads[index];
-    if (dependency === undefined || loaded === undefined) {
-      throw corruption("developerIndexTransitionInvalid");
-    }
-    if (loadedHeadsByDocumentId.has(dependency.documentId)) {
-      throw corruption("developerIndexTransitionInvalid");
-    }
-    loadedHeadsByDocumentId.set(dependency.documentId, loaded);
-  }
-  const priorDocuments = await loadPointCommitDeveloperIndexDocuments(
-    tx,
-    command,
-    loadedHeadsByDocumentId,
-    builds,
-  );
+  const { headsByDocumentId: loadedHeadsByDocumentId, documents: priorDocuments } = priorState;
   for (const locked of builds) {
     for (const intent of command.rowIntents) {
       const loaded = loadedHeadsByDocumentId.get(intent.documentId);
@@ -1513,28 +1456,11 @@ export async function preparePointCommitDeveloperIndexActions(
 export async function preparePointCommitUniqueKeyActions(
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
-  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  priorState: ApplicationDocumentPriorState,
   definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
 ): Promise<ReadonlyArray<PointCommitUniqueKeyActionV1>> {
   if (definitions.length === 0) return Object.freeze([]);
-  const headsByDocumentId = new Map<AppDocumentIdV1, LoadedPointCommitHeadV1>();
-  for (let index = 0; index < command.dependencies.length; index += 1) {
-    const dependency = command.dependencies[index];
-    const loaded = loadedHeads[index];
-    if (
-      dependency === undefined ||
-      loaded === undefined ||
-      headsByDocumentId.has(dependency.documentId)
-    )
-      throw corruption("uniqueKeyTransitionInvalid");
-    headsByDocumentId.set(dependency.documentId, loaded);
-  }
-  const priorDocuments = await loadPointCommitUniqueKeyDocuments(
-    tx,
-    command,
-    headsByDocumentId,
-    definitions,
-  );
+  const { headsByDocumentId, documents: priorDocuments } = priorState;
   const plans: PointCommitUniqueKeyPlanV1[] = [];
   for (const definition of definitions) {
     for (const intent of command.rowIntents) {
@@ -1768,64 +1694,53 @@ function comparePointCommitUniqueKeyActions(
   );
 }
 
-async function loadPointCommitDeveloperIndexDocuments(
-  tx: AppRowTransaction,
-  command: ApplicationDocumentMaterializationCommand,
-  loadedHeadsByDocumentId: ReadonlyMap<
-    AppDocumentIdV1,
-    LoadedPointCommitHeadV1
-  >,
-  builds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
-): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
-  return loadPointCommitDocumentsForTables(
-    tx,
-    command,
-    loadedHeadsByDocumentId,
-    new Set(builds.map((build) => build.definition.access.tableId)),
-    "loadDeveloperIndexDocuments",
-    "developerIndexTransitionInvalid",
-  );
+export interface ApplicationDocumentPriorState {
+  readonly headsByDocumentId: ReadonlyMap<AppDocumentIdV1, LoadedPointCommitHeadV1>;
+  readonly documents: ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>;
 }
 
-async function loadPointCommitUniqueKeyDocuments(
+/** Exact predecessor evidence for one command in its protected transaction. */
+export const loadApplicationDocumentPriorState = Effect.fn("ApplicationDocument.loadPriorState")(function* (
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
-  loadedHeadsByDocumentId: ReadonlyMap<
-    AppDocumentIdV1,
-    LoadedPointCommitHeadV1
-  >,
-  definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
-): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
-  return loadPointCommitDocumentsForTables(
-    tx,
-    command,
-    loadedHeadsByDocumentId,
-    new Set(definitions.map((definition) => definition.tableId)),
-    "loadUniqueKeyDocuments",
-    "uniqueKeyTransitionInvalid",
-  );
-}
+  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  developer: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
+  unique: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  relations: LocatedPreparedPointCommitApplicationRelations | null,
+  options: ApplicationDocumentMaterializationOptions,
+): Effect.fn.Return<ApplicationDocumentPriorState, PointCommitCorruptionV1Error | PointCommitSqlFailureMarkerV1> {
+  const headsByDocumentId = new Map<AppDocumentIdV1, LoadedPointCommitHeadV1>();
+  if (loadedHeads.length !== command.dependencies.length) return yield* Effect.fail(corruption("priorDocumentInvalid"));
+  for (let index = 0; index < command.dependencies.length; index++) {
+    const dependency = command.dependencies[index];
+    const loaded = loadedHeads[index];
+    if (dependency === undefined || loaded === undefined || headsByDocumentId.has(dependency.documentId)) {
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
+    }
+    headsByDocumentId.set(dependency.documentId, loaded);
+  }
+  const tableIds = new Set([
+    ...developer.map(index => index.definition.access.tableId),
+    ...unique.map(definition => definition.tableId),
+    ...(relations?.definitions.definitions.map(definition => definition.binding.sourceTableId) ?? []),
+  ]);
+  const documents = yield* loadPointCommitDocumentsForTables(tx, command, headsByDocumentId, tableIds, options);
+  return Object.freeze({ headsByDocumentId, documents });
+});
 
-async function loadPointCommitRelationDocuments(
-  tx: AppRowTransaction,
-  command: ApplicationDocumentMaterializationCommand,
-  loadedHeadsByDocumentId: ReadonlyMap<
-    AppDocumentIdV1,
-    LoadedPointCommitHeadV1
-  >,
-  sourceTableIds: ReadonlySet<CatalogTableId>,
-): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
-  return loadPointCommitDocumentsForTables(
-    tx,
-    command,
-    loadedHeadsByDocumentId,
-    sourceTableIds,
-    "loadRelationDocuments",
-    "relationTransitionInvalid",
-  );
-}
+const decodePriorDocumentRowsResult = Schema.decodeUnknownResult(Schema.Struct({
+  rows: Schema.Array(Schema.Unknown),
+}));
+const decodeStoredPriorDocumentResult = Schema.decodeUnknownResult(Schema.Struct({
+  ordinalText: Schema.String,
+  isTombstone: Schema.Literal(false),
+  creationTimeText: Schema.String,
+  valueCodecVersion: Schema.Literal(1),
+  valueBytes: Schema.Uint8Array,
+  valueSha256: Schema.Uint8Array.check(Schema.makeFilter(value => value.byteLength === 32)),
+}));
 
-async function loadPointCommitDocumentsForTables(
+const loadPointCommitDocumentsForTables = Effect.fn("ApplicationDocument.loadPriorDocuments")(function* (
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
   loadedHeadsByDocumentId: ReadonlyMap<
@@ -1833,30 +1748,19 @@ async function loadPointCommitDocumentsForTables(
     LoadedPointCommitHeadV1
   >,
   indexedTableIds: ReadonlySet<CatalogTableId>,
-  operation: Extract<
-    PointCommitSqlOperationV1,
-    | "loadDeveloperIndexDocuments"
-    | "loadUniqueKeyDocuments"
-    | "loadRelationDocuments"
-  >,
-  corruptionReason: Extract<
-    PointCommitCorruptionReasonV1,
-    | "developerIndexTransitionInvalid"
-    | "uniqueKeyTransitionInvalid"
-    | "relationTransitionInvalid"
-  >,
-): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
+  options: ApplicationDocumentMaterializationOptions,
+): Effect.fn.Return<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>, PointCommitCorruptionV1Error | PointCommitSqlFailureMarkerV1> {
   if (indexedTableIds.size === 0) return new Map();
   const requests: PointCommitDeveloperIndexDocumentRequestV1[] = [];
   for (const intent of command.rowIntents) {
     if (!indexedTableIds.has(intent.tableId)) continue;
     const loaded = loadedHeadsByDocumentId.get(intent.documentId);
     if (loaded === undefined) {
-      throw corruption(corruptionReason);
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
     }
     if (loaded.head.kind !== "live") continue;
     if (loaded.creationTime === null) {
-      throw corruption(corruptionReason);
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
     }
     requests.push(
       Object.freeze({
@@ -1869,11 +1773,11 @@ async function loadPointCommitDocumentsForTables(
     );
   }
   if (requests.length === 0) return new Map();
-  const scopeUuid = projectPointCommitTransactionResult(
+  const { scopeUuid } = yield* Effect.fromResult(
     projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
-      Result.mapError(() => corruption(corruptionReason)),
+      Result.mapError(() => corruption("priorDocumentInvalid")),
     ),
-  ).scopeUuid;
+  );
   const values = sql.join(
     requests.map(
       (request, ordinal) => sql`
@@ -1906,58 +1810,45 @@ async function loadPointCommitDocumentsForTables(
       and revision.commit_seq = requested.commit_seq
     order by requested.ordinal asc
   `;
-  const result = await sqlCall(operation, () => tx.execute(statement));
-  const rows = rowsFromDriverExecuteResult(result, () => {
-    throw corruption(corruptionReason);
-  });
+  options.observeQuery?.(Object.freeze({
+    name: "loadPriorDocuments", sql: "bounded VALUES with exact predecessor document evidence",
+    params: Object.freeze([]),
+  }));
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => tx.execute(statement),
+    catch: cause => new PointCommitSqlFailureMarkerV1("loadPriorDocuments", cause),
+  }));
+  const { rows } = yield* Effect.fromResult(decodePriorDocumentRowsResult(result).pipe(
+    Result.mapError(() => corruption("priorDocumentInvalid")),
+  ));
   if (rows.length !== requests.length) {
-    throw corruption(corruptionReason);
+    return yield* Effect.fail(corruption("priorDocumentInvalid"));
   }
   const documents = new Map<AppDocumentIdV1, CanonicalFlarexValueV1>();
   for (let ordinal = 0; ordinal < requests.length; ordinal += 1) {
-    const raw = rows[ordinal];
+    const raw = yield* Effect.fromResult(decodeStoredPriorDocumentResult(rows[ordinal]).pipe(
+      Result.mapError(() => corruption("priorDocumentInvalid")),
+    ));
     const request = requests[ordinal];
     if (
-      !isNonArrayRecord(raw) ||
       request === undefined ||
       raw.ordinalText !== String(ordinal) ||
-      raw.isTombstone !== false ||
-      raw.creationTimeText !== String(request.creationTime) ||
-      raw.valueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
-      !isUint8Array(raw.valueBytes) ||
-      !isUint8ArrayWithByteLength(raw.valueSha256, 32)
+      raw.creationTimeText !== String(request.creationTime)
     ) {
-      throw corruption(corruptionReason);
+      return yield* Effect.fail(corruption("priorDocumentInvalid"));
     }
-    let document: CanonicalFlarexValueV1;
-    try {
-      document = await decodeCanonicalFlarexValueEvidenceV1({
-        profile: "appDocument",
-        canonicalBytes: raw.valueBytes,
-        sha256: raw.valueSha256,
-      });
-    } catch (cause) {
-      if (
-        cause instanceof FlarexValueEvidenceV1Error ||
-        cause instanceof FlarexValueCodecV1Error
-      ) {
-        throw corruption(corruptionReason);
-      }
-      throw cause;
-    }
-    if (
-      !isCanonicalDocumentForLoadedHead(
-        document,
-        request.documentId,
-        request.creationTime,
-      )
-    ) {
-      throw corruption(corruptionReason);
-    }
+    const document = yield* decodeCanonicalAppDocumentEvidenceV1Effect({
+      tableId: request.tableId,
+      rowId: request.rowId,
+      creationTime: request.creationTime,
+      codecVersion: raw.valueCodecVersion,
+      canonicalBytes: raw.valueBytes,
+      sha256: raw.valueSha256,
+    }).pipe(Effect.mapError(() => corruption("priorDocumentInvalid")));
     documents.set(request.documentId, document);
   }
   return documents;
-}
+});
 
 function lowerDeveloperIndexKey(
   definition: LocatedAppIndexDefinitionV1,

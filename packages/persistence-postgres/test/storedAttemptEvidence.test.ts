@@ -5591,7 +5591,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
-  it.each(["missing", "digest", "differentCanonicalKey"] as const)(
+  it.each(["missing", "digest", "differentCanonicalKey", "priorDocument"] as const)(
     "rejects %s corruption before omitting an unchanged unique key",
     async (mode) => {
       const prepared = await prepareO07BScenario(
@@ -5609,7 +5609,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         (current) => prepareUniqueConstraintForO06(current, true),
         true,
       );
-      if (mode === "missing")
+      if (mode === "priorDocument")
+        await persistence.query("update fx_app_row_rev set value_sha256 = $2 where scope_uuid = $1", [prepared.scopeUuid, new Uint8Array(32)]);
+      else if (mode === "missing")
         await persistence.query(
           "delete from fx_app_unique_key where scope_uuid = $1",
           [prepared.scopeUuid],
@@ -5649,7 +5651,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ),
       ).toMatchObject({
         _tag: "PointCommitCorruptionV1Error",
-        reason: "uniqueKeyTransitionInvalid",
+        reason: mode === "priorDocument" ? "priorDocumentInvalid" : "uniqueKeyTransitionInvalid",
       });
       expect(await o06DurableState(prepared.scopeUuid)).toEqual(before);
       expect(await uniqueKeyState(prepared.scopeUuid)).toEqual(claims);

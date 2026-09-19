@@ -6,7 +6,7 @@ import { hasApplicationDocumentOrderedIndexComposition } from "./indexCompositio
 import { hasResolvedApplicationRelationSchemaAuthorityDatabase } from "../applicationRelationSchemaAuthority";
 import type { FlarexMetadataDatabase } from "../deployments";
 import { hasAppSchemaCandidateWriteGuardComposition } from "../appSchemaCandidateValidation";
-import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, validatePointCommitDependenciesResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidation } from "../applicationDocumentMaterialization/materialization";
+import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, validatePointCommitDependenciesResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidation } from "../applicationDocumentMaterialization/materialization";
 import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, mapTransactionFailure } from "../pointCommitErrors";
 
 import { SnapshotTokenSchema } from "flarex-protocol/storage-authority";
@@ -270,37 +270,30 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
       yield* Effect.fromResult(
         validatePointCommitDependenciesResult(command, heads),
       ).pipe(Effect.mapError((cause) => participantError("storedCorruption", cause)));
+      const changed = new Set(changes.map(row => row.tableId));
+      const selectedDeveloper = developer.filter(index => changed.has(index.definition.access.tableId));
+      const selectedUnique = prepared.unique.filter(definition => changed.has(definition.tableId));
       const relationDefinitions = prepared.relations?.definitions;
+      const relations = relationDefinitions === undefined || relationDefinitions === null || prepared.relations === null
+        ? null
+        : { port: prepared.relations.port, definitions: relationDefinitions };
+      const priorState = yield* loadApplicationDocumentPriorState(
+        tx, command, heads, selectedDeveloper, selectedUnique, relations, prepared.options,
+      ).pipe(Effect.mapError(projectParticipantKernelFailure));
       const relationPlan = yield* participantKernel(() =>
         preparePointCommitApplicationRelationPlan(
-          tx,
-          command,
-          heads,
-          relationDefinitions === undefined ||
-            relationDefinitions === null ||
-            prepared.relations === null
-            ? null
-            : {
-                port: prepared.relations.port,
-                definitions: relationDefinitions,
-              },
-          scopeClock.lastCommitSeq,
-          prepared.options,
+          tx, command, priorState, relations, scopeClock.lastCommitSeq, prepared.options,
         ),
       );
       let lowered = false;
       const lower = Effect.fn("ApplicationParticipant.lower")(function* (commitSeq: CommitSeq) {
         if (lowered) return yield* Effect.fail(participantError("invalidAuthority"));
         lowered = true;
-      const changed = new Set(changes.map((row) => row.tableId));
-      const selectedDeveloper = developer.filter((index) =>
-        changed.has(index.definition.access.tableId),
-      );
       const indexActions = yield* participantKernel(() =>
         preparePointCommitDeveloperIndexActions(
           tx,
           command,
-          heads,
+          priorState,
           selectedDeveloper,
         ),
       );
@@ -308,10 +301,8 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
         preparePointCommitUniqueKeyActions(
           tx,
           command,
-          heads,
-          prepared.unique.filter((definition) =>
-            changed.has(definition.tableId),
-          ),
+          priorState,
+          selectedUnique,
         ),
       );
       yield* runCandidateSchemaWriteGuard(
@@ -345,7 +336,7 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
           indexActions,
           selectedDeveloper,
           uniqueActions,
-          prepared.unique.filter(definition => changed.has(definition.tableId)),
+          selectedUnique,
           prepared.options,
         ),
       );

@@ -8,7 +8,7 @@ import { PointCommitDependencyV1, PointCommitRowIntentV1, PreparedLivePointCommi
 import { hasApplicationRelationCommitAuthorityForPointCommit } from "./applicationRelationCommit";
 import { hasAppSchemaCandidateWriteGuardComposition } from "./appSchemaCandidateValidation";
 import { PointCommitConflictV1Error, PointCommitConflictEvidenceV1, PointCommitStaleAuthorityV1Error, PointCommitStaleAuthorityReasonV1, PointCommitCorruptionV1Error, PointCommitCorruptionReasonV1, PointCommitSqlFailureMarkerV1, PointCommitSqlOperationV1, PointCommitSqlErrorV1, mapTransactionFailure, PointCommitRollbackProofV1Error, corruption, sqlError, findSqlState } from "./pointCommitErrors";
-import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, prepareUniqueConstraintDefinitions, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, hasOwn, parseNonNegativeIntegerTextResult, parseNullableCommitSeqTextResult, decodePointCommitSeqResult, decodePointCommitCreationTimeResult, validatePointCommitDependenciesResult, findPointCommitConflictAfterEvidenceValidationResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, pointDependenciesEqual, emitTransactionStep, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidation } from "./applicationDocumentMaterialization/materialization";
+import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, prepareUniqueConstraintDefinitions, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, hasOwn, parseNonNegativeIntegerTextResult, parseNullableCommitSeqTextResult, decodePointCommitSeqResult, decodePointCommitCreationTimeResult, validatePointCommitDependenciesResult, findPointCommitConflictAfterEvidenceValidationResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, pointDependenciesEqual, emitTransactionStep, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidation } from "./applicationDocumentMaterialization/materialization";
 
 import { type ScopePublicationContribution } from "./commitPublication/scopePublicationModel";
 
@@ -4827,22 +4827,25 @@ async function runPointCommitTransactionKernel(
       preWriteDatabaseNowMilliseconds,
     ),
   );
+  const priorState = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(loadApplicationDocumentPriorState(
+    tx, command, loadedHeads, developerBuilds, uniqueDefinitions, validatedApplicationRelations, options,
+  )));
   const developerIndexActions = await preparePointCommitDeveloperIndexActions(
     tx,
     command,
-    loadedHeads,
+    priorState,
     developerBuilds,
   );
   const uniqueKeyActions = await preparePointCommitUniqueKeyActions(
     tx,
     command,
-    loadedHeads,
+    priorState,
     uniqueDefinitions,
   );
   const relationPlan = await preparePointCommitApplicationRelationPlan(
     tx,
     command,
-    loadedHeads,
+    priorState,
     validatedApplicationRelations,
     clock.record.lastCommitSeq,
     options,

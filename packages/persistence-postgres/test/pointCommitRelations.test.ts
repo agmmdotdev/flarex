@@ -14,6 +14,7 @@ import {
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
+  CommitSeqSchema,
   decodeReplacementScopeIdV1,
   projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
@@ -44,6 +45,7 @@ import {
   createPointCommitPublisherPortV1,
   hasPointCommitApplicationRelationMaintenance,
   PointCommitCorruptionV1Error,
+  PointCommitStaleAuthorityV1Error,
   type PointCommitPublicationCommandV1,
   type PointCommitTransactionProofStepV1,
 } from "../src/pointCommitTransaction";
@@ -70,13 +72,12 @@ import {
   createPointMutationSessionActivationPersistenceV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
-import { createApplicationNativeMutationPGliteFixture } from
-  "./fixtures/applicationNativeMutationTestFixture";
-import { enableApplicationPhysicalBuilds } from "./applicationRelationReadinessFixture";
+import { readyExactRelationReadFixture, applyExactRelationSourceCommit } from "./applicationRelationReadinessFixture";
+import { exactRelationCommitRowId } from "./applicationRelationSourceCommitFixture";
+import { fxSystemApplicationReadiness } from "../src/applicationRelationSchema";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import {
-  bridgeActiveApplicationReadinessForRelationCommitTest,
   installApplicationRelationCommitAuthorityForTest,
   relationAuthorityFromAnchor,
   relationBindingPublicationInput,
@@ -453,59 +454,31 @@ describe("C09 point-commit relation maintenance", () => {
     });
   });
 
-  it("validates relation digests against the locked active Application head before writes", async () => {
-    const fixture = await createApplicationNativeMutationPGliteFixture({
-      runtimeHostIdentity: "c09-active-readiness-test",
-      compatibilityDate: "2026-08-24",
-    });
-    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
-      fixture.deploymentId,
-    );
+  it("refuses a non-active relation schema before writes and publishes the active binding", async () => {
+    const ready = await readyExactRelationReadFixture({ persistence, includeFunction: true });
+    const fixture = ready.fixture;
+    // Real relation activation binds readiness digests with foreign keys;
+    // the displaced legacy bridge changed these fields without coherent evidence.
+    await expect(persistence.drizzle.update(fxSystemApplicationReadiness).set({
+      applicationSchemaSha256: new Uint8Array(32),
+    }).where(eq(fxSystemApplicationReadiness.scopeId, fixture.authority.scopeId)))
+      .rejects.toMatchObject({ cause: { code: "23503" } });
+    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(fixture.deploymentId);
     publicationCounter += 1;
-    const relationInput = await relationBindingPublicationInput(
-      deploymentId,
-      publicationCounter,
-    );
-    const controlPublication = await runEffect(
-      publishApplicationRelationBindingEffect(
-        relationRepository(fixture.control),
-        relationInput,
-      ),
-    );
-    const targetPublication = await runEffect(
-      publishApplicationRelationBindingEffect(
-        relationRepository(fixture.target),
-        relationInput,
-      ),
-    );
-    expect(targetPublication.binding).toEqual(controlPublication.binding);
-    await enableApplicationPhysicalBuilds(fixture.control.drizzle, fixture.authorityPorts,
-      fixture.authority.scopeId, fixture.deploymentId, controlPublication.binding.schemaVersionId);
+    // A legitimate published schema in the same scope is not the active schema.
+    const alternate = await runEffect(publishApplicationRelationBindingEffect(
+      relationRepository(persistence), await relationBindingPublicationInput(deploymentId, publicationCounter),
+    ));
     const orderedIndexes = {
       intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
       developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
     };
-
-    const scope: RelationScope = Object.freeze({
-      deploymentId,
+    const scope: RelationScope = Object.freeze({ deploymentId,
       scopeId: decodeReplacementScopeIdV1(fixture.authority.scopeId),
-      schemaVersionId: controlPublication.binding.schemaVersionId,
-      publication: controlPublication,
-      ports: fixture.sessionAuthority,
+      schemaVersionId: alternate.binding.schemaVersionId, publication: alternate,
+      ports: fixture.pointCommitAuthority,
     });
-    await setFlarexActivationClock(fixture.target, scope.scopeId);
-    const matchingReadiness = Object.freeze({
-      scopeId: scope.scopeId,
-      applicationSchemaSha256:
-        controlPublication.binding.applicationSchemaSha256,
-      schemaVersionId: scope.schemaVersionId,
-      schemaManifestSha256:
-        controlPublication.binding.schemaManifestSha256,
-    });
-    await bridgeActiveApplicationReadinessForRelationCommitTest(
-      fixture.target,
-      matchingReadiness,
-    );
+    await setFlarexActivationClock(persistence, scope.scopeId);
     const prepared = await prepareRelationAttempt(
       scope,
       "active_readiness",
@@ -531,25 +504,18 @@ describe("C09 point-commit relation maintenance", () => {
       },
       {
         beforeEvidenceLoad: sessionId =>
-          installApplicationRelationCommitAuthorityForTest(fixture.target, {
+          installApplicationRelationCommitAuthorityForTest(persistence, {
             scopeId: scope.scopeId,
             schemaVersionId: scope.schemaVersionId,
             sessionId,
           }),
       },
     );
-    const before = await durableRelationState(scope, fixture.target);
-    await bridgeActiveApplicationReadinessForRelationCommitTest(
-      fixture.target,
-      Object.freeze({
-        ...matchingReadiness,
-        applicationSchemaSha256: "0".repeat(64),
-      }),
-    );
+    const before = await durableRelationState(scope, persistence);
     const rejectedSteps: PointCommitTransactionProofStepV1[] = [];
     const publisher = relationPublisherFor(
       scope,
-      fixture.control,
+      persistence,
       {
         ...orderedIndexes,
         afterTransactionStep: event => {
@@ -561,35 +527,18 @@ describe("C09 point-commit relation maintenance", () => {
     const failure = await runEffectFailure(
       publisher.publish(prepared.command),
     );
-    expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
-    expect(failure).toMatchObject({ reason: "relationBindingInvalid" });
+    expect(failure).toBeInstanceOf(PointCommitStaleAuthorityV1Error);
+    expect(failure).toMatchObject({ reason: "activeSchemaChanged" });
     expect(rejectedSteps).toContain("clockLocked");
     expect(rejectedSteps).not.toContain("relationBindingValidated");
     expect(rejectedSteps).not.toContain("sessionLocked");
-    expect(await durableRelationState(scope, fixture.target)).toEqual(before);
+    expect(await durableRelationState(scope, persistence)).toEqual(before);
 
-    await bridgeActiveApplicationReadinessForRelationCommitTest(
-      fixture.target,
-      matchingReadiness,
-    );
-    const acceptedSteps: PointCommitTransactionProofStepV1[] = [];
-    await expect(runEffect(relationPublisherFor(
-      scope,
-      fixture.control,
-      {
-        ...orderedIndexes,
-        afterTransactionStep: event => {
-          acceptedSteps.push(event.step);
-          return Promise.resolve();
-        },
-      },
-    ).publish(prepared.command))).resolves.toMatchObject({
-      kind: "published",
-      token: { commitSeq: 1n },
-    });
-    expect(acceptedSteps).toContain("relationBindingValidated");
-    expect(acceptedSteps).toContain("activeApplicationSchemaValidated");
-    expect((await relationState(scope, fixture.target)).edges).toHaveLength(1);
+    await applyExactRelationSourceCommit(ready, exactRelationCommitRowId(9401), 9402, CommitSeqSchema.make(1n));
+    const publishedEdges = (await relationState(scope, persistence)).edges;
+    expect(publishedEdges.map(edge => edge.edgeDefinitionId).toSorted((a, b) => a - b))
+      .toEqual(ready.definitions.definitions.map(definition => definition.edge.edgeDefinitionId).toSorted((a, b) => a - b));
+    expect(publishedEdges.every(edge => edge.schemaVersionId === fixture.relation.binding.schemaVersionId && edge.commitSeq === 1n)).toBe(true);
   }, 180_000);
 
   async function createRelationScope(label: string): Promise<RelationScope> {

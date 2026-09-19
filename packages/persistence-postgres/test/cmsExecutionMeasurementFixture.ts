@@ -31,6 +31,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
   const { fixture } = await cmsHostFixture(persistence);
   const scope = Result.getOrThrow(projectScopeIdUuidV1Result(fixture.authority.scopeId));
   let executions = 0;
+  let priorDocumentReads = 0;
   const insert = defineCmsCommand({ name: "measuredInsert", mode: "write", run: Effect.fn("CmsMeasurement.insert")(function* (ctx, args) {
     const input = yield* Effect.fromResult(decodeInput(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
     executions++;
@@ -57,6 +58,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
     application: fixture.relationActivation, commands: [insert, read, moveAndReuse], identityAndAccessPolicy: { subject: "ce2-measurement", policy: "cms-scalar" },
     materialization: {
+      observeQuery: query => { if (query.name === "loadPriorDocuments") priorDocumentReads++; },
       intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
       developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
@@ -102,7 +104,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     expect(after.sessions).toEqual(before.sessions);
     return after;
   };
-  return { host, insert, read, moveAndReuse, inventory, verifyInsert, scope, executionCount: () => executions };
+  return { host, insert, read, moveAndReuse, inventory, verifyInsert, scope, priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions };
 }
 
 export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {
@@ -139,8 +141,10 @@ export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlar
   const pair = decodeDocuments(await runEffect(tested.host.run(tested.host.newRequestKey(), tested.insert, { count: 8, prefix: "pending" })));
   const first = pair[0]; const second = pair[1];
   if (first === undefined || second === undefined) throw new Error("Expected pending reuse inputs");
+  const priorReadsBefore = tested.priorDocumentReadCount();
   const reused = await runEffect(tested.host.run(tested.host.newRequestKey(), tested.moveAndReuse,
     { firstId: first._id, secondId: second._id, firstTitle: first.title, temporaryTitle: "reused-title" }));
+  expect(tested.priorDocumentReadCount() - priorReadsBefore).toBe(1);
   const readback = await runEffect(tested.host.read(tested.read, [first._id, second._id]));
   expect(readback).toEqual([null, { ...second, title: first.title }]);
   expect(reused).toMatchObject({ title: "reused-title" });

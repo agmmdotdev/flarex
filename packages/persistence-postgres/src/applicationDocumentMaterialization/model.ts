@@ -108,7 +108,7 @@ export interface ApplicationDocumentMaterializationOptions {
   ) => Promise<void>;
   readonly observeQuery?: (
     query: Readonly<{
-      readonly name: "loadRelationTargets" | "loadRowHeads";
+      readonly name: "loadRelationTargets" | "loadRowHeads" | "loadPriorDocuments";
       readonly sql: string;
       readonly params: ReadonlyArray<unknown>;
     }>,

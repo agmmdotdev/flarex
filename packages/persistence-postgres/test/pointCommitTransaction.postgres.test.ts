@@ -1164,6 +1164,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     "tombstonePointer",
     "keyDigest",
     "physicalSpec",
+    "priorDigest",
   ] as const)(
     "fails a body-only update closed on damaged membership: %s",
     async (damage) => {
@@ -1205,6 +1206,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         );
         const scopeUuid = inserted.command.sealIdentity.scopeUuid;
         const before = await durableState(persistence, scopeUuid);
+        if (damage === "priorDigest")
+          await persistence.query("update fx_app_row_rev set value_sha256=$2 where scope_uuid=$1", [scopeUuid, new Uint8Array(32)]);
         if (damage === "missingPointer")
           await persistence.query(
             "delete from fx_app_index_entry_current where scope_uuid=$1",
@@ -1231,7 +1234,9 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
               changed.publicationCommand,
             ),
           ),
-        ).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+        ).toMatchObject(damage === "priorDigest"
+          ? { _tag: "PointCommitCorruptionV1Error", reason: "priorDocumentInvalid" }
+          : { _tag: "AppIndexEntryStorageCorruptionError" });
         expect(await durableState(persistence, scopeUuid)).toEqual(before);
       });
     },

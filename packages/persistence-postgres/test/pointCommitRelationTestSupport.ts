@@ -104,62 +104,6 @@ export async function relationBindingPublicationInput(
   });
 }
 
-/**
- * C09-only test bridge for the active-Application validation branch.
- *
- * Relation-bearing readiness is owned by later E01/RA01 work. This updates
- * only the already-created fixture's schema/readiness foreign-key pair so the
- * point-commit transaction can prove its locked digest comparison without
- * pretending that C09 publishes or activates Application revisions.
- */
-export async function bridgeActiveApplicationReadinessForRelationCommitTest(
-  persistence: RelationCommitTestSqlClient,
-  input: Readonly<{
-    readonly scopeId: string;
-    readonly applicationSchemaSha256: string;
-    readonly schemaVersionId: CatalogSchemaVersionId;
-    readonly schemaManifestSha256: string;
-  }>,
-): Promise<void> {
-  const applicationSchemaSha256 = lowercaseHexToBytes(
-    input.applicationSchemaSha256,
-  );
-  const schemaManifestSha256 = lowercaseHexToBytes(
-    input.schemaManifestSha256,
-  );
-  const updated = await persistence.query<{
-    readonly revision_id: string;
-  }>(`
-    with updated_schema as (
-      update fx_system_application_revision_schema_v1
-         set application_schema_sha256 = $2,
-             schema_version_id = $3,
-             schema_manifest_sha256 = $4
-       where scope_id = $1
-       returning scope_id, revision_id, application_schema_sha256,
-                 schema_version_id, schema_manifest_sha256
-    ), updated_readiness as (
-      update fx_system_application_readiness_v1 as readiness
-         set application_schema_sha256 = updated_schema.application_schema_sha256,
-             schema_version_id = updated_schema.schema_version_id,
-             schema_manifest_sha256 = updated_schema.schema_manifest_sha256
-        from updated_schema
-       where readiness.scope_id = updated_schema.scope_id
-         and readiness.revision_id = updated_schema.revision_id
-       returning readiness.revision_id
-    )
-    select revision_id from updated_readiness
-  `, [
-    input.scopeId,
-    applicationSchemaSha256,
-    input.schemaVersionId,
-    schemaManifestSha256,
-  ]);
-  if (updated.rows.length !== 1) {
-    throw new Error("Expected one active Application readiness test bridge.");
-  }
-}
-
 /** Install exact canonical Application authority on a legacy test session. */
 export async function installApplicationRelationCommitAuthorityForTest(
   persistence: RelationCommitTestSqlClient,
@@ -235,11 +179,7 @@ export async function installApplicationRelationCommitAuthorityForTest(
   }
 }
 
-function lowercaseHexToBytes(value: string): Uint8Array {
-  return Uint8Array.from({ length: value.length / 2 }, (_, index) =>
-    Number.parseInt(value.slice(index * 2, index * 2 + 2), 16)
-  );
-}
+
 
 function relationManifest(
   rootSha256: string,

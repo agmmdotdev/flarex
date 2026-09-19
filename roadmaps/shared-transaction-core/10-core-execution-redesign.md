@@ -112,6 +112,10 @@ The [bounded authority capture](./33-ce4-bounded-authority-capture.md) replaces
 separate clock/session/lease/journal metadata reads with one bounded header in
 the existing repeatable-read loader. Size-before-payload admission and complete
 authentication remain intact; this does not remove durable journal evidence.
+The [shared prior-document state](./34-ce3-shared-prior-document-state.md)
+consolidates predecessor reads and canonical decoding across index, unique and
+relation planning in native/CMS materialization. Publication exclusion and exact
+dependency validation remain; coordinated parallel materialization is still open.
 The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
 extends the matched comparison at the existing shared publication owner, without
 duplicating native authentication or transaction recovery in a benchmark engine.
