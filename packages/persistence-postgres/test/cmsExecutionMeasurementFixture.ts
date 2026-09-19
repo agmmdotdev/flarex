@@ -104,7 +104,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     expect(after.sessions).toEqual(before.sessions);
     return after;
   };
-  return { host, insert, read, moveAndReuse, inventory, verifyInsert, scope, priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions };
+  return { fixture, host, insert, read, moveAndReuse, inventory, verifyInsert, scope, priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions };
 }
 
 export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {

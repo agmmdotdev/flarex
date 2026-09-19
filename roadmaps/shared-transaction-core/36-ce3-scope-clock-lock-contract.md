@@ -3,7 +3,9 @@
 Status: lock-contract witnesses implemented against the existing PostgreSQL
 clock schema and revocation owner. The [CMS snapshot cutover](./38-ce3-cms-snapshot-publication.md)
 now applies this contract through the existing physical/session and admission
-owners. Other publication profiles retain stronger exclusion pending cutover.
+owners. The [native publication cutover](./39-ce3-native-publication-snapshots.md)
+extends it to the prepared native final kernel. Commerce profiles retain stronger
+exclusion pending cutover.
 
 ## Decision And Ownership
 
@@ -41,8 +43,10 @@ compatibility of two locks alone is insufficient.
 - `scopeClockInitialization.ts` owns initial identity; publication must never
   alter scope identity, generation, fence, epoch or revocation fields.
 - `commitPublication/publication.ts` advances only sequence/time. CMS selects
-  no-key-update protection; native point commit, commerce, atomic commerce and
-  cross-domain hosts retain stronger clock locks. All retain clock-first ordering.
+  no-key-update protection, as does the native final-publication kernel; commerce,
+  atomic commerce and cross-domain hosts retain stronger clock locks. Native
+  attempt replacement, recovery and finishing retain lifecycle protection. All
+  retain clock-first ordering.
 - Activation, binding, schema-candidate, relation/index/unique build and readiness
   transitions also take strong clock protection. Do not classify them as ordinary
   publishers merely because they write metadata rather than the clock itself.

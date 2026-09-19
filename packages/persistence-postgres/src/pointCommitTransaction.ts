@@ -3091,7 +3091,7 @@ async function runPointMutationAttemptReplacement(
   executionClaimDurationMilliseconds: number,
 ): Promise<PointMutationAttemptReplacementObservationV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
-    const clock = await lockPointCommitClock(tx, command, sharedOptions);
+    const clock = await lockPointCommitClock(tx, command, sharedOptions, "lifecycle");
     await emitReplacementStep(options, command, "clockLocked");
     const outcome = await inspectCommittedOutcomeInTransaction(
       tx,
@@ -3198,7 +3198,7 @@ async function runRunningRelationConflictAttemptReplacement(
   executionClaimDurationMilliseconds: number,
 ): Promise<PointMutationAttemptReplacementObservationV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
-    const clock = await lockPointCommitClock(tx, command, sharedOptions);
+    const clock = await lockPointCommitClock(tx, command, sharedOptions, "lifecycle");
     await emitReplacementStep(options, command, "clockLocked");
     const outcome = await inspectCommittedOutcomeInTransaction(
       tx,
@@ -3343,7 +3343,7 @@ async function runRunningRelationConflictRecovery(
   sharedOptions: PointCommitTransactionProofOptionsV1,
 ): Promise<RecoveredRunningRelationConflictEvidence> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
-    const clock = await lockPointCommitClock(tx, command, sharedOptions);
+    const clock = await lockPointCommitClock(tx, command, sharedOptions, "lifecycle");
     projectPointCommitTransactionResult(
       requireLockedClockAuthorityResult(
         clock,
@@ -4354,7 +4354,7 @@ async function runPointCommitFinishingTransition(
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitFinishingTransitionResultV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
-    const clock = await lockPointCommitClock(tx, command, options);
+    const clock = await lockPointCommitClock(tx, command, options, "lifecycle");
     await emitTransactionStep(options, command, "clockLocked");
     projectPointCommitTransactionResult(
       requireLockedClockAuthorityResult(
@@ -4687,7 +4687,7 @@ async function runPointCommitTransactionKernel(
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitTransactionModeV1,
 ): Promise<PointCommitKernelResultV1> {
-  const clock = await lockPointCommitClock(tx, command, options);
+  const clock = await lockPointCommitClock(tx, command, options, "publication");
   await emitTransactionStep(options, command, "clockLocked");
   if (
     mode === "publish" &&
@@ -4930,6 +4930,7 @@ async function lockPointCommitClock(
   tx: AppRowTransaction,
   command: PreparedPointCommitAuthorityCommandV1,
   options: PointCommitTransactionProofOptionsV1,
+  protection: "lifecycle" | "publication",
 ): Promise<LockedPointCommitClockV1> {
   const query = tx
     .select()
@@ -4939,7 +4940,7 @@ async function lockPointCommitClock(
       command.authorityPins.scopeId,
     ))
     .limit(2)
-    .for("update");
+    .for(protection === "publication" ? "no key update" : "update");
   observeDrizzleQuery("lockScopeClock", query, options);
   const rows = await sqlCall("lockScopeClock", () => query);
   return projectPointCommitTransactionResult(

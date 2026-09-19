@@ -1,48 +1,44 @@
+import { randomUUID } from "node:crypto";
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { Effect } from "effect";
 import { expect } from "vitest";
-import { eq } from "drizzle-orm";
 import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
-import { createPointMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
+import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
 import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
 import { createAppDeveloperIndexQueryPortV1 } from "../src/sessionJournalStore";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
 import { createPointCommitFinishingTransitionPortV1 } from "../src/pointCommitTransaction";
-import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { createPointCommitPublisherPortV1, PointCommitConflictV1Error } from "../src/pointCommitTransaction";
 import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1, pointCommitFinishingCommandFromStoredAttemptV1 } from "./pointCommitTransactionTestSupport";
 import { selectApplicationMutationAdmission } from "../src/applicationMutationAdmission";
 import { makeApplicationSchemaAuthorityPublisher } from "../src/applicationSchemaAuthority";
-import { fxSystemTransactionSessions } from "../src/schema";
-import { TransactionFunctionPathV1Schema } from "flarex-protocol/transaction-session";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
-import { TEST_GRANT_RETENTION_POLICY_V1, activatePointMutationSession, pointMutationSessionActivationFixture } from "./transactionSessionActivationTestSupport";
+import { TEST_GRANT_RETENTION_POLICY_V1 } from "./transactionSessionActivationTestSupport";
 import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "./pointCommitRelationTestSupport";
-import { completeSessionJournalSeal, prepareSessionJournalSeal } from "./effectTestRuntime";
+import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
+import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidateValidation";
+import { issueSetupSeededSyscallValidatorProofV1 } from "./applicationRevisionSyscallValidatorTestSupport";
+import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
+import type { cmsHostFixture } from "./cmsHostFixture";
 import type { CommerceHostTestFixture } from "./commerceHostFixture";
 
-/** A native attempt reads before a trusted command. The original committer must
- * reject an Application phantom and accept unrelated commerce-only changes. */
-export const assertNativeCommandPublication = Effect.fn("NativeCommand.testPublication")(function* <A, E>(
-  fixture: CommerceHostTestFixture, write: Effect.Effect<A, E>, expected: "overlap" | "disjoint",
+/** Real admission, journal and finishing owners for the bounded native range workload. */
+export const prepareNativeRangePublication = Effect.fn("NativeCommand.prepareRangePublication")(function* (
+  native: Awaited<ReturnType<typeof cmsHostFixture>>["fixture"], auditTitle?: string,
 ) {
-  const native = fixture.cms.fixture;
-  const activation = (yield* Effect.promise(() => activatePointMutationSession(createPointMutationSessionActivationPersistenceV1(native.pointCommitAuthority, { leaseDurationMilliseconds: 60_000 }),
-    pointMutationSessionActivationFixture(native.deploymentId, decodeReplacementScopeIdV1(native.authority.scopeId), { evidence: { schemaVersionId: native.relation.binding.schemaVersionId, functionPath: TransactionFunctionPathV1Schema.make("functions:write") } }))));
-  if (activation.status !== "created") throw new Error("Expected native attempt");
   const active = (yield* native.relationActivation.readActive());
   const admission = (yield* selectApplicationMutationAdmission(active.selection, "functions:write", {
     deploymentId: native.deploymentId, controlDb: native.control.drizzle, authority: native.authorityPorts,
     schema: makeApplicationSchemaAuthorityPublisher({ db: native.control.drizzle, runTransaction: run => native.control.drizzle.transaction(run) }), relationSchema: native.foldContext.schema,
   }));
-  // Test fixture installation follows the existing write-policy scenario and uses
-  // the real admitted canonical Application authority, never a synthetic grant.
-  yield* Effect.promise(() => native.persistence.drizzle.update(fxSystemTransactionSessions).set({ executionAuthorityGeneration: "application_v1",
-    packageId: null, artifactRuntime: null, artifactId: null, sourcePackageHash: null, executionModule: null,
-    applicationExecutionAuthorityJson: admission.executionAuthority.authority, applicationExecutionAuthorityCanonicalBytes: admission.executionAuthority.canonicalBytes,
-    applicationExecutionAuthoritySha256: admission.executionAuthority.sha256,
-  }).where(eq(fxSystemTransactionSessions.sessionId, activation.anchor.sessionId)));
+  const activationInput = yield* Effect.promise(() => applicationMutationActivationFixture({
+    deploymentId: native.deploymentId, selection: active.selection, executionAuthority: admission.executionAuthority,
+    requestKey: randomUUID(), grantId: randomUUID(),
+  }));
+  const activation = yield* createApplicationMutationSessionActivationPersistenceV1(native.pointCommitAuthority,
+    { leaseDurationMilliseconds: 60_000 }).activateEffect(activationInput);
+  if (activation.status !== "created") throw new Error("Expected native attempt");
   const developerIndexes = createAppDeveloperIndexDefinitionPortV1(native.control.drizzle);
   const store = createSessionJournalStorePersistenceV1(native.pointCommitAuthority, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     indexedQueries: createAppDeveloperIndexQueryPortV1(native.control.drizzle, native.pointCommitAuthority, developerIndexes) });
@@ -51,10 +47,17 @@ export const assertNativeCommandPublication = Effect.fn("NativeCommand.testPubli
   const table = (yield* store.resolvePointTableEffect(attempt, "posts"));
   const index = (yield* store.resolveDeveloperIndexEffect(table, "by_title"));
   expect((yield* store.runIndexedQueryEffect(index, { kind: "indexRange", syscallSequence: CommitSyscallSequenceV1Schema.make(1n), bounds: {}, limit: 32 }))).toMatchObject({ kind: "completed" });
-  const sealed = (yield* Effect.promise(() => prepareSessionJournalSeal(store, attempt)));
+  if (auditTitle !== undefined) {
+    const audit = yield* store.resolvePointTableEffect(attempt, "audit");
+    const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: native.authority.scopeId,
+      schemaVersionId: native.relation.binding.schemaVersionId, schemaManifest: admission.schema.manifest });
+    expect(yield* store.runPointOperationEffect(audit, { kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+      fields: { title: auditTitle } }, validator)).toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
+  }
+  const sealed = yield* store.prepareSealEffect(attempt);
   const journal = (yield* canonicalizeSessionJournalV1Effect(sealed.journal));
   const result = (yield* canonicalizeSuccessfulResultV1Effect({ observed: true }));
-  (yield* Effect.promise(() => completeSessionJournalSeal(store, sealed.preparation, journal, result)));
+  yield* store.completeSealEffect(sealed.preparation, journal, result);
   const authority = relationAuthorityFromAnchor(activation.anchor, native.relation.binding.schemaVersionId, activation.executionClaim);
   const loader = createStoredAttemptEvidenceLoaderV1(native.pointCommitAuthority);
   const running = (yield* loader.loadEffect(authority));
@@ -63,11 +66,24 @@ export const assertNativeCommandPublication = Effect.fn("NativeCommand.testPubli
   const finishing = (yield* loader.loadFinishingEffect(selectorFromRelationAnchor(activation.anchor)));
   if (finishing.kind !== "loaded") throw new Error("Expected native finishing evidence");
   const command = (yield* Effect.promise(() => pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(authority, finishing.evidence)));
+  return { activation, command: { ...command, journalBytes: journal.canonicalBytes,
+    successfulResult: { valueCodecVersion: result.evidence.valueCodecVersion, value: { observed: true }, canonicalBytes: result.canonicalBytes,
+      semanticSizeBytes: result.semanticSizeBytes, sha256Hex: result.evidence.sha256Hex } },
+    options: { developerIndexes, intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(native.control.drizzle),
+      uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(native.control.drizzle), applicationRelations: native.relationCommit,
+      candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: native.candidateValidation, pointCommitAuthority: native.pointCommitAuthority }) } };
+});
+
+/** A native attempt reads before a trusted command. The original committer must
+ * reject an Application phantom and accept unrelated commerce-only changes. */
+export const assertNativeCommandPublication = Effect.fn("NativeCommand.testPublication")(function* <A, E>(
+  fixture: CommerceHostTestFixture, write: Effect.Effect<A, E>, expected: "overlap" | "disjoint",
+) {
+  const native = fixture.cms.fixture;
+  const { activation, command, options } = yield* prepareNativeRangePublication(native);
   const payloadBefore = yield* Effect.promise(() => captureSessionStorage(native.persistence, activation.anchor));
   yield* write;
-  const publication = createPointCommitPublisherPortV1(native.pointCommitAuthority, { developerIndexes, uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(native.control.drizzle) }).publish({ ...command,
-    journalBytes: journal.canonicalBytes, successfulResult: { valueCodecVersion: result.evidence.valueCodecVersion, value: { observed: true }, canonicalBytes: result.canonicalBytes,
-      semanticSizeBytes: result.semanticSizeBytes, sha256Hex: result.evidence.sha256Hex } });
+  const publication = createPointCommitPublisherPortV1(native.pointCommitAuthority, options).publish(command);
   if (expected === "overlap") {
     const failure = yield* Effect.flip(publication);
     expect(yield* Effect.promise(() => captureSessionStorage(native.persistence, activation.anchor))).toEqual(payloadBefore);

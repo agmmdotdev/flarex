@@ -124,8 +124,10 @@ sequence advancement on the existing row, while retaining strong transition
 exclusion and stale-snapshot refusal. The [CMS snapshot cutover](./38-ce3-cms-snapshot-publication.md)
 applies this contract at the physical/session, admission and publication owners.
 Standalone CMS reads overlap ordinary CMS publication with coherent document
-and incoming-relation snapshots. Other publication profiles and concurrent
-same-scope writers remain open.
+and incoming-relation snapshots. [Native publication](./39-ce3-native-publication-snapshots.md)
+also overlaps these readers after native preparation and finishing have completed.
+Attempt replacement, recovery and finishing retain their stronger locks. Commerce
+publication profiles and concurrent same-scope writers remain open.
 The [active readiness lock correction](./37-ce3-active-readiness-locks.md) replaces
 exclusive stored-active validation locks with shared protection at the existing
 fold owner. Same-scope CMS reads can admit concurrently; lifecycle updates remain
