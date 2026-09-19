@@ -1,3 +1,6 @@
+import { sql } from "drizzle-orm";
+import { Schema } from "effect";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { expect } from "vitest";
 import {
   canonicalizeAppDocumentV1,
@@ -24,6 +27,14 @@ import {
   type AppendPreparedAppRowRevisionV1Input,
 } from "../src/appRows";
 import { runEffect } from "./effectTestRuntime";
+
+const decodePreparedStatements = Schema.decodeUnknownSync(
+  Schema.Struct({
+    rows: Schema.Array(
+      Schema.Struct({ name: Schema.String, statement: Schema.String }),
+    ),
+  }),
+);
 
 /** Identical row-batch semantic witnesses on PGlite and ordinary PostgreSQL. */
 export async function verifyAppRowBatches(
@@ -203,5 +214,119 @@ export async function verifyAppRowBatches(
   } finally {
     await persistence.query("drop trigger ce1_reject_rows on fx_app_row_rev");
     await persistence.query("drop function ce1_reject_rows()");
+  }
+}
+
+/** Repeated equal shapes must bind each batch, scope and nullable value afresh. */
+export async function verifyAppRowBatchBindings(
+  persistence: Pick<FlarexPersistence, "query">,
+  db: FlarexMetadataDatabase,
+) {
+  const sequence = CommitSeqSchema.make(9_007_199_254_740_995n);
+  for (const scopeOrdinal of [1, 2]) {
+    const scopeUuid = `a5290000-0000-4000-8000-${scopeOrdinal.toString().padStart(12, "0")}`;
+    const scopeId = ScopeIdSchema.make(`scope_${scopeUuid}`);
+    const writeEpoch = ScopeEpochSchema.make(`epoch_${scopeUuid}`);
+    await persistence.query(
+      "insert into fx_system_scope_clock (scope_id, storage_generation, epoch) values ($1, 'flarexdb_v1', $2)",
+      [scopeId, writeEpoch],
+    );
+    const rows: AppendPreparedAppRowRevisionV1Input[] = [];
+    for (let i = 0; i < 64; i++) {
+      const tableId = decodeCatalogTableId(1);
+      const rowId = decodeAppRowIdHexV1(i.toString(16).padStart(32, "0"));
+      const creationTime = decodeAppCreationTimeV1(42 + i);
+      rows.push({
+        kind: "live",
+        scopeId,
+        writeEpoch,
+        tableId,
+        rowId,
+        creationTime,
+        commitSeq: CommitSeqSchema.make(1n),
+        prevCommitSeq: null,
+        schemaVersionId: decodeCatalogSchemaVersionId(
+          `ce1_binding_${scopeOrdinal}`,
+        ),
+        document: await canonicalizeAppDocumentV1({
+          tableId,
+          rowId,
+          creationTime,
+          fields: {
+            scopeOrdinal,
+            ordinal: i,
+            bytes: new Uint8Array([0, 127, 255, i]).buffer,
+          },
+        }),
+      });
+    }
+    const append = (values: readonly AppendPreparedAppRowRevisionV1Input[]) =>
+      db.transaction(async (tx) => {
+        const before = decodePreparedStatements(
+          await tx.execute(
+            sql`select name, statement from pg_prepared_statements order by name`,
+          ),
+        ).rows;
+        const result = await runEffect(
+          appendPreparedAppRowRevisionsInTransactionEffect(tx, values),
+        );
+        expect(
+          decodePreparedStatements(
+            await tx.execute(
+              sql`select name, statement from pg_prepared_statements order by name`,
+            ),
+          ).rows,
+        ).toEqual(before);
+        return result;
+      });
+    await append(rows);
+    const changed = rows.map((row, i): AppendPreparedAppRowRevisionV1Input =>
+      i % 3 === 0
+        ? {
+            kind: "tombstone",
+            scopeId,
+            writeEpoch,
+            tableId: row.tableId,
+            rowId: row.rowId,
+            creationTime: row.creationTime,
+            schemaVersionId: row.schemaVersionId,
+            commitSeq: sequence,
+            prevCommitSeq: CommitSeqSchema.make(1n),
+          }
+        : {
+            ...row,
+            commitSeq: sequence,
+            prevCommitSeq: CommitSeqSchema.make(1n),
+          },
+    );
+    await append(changed);
+    const stored = await persistence.query(
+      `select r.table_id, encode(r.row_id, 'hex') as row_id,
+      r.commit_seq::text, r.prev_commit_seq::text, r.write_epoch_uuid::text, r.schema_version_id,
+      r.creation_time, r.is_tombstone, encode(r.value_bytes, 'hex') as value_bytes, encode(r.value_sha256, 'hex') as value_sha256
+      from fx_app_row_current c join fx_app_row_rev r using(scope_uuid,table_id,row_id,commit_seq)
+      where c.scope_uuid=$1 order by r.row_id`,
+      [scopeUuid],
+    );
+    expect(stored.rows).toEqual(
+      changed.map((row) => ({
+        table_id: row.tableId,
+        row_id: row.rowId,
+        commit_seq: sequence.toString(),
+        prev_commit_seq: "1",
+        write_epoch_uuid: scopeUuid,
+        schema_version_id: row.schemaVersionId,
+        creation_time: row.creationTime,
+        is_tombstone: row.kind === "tombstone",
+        value_bytes:
+          row.kind === "live"
+            ? encodeBytesToLowercaseHex(row.document.canonicalBytes)
+            : null,
+        value_sha256:
+          row.kind === "live"
+            ? encodeBytesToLowercaseHex(row.document.sha256)
+            : null,
+      })),
+    );
   }
 }

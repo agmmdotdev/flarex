@@ -883,11 +883,11 @@ type AppRowBatchError =
 
 const appRowBatchQueryEffect = Effect.fn("AppRows.batchQuery")(
   <Row,>(
-    query: PromiseLike<ReadonlyArray<Row>>,
+    execute: () => PromiseLike<ReadonlyArray<Row>>,
   ): Effect.Effect<ReadonlyArray<Row>, AppRowWritePersistenceError> =>
     Effect.uninterruptible(
       Effect.tryPromise({
-        try: () => query,
+        try: execute,
         catch: (cause) => new AppRowWritePersistenceError(cause),
       }),
     ),
@@ -906,9 +906,8 @@ export const appendPreparedAppRowRevisionsInTransactionEffect = Effect.fn(
   const decoded: DecodedAppendAppRowRevisionV1[] = [];
   const identities = new Set<string>();
   const projection = projectScopeIdUuidV1(first.scopeId);
-  const authority = yield* appRowBatchQueryEffect(
-    selectScopeAuthorityRows(tx, projection),
-  );
+  const authorityQuery = selectScopeAuthorityRows(tx, projection);
+  const authority = yield* appRowBatchQueryEffect(() => authorityQuery);
   if (authority[0]?.scopeUuid !== projection.scopeUuid)
     return yield* Effect.fail(
       new AppRowScopeAuthorityUnavailableError(first.scopeId),
@@ -948,6 +947,10 @@ export const appendPreparedAppRowRevisionsInTransactionEffect = Effect.fn(
         : { ...base, kind: "tombstone" },
     );
   }
+  const statements: RowBatchInsertStatements = {
+    revisions: new Map(),
+    pointers: new Map(),
+  };
   let offset = 0;
   while (offset < decoded.length) {
     const batch: DecodedAppendAppRowRevisionV1[] = [];
@@ -963,7 +966,7 @@ export const appendPreparedAppRowRevisionsInTransactionEffect = Effect.fn(
       bytes += rowBytes;
       offset += 1;
     }
-    yield* appendPreparedRowBatchEffect(tx, batch);
+    yield* appendPreparedRowBatchEffect(tx, batch, statements);
   }
   return decoded.map(projectAppRowRevision);
 });
@@ -1055,19 +1058,18 @@ const failAppRowBatchChainEffect = Effect.fn("AppRows.failBatchChain")(
     tx: AppRowTransaction,
     row: DecodedAppendAppRowRevisionV1,
   ): Effect.fn.Return<never, AppRowBatchError> {
-    const current = yield* appRowBatchQueryEffect(
-      tx
-        .select({ commitSeq: fxAppRowCurrent.commitSeq })
-        .from(fxAppRowCurrent)
-        .where(
-          and(
-            eq(fxAppRowCurrent.scopeUuid, row.scopeUuid),
-            eq(fxAppRowCurrent.tableId, row.identity.tableId),
-            eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(row.identity.rowId)),
-          ),
-        )
-        .limit(1),
-    );
+    const currentQuery = tx
+      .select({ commitSeq: fxAppRowCurrent.commitSeq })
+      .from(fxAppRowCurrent)
+      .where(
+        and(
+          eq(fxAppRowCurrent.scopeUuid, row.scopeUuid),
+          eq(fxAppRowCurrent.tableId, row.identity.tableId),
+          eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(row.identity.rowId)),
+        ),
+      )
+      .limit(1);
+    const current = yield* appRowBatchQueryEffect(() => currentQuery);
     const actual =
       current[0] === undefined
         ? null
@@ -1087,40 +1089,101 @@ const failAppRowBatchChainEffect = Effect.fn("AppRows.failBatchChain")(
   },
 );
 
+interface RowBatchInsertStatements {
+  readonly revisions: Map<number, ReturnType<typeof prepareRowRevisionBatch>>;
+  readonly pointers: Map<number, ReturnType<typeof prepareRowPointerBatch>>;
+}
+
+// Empty names retain unnamed driver execution. Templates borrow this transaction
+// only; their row values are supplied afresh and never retained across appends.
+function prepareRowRevisionBatch(tx: AppRowTransaction, count: number) {
+  return tx
+    .insert(fxAppRowRevisions)
+    .values(
+      Array.from({ length: count }, (_, index) => ({
+        scopeUuid: sql.placeholder(`scopeUuid_${index}`),
+        tableId: sql.placeholder(`tableId_${index}`),
+        rowId: sql.placeholder(`rowId_${index}`),
+        commitSeq: sql.placeholder(`commitSeq_${index}`),
+        prevCommitSeq: sql.placeholder(`prevCommitSeq_${index}`),
+        writeEpochUuid: sql.placeholder(`writeEpochUuid_${index}`),
+        schemaVersionId: sql.placeholder(`schemaVersionId_${index}`),
+        creationTime: sql.placeholder(`creationTime_${index}`),
+        valueCodecVersion: sql.placeholder(`valueCodecVersion_${index}`),
+        isTombstone: sql.placeholder(`isTombstone_${index}`),
+        valueBytes: sql.placeholder(`valueBytes_${index}`),
+        valueSha256: sql.placeholder(`valueSha256_${index}`),
+      })),
+    )
+    .onConflictDoNothing()
+    .returning(appRowWriteIdentityColumns)
+    .prepare("");
+}
+
+function prepareRowPointerBatch(tx: AppRowTransaction, count: number) {
+  return tx
+    .insert(fxAppRowCurrent)
+    .values(
+      Array.from({ length: count }, (_, index) => ({
+        scopeUuid: sql.placeholder(`scopeUuid_${index}`),
+        tableId: sql.placeholder(`tableId_${index}`),
+        rowId: sql.placeholder(`rowId_${index}`),
+        commitSeq: sql.placeholder(`commitSeq_${index}`),
+      })),
+    )
+    .onConflictDoNothing()
+    .returning(appRowCurrentIdentityColumns)
+    .prepare("");
+}
+
+function rowBatchBindings<Value>(
+  rows: readonly Readonly<Record<string, Value>>[],
+) {
+  const bindings: Record<string, Value> = {};
+  rows.forEach((row, index) => {
+    for (const [field, value] of Object.entries(row)) {
+      bindings[`${field}_${index}`] = value;
+    }
+  });
+  return bindings;
+}
+
 const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(
   function* (
     tx: AppRowTransaction,
     batch: ReadonlyArray<DecodedAppendAppRowRevisionV1>,
+    statements: RowBatchInsertStatements,
   ): Effect.fn.Return<void, AppRowBatchError> {
     const first = batch[0];
     if (first === undefined) return;
     const updates = batch.filter((row) => row.prevCommitSeq !== null);
     if (updates.length > 0) {
-      const predecessors = yield* appRowBatchQueryEffect(
-        tx
-          .select({
-            ...appRowWriteIdentityColumns,
-            creationTime: fxAppRowRevisions.creationTime,
-          })
-          .from(fxAppRowRevisions)
-          .where(
-            or(
-              ...updates.map((row) =>
-                and(
-                  eq(fxAppRowRevisions.scopeUuid, row.scopeUuid),
-                  eq(fxAppRowRevisions.tableId, row.identity.tableId),
-                  eq(
-                    fxAppRowRevisions.rowId,
-                    appRowIdHexV1ToBytes(row.identity.rowId),
-                  ),
-                  eq(
-                    fxAppRowRevisions.commitSeq,
-                    row.prevCommitSeq ?? row.commitSeq,
-                  ),
+      const predecessorQuery = tx
+        .select({
+          ...appRowWriteIdentityColumns,
+          creationTime: fxAppRowRevisions.creationTime,
+        })
+        .from(fxAppRowRevisions)
+        .where(
+          or(
+            ...updates.map((row) =>
+              and(
+                eq(fxAppRowRevisions.scopeUuid, row.scopeUuid),
+                eq(fxAppRowRevisions.tableId, row.identity.tableId),
+                eq(
+                  fxAppRowRevisions.rowId,
+                  appRowIdHexV1ToBytes(row.identity.rowId),
+                ),
+                eq(
+                  fxAppRowRevisions.commitSeq,
+                  row.prevCommitSeq ?? row.commitSeq,
                 ),
               ),
             ),
           ),
+        );
+      const predecessors = yield* appRowBatchQueryEffect(
+        () => predecessorQuery,
       );
       const expectedPredecessors = updates.map((row) => ({
         ...row,
@@ -1170,28 +1233,29 @@ const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(
           );
       }
     }
-    const inserted = yield* appRowBatchQueryEffect(
-      tx
-        .insert(fxAppRowRevisions)
-        .values(
-          batch.map((row) => ({
-            scopeUuid: row.scopeUuid,
-            tableId: row.identity.tableId,
-            rowId: appRowIdHexV1ToBytes(row.identity.rowId),
-            commitSeq: row.commitSeq,
-            prevCommitSeq: row.prevCommitSeq,
-            writeEpochUuid: row.writeEpochUuid,
-            schemaVersionId: row.schemaVersionId,
-            creationTime: row.creationTime,
-            valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
-            isTombstone: row.kind === "tombstone",
-            valueBytes:
-              row.kind === "live" ? row.document.canonicalBytes : null,
-            valueSha256: row.kind === "live" ? row.document.sha256 : null,
-          })),
-        )
-        .onConflictDoNothing()
-        .returning(appRowWriteIdentityColumns),
+    let revisionInsert = statements.revisions.get(batch.length);
+    if (revisionInsert === undefined) {
+      revisionInsert = prepareRowRevisionBatch(tx, batch.length);
+      statements.revisions.set(batch.length, revisionInsert);
+    }
+    const revisionBindings = rowBatchBindings(
+      batch.map((row) => ({
+        scopeUuid: row.scopeUuid,
+        tableId: row.identity.tableId,
+        rowId: appRowIdHexV1ToBytes(row.identity.rowId),
+        commitSeq: row.commitSeq,
+        prevCommitSeq: row.prevCommitSeq,
+        writeEpochUuid: row.writeEpochUuid,
+        schemaVersionId: row.schemaVersionId,
+        creationTime: row.creationTime,
+        valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+        isTombstone: row.kind === "tombstone",
+        valueBytes: row.kind === "live" ? row.document.canonicalBytes : null,
+        valueSha256: row.kind === "live" ? row.document.sha256 : null,
+      } satisfies Required<typeof fxAppRowRevisions.$inferInsert>)),
+    );
+    const inserted = yield* appRowBatchQueryEffect(() =>
+      revisionInsert.execute(revisionBindings),
     );
     const missingRevision = (yield* missingAppRowWritesEffect(
       batch,
@@ -1206,49 +1270,50 @@ const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(
       );
     const creates = batch.filter((row) => row.prevCommitSeq === null);
     if (creates.length > 0) {
-      const created = yield* appRowBatchQueryEffect(
-        tx
-          .insert(fxAppRowCurrent)
-          .values(
-            creates.map((row) => ({
-              scopeUuid: row.scopeUuid,
-              tableId: row.identity.tableId,
-              rowId: appRowIdHexV1ToBytes(row.identity.rowId),
-              commitSeq: row.commitSeq,
-            })),
-          )
-          .onConflictDoNothing()
-          .returning(appRowCurrentIdentityColumns),
+      let pointerInsert = statements.pointers.get(creates.length);
+      if (pointerInsert === undefined) {
+        pointerInsert = prepareRowPointerBatch(tx, creates.length);
+        statements.pointers.set(creates.length, pointerInsert);
+      }
+      const pointerBindings = rowBatchBindings(
+        creates.map((row) => ({
+          scopeUuid: row.scopeUuid,
+          tableId: row.identity.tableId,
+          rowId: appRowIdHexV1ToBytes(row.identity.rowId),
+          commitSeq: row.commitSeq,
+        } satisfies Required<typeof fxAppRowCurrent.$inferInsert>)),
+      );
+      const created = yield* appRowBatchQueryEffect(() =>
+        pointerInsert.execute(pointerBindings),
       );
       const missing = (yield* missingAppRowWritesEffect(creates, created))[0];
       if (missing !== undefined)
         return yield* failAppRowBatchChainEffect(tx, missing);
     }
     if (updates.length > 0) {
-      const advanced = yield* appRowBatchQueryEffect(
-        tx
-          .update(fxAppRowCurrent)
-          .set({ commitSeq: first.commitSeq })
-          .where(
-            or(
-              ...updates.map((row) =>
-                and(
-                  eq(fxAppRowCurrent.scopeUuid, row.scopeUuid),
-                  eq(fxAppRowCurrent.tableId, row.identity.tableId),
-                  eq(
-                    fxAppRowCurrent.rowId,
-                    appRowIdHexV1ToBytes(row.identity.rowId),
-                  ),
-                  eq(
-                    fxAppRowCurrent.commitSeq,
-                    row.prevCommitSeq ?? row.commitSeq,
-                  ),
+      const advanceQuery = tx
+        .update(fxAppRowCurrent)
+        .set({ commitSeq: first.commitSeq })
+        .where(
+          or(
+            ...updates.map((row) =>
+              and(
+                eq(fxAppRowCurrent.scopeUuid, row.scopeUuid),
+                eq(fxAppRowCurrent.tableId, row.identity.tableId),
+                eq(
+                  fxAppRowCurrent.rowId,
+                  appRowIdHexV1ToBytes(row.identity.rowId),
+                ),
+                eq(
+                  fxAppRowCurrent.commitSeq,
+                  row.prevCommitSeq ?? row.commitSeq,
                 ),
               ),
             ),
-          )
-          .returning(appRowCurrentIdentityColumns),
-      );
+          ),
+        )
+        .returning(appRowCurrentIdentityColumns);
+      const advanced = yield* appRowBatchQueryEffect(() => advanceQuery);
       const missing = (yield* missingAppRowWritesEffect(updates, advanced))[0];
       if (missing !== undefined)
         return yield* failAppRowBatchChainEffect(tx, missing);

@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { createPGlitePersistence } from "../src/pglite";
-import { verifyAppRowBatches } from "./appRowBatchScenario";
+import { verifyAppRowBatches, verifyAppRowBatchBindings } from "./appRowBatchScenario";
 import {
   appendPreparedAppRowRevisionsInTransactionEffect,
   AppRowStorageCorruptionError,
@@ -24,6 +24,7 @@ it("applies bounded prepared row batches with exact identities and atomic rollba
   try {
     await persistence.migrate();
     await verifyAppRowBatches(persistence, persistence.drizzle);
+    await verifyAppRowBatchBindings(persistence, persistence.drizzle);
   } finally {
     await db.close();
   }

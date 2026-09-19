@@ -21,14 +21,15 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
-import { verifyAppRowBatches } from "./appRowBatchScenario";
+import { verifyAppRowBatches, verifyAppRowBatchBindings } from "./appRowBatchScenario";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 describePostgres("ordinary-role PostgreSQL prepared row batches", () => {
   it("preserves exact identities, predecessors and complete rollback", async () => {
-    await withTemporaryPostgresPersistence((persistence) =>
-      verifyAppRowBatches(persistence, persistence.drizzle),
-    );
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      await verifyAppRowBatches(persistence, persistence.drizzle);
+      await verifyAppRowBatchBindings(persistence, persistence.drizzle);
+    });
   }, 120_000);
   it("splits row writes by encoded bytes before the row-count limit", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {

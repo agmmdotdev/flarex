@@ -2,7 +2,9 @@
 
 Status: row batch application is implemented under standing owner authorization.
 [Index batching](./16-ce1-index-batch-application.md) subsequently replaces scalar
-index application. Unique write batching remains open CE1 work.
+index application; [unique batching](./17-ce1-unique-batch-application.md) replaces
+scalar unique writes. [Statement reuse](./42-ce1-row-statement-reuse.md) compiles
+repeated revision/pointer insert shapes once within each append operation.
 
 ## Outcome And Owner
 
@@ -10,7 +12,7 @@ Replace the prepared scalar row writer in `appRows.ts` with an Effect operation
 for one admitted scope/epoch/commit and unique logical row identities. The shared
 Application/CMS materializer supplies the complete prepared set. Keep the existing
 schema, authoritative transaction, scope/index locks, publication and recovery.
-Index and unique writes remain subsequent CE1 work; no new Medusa integration.
+Index and unique writes have their own subsequent slices; no new Medusa integration.
 
 The preceding CE1 measurement attributes remaining linear SQL to scalar row and
 index writes. Row application is an independent owner-local correction. Reuse

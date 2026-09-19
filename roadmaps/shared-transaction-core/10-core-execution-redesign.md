@@ -165,6 +165,9 @@ The [bounded row application slice](./15-ce1-row-batch-application.md) replaces
 prepared scalar row writes in the shared native/CMS materializer. It checks exact
 returned identities, predecessor creation times and conditional current-pointer
 updates while retaining the existing transaction and locks. The
+[statement reuse refinement](./42-ce1-row-statement-reuse.md) compiles repeated
+revision/pointer insert shapes once per append and supplies fresh batch bindings;
+it retains unnamed driver execution and the existing transaction lifetime. The
 [index application slice](./16-ce1-index-batch-application.md) extends bounded
 execution to membership/parent checks and index revisions/current pointers.
 The [unique ownership slice](./17-ce1-unique-batch-application.md) replaces scalar
