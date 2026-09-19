@@ -108,6 +108,10 @@ scripted Worker RPC body; actual source evaluation, Workerd/transport, broader
 workloads and equivalent complete-request references remain open. Its calibrated
 phase observations guide owner selection without treating pool elapsed times as
 additive or client intervals as server lock-hold measurements.
+The [bounded authority capture](./33-ce4-bounded-authority-capture.md) replaces
+separate clock/session/lease/journal metadata reads with one bounded header in
+the existing repeatable-read loader. Size-before-payload admission and complete
+authentication remain intact; this does not remove durable journal evidence.
 The [publication persistence preflight](./13-ce0-publication-persistence-reference.md)
 extends the matched comparison at the existing shared publication owner, without
 duplicating native authentication or transaction recovery in a benchmark engine.

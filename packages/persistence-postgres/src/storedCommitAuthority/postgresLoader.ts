@@ -1,5 +1,5 @@
 import { isTerminalTransactionSessionLifecycleV1 } from "../transactionSessionAttemptFacet";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import {
@@ -86,10 +86,7 @@ import {
 
 export interface StoredCommitAuthorityEvidenceQueryV1 {
   readonly name:
-    | "clock"
-    | "authoritySizes"
-    | "lease"
-    | "root"
+    | "attemptHeader"
     | "executionClaim"
     | "attemptChildren"
     | "schemaSizes"
@@ -348,13 +345,35 @@ async function captureRows(
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
   includeAttemptChildren: boolean,
 ): Promise<CapturedRowsV1> {
-  const clockQuery = tx
-    .select()
-    .from(fxSystemScopeClocks)
+  // Each join uses the complete primary key; absent children stay absent.
+  // Keep large session and sealed-journal payloads behind size admission.
+  const headerQuery = tx.select({
+    clock: getTableColumns(fxSystemScopeClocks),
+    session: sessionSizeFields,
+    lease: getTableColumns(fxSystemSnapshotLeases),
+    root: rootScalarFields,
+  }).from(fxSystemScopeClocks)
+    .leftJoin(fxSystemTransactionSessions, and(
+      eq(fxSystemTransactionSessions.scopeUuid, fxSystemScopeClocks.scopeUuid),
+      eq(fxSystemTransactionSessions.sessionId, authority.sessionId),
+    ))
+    .leftJoin(fxSystemSnapshotLeases, and(
+      eq(fxSystemSnapshotLeases.scopeUuid, fxSystemScopeClocks.scopeUuid),
+      eq(fxSystemSnapshotLeases.sessionId, authority.sessionId),
+    ))
+    .leftJoin(fxSystemTransactionJournals, and(
+      eq(fxSystemTransactionJournals.scopeUuid, fxSystemScopeClocks.scopeUuid),
+      eq(fxSystemTransactionJournals.sessionId, authority.sessionId),
+      eq(fxSystemTransactionJournals.attemptFence, authority.attemptFence),
+    ))
     .where(eq(fxSystemScopeClocks.scopeId, authority.scopeId))
     .limit(2);
-  observeDrizzleQuery("clock", clockQuery, options.observeQuery);
-  const clockRows = await clockQuery;
+  observeDrizzleQuery("attemptHeader", headerQuery, options.observeQuery);
+  const headerRows = await headerQuery;
+  const clockRows = headerRows.map(row => row.clock);
+  const sessionSizeRows = headerRows.flatMap(row => row.session === null ? [] : [row.session]);
+  const leaseRows = headerRows.flatMap(row => row.lease === null ? [] : [row.lease]);
+  const rootRows = headerRows.flatMap(row => row.root === null ? [] : [row.root]);
   const nowQuery = tx
     .select({
       milliseconds: sql<string>`
@@ -370,35 +389,6 @@ async function captureRows(
     return emptyCapture(clockRows, nowRows[0]?.milliseconds);
   }
 
-  const sessionSizeQuery = selectSessionSizeRows(
-    tx,
-    scopeUuid,
-    authority.sessionId,
-  );
-  observeDrizzleQuery(
-    "authoritySizes",
-    sessionSizeQuery,
-    options.observeQuery,
-  );
-  const sessionSizeRows = await sessionSizeQuery;
-  const leaseQuery = tx
-    .select()
-    .from(fxSystemSnapshotLeases)
-    .where(and(
-      eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid),
-      eq(fxSystemSnapshotLeases.sessionId, authority.sessionId),
-    ))
-    .limit(2);
-  observeDrizzleQuery("lease", leaseQuery, options.observeQuery);
-  const leaseRows = await leaseQuery;
-  const rootQuery = selectRootScalarRows(
-    tx,
-    scopeUuid,
-    authority.sessionId,
-    authority.attemptFence,
-  );
-  observeDrizzleQuery("root", rootQuery, options.observeQuery);
-  const rootRows = await rootQuery;
   const executionClaimRows = includeAttemptChildren
     ? await selectExecutionClaimRows(
         tx,
@@ -761,164 +751,144 @@ async function selectAttemptChildExistenceRows(
   return await query;
 }
 
-function selectSessionSizeRows(
-  tx: AppRowTransaction,
-  scopeUuid: ScopeUuidV1,
-  sessionId: TransactionSessionIdV1,
-) {
-  return tx.select({
-    scopeUuid: fxSystemTransactionSessions.scopeUuid,
-    sessionId: fxSystemTransactionSessions.sessionId,
-    storageGeneration: fxSystemTransactionSessions.storageGeneration,
-    storageGenerationFence:
-      fxSystemTransactionSessions.storageGenerationFence,
-    executionAuthorityGeneration:
-      fxSystemTransactionSessions.executionAuthorityGeneration,
-    applicationExecutionAuthoritySha256:
-      fxSystemTransactionSessions.applicationExecutionAuthoritySha256,
-    applicationExecutionAuthorityFormat: sql<string | null>`
-      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
-        ->> 'format'
-    `,
-    applicationExecutionAuthorityVersionText: sql<string | null>`
-      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
-        ->> 'version'
-    `,
-    applicationExecutionAuthorityActivationSequence: sql<string | null>`
-      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
-        ->> 'activationSequence'
-    `,
-    applicationExecutionAuthorityRevisionId: sql<string | null>`
-      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
-        #>> '{runtimeTarget,revisionId}'
-    `,
-    applicationExecutionAuthorityFunctionPath: sql<string | null>`
-      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
-        #>> '{runtimeTarget,function,path}'
-    `,
-    applicationExecutionAuthoritySchemaSha256: sql<string | null>`
-      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
-        #>> '{runtimeTarget,schemaSha256}'
-    `,
-    applicationExecutionAuthorityJsonByteLengthText: sql<string | null>`case
-      when ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+const sessionSizeFields = {
+  scopeUuid: fxSystemTransactionSessions.scopeUuid,
+  sessionId: fxSystemTransactionSessions.sessionId,
+  storageGeneration: fxSystemTransactionSessions.storageGeneration,
+  storageGenerationFence:
+    fxSystemTransactionSessions.storageGenerationFence,
+  executionAuthorityGeneration:
+    fxSystemTransactionSessions.executionAuthorityGeneration,
+  applicationExecutionAuthoritySha256:
+    fxSystemTransactionSessions.applicationExecutionAuthoritySha256,
+  applicationExecutionAuthorityFormat: sql<string | null>`
+    ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+      ->> 'format'
+  `,
+  applicationExecutionAuthorityVersionText: sql<string | null>`
+    ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+      ->> 'version'
+  `,
+  applicationExecutionAuthorityActivationSequence: sql<string | null>`
+    ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+      ->> 'activationSequence'
+  `,
+  applicationExecutionAuthorityRevisionId: sql<string | null>`
+    ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+      #>> '{runtimeTarget,revisionId}'
+  `,
+  applicationExecutionAuthorityFunctionPath: sql<string | null>`
+    ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+      #>> '{runtimeTarget,function,path}'
+  `,
+  applicationExecutionAuthoritySchemaSha256: sql<string | null>`
+    ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+      #>> '{runtimeTarget,schemaSha256}'
+  `,
+  applicationExecutionAuthorityJsonByteLengthText: sql<string | null>`case
+    when ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+      is null then null else octet_length(
+        ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}::text
+      )::bigint::text end`,
+  applicationExecutionAuthorityCanonicalByteLengthText:
+    sql<string | null>`case
+      when ${fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes}
         is null then null else octet_length(
-          ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}::text
+          ${fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes}
         )::bigint::text end`,
-    applicationExecutionAuthorityCanonicalByteLengthText:
-      sql<string | null>`case
-        when ${fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes}
-          is null then null else octet_length(
-            ${fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes}
-          )::bigint::text end`,
-    packageId: fxSystemTransactionSessions.packageId,
-    artifactRuntime: fxSystemTransactionSessions.artifactRuntime,
-    artifactId: fxSystemTransactionSessions.artifactId,
-    sourcePackageHash: fxSystemTransactionSessions.sourcePackageHash,
-    executionModule: fxSystemTransactionSessions.executionModule,
-    functionPath: fxSystemTransactionSessions.functionPath,
-    functionKind: fxSystemTransactionSessions.functionKind,
-    schemaVersionId: fxSystemTransactionSessions.schemaVersionId,
-    policyVersion: fxSystemTransactionSessions.policyVersion,
-    identityAccessPolicySha256:
-      fxSystemTransactionSessions.identityAccessPolicySha256,
-    validatedArgsValueCodecVersion:
-      fxSystemTransactionSessions.validatedArgsValueCodecVersion,
-    validatedArgsSha256: fxSystemTransactionSessions.validatedArgsSha256,
-    authorizationGrantId: fxSystemTransactionSessions.authorizationGrantId,
-    authorizationGrantValueCodecVersion:
-      fxSystemTransactionSessions.authorizationGrantValueCodecVersion,
-    authorizationGrantSha256:
-      fxSystemTransactionSessions.authorizationGrantSha256,
-    authorizationRevocationEpoch:
-      fxSystemTransactionSessions.authorizationRevocationEpoch,
-    authorizationGrantExpiresAt:
-      fxSystemTransactionSessions.authorizationGrantExpiresAt,
-    requestKey: fxSystemTransactionSessions.requestKey,
-    requestSha256: fxSystemTransactionSessions.requestSha256,
-    lifecycle: fxSystemTransactionSessions.lifecycle,
-    attemptFence: fxSystemTransactionSessions.attemptFence,
-    protocolVersion: fxSystemTransactionSessions.protocolVersion,
-    hardExpiresAt: fxSystemTransactionSessions.hardExpiresAt,
-    createdAt: fxSystemTransactionSessions.createdAt,
-    updatedAt: fxSystemTransactionSessions.updatedAt,
-    validatedArgsJsonByteLengthText: sql<string | null>`
-      octet_length(${fxSystemTransactionSessions.validatedArgsJson}::text)::bigint::text
-    `,
-    validatedArgsCanonicalByteLengthText: sql<string | null>`
-      octet_length(${fxSystemTransactionSessions.validatedArgsCanonicalBytes})::bigint::text
-    `,
-    authorizationGrantJsonByteLengthText: sql<string | null>`
-      octet_length(${fxSystemTransactionSessions.authorizationGrantJson}::text)::bigint::text
-    `,
-    authorizationGrantCanonicalByteLengthText: sql<string | null>`
-      octet_length(${fxSystemTransactionSessions.authorizationGrantCanonicalBytes})::bigint::text
-    `,
-  }).from(fxSystemTransactionSessions).where(and(
-    eq(fxSystemTransactionSessions.scopeUuid, scopeUuid),
-    eq(fxSystemTransactionSessions.sessionId, sessionId),
-  )).limit(2);
-}
+  packageId: fxSystemTransactionSessions.packageId,
+  artifactRuntime: fxSystemTransactionSessions.artifactRuntime,
+  artifactId: fxSystemTransactionSessions.artifactId,
+  sourcePackageHash: fxSystemTransactionSessions.sourcePackageHash,
+  executionModule: fxSystemTransactionSessions.executionModule,
+  functionPath: fxSystemTransactionSessions.functionPath,
+  functionKind: fxSystemTransactionSessions.functionKind,
+  schemaVersionId: fxSystemTransactionSessions.schemaVersionId,
+  policyVersion: fxSystemTransactionSessions.policyVersion,
+  identityAccessPolicySha256:
+    fxSystemTransactionSessions.identityAccessPolicySha256,
+  validatedArgsValueCodecVersion:
+    fxSystemTransactionSessions.validatedArgsValueCodecVersion,
+  validatedArgsSha256: fxSystemTransactionSessions.validatedArgsSha256,
+  authorizationGrantId: fxSystemTransactionSessions.authorizationGrantId,
+  authorizationGrantValueCodecVersion:
+    fxSystemTransactionSessions.authorizationGrantValueCodecVersion,
+  authorizationGrantSha256:
+    fxSystemTransactionSessions.authorizationGrantSha256,
+  authorizationRevocationEpoch:
+    fxSystemTransactionSessions.authorizationRevocationEpoch,
+  authorizationGrantExpiresAt:
+    fxSystemTransactionSessions.authorizationGrantExpiresAt,
+  requestKey: fxSystemTransactionSessions.requestKey,
+  requestSha256: fxSystemTransactionSessions.requestSha256,
+  lifecycle: fxSystemTransactionSessions.lifecycle,
+  attemptFence: fxSystemTransactionSessions.attemptFence,
+  protocolVersion: fxSystemTransactionSessions.protocolVersion,
+  hardExpiresAt: fxSystemTransactionSessions.hardExpiresAt,
+  createdAt: fxSystemTransactionSessions.createdAt,
+  updatedAt: fxSystemTransactionSessions.updatedAt,
+  validatedArgsJsonByteLengthText: sql<string | null>`
+    octet_length(${fxSystemTransactionSessions.validatedArgsJson}::text)::bigint::text
+  `,
+  validatedArgsCanonicalByteLengthText: sql<string | null>`
+    octet_length(${fxSystemTransactionSessions.validatedArgsCanonicalBytes})::bigint::text
+  `,
+  authorizationGrantJsonByteLengthText: sql<string | null>`
+    octet_length(${fxSystemTransactionSessions.authorizationGrantJson}::text)::bigint::text
+  `,
+  authorizationGrantCanonicalByteLengthText: sql<string | null>`
+    octet_length(${fxSystemTransactionSessions.authorizationGrantCanonicalBytes})::bigint::text
+  `,
+};
 
-function selectRootScalarRows(
-  tx: AppRowTransaction,
-  scopeUuid: ScopeUuidV1,
-  sessionId: TransactionSessionIdV1,
-  attemptFence: TransactionAttemptFence,
-) {
-  return tx.select({
-    scopeUuid: fxSystemTransactionJournals.scopeUuid,
-    sessionId: fxSystemTransactionJournals.sessionId,
-    attemptFence: fxSystemTransactionJournals.attemptFence,
-    state: fxSystemTransactionJournals.state,
-    lastSyscallSequence: fxSystemTransactionJournals.lastSyscallSequence,
-    creationTimeSeed: fxSystemTransactionJournals.creationTimeSeed,
-    nextCreationTime: fxSystemTransactionJournals.nextCreationTime,
-    readDocuments: fxSystemTransactionJournals.readDocuments,
-    readSemanticBytes: fxSystemTransactionJournals.readSemanticBytes,
-    pointDependencyCount: fxSystemTransactionJournals.pointDependencyCount,
-    indexedQuerySyscalls: fxSystemTransactionJournals.indexedQuerySyscalls,
-    indexRangeDependencyCount:
-      fxSystemTransactionJournals.indexRangeDependencyCount,
-    indexRangeDependencyEvidenceBytes:
-      fxSystemTransactionJournals.indexRangeDependencyEvidenceBytes,
-    relationReadSyscalls: fxSystemTransactionJournals.relationReadSyscalls,
-    relationDependencyCount:
-      fxSystemTransactionJournals.relationDependencyCount,
-    relationBaseOccurrences:
-      fxSystemTransactionJournals.relationBaseOccurrences,
-    writeOperations: fxSystemTransactionJournals.writeOperations,
-    writeSemanticBytes: fxSystemTransactionJournals.writeSemanticBytes,
-    materialWriteEventEvidenceBytes:
-      fxSystemTransactionJournals.materialWriteEventEvidenceBytes,
-    failureDimension: fxSystemTransactionJournals.failureDimension,
-    sealedJournalByteLengthText: sql<string | null>`
-      case when ${fxSystemTransactionJournals.sealedJournalBytes} is null
-        then null
-        else octet_length(${fxSystemTransactionJournals.sealedJournalBytes})::bigint::text
-      end
-    `,
-    sealedJournalSha256: fxSystemTransactionJournals.sealedJournalSha256,
-    sealedResultValueCodecVersion:
-      fxSystemTransactionJournals.sealedResultValueCodecVersion,
-    sealedResultSemanticBytes:
-      fxSystemTransactionJournals.sealedResultSemanticBytes,
-    sealedResultByteLengthText: sql<string | null>`
-      case when ${fxSystemTransactionJournals.sealedResultBytes} is null
-        then null
-        else octet_length(${fxSystemTransactionJournals.sealedResultBytes})::bigint::text
-      end
-    `,
-    sealedResultSha256: fxSystemTransactionJournals.sealedResultSha256,
-    sealedAt: fxSystemTransactionJournals.sealedAt,
-    createdAt: fxSystemTransactionJournals.createdAt,
-    updatedAt: fxSystemTransactionJournals.updatedAt,
-  }).from(fxSystemTransactionJournals).where(and(
-    eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
-    eq(fxSystemTransactionJournals.sessionId, sessionId),
-    eq(fxSystemTransactionJournals.attemptFence, attemptFence),
-  )).limit(2);
-}
+const rootScalarFields = {
+  scopeUuid: fxSystemTransactionJournals.scopeUuid,
+  sessionId: fxSystemTransactionJournals.sessionId,
+  attemptFence: fxSystemTransactionJournals.attemptFence,
+  state: fxSystemTransactionJournals.state,
+  lastSyscallSequence: fxSystemTransactionJournals.lastSyscallSequence,
+  creationTimeSeed: fxSystemTransactionJournals.creationTimeSeed,
+  nextCreationTime: fxSystemTransactionJournals.nextCreationTime,
+  readDocuments: fxSystemTransactionJournals.readDocuments,
+  readSemanticBytes: fxSystemTransactionJournals.readSemanticBytes,
+  pointDependencyCount: fxSystemTransactionJournals.pointDependencyCount,
+  indexedQuerySyscalls: fxSystemTransactionJournals.indexedQuerySyscalls,
+  indexRangeDependencyCount:
+    fxSystemTransactionJournals.indexRangeDependencyCount,
+  indexRangeDependencyEvidenceBytes:
+    fxSystemTransactionJournals.indexRangeDependencyEvidenceBytes,
+  relationReadSyscalls: fxSystemTransactionJournals.relationReadSyscalls,
+  relationDependencyCount:
+    fxSystemTransactionJournals.relationDependencyCount,
+  relationBaseOccurrences:
+    fxSystemTransactionJournals.relationBaseOccurrences,
+  writeOperations: fxSystemTransactionJournals.writeOperations,
+  writeSemanticBytes: fxSystemTransactionJournals.writeSemanticBytes,
+  materialWriteEventEvidenceBytes:
+    fxSystemTransactionJournals.materialWriteEventEvidenceBytes,
+  failureDimension: fxSystemTransactionJournals.failureDimension,
+  sealedJournalByteLengthText: sql<string | null>`
+    case when ${fxSystemTransactionJournals.sealedJournalBytes} is null
+      then null
+      else octet_length(${fxSystemTransactionJournals.sealedJournalBytes})::bigint::text
+    end
+  `,
+  sealedJournalSha256: fxSystemTransactionJournals.sealedJournalSha256,
+  sealedResultValueCodecVersion:
+    fxSystemTransactionJournals.sealedResultValueCodecVersion,
+  sealedResultSemanticBytes:
+    fxSystemTransactionJournals.sealedResultSemanticBytes,
+  sealedResultByteLengthText: sql<string | null>`
+    case when ${fxSystemTransactionJournals.sealedResultBytes} is null
+      then null
+      else octet_length(${fxSystemTransactionJournals.sealedResultBytes})::bigint::text
+    end
+  `,
+  sealedResultSha256: fxSystemTransactionJournals.sealedResultSha256,
+  sealedAt: fxSystemTransactionJournals.sealedAt,
+  createdAt: fxSystemTransactionJournals.createdAt,
+  updatedAt: fxSystemTransactionJournals.updatedAt,
+};
 
 function selectSchemaSizeRows(
   db: Pick<AppRowTransaction, "select">,

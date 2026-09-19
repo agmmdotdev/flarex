@@ -283,6 +283,7 @@ import {
   fxSystemCommits,
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
+  fxSystemSnapshotLeases,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "../src/schema";
@@ -590,7 +591,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
     expect(transactionClosed).toBe(true);
     expect(result.kind).toBe("loaded");
-    expect(queries.indexOf("authoritySizes")).toBeLessThan(
+    expect(queries.indexOf("attemptHeader")).toBeLessThan(
       queries.indexOf("authorityPayload"),
     );
     expect(queries.indexOf("schemaSizes")).toBeLessThan(
@@ -612,6 +613,24 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         (byte) => byte !== 0,
       ),
     ).toBe(true);
+  });
+
+  it.each(["lease", "journal"] as const)("preserves missing %s classification in the joined authority header", async child => {
+    const current = await scenario(`header_missing_${child}`);
+    await seal(current);
+    const stored = await runEffect(current.loader.loadEffect(current.authority));
+    if (stored.kind !== "loaded") throw new Error("Expected sealed attempt evidence.");
+    const authority = commitAuthorityFromStoredEvidence(current.authority, stored.evidence);
+    const table = child === "lease" ? fxSystemSnapshotLeases : fxSystemTransactionJournals;
+    await persistence.drizzle.delete(table).where(and(
+      eq(table.scopeUuid, projectScopeIdUuidV1(current.authority.scopeId).scopeUuid),
+      eq(table.sessionId, current.anchor.sessionId),
+    ));
+    const loader = createStoredCommitAuthorityEvidenceLoaderV1(resolutionPorts(persistence));
+    await expect(runEffect(loader.loadEffect(authority))).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: child === "lease" ? "snapshotLeaseMissingOrDuplicate" : "journalRootMissingOrDuplicate",
+    });
   });
 
   it("does not observe interruption until authority capture settles", async () => {
@@ -1119,7 +1138,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     expect(executionCaptureClosed).toBe(true);
     expect(executionQueries).toContain("attemptChildren");
-    expect(executionQueries.indexOf("authoritySizes")).toBeLessThan(
+    expect(executionQueries.indexOf("attemptHeader")).toBeLessThan(
       executionQueries.indexOf("authorityPayload"),
     );
     expect(executionEvidence).toMatchObject({ kind: "loaded" });

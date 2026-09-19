@@ -157,6 +157,7 @@ import {
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemScopeClocks,
+  fxSystemSnapshotLeases,
   fxSystemTransactionJournals,
 } from "../src/schema";
 import {
@@ -589,10 +590,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       }
       expect(loaded).toMatchObject({ kind: "loaded" });
       expect([...observed.keys()]).toEqual([
-        "clock",
-        "authoritySizes",
-        "lease",
-        "root",
+        "attemptHeader",
         "schemaSizes",
         "authorityPayload",
         "schemaPayload",
@@ -600,18 +598,41 @@ describePostgres("real Postgres stored-attempt authority", () => {
       ]);
       const authorityPlan = await explainCommitAuthorityObserved(
         persistence,
-        requireCommitObservedQuery(observed, "authoritySizes"),
+        requireCommitObservedQuery(observed, "attemptHeader"),
       );
       const schemaPlan = await explainCommitAuthorityObserved(
         persistence,
         requireCommitObservedQuery(observed, "schemaSizes"),
       );
       expect(authorityPlan).toContain("fx_system_tx_session");
+      expect(authorityPlan).toContain("fx_system_snapshot_lease");
+      expect(authorityPlan).toContain("fx_system_tx_journal");
+      expect(authorityPlan).toContain('"Join Type":"Left"');
       expect(authorityPlan).toContain("Index Scan");
       expect(schemaPlan).toContain("fx_control_schema_version");
       expect(schemaPlan).toContain("Index Scan");
     });
   }, 120_000);
+
+  it.each(["lease", "journal"] as const)("preserves missing %s classification in the joined authority header", async child => {
+    await withPostgresPersistence(async persistence => {
+      const current = await scenario(persistence, `header_missing_${child}`);
+      await sealScenario(current);
+      const stored = await runEffect(current.loader.loadEffect(current.authority));
+      if (stored.kind !== "loaded") throw new Error("Expected sealed attempt evidence.");
+      const authority = commitAuthorityFromStoredEvidence(current.authority, stored.evidence);
+      const table = child === "lease" ? fxSystemSnapshotLeases : fxSystemTransactionJournals;
+      await persistence.drizzle.delete(table).where(and(
+        eq(table.scopeUuid, projectScopeIdUuidV1(current.authority.scopeId).scopeUuid),
+        eq(table.sessionId, current.anchor.sessionId),
+      ));
+      const loader = createStoredCommitAuthorityEvidenceLoaderV1(resolutionPorts(persistence));
+      await expect(runEffect(loader.loadEffect(authority))).resolves.toMatchObject({
+        kind: "corrupt",
+        reason: child === "lease" ? "snapshotLeaseMissingOrDuplicate" : "journalRootMissingOrDuplicate",
+      });
+    });
+  });
 
   it("keeps one coherent C04B1 snapshot across revocation and uses database-time expiry", async () => {
     await withPostgresPersistence(async (persistence) => {
