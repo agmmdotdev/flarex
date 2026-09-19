@@ -25,7 +25,7 @@ import {
   AppRowStorageCorruptionError,
   InvalidAppRowReadInputError,
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  appendPreparedAppRowRevisionsInTransactionEffect,
   getAppRowAtSnapshotInTransactionEffect,
   readAppRowAtSnapshotInTransactionEffect,
   readCurrentAppRowInTransactionEffect,
@@ -376,7 +376,7 @@ describe("FlarexDB app-row revision storage", () => {
     expect(counts.rows).toEqual([{ revisions: "2", current_rows: "1" }]);
   });
 
-  it("returns prepared-write invariants as Result without catching driver rejection", async () => {
+  it("preserves prepared batch failures and foreign defects", async () => {
     const persistence = await appRowPersistence();
     const document = await canonicalDocument({ value: "prepared" });
     const input = {
@@ -390,37 +390,21 @@ describe("FlarexDB app-row revision storage", () => {
       document,
     } as const;
 
-    const inserted = await persistence.drizzle.transaction((tx) =>
-      appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        input,
-      ));
-    expect(Result.isSuccess(inserted)).toBe(true);
-
-    const duplicate = await persistence.drizzle.transaction((tx) =>
-      appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        input,
-      ));
-    expect(Result.isFailure(duplicate)).toBe(true);
-    if (Result.isFailure(duplicate)) {
-      expect(duplicate.failure).toBeInstanceOf(
-        AppRowRevisionAlreadyExistsError,
-      );
-    }
+    const inserted = await persistence.drizzle.transaction(tx =>
+      runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input])));
+    expect(inserted).toHaveLength(1);
+    await expect(persistence.drizzle.transaction(tx =>
+      runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input]))))
+      .rejects.toBeInstanceOf(AppRowRevisionAlreadyExistsError);
 
     const driverCause = new Error("scope query rejected");
     const rejectingTx = {
-      select(): never {
-        throw driverCause;
-      },
+      select(): never { throw driverCause; },
     } as unknown as AppRowTransaction;
-    await expect(
-      appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        rejectingTx,
-        input,
-      ),
-    ).rejects.toBe(driverCause);
+    const defect = await Effect.runPromiseExit(
+      appendPreparedAppRowRevisionsInTransactionEffect(rejectingTx, [input]));
+    expect(Exit.isFailure(defect) && Cause.hasDies(defect.cause)).toBe(true);
+
   });
 
   it("rejects creation-time changes on live and tombstone revisions", async () => {

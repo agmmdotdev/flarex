@@ -21,7 +21,7 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -42,7 +42,7 @@ import {
   validateAppSchemaCandidateReadinessInTransactionEffect,
 } from "../src/appSchemaCandidateValidation";
 import {
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  appendPreparedAppRowRevisionsInTransactionEffect,
 } from "../src/appRows";
 import { createPGlitePersistence } from "../src/pglite";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
@@ -1263,10 +1263,7 @@ async function appendLive(
     fields,
   });
   await fixture.persistence.drizzle.transaction(async tx => {
-    Result.getOrThrow(
-      await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        {
+    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
           tableId: fixture.tableId,
@@ -1279,9 +1276,7 @@ async function appendLive(
           schemaVersionId: fixture.schemaVersionId,
           creationTime,
           document,
-        },
-      ),
-    );
+        }]));
   });
 }
 
@@ -1301,10 +1296,7 @@ async function appendManyLive(fixture: Fixture, count: number) {
   }));
   await fixture.persistence.drizzle.transaction(async tx => {
     for (const { id, document } of documents) {
-      Result.getOrThrow(
-        await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          {
+      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
             kind: "live",
             scopeId: fixture.scopeId,
             tableId: fixture.tableId,
@@ -1315,9 +1307,7 @@ async function appendManyLive(fixture: Fixture, count: number) {
             schemaVersionId: fixture.schemaVersionId,
             creationTime,
             document,
-          },
-        ),
-      );
+          }]));
     }
   });
 }

@@ -1,8 +1,9 @@
+import { runEffect } from "./effectTestRuntime";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import type { PoolClient } from "pg";
-import { Result, Schema } from "effect";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeAppDocumentV1,
@@ -19,7 +20,7 @@ import {
   FlarexDbV1StorageGenerationSchema,
 } from "flarex-protocol/storage-authority";
 import {
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  appendPreparedAppRowRevisionsInTransactionEffect,
   AppRowRevisionAlreadyExistsError,
   AppRowScopeAuthorityUnavailableError,
   type AppendPreparedLiveAppRowRevisionV1Input,
@@ -250,7 +251,7 @@ describePostgres("CE0 same-layout first-row insertion reference", () => {
         workload:
           "prepared first live row revisions only; same generic tables and physical runner; excludes admission, earlier-read OCC, indexes, publication, replay and hosted execution",
         comparison:
-          "scalar explicit SQL reference; no batching; both candidates instrumented; no full-request overhead ratio",
+          "bounded batch core versus scalar explicit SQL reference; both candidates instrumented; no full-request overhead ratio",
         warmupPairs: 1,
         measuredPairs: 5,
         samples,
@@ -336,18 +337,12 @@ function runCandidate(
     if (acquired === undefined)
       throw new Error("Missing row-reference connection.");
     if (hooks?.beforeRows !== undefined) await hooks.beforeRows(acquired);
-    const output = [];
-    for (const row of rows)
-      output.push(
-        candidate === "core"
-          ? Result.getOrThrow(
-              await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-                tx,
-                row,
-              ),
-            )
-          : await insertCe0ReferenceRow(acquired, row),
-      );
+    const output = candidate === "core"
+      ? [...await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, rows))]
+      : [];
+    if (candidate === "reference") {
+      for (const row of rows) output.push(await insertCe0ReferenceRow(acquired, row));
+    }
     if (lateFailure !== undefined) throw lateFailure;
     if (hooks?.afterRows !== undefined) await hooks.afterRows(acquired);
     return output;

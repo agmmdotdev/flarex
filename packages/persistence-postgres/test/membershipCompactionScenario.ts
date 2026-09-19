@@ -5,7 +5,7 @@ import {
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult } from "../src/appRows";
+import { appendPreparedAppRowRevisionsInTransactionEffect } from "../src/appRows";
 import { createHash } from "node:crypto";
 import { expect } from "vitest";
 import { Result } from "effect";
@@ -220,9 +220,7 @@ export async function verifyTerminalMembershipCompaction(input: {
   });
   await input.runReadCommitted(async (tx) => {
     const row =
-      await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        {
+      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId,
           tableId: decodeCatalogTableId(1),
@@ -233,9 +231,8 @@ export async function verifyTerminalMembershipCompaction(input: {
           schemaVersionId: decodeCatalogSchemaVersionId("schema_membership"),
           creationTime: decodeAppCreationTimeV1(42),
           document,
-        },
-      );
-    expect(Result.isSuccess(row)).toBe(true);
+        }]));
+    expect(row).toHaveLength(1);
     const appended =
       await appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult(
         tx,

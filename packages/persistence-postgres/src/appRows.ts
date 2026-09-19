@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
 import {
@@ -290,6 +290,23 @@ export type AppendAppRowRevisionV1Error =
   | AppRowRevisionChainConflictError
   | AppRowCreationTimeConflictError
   | AppRowStorageCorruptionError;
+
+export class InvalidAppRowBatchInputError extends Error {
+  readonly _tag = "InvalidAppRowBatchInputError" as const;
+  constructor(
+    readonly reason:
+      "mixedPublication" | "duplicateIdentity" | "documentBytesExceeded",
+  ) {
+    super(`Invalid prepared app-row batch: ${reason}`);
+  }
+}
+
+export class AppRowWritePersistenceError extends Error {
+  readonly _tag = "AppRowWritePersistenceError" as const;
+  constructor(readonly cause: unknown) {
+    super("Prepared app-row batch persistence failed", { cause });
+  }
+}
 
 export function isAppendAppRowRevisionV1Error(
   cause: unknown,
@@ -855,25 +872,389 @@ export async function appendAppRowRevisionAndAdvanceCurrentInTransaction(
   );
 }
 
-/**
- * Internal O06/O07 Result bridge for Drizzle's Promise transaction callback.
- * SQL rejection remains a rejected Promise so the callback rolls back; owned
- * app-row validation and invariant failures are returned as data.
- */
-export async function appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
+const APP_ROW_BATCH_ROWS = 32;
+const APP_ROW_BATCH_TARGET_BYTES = 256 * 1024;
+const APP_ROW_BATCH_MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
+
+type AppRowBatchError =
+  | AppendAppRowRevisionV1Error
+  | InvalidAppRowBatchInputError
+  | AppRowWritePersistenceError;
+
+const appRowBatchQueryEffect = Effect.fn("AppRows.batchQuery")(
+  <Row,>(
+    query: PromiseLike<ReadonlyArray<Row>>,
+  ): Effect.Effect<ReadonlyArray<Row>, AppRowWritePersistenceError> =>
+    Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => query,
+        catch: (cause) => new AppRowWritePersistenceError(cause),
+      }),
+    ),
+);
+
+/** Private prepared publication operation. The transaction owner MUST abort on
+ * failure; partial batches are never locally recovered or committed. */
+export const appendPreparedAppRowRevisionsInTransactionEffect = Effect.fn(
+  "AppRows.appendPreparedBatch",
+)(function* (
   tx: AppRowTransaction,
-  input: AppendPreparedAppRowRevisionV1Input,
-): Promise<Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>> {
-  const decoded = await decodePreparedAppendInputResult(tx, input);
-  return await Result.match(decoded, {
-    onFailure: async (failure) => Result.fail(failure),
-    onSuccess: (decodedRevision) =>
-      appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        decodedRevision,
-      ),
+  inputs: ReadonlyArray<AppendPreparedAppRowRevisionV1Input>,
+): Effect.fn.Return<ReadonlyArray<AppRowRevisionV1>, AppRowBatchError> {
+  const first = inputs[0];
+  if (first === undefined) return [];
+  const decoded: DecodedAppendAppRowRevisionV1[] = [];
+  const identities = new Set<string>();
+  const projection = projectScopeIdUuidV1(first.scopeId);
+  const authority = yield* appRowBatchQueryEffect(
+    selectScopeAuthorityRows(tx, projection),
+  );
+  if (authority[0]?.scopeUuid !== projection.scopeUuid)
+    return yield* Effect.fail(
+      new AppRowScopeAuthorityUnavailableError(first.scopeId),
+    );
+  const scopeUuid = decodeScopeUuidV1(authority[0].scopeUuid);
+  for (const input of inputs) {
+    if (
+      input.scopeId !== first.scopeId ||
+      input.writeEpoch !== first.writeEpoch ||
+      input.commitSeq !== first.commitSeq
+    )
+      return yield* Effect.fail(
+        new InvalidAppRowBatchInputError("mixedPublication"),
+      );
+    const identity = decodeIdentity(input);
+    const key = `${identity.tableId}/${identity.rowId}`;
+    if (identities.has(key))
+      return yield* Effect.fail(
+        new InvalidAppRowBatchInputError("duplicateIdentity"),
+      );
+    identities.add(key);
+    const scalars = yield* Effect.fromResult(
+      decodePreparedAppendScalars(input),
+    );
+    if (
+      input.kind === "live" &&
+      input.document.canonicalBytes.byteLength >
+        APP_ROW_BATCH_MAX_DOCUMENT_BYTES
+    )
+      return yield* Effect.fail(
+        new InvalidAppRowBatchInputError("documentBytesExceeded"),
+      );
+    const base = { ...input, ...scalars, identity, scopeUuid };
+    decoded.push(
+      input.kind === "live"
+        ? { ...base, kind: "live", document: input.document }
+        : { ...base, kind: "tombstone" },
+    );
+  }
+  let offset = 0;
+  while (offset < decoded.length) {
+    const batch: DecodedAppendAppRowRevisionV1[] = [];
+    let bytes = 0;
+    while (offset < decoded.length && batch.length < APP_ROW_BATCH_ROWS) {
+      const row = decoded[offset];
+      if (row === undefined) break;
+      const rowBytes =
+        row.kind === "live" ? row.document.canonicalBytes.byteLength : 0;
+      if (batch.length > 0 && bytes + rowBytes > APP_ROW_BATCH_TARGET_BYTES)
+        break;
+      batch.push(row);
+      bytes += rowBytes;
+      offset += 1;
+    }
+    yield* appendPreparedRowBatchEffect(tx, batch);
+  }
+  return decoded.map(projectAppRowRevision);
+});
+
+const appRowWriteIdentityColumns = {
+  scopeUuid: fxAppRowRevisions.scopeUuid,
+  tableId: fxAppRowRevisions.tableId,
+  rowId: fxAppRowRevisions.rowId,
+  commitSeq: fxAppRowRevisions.commitSeq,
+};
+const appRowCurrentIdentityColumns = {
+  scopeUuid: fxAppRowCurrent.scopeUuid,
+  tableId: fxAppRowCurrent.tableId,
+  rowId: fxAppRowCurrent.rowId,
+  commitSeq: fxAppRowCurrent.commitSeq,
+};
+type AppRowWriteIdentity = Pick<
+  typeof fxAppRowRevisions.$inferSelect,
+  "scopeUuid" | "tableId" | "rowId" | "commitSeq"
+>;
+
+function decodeBatchStoredIdentityResult(
+  context: AppRowIdentityV1,
+  row: AppRowWriteIdentity,
+) {
+  return Result.gen(function* () {
+    const scopeUuid = yield* decodeStoredRevisionColumnResult(
+      context,
+      decodeScopeUuidV1Result(row.scopeUuid),
+    );
+    const tableId = yield* decodeStoredRevisionColumnResult(
+      context,
+      decodeCatalogTableIdResult(row.tableId),
+    );
+    const rowId = yield* decodeStoredRevisionColumnResult(
+      context,
+      appRowIdHexV1FromBytesResult(row.rowId),
+    );
+    const commitSeq = yield* decodeStoredPositiveCommitSeqResult(
+      context,
+      row.commitSeq,
+    );
+    return { scopeUuid, tableId, rowId, commitSeq };
   });
 }
+
+const missingAppRowWritesEffect = Effect.fn("AppRows.verifyBatchWrites")(
+  function* (
+    expected: ReadonlyArray<DecodedAppendAppRowRevisionV1>,
+    returned: ReadonlyArray<AppRowWriteIdentity>,
+  ): Effect.fn.Return<
+    ReadonlyArray<DecodedAppendAppRowRevisionV1>,
+    AppRowStorageCorruptionError
+  > {
+    const first = expected[0];
+    if (first === undefined) return [];
+    const wanted = new Map(
+      expected.map((row) => [
+        `${row.scopeUuid}/${row.identity.tableId}/${row.identity.rowId}`,
+        row,
+      ]),
+    );
+    const seen = new Set<string>();
+    for (const row of returned) {
+      const identity = yield* Effect.fromResult(
+        decodeBatchStoredIdentityResult(first.identity, row),
+      );
+      const key = `${identity.scopeUuid}/${identity.tableId}/${identity.rowId}`;
+      if (seen.has(key) || wanted.get(key)?.commitSeq !== identity.commitSeq)
+        return yield* Effect.fail(
+          new AppRowStorageCorruptionError(
+            first.identity,
+            "unexpected or duplicate returned row identity/sequence",
+          ),
+        );
+      seen.add(key);
+    }
+    return expected.filter(
+      (row) =>
+        !seen.has(
+          `${row.scopeUuid}/${row.identity.tableId}/${row.identity.rowId}`,
+        ),
+    );
+  },
+);
+
+const failAppRowBatchChainEffect = Effect.fn("AppRows.failBatchChain")(
+  function* (
+    tx: AppRowTransaction,
+    row: DecodedAppendAppRowRevisionV1,
+  ): Effect.fn.Return<never, AppRowBatchError> {
+    const current = yield* appRowBatchQueryEffect(
+      tx
+        .select({ commitSeq: fxAppRowCurrent.commitSeq })
+        .from(fxAppRowCurrent)
+        .where(
+          and(
+            eq(fxAppRowCurrent.scopeUuid, row.scopeUuid),
+            eq(fxAppRowCurrent.tableId, row.identity.tableId),
+            eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(row.identity.rowId)),
+          ),
+        )
+        .limit(1),
+    );
+    const actual =
+      current[0] === undefined
+        ? null
+        : yield* Effect.fromResult(
+            decodeStoredPositiveCommitSeqResult(
+              row.identity,
+              current[0].commitSeq,
+            ),
+          );
+    return yield* Effect.fail(
+      new AppRowRevisionChainConflictError(
+        row.identity,
+        row.prevCommitSeq,
+        actual,
+      ),
+    );
+  },
+);
+
+const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(
+  function* (
+    tx: AppRowTransaction,
+    batch: ReadonlyArray<DecodedAppendAppRowRevisionV1>,
+  ): Effect.fn.Return<void, AppRowBatchError> {
+    const first = batch[0];
+    if (first === undefined) return;
+    const updates = batch.filter((row) => row.prevCommitSeq !== null);
+    if (updates.length > 0) {
+      const predecessors = yield* appRowBatchQueryEffect(
+        tx
+          .select({
+            ...appRowWriteIdentityColumns,
+            creationTime: fxAppRowRevisions.creationTime,
+          })
+          .from(fxAppRowRevisions)
+          .where(
+            or(
+              ...updates.map((row) =>
+                and(
+                  eq(fxAppRowRevisions.scopeUuid, row.scopeUuid),
+                  eq(fxAppRowRevisions.tableId, row.identity.tableId),
+                  eq(
+                    fxAppRowRevisions.rowId,
+                    appRowIdHexV1ToBytes(row.identity.rowId),
+                  ),
+                  eq(
+                    fxAppRowRevisions.commitSeq,
+                    row.prevCommitSeq ?? row.commitSeq,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      );
+      const expectedPredecessors = updates.map((row) => ({
+        ...row,
+        commitSeq: row.prevCommitSeq ?? row.commitSeq,
+      }));
+      const missing = yield* missingAppRowWritesEffect(
+        expectedPredecessors,
+        predecessors,
+      );
+      const absent = missing[0];
+      if (absent !== undefined)
+        return yield* failAppRowBatchChainEffect(tx, absent);
+      const creationTimes = new Map<string, AppCreationTimeV1>();
+      for (const predecessor of predecessors) {
+        const identity = yield* Effect.fromResult(
+          decodeBatchStoredIdentityResult(first.identity, predecessor),
+        );
+        const creationTime = yield* Effect.fromResult(
+          decodeStoredRevisionColumnResult(
+            first.identity,
+            decodeAppCreationTimeV1Result(predecessor.creationTime),
+          ),
+        );
+        creationTimes.set(
+          `${identity.tableId}/${identity.rowId}`,
+          creationTime,
+        );
+      }
+      for (const row of updates) {
+        const creationTime = creationTimes.get(
+          `${row.identity.tableId}/${row.identity.rowId}`,
+        );
+        if (creationTime === undefined)
+          return yield* Effect.fail(
+            new AppRowStorageCorruptionError(
+              row.identity,
+              "missing predecessor creation time",
+            ),
+          );
+        if (creationTime !== row.creationTime)
+          return yield* Effect.fail(
+            new AppRowCreationTimeConflictError(
+              row.identity,
+              creationTime,
+              row.creationTime,
+            ),
+          );
+      }
+    }
+    const inserted = yield* appRowBatchQueryEffect(
+      tx
+        .insert(fxAppRowRevisions)
+        .values(
+          batch.map((row) => ({
+            scopeUuid: row.scopeUuid,
+            tableId: row.identity.tableId,
+            rowId: appRowIdHexV1ToBytes(row.identity.rowId),
+            commitSeq: row.commitSeq,
+            prevCommitSeq: row.prevCommitSeq,
+            writeEpochUuid: row.writeEpochUuid,
+            schemaVersionId: row.schemaVersionId,
+            creationTime: row.creationTime,
+            valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+            isTombstone: row.kind === "tombstone",
+            valueBytes:
+              row.kind === "live" ? row.document.canonicalBytes : null,
+            valueSha256: row.kind === "live" ? row.document.sha256 : null,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning(appRowWriteIdentityColumns),
+    );
+    const missingRevision = (yield* missingAppRowWritesEffect(
+      batch,
+      inserted,
+    ))[0];
+    if (missingRevision !== undefined)
+      return yield* Effect.fail(
+        new AppRowRevisionAlreadyExistsError(
+          missingRevision.identity,
+          missingRevision.commitSeq,
+        ),
+      );
+    const creates = batch.filter((row) => row.prevCommitSeq === null);
+    if (creates.length > 0) {
+      const created = yield* appRowBatchQueryEffect(
+        tx
+          .insert(fxAppRowCurrent)
+          .values(
+            creates.map((row) => ({
+              scopeUuid: row.scopeUuid,
+              tableId: row.identity.tableId,
+              rowId: appRowIdHexV1ToBytes(row.identity.rowId),
+              commitSeq: row.commitSeq,
+            })),
+          )
+          .onConflictDoNothing()
+          .returning(appRowCurrentIdentityColumns),
+      );
+      const missing = (yield* missingAppRowWritesEffect(creates, created))[0];
+      if (missing !== undefined)
+        return yield* failAppRowBatchChainEffect(tx, missing);
+    }
+    if (updates.length > 0) {
+      const advanced = yield* appRowBatchQueryEffect(
+        tx
+          .update(fxAppRowCurrent)
+          .set({ commitSeq: first.commitSeq })
+          .where(
+            or(
+              ...updates.map((row) =>
+                and(
+                  eq(fxAppRowCurrent.scopeUuid, row.scopeUuid),
+                  eq(fxAppRowCurrent.tableId, row.identity.tableId),
+                  eq(
+                    fxAppRowCurrent.rowId,
+                    appRowIdHexV1ToBytes(row.identity.rowId),
+                  ),
+                  eq(
+                    fxAppRowCurrent.commitSeq,
+                    row.prevCommitSeq ?? row.commitSeq,
+                  ),
+                ),
+              ),
+            ),
+          )
+          .returning(appRowCurrentIdentityColumns),
+      );
+      const missing = (yield* missingAppRowWritesEffect(updates, advanced))[0];
+      if (missing !== undefined)
+        return yield* failAppRowBatchChainEffect(tx, missing);
+    }
+  },
+);
 
 type DecodedAppendAppRowRevisionV1 =
   | (AppendAppRowRevisionV1Base & {
@@ -951,7 +1332,13 @@ async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
     return failAdvancedCurrentPointerConflict(tx, decoded);
   }
 
-  return Result.succeed(decoded.kind === "live"
+  return Result.succeed(projectAppRowRevision(decoded));
+}
+
+function projectAppRowRevision(
+  decoded: DecodedAppendAppRowRevisionV1,
+): AppRowRevisionV1 {
+  return decoded.kind === "live"
     ? Object.freeze({
         kind: "live",
         ...decoded.identity,
@@ -972,7 +1359,7 @@ async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
         prevCommitSeq: decoded.prevCommitSeq,
         schemaVersionId: decoded.schemaVersionId,
         creationTime: decoded.creationTime,
-      } satisfies TombstoneAppRowRevisionV1));
+      } satisfies TombstoneAppRowRevisionV1);
 }
 
 async function failAdvancedCurrentPointerConflict(
@@ -1432,90 +1819,6 @@ function decodePreparedAppendScalars(
       creationTime,
     });
   });
-}
-
-async function decodePreparedAppendInputResult(
-  tx: AppRowTransaction,
-  input: AppendPreparedAppRowRevisionV1Input,
-): Promise<Result.Result<
-  DecodedAppendAppRowRevisionV1,
-  AppendAppRowRevisionV1Error
->> {
-  const identity = decodeIdentity(input);
-  const scopeUuid = await requireScopeUuidInTransactionResult(
-    tx,
-    identity.scopeId,
-  );
-  return await Result.match(scopeUuid, {
-    onFailure: async (failure) => Result.fail(failure),
-    onSuccess: (scopeUuidValue) =>
-      decodePreparedAppendInputWithScope(tx, input, identity, scopeUuidValue),
-  });
-}
-
-async function decodePreparedAppendInputWithScope(
-  tx: AppRowTransaction,
-  input: AppendPreparedAppRowRevisionV1Input,
-  identity: AppRowIdentityV1,
-  scopeUuid: ScopeUuidV1,
-): Promise<Result.Result<
-  DecodedAppendAppRowRevisionV1,
-  AppendAppRowRevisionV1Error
->> {
-  const scalars = decodePreparedAppendScalars(input);
-  return await Result.match(scalars, {
-    onFailure: async (failure) => Result.fail(failure),
-    onSuccess: (decodedScalars) =>
-      checkPreparedAppendImmutableCreationTime(
-        tx,
-        input,
-        identity,
-        scopeUuid,
-        decodedScalars,
-      ),
-  });
-}
-
-async function checkPreparedAppendImmutableCreationTime(
-  tx: AppRowTransaction,
-  input: AppendPreparedAppRowRevisionV1Input,
-  identity: AppRowIdentityV1,
-  scopeUuid: ScopeUuidV1,
-  scalars: DecodedPreparedAppendScalars,
-): Promise<Result.Result<
-  DecodedAppendAppRowRevisionV1,
-  AppendAppRowRevisionV1Error
->> {
-  if (scalars.prevCommitSeq !== null) {
-    const immutableCreationTime = await requireImmutableCreationTimeResult(
-      tx,
-      identity,
-      scopeUuid,
-      scalars.prevCommitSeq,
-      scalars.creationTime,
-    );
-    if (Result.isFailure(immutableCreationTime)) {
-      // SAFETY: the guard proved the failure channel; only the success phantom
-      // needs widening.
-      return immutableCreationTime as Result.Result<
-        DecodedAppendAppRowRevisionV1,
-        AppendAppRowRevisionV1Error
-      >;
-    }
-  }
-  const base = {
-    ...input,
-    identity,
-    scopeUuid,
-    commitSeq: scalars.commitSeq,
-    prevCommitSeq: scalars.prevCommitSeq,
-    writeEpochUuid: scalars.writeEpochUuid,
-    schemaVersionId: scalars.schemaVersionId,
-    creationTime: scalars.creationTime,
-  };
-  return Result.succeed(input.kind === "tombstone"
-    ? Object.freeze({ ...base, kind: "tombstone" })
-    : Object.freeze({ ...base, kind: "live", document: input.document }));
 }
 
 async function requireImmutableCreationTime(

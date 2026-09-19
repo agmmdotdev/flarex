@@ -23,7 +23,7 @@ import {
   applyAppUniqueKeyMutationInTransactionEffect,
 } from "../src/appUniqueKeys";
 import {
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  appendPreparedAppRowRevisionsInTransactionEffect,
   type AppendPreparedAppRowRevisionV1Input,
 } from "../src/appRows";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -152,12 +152,7 @@ async function appendRow(
   input: AppendPreparedAppRowRevisionV1Input,
 ): Promise<void> {
   await persistence.drizzle.transaction(async (tx) => {
-    Result.getOrThrow(
-      await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        input,
-      ),
-    );
+    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input]));
   });
 }
 

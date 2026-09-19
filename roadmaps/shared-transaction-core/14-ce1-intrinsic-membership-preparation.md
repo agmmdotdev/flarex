@@ -1,7 +1,8 @@
 # CE1 Bounded Intrinsic Membership Preparation
 
 Status: intrinsic membership preparation is implemented in the shared materializer
-under standing owner approval. Remaining row/index/unique write batching is open.
+under standing owner approval. [Row batching](./15-ce1-row-batch-application.md)
+subsequently replaces the scalar row writer; index/unique write batching is open.
 
 ## Decision And Boundary
 
@@ -12,7 +13,7 @@ definition once per call and reads positions in groups of 32. Native publication
 and the existing CMS participant both call this materializer. No Medusa
 integration or new consumer capability is introduced.
 
-Current intrinsic lowering invokes that reader once per changed row. Developer
+The displaced intrinsic lowering invoked that reader once per changed row. Developer
 index planning already uses its multi-position form. The CE0 source trace and
 native per-phase baseline identify per-row materialization work; the matched
 publication-persistence reference establishes that shared fact publication is
@@ -52,9 +53,10 @@ steps bracket the bounded reads; their interval does not include subsequent
 row/index writes or COMMIT. Both private step unions and their tests move together.
 
 Delete the old per-row intrinsic read/plan/write function and redundant combined
-row preparation/write helper. Keep existing scalar row/index persistence owners:
-they still execute every write in this slice and their set-based replacement
-remains CE1 work, not an unused compatibility path. No public API, DDL, data
+row preparation/write helper. This preparation slice retained scalar row/index
+persistence owners as active writers. The subsequent row-batching slice replaces
+the prepared scalar row API and changes row/index hook ordering; the index writer
+still owns its actual writes. No public API, DDL, data
 migration, durable format or framework adapter change is needed.
 
 ## Proof And Completion

@@ -146,7 +146,8 @@ import type {
 } from "../appIndexDefinitions";
 import {
   AppRowReadPersistenceError,
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  AppRowWritePersistenceError,
+  appendPreparedAppRowRevisionsInTransactionEffect,
   type AppendPreparedAppRowRevisionV1Input,
   type AppRowIdentityV1,
   type AppRowPointDependencyV1,
@@ -612,13 +613,21 @@ export async function materializeApplicationDocumentRows(
   );
   if (rowRevisions.length > 0 && intrinsicBuilds.length > 0)
     await emitTransactionStep(options, command, "intrinsicMembershipPrepared");
-  for (const row of rowRevisions) {
-    projectPointCommitTransactionResult(
-      await sqlCall("writeTentativeRow", () =>
-        appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(tx, row),
+  if (rowRevisions.length > 0) await emitTransactionStep(options, command, "rowBatchWriting");
+  projectPointCommitTransactionResult(
+    await runPointCommitInTransactionEffect(
+      appendPreparedAppRowRevisionsInTransactionEffect(tx, rowRevisions).pipe(
+        Effect.mapError(cause => cause instanceof AppRowWritePersistenceError
+          ? new PointCommitSqlFailureMarkerV1("writeTentativeRow", cause.cause)
+          : cause),
       ),
-    );
+    ),
+  );
+  if (rowRevisions.length > 0) await emitTransactionStep(options, command, "rowBatchWritten");
+  for (let rowIndex = 0; rowIndex < rowRevisions.length; rowIndex += 1) {
     await emitTransactionStep(options, command, "tentativeRowWritten");
+  }
+  for (const row of rowRevisions) {
     const intrinsic = intrinsicActions.get(row);
     if (intrinsic !== undefined) {
       projectPointCommitTransactionResult(

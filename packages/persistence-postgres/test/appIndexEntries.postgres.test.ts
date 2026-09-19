@@ -37,7 +37,7 @@ import {
   locateAppIndexDefinitionByIdEffect,
   type LocatedAppIndexDefinitionV1,
 } from "../src/appIndexDefinitions";
-import { appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult } from "../src/appRows";
+import { appendPreparedAppRowRevisionsInTransactionEffect } from "../src/appRows";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
 import {
@@ -252,7 +252,7 @@ async function seedLocatedDefinition(
 
 async function appendRow(
   tx: Parameters<
-    typeof appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult
+    typeof appendPreparedAppRowRevisionsInTransactionEffect
   >[0],
   rowId: typeof rowA,
   commitSeq: bigint,
@@ -265,8 +265,7 @@ async function appendRow(
     creationTime,
     fields: { title },
   });
-  Result.getOrThrow(
-    await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(tx, {
+  await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
       kind: "live",
       scopeId,
       tableId,
@@ -278,8 +277,7 @@ async function appendRow(
       schemaVersionId,
       creationTime,
       document,
-    }),
-  );
+    }]));
 }
 
 async function appendConcurrent(

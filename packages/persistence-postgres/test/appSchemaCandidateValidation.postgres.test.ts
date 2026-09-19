@@ -15,7 +15,6 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -26,7 +25,7 @@ import {
   loadAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
 } from "../src/appSchemaCandidateValidation";
-import { appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult } from
+import { appendPreparedAppRowRevisionsInTransactionEffect } from
   "../src/appRows";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
@@ -314,10 +313,7 @@ async function appendLive(
     fields,
   });
   await fixture.persistence.drizzle.transaction(async tx => {
-    Result.getOrThrow(
-      await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        {
+    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
           tableId: fixture.tableId,
@@ -330,9 +326,7 @@ async function appendLive(
           schemaVersionId: fixture.schemaVersionId,
           creationTime,
           document,
-        },
-      ),
-    );
+        }]));
   });
 }
 

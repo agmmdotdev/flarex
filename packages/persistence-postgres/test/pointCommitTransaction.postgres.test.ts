@@ -267,6 +267,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         "leaseLocked",
         "journalRootLocked",
         "dependenciesValidated",
+        "rowBatchWriting",
+        "rowBatchWritten",
         "tentativeRowWritten",
         "beforeRollback",
       ]);
@@ -732,6 +734,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
                 ...intrinsic,
                 afterTransactionStep: async (event) => {
                   if (
+                    event.step === "rowBatchWriting" ||
+                    event.step === "rowBatchWritten" ||
                     event.step === "intrinsicMembershipPreparing" ||
                     event.step === "intrinsicMembershipPrepared"
                   )
@@ -745,6 +749,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         expect(
           measured.observation.phases.intrinsicMembershipPreparing?.queryCalls,
         ).toBe(1 + Math.ceil(rowCount / 32));
+        expect(measured.observation.phases.rowBatchWriting?.queryCalls).toBe(1 + 2 * Math.ceil(rowCount / 32));
         expect(
           (
             await intrinsicIndexState(
@@ -824,6 +829,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
                 ...options,
                 afterTransactionStep: async (event) => {
                   if (
+                    event.step === "rowBatchWriting" ||
+                    event.step === "rowBatchWritten" ||
                     event.step === "intrinsicMembershipPreparing" ||
                     event.step === "intrinsicMembershipPrepared"
                   )

@@ -35,7 +35,7 @@ import {
   type AppUniqueKeySha256V1,
 } from "../src/appUniqueKeys";
 import {
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  appendPreparedAppRowRevisionsInTransactionEffect,
   type AppendPreparedAppRowRevisionV1Input,
 } from "../src/appRows";
 import {
@@ -348,7 +348,7 @@ describe("S11 app unique-key storage", () => {
     await appendRow(persistence, await liveRow(scopeId, epoch, rowA, 3n, 2n, "a3"));
     expect((await apply(persistence, mutation(scopeId, epoch, rowA, keyA, keyA))).status).toBe("unchanged");
     expect((await persistence.query("select *, xmin::text as tuple_version from fx_app_unique_key")).rows).toEqual(before.rows);
-    await expect(persistence.query("delete from fx_app_row_current")).rejects.toMatchObject({code: "23503"});
+    await expect(persistence.query("delete from fx_app_row_current")).rejects.toMatchObject({code: "23001", constraint: "fx_app_unique_key_row_identity_fk"});
     await appendRow(persistence, tombstoneRow(scopeId, epoch, rowA, 4n, 3n));
     const tombstoned = await persistence.drizzle.transaction(tx => runEffectFailure(applyAppUniqueKeyMutationInTransactionEffect(tx, mutation(scopeId, epoch, rowA, keyA, keyB))));
     expect(tombstoned).toBeInstanceOf(AppUniqueKeyParentRowError);
@@ -391,12 +391,7 @@ describe("S11 app unique-key storage", () => {
   it("keeps row and unique-key publication atomic under caller rollback", async () => {
     const persistence = await uniquePersistence();
     await expect(persistence.drizzle.transaction(async (tx) => {
-      Result.getOrThrow(
-        await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-          tx,
-          await liveRow(scopeId, epoch, rowA, 1n, null, "rollback"),
-        ),
-      );
+      await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [await liveRow(scopeId, epoch, rowA, 1n, null, "rollback")]));
       await runEffect(applyAppUniqueKeyMutationInTransactionEffect(
         tx,
         mutation(scopeId, epoch, rowA, null, keyA),
@@ -430,12 +425,7 @@ async function appendRow(
   input: AppendPreparedAppRowRevisionV1Input,
 ): Promise<void> {
   await persistence.drizzle.transaction(async (tx) => {
-    Result.getOrThrow(
-      await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        input,
-      ),
-    );
+    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input]));
   });
 }
 

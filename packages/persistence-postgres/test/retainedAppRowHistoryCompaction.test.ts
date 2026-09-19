@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
@@ -14,7 +14,7 @@ import { TransactionGrantDeploymentIdV1Schema } from
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  appendPreparedAppRowRevisionsInTransactionEffect,
   readAppRowAtSnapshotInTransactionEffect,
 } from "../src/appRows";
 import {
@@ -240,7 +240,7 @@ describe("O11-D retained app-row history compaction", () => {
     const epoch = epochRows.rows[0]?.epoch;
     if (epoch === undefined) throw new Error("Missing scope epoch.");
     const appended = await persistence.drizzle.transaction(tx =>
-      appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(tx, {
+      runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
         kind: "tombstone",
         scopeId: context.scopeId,
         tableId: decodeCatalogTableId(1),
@@ -250,9 +250,9 @@ describe("O11-D retained app-row history compaction", () => {
         prevCommitSeq: CommitSeqSchema.make(3n),
         schemaVersionId: decodeCatalogSchemaVersionId("schema_v1"),
         creationTime: decodeAppCreationTimeV1(42),
-      })
+      }]))
     );
-    expect(Result.isSuccess(appended)).toBe(true);
+    expect(appended).toHaveLength(1);
     await expect(readHistory(persistence, context.scopeId)).resolves.toEqual([
       `${testRowId}:1`, `${testRowId}:3`, `${testRowId}:4`,
     ]);

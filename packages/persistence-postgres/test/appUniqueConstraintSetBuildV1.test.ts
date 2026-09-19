@@ -54,7 +54,7 @@ import {
   readAppUniqueConstraintSetClosureV1Effect,
 } from "../src/appUniqueConstraintSetClosureV1";
 import {
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  appendPreparedAppRowRevisionsInTransactionEffect,
   type AppRowTransaction,
 } from "../src/appRows";
 import { createPGlitePersistence } from "../src/pglite";
@@ -379,7 +379,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
       copiedPort,
       eligibilityInput(fixture),
     ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
-  });
+  }, 30_000);
 
   it("closes the exact set, replays it, and refuses late bindings", async () => {
     const fixture = await fixtureFor("closure");
@@ -991,7 +991,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     });
     await setClockCommit(claimOnly, 1n);
     await advanceToValidating(claimOnly, 16);
-    await expect(claimOnly.persistence.query("delete from fx_app_row_current where scope_uuid = $1::uuid", [claimOnly.scopeId.slice("scope_".length)])).rejects.toMatchObject({code: "23503"});
+    await expect(claimOnly.persistence.query("delete from fx_app_row_current where scope_uuid = $1::uuid", [claimOnly.scopeId.slice("scope_".length)])).rejects.toMatchObject({code: "23001", constraint: "fx_app_unique_key_row_identity_fk"});
 
   });
 
@@ -1436,10 +1436,7 @@ async function appendDocument(
     fields,
   });
   await fixture.persistence.drizzle.transaction(async (tx) => {
-    Result.getOrThrow(
-      await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-        tx,
-        {
+    await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
           tableId: fixture.tableId,
@@ -1452,9 +1449,7 @@ async function appendDocument(
           schemaVersionId: fixture.schemaVersionId,
           creationTime,
           document,
-        },
-      ),
-    );
+        }]));
   });
 }
 

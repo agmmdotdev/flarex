@@ -15,8 +15,9 @@ different decisions explicitly and correct the actual owner; this authorization
 does not permit silent durable-data deletion or unrelated integration expansion.
 
 Status: owner-requested design and implementation-gate plan, with bounded CE0
-attribution/references and CE1 intrinsic membership preparation implemented;
-complete-request reference acceptance and remaining execution changes are open. Documentation
+attribution/references, CE1 intrinsic membership preparation and bounded row
+application implemented; complete-request reference acceptance and remaining
+execution changes are open. Documentation
 approval does not activate new storage, remove locks or broaden any framework
 capability. This is a workstream within the existing shared transaction core,
 not another runtime or metadata authority.
@@ -42,8 +43,9 @@ Do not benchmark legacy serving while reporting a private target kernel, or
 charge native syscall journaling to a framework path that does not use it.
 
 The pure point OCC comparison is not evidence of a large CPU bottleneck. Current
-head reads already batch dependencies. Remaining concerns include sequential
-row/index/unique application, exclusive index-build-state access and coverage
+head reads already batch dependencies, and prepared row writes now batch at the
+shared row owner. Remaining concerns include sequential index/unique application,
+exclusive index-build-state access and coverage
 updates during normal commits, broad commit exclusion, and execution evidence
 across the request. These are source-derived risks, not measured regressions.
 
@@ -119,6 +121,12 @@ before/after and connected correctness proofs. Complete-request CE0 acceptance
 remains open; it is not required to duplicate unchanged authority/recovery code
 in a benchmark before removing these repeated reads. Other execution changes
 retain their focused evidence and preflight gates.
+
+The [bounded row application slice](./15-ce1-row-batch-application.md) replaces
+prepared scalar row writes in the shared native/CMS materializer. It checks exact
+returned identities, predecessor creation times and conditional current-pointer
+updates while retaining the existing transaction and locks. Index and unique
+write application remain scalar and are the next CE1 materialization work.
 
 Candidate admission is already implemented and does not need its producer/identity
 scope reopened for measurements. CE1 begins actual shared storage execution

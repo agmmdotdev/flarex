@@ -63,7 +63,8 @@ not a substitute implementation of the core's corruption/recovery behavior.
 One warm-up pair and five measured pairs alternate core/reference ordering for
 1/8/32/128 rows. Both are instrumented; the existing observer calibration does
 not prove identical overhead for their different query forms. Samples are local
-diagnostics. Neither mode batches writes, and a difference includes SQL shape,
+diagnostics. The core now uses bounded row batches from CE1 while the explicit
+reference remains scalar. A difference therefore includes batching, SQL shape,
 driver binding, repeated validation, ORM construction and scheduling; do not
 attribute the entire difference to one library or advertise a production gain.
 

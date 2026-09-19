@@ -49,7 +49,7 @@ import {
   type LocatedAppIndexDefinitionV1,
 } from "../src/appIndexDefinitions";
 import {
-  appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
+  appendPreparedAppRowRevisionsInTransactionEffect,
   type AppendPreparedAppRowRevisionV1Input,
 } from "../src/appRows";
 import {
@@ -548,16 +548,11 @@ async function commitRowAndEntries(
 
 async function appendRow(
   tx: Parameters<
-    typeof appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult
+    typeof appendPreparedAppRowRevisionsInTransactionEffect
   >[0],
   input: AppendPreparedAppRowRevisionV1Input,
 ): Promise<void> {
-  Result.getOrThrow(
-    await appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-      tx,
-      input,
-    ),
-  );
+  await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [input]));
 }
 
 async function appendEntry(
