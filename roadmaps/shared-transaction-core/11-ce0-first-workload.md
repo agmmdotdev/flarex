@@ -3,7 +3,9 @@
 Status: private native publication instrumentation and a repeated local baseline
 are implemented, with a deterministic same-index contention witness. Complete
 request attribution, an equivalent reference and capacity acceptance remain
-pending. This is the first bounded measurement slice from the
+pending. [Native persistence lifecycle attribution and a bounded row-store
+reference](./12-ce0-native-lifecycle-and-reference.md) extend this first slice;
+neither constitutes a complete request/reference comparison. This is the first bounded measurement slice from the
 [execution redesign](./10-core-execution-redesign.md), not CE0 completion.
 
 ## Selected Path
@@ -50,6 +52,8 @@ measurement. The caller retains all resource and settlement ownership.
 `afterTransactionStep` groups counters by the most recently completed proof
 step. These are observational intervals, not exact logical-operation attribution:
 loops revisit steps and the final interval can include post-COMMIT reads.
+Explicit lifecycle markers and phase elapsed totals support the later native
+persistence workload; query/byte totals retain the same observation boundary.
 
 Existing `clockLocked` to `beforeCommit` measurements cover client-observed work
 inside protection. `clockLocked` to publication return additionally includes

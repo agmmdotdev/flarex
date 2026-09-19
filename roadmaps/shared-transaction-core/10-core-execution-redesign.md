@@ -82,6 +82,9 @@ consumers and removes what it displaces before reporting completion.
 The [first workload handoff](./11-ce0-first-workload.md) names the selected
 executing path, implemented publication observation, correctness witnesses and
 remaining coverage gaps. It is not complete CE0 acceptance or a measured win.
+The [native lifecycle and row-store reference](./12-ce0-native-lifecycle-and-reference.md)
+separates native journal cost from publication and admits only a bounded
+first-revision storage comparison. Full publication/reference equivalence remains open.
 
 Continue CE0 with complete request attribution and an equivalent PostgreSQL
 reference before selecting an execution change. The initial publication slice

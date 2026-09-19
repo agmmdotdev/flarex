@@ -1,3 +1,4 @@
+import { readCe0Environment } from "./ce0Environment";
 import { readOrderedMembershipStorage } from "./orderedMembershipStorageScenario";
 import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
@@ -15,15 +16,12 @@ import {
   expectSessionPayloadScrubbed,
 } from "./terminalSessionStorageScenario";
 import { performance } from "node:perf_hooks";
-import { createRequire } from "node:module";
-import { writeFile, readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
+import { writeFile } from "node:fs/promises";
+import { withPostgresExecutionObservation, type PostgresExecutionPhase } from "./postgresExecutionObservation";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { eq } from "drizzle-orm";
-import { Effect, Exit, Fiber, Result, Schema } from "effect";
+import { Effect, Exit, Fiber, Result } from "effect";
 import type { PoolClient } from "pg";
 import {
   canonicalizeAppDocumentV1,
@@ -2085,33 +2083,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
   it("measures CE0 publication SQL and paired observer overhead through real COMMIT", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96440000");
-      const configurationSchema = Schema.Struct({
-        server_version: Schema.String,
-        fsync: Schema.String,
-        synchronous_commit: Schema.String,
-        full_page_writes: Schema.String,
-        shared_buffers: Schema.String,
-        superuser: Schema.Boolean,
-      });
-      const configuration = Schema.decodeUnknownSync(configurationSchema)(
-        (
-          await persistence.query(`
-          select current_setting('server_version') as server_version,
-            current_setting('fsync') as fsync,
-            current_setting('synchronous_commit') as synchronous_commit,
-            current_setting('full_page_writes') as full_page_writes,
-            current_setting('shared_buffers') as shared_buffers,
-            (select rolsuper from pg_roles where rolname = current_user) as superuser
-        `)
-        ).rows[0],
-      );
-      expect(configuration.superuser).toBe(false);
-      expect(configuration.fsync).toBe("on");
-      expect(configuration.synchronous_commit).toBe("on");
-      expect(configuration.full_page_writes).toBe("on");
-      const driver = Schema.decodeUnknownSync(
-        Schema.Struct({ version: Schema.String }),
-      )(createRequire(import.meta.url)("pg/package.json"));
+      const environment = await readCe0Environment(persistence, ["./pointCommitTransaction.postgres.test.ts"]);
       const samples: Array<{
         readonly rowCount: number;
         readonly pair: number;
@@ -2246,19 +2218,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
           }
         }
       }
-      const sourceHashes = Object.fromEntries(
-        await Promise.all(
-          [
-            "./pointCommitTransaction.postgres.test.ts",
-            "./postgresExecutionObservation.ts",
-          ].map(async (path) => [
-            path,
-            createHash("sha256")
-              .update(await readFile(new URL(path, import.meta.url)))
-              .digest("hex"),
-          ]),
-        ),
-      );
       const summaries = [1, 8, 32, 128].map((rowCount) => {
         const normal = samples.filter(
           (sample) => sample.rowCount === rowCount && !sample.instrumented,
@@ -2295,21 +2254,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         };
       });
       const report = {
-        configuration,
-        node: process.version,
-        pg: driver.version,
-        platform: process.platform,
-        architecture: process.arch,
-        poolMax: persistence.pool.options.max,
-        transport: "pg TCP socket",
-        sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], {
-          encoding: "utf8",
-          windowsHide: true,
-        }).trim(),
-        trackedDiffSha256: createHash("sha256").update(execFileSync("git", ["diff", "HEAD", "--"], {
-          windowsHide: true, maxBuffer: 16 * 1024 * 1024,
-        })).digest("hex"),
-        sourceHashes,
+        ...environment,
         workload:
           "private native publisher; fresh scopes; intrinsic index; concurrency 1",
         warmupPairs: 1,
@@ -2326,6 +2271,139 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         );
       }
       console.info("CE0 publication baseline", JSON.stringify(report));
+    });
+  }, 900_000);
+
+  it("attributes CE0 native persistence lifecycle work and recovery-only replay", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96460000");
+      const environment = await readCe0Environment(persistence, [
+        "./pointCommitTransaction.postgres.test.ts",
+      ]);
+      const samples = [];
+      for (const rowCount of [1, 8, 32, 128]) {
+        for (let trial = -1; trial < 3; trial += 1) {
+          const label = `ce0_lifecycle_${rowCount}_${trial + 1}`;
+          const scope = await createScope(persistence, randomUuid, label);
+          const intrinsic = await enableIntrinsicIndexForPostgres(
+            persistence,
+            scope,
+          );
+          const measured = await withPostgresExecutionObservation(
+            persistence.pool,
+            async (markPhase) => {
+              const attempt = await createAttempt(
+                persistence,
+                randomUuid,
+                scope,
+                label,
+                rowCount,
+                markPhase,
+              );
+              markPhase("publication");
+              const published = await runEffect(
+                createPublisher(persistence, intrinsic).publish(
+                  attempt.publicationCommand,
+                ),
+              );
+              return { attempt, published };
+            },
+          );
+          expect(measured.value.published).toMatchObject({
+            kind: "published",
+            token: { commitSeq: 1n },
+          });
+          const beforeReplay = await durableState(
+            persistence,
+            measured.value.attempt.command.sealIdentity.scopeUuid,
+          );
+          expect(beforeReplay).toEqual({
+            revisions: String(rowCount),
+            current_rows: String(rowCount),
+            commit_headers: "1",
+            commit_changes: String(rowCount),
+            outcomes: "1",
+            wakes: "1",
+            last_commit_seq: "1",
+          });
+          const replay = await withPostgresExecutionObservation(
+            persistence.pool,
+            async (markPhase) => {
+              markPhase("replay");
+              return runEffect(
+                createPublisher(persistence, intrinsic).publish(
+                  measured.value.attempt.publicationCommand,
+                ),
+              );
+            },
+          );
+          expect(replay.value).toMatchObject({
+            kind: "replayed",
+            token: measured.value.published.token,
+          });
+          expect(
+            await durableState(
+              persistence,
+              measured.value.attempt.command.sealIdentity.scopeUuid,
+            ),
+          ).toEqual(beforeReplay);
+          expect(replay.observation.commands.insert ?? 0).toBe(0);
+          expect(replay.observation.commands.update ?? 0).toBe(0);
+          expect(replay.observation.commands.delete ?? 0).toBe(0);
+          for (const phase of [
+            "sessionActivation",
+            "journalOpen",
+            "tableResolution",
+            "pointOperations",
+            "sealPreparation",
+            "sealPersistence",
+            "runningEvidenceCapture",
+            "enterFinishing",
+            "finishingEvidenceCapture",
+            "publication",
+          ] as const) {
+            expect(
+              measured.observation.phases[phase]?.queryCalls,
+            ).toBeGreaterThan(0);
+          }
+          expect(
+            measured.observation.phases.sealCanonicalization?.queryCalls,
+          ).toBe(0);
+          expect(measured.observation.phases.commandProjection?.queryCalls).toBe(
+            0,
+          );
+          expect(
+            Object.values(measured.observation.phases).reduce(
+              (sum, phase) => sum + phase.elapsedMilliseconds,
+              0,
+            ),
+          ).toBeCloseTo(measured.observation.elapsedMilliseconds, 6);
+          expect(measured.observation.queryCalls).toBeGreaterThan(
+            measured.observation.phases.publication?.queryCalls ?? Infinity,
+          );
+          if (trial >= 0)
+            samples.push({
+              rowCount,
+              trial,
+              lifecycle: measured.observation,
+              replay: replay.observation,
+            });
+        }
+      }
+      const report = {
+        ...environment,
+        workload:
+          "private native persistence lifecycle; trusted fixture inputs; intrinsic index; excludes hosted admission, user-code execution and transport",
+        warmupTrials: 1,
+        measuredTrials: 3,
+        samples,
+      };
+      if (process.env.FLAREX_CE0_LIFECYCLE_REPORT_PATH !== undefined)
+        await writeFile(
+          process.env.FLAREX_CE0_LIFECYCLE_REPORT_PATH,
+          JSON.stringify(report, null, 2) + "\n",
+        );
+      console.info("CE0 native persistence lifecycle", JSON.stringify(report));
     });
   }, 900_000);
 
@@ -4137,11 +4215,13 @@ async function createAttempt(
           ReturnType<typeof appDocumentIdV1FromRowIdentity>
         >;
       }> = true,
+  markPhase?: (phase: PostgresExecutionPhase) => void,
 ): Promise<PreparedAttempt> {
   const seededDocumentId =
     materialWrite === "mixed"
       ? await seedCommittedUser(persistence, scope)
       : null;
+  markPhase?.("sessionActivation");
   const activation = await activatePointMutationSession(
     createPointMutationSessionActivationPersistenceV1(scope.ports, {
       leaseDurationMilliseconds: 300_000,
@@ -4160,6 +4240,7 @@ async function createAttempt(
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
+  markPhase?.("journalOpen");
   const attempt = await runEffect(
     store.openAttemptEffect({
       selector: {
@@ -4186,9 +4267,11 @@ async function createAttempt(
     materialWrite === "mixed" ||
     typeof materialWrite === "object"
   ) {
+    markPhase?.("tableResolution");
     const table = await runEffect(
       store.resolvePointTableEffect(attempt, "users"),
     );
+    markPhase?.("pointOperations");
     if (materialWrite === "mixed") {
       if (seededDocumentId === null) {
         throw new Error("Missing PostgreSQL O09-A seeded document.");
@@ -4267,13 +4350,16 @@ async function createAttempt(
       );
     }
   }
+  markPhase?.("sealPreparation");
   const prepared = await prepareSeal(store, attempt);
+  markPhase?.("sealCanonicalization");
   const journal = await runEffect(
     canonicalizeSessionJournalV1Effect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
   );
+  markPhase?.("sealPersistence");
   await completeSeal(store, prepared.preparation, journal, result);
   const authority = authorityFromAnchor(
     activation.anchor,
@@ -4281,10 +4367,12 @@ async function createAttempt(
     executionClaimForAnchor(activation.anchor),
   );
   const loader = createStoredAttemptEvidenceLoaderV1(scope.ports);
+  markPhase?.("runningEvidenceCapture");
   const running = await runEffect(loader.loadEffect(authority));
   if (running.kind !== "loaded") {
     throw new Error(`Expected running O06 evidence, received ${running.kind}.`);
   }
+  markPhase?.("enterFinishing");
   await runEffect(
     createPointCommitFinishingTransitionPortV1(scope.ports).enterFinishing(
       await pointCommitFinishingCommandFromStoredAttemptV1(
@@ -4293,6 +4381,7 @@ async function createAttempt(
       ),
     ),
   );
+  markPhase?.("finishingEvidenceCapture");
   const loaded = await runEffect(
     loader.loadFinishingEffect({
       deploymentId: activation.anchor.deploymentId,
@@ -4304,6 +4393,7 @@ async function createAttempt(
   if (loaded.kind !== "loaded") {
     throw new Error(`Expected O06 stored evidence, received ${loaded.kind}.`);
   }
+  markPhase?.("commandProjection");
   const command = await pointCommitCommandFromStoredAttemptV1(
     authority,
     loaded.evidence,

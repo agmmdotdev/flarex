@@ -24,11 +24,27 @@ const families = [
   fxSystemScopeClocks,
 ].map(getTableName);
 
-type Phase = "resolveAndLock" | PointCommitTransactionProofStepV1;
+export type PostgresExecutionPhase =
+  | "resolveAndLock"
+  | PointCommitTransactionProofStepV1
+  | "sessionActivation"
+  | "journalOpen"
+  | "tableResolution"
+  | "pointOperations"
+  | "sealPreparation"
+  | "sealCanonicalization"
+  | "sealPersistence"
+  | "runningEvidenceCapture"
+  | "enterFinishing"
+  | "finishingEvidenceCapture"
+  | "commandProjection"
+  | "publication"
+  | "replay";
 interface Counters {
   queryCalls: number;
   sqlTextBytes: number;
   transmittedBytes: number;
+  elapsedMilliseconds: number;
 }
 interface BorrowedClient {
   readonly original: PoolClient["query"];
@@ -43,9 +59,7 @@ interface BorrowedClient {
  * No SQL text, parameter values or result bodies survive a query invocation. */
 export async function withPostgresExecutionObservation<Value>(
   pool: Pool,
-  run: (
-    markStep: (step: PointCommitTransactionProofStepV1) => void,
-  ) => Promise<Value>,
+  run: (markStep: (step: PostgresExecutionPhase) => void) => Promise<Value>,
 ) {
   if (
     observedPools.has(pool) ||
@@ -57,17 +71,22 @@ export async function withPostgresExecutionObservation<Value>(
     );
   }
   const clients = new Map<PoolClient, BorrowedClient>();
-  const phases = new Map<Phase, Counters>();
+  const phases = new Map<PostgresExecutionPhase, Counters>();
   const commands = new Map<string, number>();
   const familyQueries = new Map<string, number>();
-  let phase: Phase = "resolveAndLock";
+  let phase: PostgresExecutionPhase = "resolveAndLock";
   let unsupported = false;
   let checkouts = 0;
   let releases = 0;
   const counters = () => {
     let value = phases.get(phase);
     if (value === undefined) {
-      value = { queryCalls: 0, sqlTextBytes: 0, transmittedBytes: 0 };
+      value = {
+        queryCalls: 0,
+        sqlTextBytes: 0,
+        transmittedBytes: 0,
+        elapsedMilliseconds: 0,
+      };
       phases.set(phase, value);
     }
     return value;
@@ -155,12 +174,20 @@ export async function withPostgresExecutionObservation<Value>(
   pool.on("acquire", acquire);
   pool.on("release", release);
   const started = performance.now();
+  let phaseStarted = started;
+  const finishPhase = () => {
+    const now = performance.now();
+    counters().elapsedMilliseconds += now - phaseStarted;
+    phaseStarted = now;
+    return now;
+  };
   try {
     const value = await run((step) => {
       for (const borrowed of clients.values()) flushBytes(borrowed);
+      finishPhase();
       phase = step;
     });
-    const elapsedMilliseconds = performance.now() - started;
+    const elapsedMilliseconds = finishPhase() - started;
     if (unsupported || clients.size !== 0 || checkouts !== releases) {
       throw new Error(
         "CE0 observation is incomplete or uses an unsupported transport/query form.",
