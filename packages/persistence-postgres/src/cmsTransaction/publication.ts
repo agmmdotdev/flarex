@@ -13,7 +13,7 @@ import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protoco
 import { requireCmsAdmission, type CmsAdmission, type PreparedCmsApplication } from "../cmsTransaction/admission";
 import { consumeCmsDocumentClosure, type CmsDocumentClosure } from "../cmsTransaction/documents";
 import type { CmsRequestLifetime } from "../cmsTransaction/lifetime";
-import { consumePayloadPreferenceCleanup, type PayloadPreferenceCleanupClosure } from "../payloadPreferences/cleanup";
+import { applyPayloadPreferenceCleanup, type PayloadPreferenceCleanupClosure } from "../payloadPreferences/cleanup";
 import { fxSystemCommitPayloadPreferenceDeletions } from "../payloadPreferences/factsSchema";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { cmsError, type CmsTransactionError } from "../cmsTransaction/model";
@@ -101,14 +101,21 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
         admission,
         lifetime,
       );
-      const preferenceEvidence = yield* consumePayloadPreferenceCleanup(
+      if (hooks?.afterDocumentClosure !== undefined) yield* hooks.afterDocumentClosure({
+        dependencies: closed.dependencies, scans: closed.scans, uniqueReads: closed.uniqueReads,
+        changes: closed.changes, noFinalRows: closed.noFinalRows,
+      });
+      const { dependencies } = yield* validateCmsDocumentContribution(admission, closed);
+      const delta = yield* core.prepareDelta(closed.changes, dependencies)
+        .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
+      const preferenceEvidence = yield* applyPayloadPreferenceCleanup(
         preferenceClosure,
         admission,
         lifetime,
         closed.pendingDeletions,
       );
-      if (hooks?.afterPreferenceClosure !== undefined)
-        yield* hooks.afterPreferenceClosure(preferenceEvidence);
+      if (hooks?.afterPreferenceCleanup !== undefined)
+        yield* hooks.afterPreferenceCleanup(preferenceEvidence);
       const preferenceFacts: Omit<
         typeof fxSystemCommitPayloadPreferenceDeletions.$inferInsert,
         "commitSeq" | "changeOrdinal"
@@ -133,9 +140,6 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
             contentRowId: appRowIdHexV1ToBytes(content.rowId),
           });
       }
-      const { dependencies } = yield* validateCmsDocumentContribution(admission, closed);
-      const delta = yield* core.prepareDelta(closed.changes, dependencies)
-        .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
       const now = yield* cmsKernel(() =>
         readPointCommitDatabaseTime(state.tx, scope.scopeId, prepared.options),
       );

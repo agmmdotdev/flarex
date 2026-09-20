@@ -32,7 +32,7 @@ import {
 } from "../commerceTransaction/model";
 import {
   makePayloadPreferenceCleanup,
-  consumePayloadPreferenceCleanup,
+  applyPayloadPreferenceCleanup,
 } from "../payloadPreferences/cleanup";
 import {
   makeApplicationInsertParticipant,
@@ -198,7 +198,7 @@ export const makeCurrencyAnnouncementParticipants = Effect.fn(
         cmsAdmission,
         closed,
       );
-      const preferenceFacts = yield* consumePayloadPreferenceCleanup(
+      const preferenceFacts = yield* applyPayloadPreferenceCleanup(
         yield* preferences.close(),
         cmsAdmission,
         cmsLifetime,

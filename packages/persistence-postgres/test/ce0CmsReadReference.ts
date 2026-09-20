@@ -195,7 +195,7 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
                           (table) => table.tableId,
                         ),
                       );
-                      const rows = new Map<AppDocumentIdV1, AppRowRevisionV1>();
+                      const rows = new Map<AppDocumentIdV1, AppRowRevisionV1 | null>();
                       const values: Json[] = [];
                       for (const id of ids) {
                         values.push(
@@ -260,6 +260,8 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
                                       ),
                                     ),
                                   );
+                                yield* Effect.fromResult(lifetime.charge(128));
+                                if (found.length === 0) rows.set(identity.id, null);
                                 for (const row of found) {
                                   if (rows.size >= cmsLimits.identities)
                                     return yield* Effect.fail(

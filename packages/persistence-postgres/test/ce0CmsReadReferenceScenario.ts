@@ -101,7 +101,7 @@ export async function ce0CmsReadReferenceScenario(
       expected: [documents[0], documents[0]],
       captures: 1,
     },
-    { ids: [missing, missing], expected: [null, null], captures: 2 },
+    { ids: [missing, missing], expected: [null, null], captures: 1 },
     { ids: foreignIds, expected: [null], captures: 1 },
   ];
   for (const profile of profiles)

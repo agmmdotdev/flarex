@@ -4,6 +4,7 @@ import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result,
   type AppDocumentIdV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
+import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { isJsonObject, type JsonObject } from "flarex-protocol/json";
 import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputError, AppRowReadPersistenceError,
@@ -12,6 +13,7 @@ import { deriveApplicationSyscallValidator, validateApplicationRevisionSyscallDo
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../appUniqueConstraintCommitV1";
 import { readAppUniqueKeySlotInTransactionEffect, AppUniqueKeyPersistenceError, AppUniqueKeyHashError } from "../appUniqueKeys";
+import type { AppUniqueConstraintIdV1, AppUniqueKeyProjectionV1 } from "../appUniqueKeyContract";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { PointCommitDependencyV1 } from "../pointCommitTransaction";
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
@@ -44,6 +46,14 @@ export interface CmsClosedDocuments {
   readonly changes: readonly CmsFinalDocumentChange[];
   readonly attempts: readonly CmsDocumentAttempt[];
   readonly noFinalRows: readonly AppDocumentIdV1[];
+  readonly dependencies: readonly PointCommitDependencyV1[];
+  readonly scans: readonly Readonly<{ tableId: CatalogTableId; frontier: CommitSeq | null }>[];
+  readonly uniqueReads: readonly CmsUniqueRead[];
+}
+export interface CmsUniqueRead {
+  readonly constraintId: AppUniqueConstraintIdV1;
+  readonly key: AppUniqueKeyProjectionV1;
+  readonly owner: Readonly<{ tableId: CatalogTableId; rowId: AppRowIdHexV1 }> | null;
 }
 declare const closureBrand: unique symbol;
 export interface CmsDocumentClosure { readonly [closureBrand]: true }
@@ -122,6 +132,9 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   const pendingDeletions = Object.freeze({}) as CmsPendingDeletions;
   deletionSets.set(pendingDeletions, Object.freeze({ admission, lifetime, rows }));
   const scanned = new Set<CatalogTableId>();
+  const dependencies = new Map<AppDocumentIdV1, PointCommitDependencyV1>();
+  const scans = new Map<CatalogTableId, CommitSeq | null>();
+  const uniqueReads = new Map<string, CmsUniqueRead>();
   const attempts: CmsDocumentAttempt[] = [];
   let inserted = 0;
   let closed = false;
@@ -134,6 +147,21 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     return table === undefined ? Result.fail(cmsError("invalidAuthority")) : Result.succeed(table);
   };
   const charge = (bytes: number) => Effect.fromResult(lifetime.charge(bytes));
+  const observe = Effect.fn("CmsDocuments.observe")(function* (
+    tableId: CatalogTableId, rowId: AppRowIdHexV1, base: AppRowRevisionV1 | null,
+  ) {
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+    if (dependencies.has(documentId)) return;
+    if (dependencies.size >= cmsLimits.identities) return yield* Effect.fail(cmsError("limitExceeded"));
+    yield* charge(128);
+    const observed: PointCommitDependencyV1["dependency"]["observed"] = base?.kind === "live"
+      ? Object.freeze({ kind: "present", revisionCommitSeq: base.commitSeq })
+      : Object.freeze({ kind: "missing", basis: base === null
+        ? Object.freeze({ kind: "noVisibleRevision" })
+        : Object.freeze({ kind: "tombstone", revisionCommitSeq: base.commitSeq }) });
+    dependencies.set(documentId, Object.freeze({ documentId, tableId, rowId,
+      dependency: Object.freeze({ kind: "appRowPoint", documentId, observed }) }));
+  });
   const captureFields = (input: unknown) => Result.gen(function* () {
     const captured = yield* capturePrivateJsonData(input, Math.min(cmsLimits.documentBytes, lifetime.remainingBytes()), cmsError);
     if (!isJsonObject(captured.value) || Object.keys(captured.value).some(key => key.startsWith("_"))) {
@@ -157,20 +185,32 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead(rowIds !== undefined ? "batch" : rowId !== undefined ? "point" : "scan");
     const loaded = yield* readBoundedCurrentAppRowsInTransactionEffect(state.tx, {
       scopeId: state.authority.scopeId, tableId, snapshotCommitSeq: state.clock.lastCommitSeq,
-      maximumIdentities: rowIds === undefined ? cmsLimits.identities : cmsLimits.identities - rows.size, maximumDocumentBytes: cmsLimits.documentBytes,
+      maximumIdentities: rowIds === undefined ? cmsLimits.identities : cmsLimits.identities - dependencies.size, maximumDocumentBytes: cmsLimits.documentBytes,
       maximumTotalValueBytes: lifetime.remainingBytes(), ...(rowId === undefined ? {} : { rowId }),
       ...(rowIds === undefined ? {} : { rowIds }),
     }, testHooks?.observeQuery).pipe(Effect.mapError(cause => cmsError(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
       ? "limitExceeded" : cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause)));
     for (const base of loaded) {
       const documentId = appDocumentIdV1FromRowIdentity(base);
+      yield* observe(tableId, base.rowId, base);
       if (rows.has(documentId)) continue;
       if (rows.size >= cmsLimits.identities) return yield* Effect.fail(cmsError("limitExceeded"));
       yield* charge(128 + (base.kind === "live" ? base.document.canonicalBytes.byteLength : 0));
       rows.set(documentId, { tableId, tableName: table.logicalName, rowId: base.rowId, documentId, base,
         creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [] });
     }
-    if (rowId === undefined && rowIds === undefined) scanned.add(tableId);
+    for (const selected of rowIds ?? (rowId === undefined ? [] : [rowId])) {
+      if (!dependencies.has(appDocumentIdV1FromRowIdentity({ tableId, rowId: selected }))) {
+        yield* observe(tableId, selected, null);
+      }
+    }
+    if (rowId === undefined && rowIds === undefined) {
+      let frontier: CommitSeq | null = null;
+      for (const base of loaded) if (frontier === null || base.commitSeq > frontier) frontier = base.commitSeq;
+      yield* charge(64);
+      scans.set(tableId, frontier);
+      scanned.add(tableId);
+    }
   });
   const locate = Effect.fn("CmsDocuments.locate")(function* (inputId: string, tableName?: string) {
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(inputId).pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
@@ -178,7 +218,8 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     if (tableName !== undefined && (yield* Effect.fromResult(tableForName(tableName))).tableId !== identity.tableId) {
       return yield* Effect.fail(cmsError("invalidInput"));
     }
-    if (!rows.has(identity.id) && !scanned.has(identity.tableId)) yield* readBase(identity.tableId, identity.rowId);
+    if (!dependencies.has(identity.id) && !scanned.has(identity.tableId)) yield* readBase(identity.tableId, identity.rowId);
+    if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
     return { identity, pending: rows.get(identity.id) };
   });
   const ensureUnique = Effect.fn("CmsDocuments.validateUnique")(function* (pending: PendingDocument, document: CanonicalFlarexValueV1) {
@@ -191,6 +232,12 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       const slot = yield* readAppUniqueKeySlotInTransactionEffect(state.tx, { scopeId: state.authority.scopeId,
         constraintId: definition.uniqueConstraintDefinitionId, key: projected.projection }).pipe(Effect.mapError(cause =>
         cmsError(cause instanceof AppUniqueKeyPersistenceError ? "statementFailure" : cause instanceof AppUniqueKeyHashError ? "resourceFailure" : "storedCorruption", cause)));
+      const readKey = JSON.stringify([definition.uniqueConstraintDefinitionId, projected.canonical.localeKey, projected.canonical.encodedKey]);
+      if (!uniqueReads.has(readKey)) {
+        yield* charge(128 + projected.canonical.canonicalKeyBytes.byteLength);
+        uniqueReads.set(readKey, Object.freeze({ constraintId: definition.uniqueConstraintDefinitionId,
+          key: projected.projection, owner: Option.isNone(slot) ? null : Object.freeze({ tableId: slot.value.tableId, rowId: slot.value.rowId }) }));
+      }
       if (Option.isSome(slot)) {
         const owner = slot.value;
         if (owner.tableId !== pending.tableId) return yield* Effect.fail(cmsError("storedCorruption"));
@@ -251,9 +298,10 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       if (identities.some(identity => identity.tableId !== table.tableId) || new Set(identities.map(identity => identity.id)).size !== identities.length) {
         return yield* Effect.fail(cmsError("invalidInput"));
       }
-      const missing = identities.filter(identity => !rows.has(identity.id));
-      if (!scanned.has(table.tableId) && rows.size + missing.length > cmsLimits.identities) return yield* Effect.fail(cmsError("limitExceeded"));
+      const missing = identities.filter(identity => !dependencies.has(identity.id));
+      if (!scanned.has(table.tableId) && dependencies.size + missing.length > cmsLimits.identities) return yield* Effect.fail(cmsError("limitExceeded"));
       if (!scanned.has(table.tableId) && missing.length > 0) yield* readBase(table.tableId, undefined, missing.map(identity => identity.rowId));
+      for (const identity of missing) if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
       return Object.freeze(yield* Effect.forEach(identities, identity => {
         const pending = rows.get(identity.id);
         return pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true));
@@ -327,11 +375,8 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     for (const row of rows.values()) {
       if (row.attempts.length === 0) continue;
       if (row.base === null && row.current === null) { noFinalRows.push(row.documentId); continue; }
-      const observed: PointCommitDependencyV1["dependency"]["observed"] = row.base?.kind === "live"
-        ? { kind: "present", revisionCommitSeq: row.base.commitSeq }
-        : { kind: "missing", basis: { kind: "noVisibleRevision" } };
-      const dependency: PointCommitDependencyV1 = { documentId: row.documentId, tableId: row.tableId, rowId: row.rowId,
-        dependency: { kind: "appRowPoint", documentId: row.documentId, observed } };
+      const dependency = dependencies.get(row.documentId);
+      if (dependency === undefined) return yield* Effect.fail(cmsError("storedCorruption"));
       changes.push(Object.freeze(row.current === null ? { ...dependency, kind: "deleted" } :
         { ...dependency, kind: "live", creationTime: row.creationTime, document: row.current }));
     }
@@ -340,7 +385,10 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     // SAFETY: only this owner derives and registers the full attempted set.
     const closure = Object.freeze({}) as CmsDocumentClosure;
     closures.set(closure, Object.freeze({ admission, lifetime, pendingDeletions, changes: Object.freeze(changes),
-      attempts: Object.freeze([...attempts]), noFinalRows: Object.freeze(noFinalRows) }));
+      attempts: Object.freeze([...attempts]), noFinalRows: Object.freeze(noFinalRows),
+      dependencies: Object.freeze([...dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
+      scans: Object.freeze([...scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
+      uniqueReads: Object.freeze([...uniqueReads.values()]) }));
     return closure;
   });
   const documents = Object.freeze({ get, getMany, find, insert, delete: remove,

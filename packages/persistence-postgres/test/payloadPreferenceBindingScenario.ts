@@ -148,6 +148,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   let activeTx: FlarexMetadataTransaction | undefined;
   let escaped: CmsCommandContext | undefined;
   let observedIds: readonly (string | null)[] = [];
+  let settledIds: readonly (string | null)[] = [];
   let cleanupCompletions = 0;
   const closedReceipts: unknown[] = [];
   let sawCleanup = false;
@@ -172,7 +173,11 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const cleanupRead = defineCmsCommand({ name: "preference-cleanup-read", mode: "read", run: cleanupRun });
   const cleanupHost = await runEffect(makeCmsHost({ ...hostInput, payloadPreferenceTarget: target, commands: [create, cleanup, cleanupRead] }, {
     afterAdmission: tx => Effect.sync(() => { activeTx = tx; sawCleanup = false; }),
-    afterPreferenceClosure: evidence => Effect.sync(() => { closedReceipts.push(evidence); sawCleanup = evidence.length > 0; }),
+    afterPreferenceCleanup: evidence => Effect.gen(function* () {
+      closedReceipts.push(evidence); sawCleanup = evidence.length > 0;
+      if (activeTx === undefined) return yield* Effect.fail(cmsError("invalidAuthority"));
+      settledIds = (yield* runDrizzleStatementEffect(activeTx.select({ id: table.id }).from(table), cause => cmsError("statementFailure", cause))).map(row => row.id);
+    }),
     afterPreferenceFacts: () => sawCleanup ? Effect.fail(cmsError("unsupportedProfile")) : Effect.void,
   }));
   const post = await runEffect(cleanupHost.run(cleanupHost.newRequestKey(), create, {}));
@@ -194,9 +199,16 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     { ...seed, id: "other-scope", scope: Result.getOrThrow(projectScopeIdUuidV1Result(foreignScope)).scopeUuid }]);
   const preferencesBefore = await persistence.drizzle.select().from(table);
   for (const args of [{ id: postId }, { id: postId, failAfter: true }]) {
+    const receiptCount = closedReceipts.length;
     await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, args));
-    expect(observedIds).not.toContain("matching-a");
-    expect(observedIds).not.toContain("matching-b");
+    expect(observedIds).toEqual(expect.arrayContaining(["matching-a", "matching-b"]));
+    if ("failAfter" in args) expect(closedReceipts).toHaveLength(receiptCount);
+    else {
+      expect(closedReceipts).toHaveLength(receiptCount + 1);
+      expect(settledIds).not.toContain("matching-a");
+      expect(settledIds).not.toContain("matching-b");
+      expect(settledIds).toEqual(expect.arrayContaining([record.id, "other-key", "other-generation", "other-scope"]));
+    }
     expect(observedIds).toEqual(expect.arrayContaining([record.id, "other-key", "other-generation", "other-scope"]));
     expect(await persistence.drizzle.select().from(table)).toEqual(preferencesBefore);
   }
@@ -213,10 +225,11 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   await runEffectFailure(escaped.preferences.deleteForPendingDocument(escaped.context, escaped.transactionId, "posts", selector));
   // The existing host rejects output charging once a caught operation has latched rollback.
   expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId, selector: {}, catchFailure: true }))).toMatchObject({ reason: "closed" });
-  // Overflow is detected before DELETE, even when the command catches the error.
+  // Selection now happens during settlement: callback-local catch cannot suppress
+  // overflow, and the bounded selection still refuses before DELETE.
   await persistence.drizzle.insert(table).values(Array.from({ length: cmsLimits.identities - 1 }, (_, index) => ({ ...seed, id: `overflow-${index}` })));
   const overflowBefore = await persistence.drizzle.select().from(table);
-  expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId, catchFailure: true }))).toMatchObject({ reason: "closed" });
+  expect(await runEffectFailure(cleanupHost.run(cleanupHost.newRequestKey(), cleanup, { id: postId, catchFailure: true }))).toMatchObject({ reason: "limitExceeded" });
   expect(observedIds).toContain("matching-a");
   expect(await persistence.drizzle.select().from(table)).toEqual(overflowBefore);
   expect(await inventory()).toEqual(publicationBefore);

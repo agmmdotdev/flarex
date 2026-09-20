@@ -33,20 +33,18 @@ execution, materialization and final publication in the resulting claims.
   schema, build, session, lease, journal, dependency and materialization work.
   Its earlier native execution already has exact dependency evidence. Preserve
   the existing OCC/retry owners and validate those earlier reads at settlement.
-- `cmsTransaction/host.ts` holds the publication lock across command execution.
-  `documents.ts` retains pending state, but `contribution.ts` builds settlement
-  dependencies from attempted writes, not all successful read decisions. Missing
-  reads, complete collection scans and reads of unchanged documents cannot be
-  discarded when introducing concurrent execution.
+- `cmsTransaction/host.ts` still holds the publication lock across command
+  execution. The command-settlement prerequisite now retains point, absence,
+  tombstone, collection-scan and unique observations beside pending writes.
+  Preserve that complete decision evidence during the concurrency cutover.
 - `appRows.ts`'s bounded current capture requires the observed scope sequence
   to equal the supplied snapshot sequence. It is not a historical reader for a
   command whose snapshot survives another commit. Do not remove that check and
   retain the old claim of coherent reads.
-- `payloadPreferences/cleanup.ts` selects rows FOR UPDATE and deletes them
-  during the command. A postponed scope lock would introduce business-before-
-  clock acquisition while existing owners still acquire clock-before-business.
-  Replace this ordering as part of the affected flow; do not merely move the
-  host lock or call this work pure preparation.
+- `payloadPreferences/cleanup.ts` now captures intent during the command and
+  selects/deletes during settlement. Retain that boundary when moving execution
+  ahead of publication protection; do not reintroduce callback-side business
+  locks beside clock-first writers.
 - Generic row/index history consumes the final commit sequence. A publication-
   last protocol must account for sequence-bearing materialization, implicit
   constraint locks, relations, uniqueness, candidate guards and build state.
@@ -131,7 +129,11 @@ limitations with their practical consequences. A missed optimization target
 may be an explicitly retained limitation; an unimplemented required protocol,
 incorrect result, unsafe race or incomplete consumer migration is not completion.
 
-The next substantive implementation work is package 1's coordinated protocol.
+The [CMS command settlement contract](./63-cms-command-settlement-contract.md)
+replaces the write-only contribution and callback-side preference DML as the
+first connected prerequisite. The current CMS host still owns serialized
+execution until its bounded-read and request-exclusion contracts move together.
+The next substantive implementation work remains package 1's coordinated protocol.
 The source constraints above rule out a simple CMS callback/lock reorder; they
 are inputs to that preflight, not permission to preserve serialization forever
 or to replace implementation with further unrelated measurement slices.

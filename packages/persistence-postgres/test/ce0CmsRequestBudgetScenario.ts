@@ -43,7 +43,9 @@ export async function ce0CmsRequestBudgetScenario(
   ];
 
   for (const engine of mutations) {
-    const args = { count: 32, prefix: prefix(`small-${engine.name}`, 1000) };
+    // Complete read/unique observations now consume the same request budget.
+    // Keep a comfortably admitted sample and the existing overflowing sample.
+    const args = { count: 32, prefix: prefix(`small-${engine.name}`, 900) };
     const before = await tested.inventory();
     const key = tested.host.newRequestKey();
     const callbacks = engine.count();

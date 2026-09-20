@@ -133,12 +133,15 @@ one; overflow fails before deletion. Only those selected identities are deleted,
 and returned identities must exactly match. All operations share the outer CMS
 transaction, request byte budget and cumulative lifecycle identity budget.
 
-Each completed query/delete issues a private registered receipt containing the
-pending content ID, cleanup key and exact deleted preference IDs. A real empty
-query issues an empty receipt. No preference values enter this evidence. The
-owner closes the complete receipt set, revalidates pending deletions and permits
-one authenticated consumption by the same closing admission/lifetime. Commands
-cannot supply or discard receipts to influence that set.
+The command now captures immutable cleanup intents; it does not query or delete
+preference rows during callbacks. The owner seals the complete intent set for
+one authenticated consumption by the same closing admission/lifetime. Settlement
+revalidates pending deletions, performs the bounded query/delete and derives
+evidence containing the content ID, key and exact deleted IDs. A real empty query
+produces empty deletion evidence. No preference values enter this evidence, and
+commands cannot supply or discard intents to influence the set. The
+[CMS command settlement contract](../../shared-transaction-core/63-cms-command-settlement-contract.md)
+owns this execution-phase change and the future concurrency prerequisite.
 
 The CMS participant consumes the complete cleanup closure alongside its
 authenticated document closure. It publishes deletion identities with content,
@@ -149,7 +152,8 @@ port. No general relational mutation profile is promoted.
 
 The shared driver scenario reuses the storage/binding fixture to prove empty and
 matching cleanup, scope/generation/key isolation, overflow before deletion,
-caught failure, failure after cleanup, stale request and withdrawn binding,
+caught malformed-input failure, callback failure before cleanup, settlement
+overflow that cannot be caught by the command, stale request and withdrawn binding,
 exact receipt contents, and full rollback. The publication scenario proves actual
 Payload deletion, empty and matching preferences, exact-256 and cumulative
 two-key overflow boundaries, every publication fault boundary, nested failure,

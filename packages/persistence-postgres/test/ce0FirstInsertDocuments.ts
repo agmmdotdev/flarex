@@ -79,6 +79,8 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
     >();
     let closed = false;
     let inserted = 0;
+    const observed = new Set<AppDocumentIdV1>();
+    const observedUnique = new Set<string>();
     const charge = (bytes: number) => Effect.fromResult(lifetime.charge(bytes));
     const read = Effect.fn("Ce0InsertDocuments.readIdentity")(function* (
       rowId: AppRowIdHexV1,
@@ -89,7 +91,7 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
         tableId: table.tableId,
         rowId,
       });
-      if (pending.has(id) || loaded.has(id)) return;
+      if (pending.has(id) || observed.has(id)) return;
       const rows = yield* readBoundedCurrentAppRowsInTransactionEffect(
         state.tx,
         {
@@ -114,6 +116,8 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
           ),
         ),
       );
+      yield* charge(128);
+      observed.add(id);
       for (const row of rows) {
         if (pending.size + loaded.size >= cmsLimits.identities)
           return yield* Effect.fail(cmsError("limitExceeded"));
@@ -215,6 +219,11 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
                 ),
               ),
             );
+            const observation = JSON.stringify([definition.uniqueConstraintDefinitionId, key.canonical.localeKey, key.canonical.encodedKey]);
+            if (!observedUnique.has(observation)) {
+              yield* charge(128 + key.canonical.canonicalKeyBytes.byteLength);
+              observedUnique.add(observation);
+            }
             if (Option.isSome(slot)) {
               if (slot.value.tableId !== table.tableId)
                 return yield* Effect.fail(cmsError("storedCorruption"));

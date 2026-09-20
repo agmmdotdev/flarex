@@ -7,7 +7,7 @@ import { hasResolvedApplicationRelationSchemaAuthorityDatabase } from "../applic
 import type { FlarexMetadataDatabase } from "../deployments";
 import { hasAppSchemaCandidateWriteGuardComposition } from "../appSchemaCandidateValidation";
 import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, validatePointCommitDependenciesResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidation } from "../applicationDocumentMaterialization/materialization";
-import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, mapTransactionFailure } from "../pointCommitErrors";
+import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, PointCommitConflictV1Error, mapTransactionFailure } from "../pointCommitErrors";
 
 import { SnapshotTokenSchema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -37,7 +37,7 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 export class ApplicationParticipantError extends Data.TaggedError("ApplicationParticipantError")<{
- readonly reason: "invalidAuthority" | "storedCorruption" | "limitExceeded" | "statementFailure" | "uniqueConflict" | "relationInvalid" | "relationTargetMissing" | "relationDeleteRestricted";
+ readonly reason: "invalidAuthority" | "storedCorruption" | "limitExceeded" | "statementFailure" | "uniqueConflict" | "writeConflict" | "relationInvalid" | "relationTargetMissing" | "relationDeleteRestricted";
  readonly cause?: unknown;
 }> {}
 const participantError = (reason: ApplicationParticipantError["reason"], cause?: unknown) => new ApplicationParticipantError({ reason, ...(cause === undefined ? {} : { cause }) });
@@ -269,7 +269,7 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
       );
       yield* Effect.fromResult(
         validatePointCommitDependenciesResult(command, heads),
-      ).pipe(Effect.mapError((cause) => participantError("storedCorruption", cause)));
+      ).pipe(Effect.mapError((cause) => participantError(cause instanceof PointCommitConflictV1Error ? "writeConflict" : "storedCorruption", cause)));
       const changed = new Set(changes.map(row => row.tableId));
       const selectedDeveloper = developer.filter(index => changed.has(index.definition.access.tableId));
       const selectedUnique = prepared.unique.filter(definition => changed.has(definition.tableId));

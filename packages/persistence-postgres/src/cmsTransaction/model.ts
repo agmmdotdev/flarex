@@ -26,6 +26,7 @@ export class CmsTransactionError extends Data.TaggedError("CmsTransactionError")
     | "documentMissing"
     | "documentInvalid"
     | "uniqueConflict"
+    | "writeConflict"
     | "relationInvalid"
     | "relationTargetMissing"
     | "relationDeleteRestricted"
