@@ -60,6 +60,13 @@ checks. New Medusa integration, unrelated capability expansion and silent
 durable-data deletion are outside this standing approval. Keep deferred work
 within its recorded gates.
 
+Execute this goal in medium-sized slices that deliver a connected core behavior
+across its owners and affected consumers. Do not make individual helpers, test
+matrices, documentation updates or minor SQL reductions separate goal turns.
+Use the finite remaining-work plan linked from the owning roadmap; measurements
+must answer a concrete implementation or acceptance question. Keep transaction
+cutovers coherent rather than increasing scope to meet an arbitrary file count.
+
 Do not add compatibility wrappers, dual writes/readers, fallback engines or
 legacy APIs to avoid updating consumers. Migrate affected callers and remove
 displaced code within the coherent slice. Temporary retention requires a named

@@ -22,6 +22,12 @@ approval does not activate new storage, remove locks or broaden any framework
 capability. This is a workstream within the existing shared transaction core,
 not another runtime or metadata authority.
 
+The [remaining implementation plan](./62-core-completion-plan.md) groups the
+remaining gates into connected work packages. It governs the medium-sized goal
+cadence and completion inventory; the existing CE evidence below remains valid.
+Do not reopen completed proofs or expand reference coverage without a concrete
+replacement-contract or acceptance question.
+
 The [core execution design](../../design-notes/flarexdb-core-execution-redesign.md)
 owns the recommended contracts and fair-comparison rules. The
 [shared logical storage roadmap](../shared-logical-storage/README.md) owns
