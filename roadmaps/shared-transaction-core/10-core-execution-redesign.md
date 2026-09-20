@@ -218,6 +218,13 @@ a standalone read from a successful zero-row mutation and mutation replay from
 a repeated read. Neither composing the existing references nor timing these
 real core requests establishes an independent complete-request comparator.
 
+The [zero-row request reference](./48-ce0-empty-mutation-reference.md) now
+independently assembles request evidence and explicit publication SQL, with
+cross-host replay, rollback and actual PostgreSQL settlement witnesses. Admission,
+empty-delta validation, lifetime and recovery owners are shared and disclosed.
+This bounded first profile is not timed; nonempty and remaining differential
+acceptance still gate the complete-request comparison.
+
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its
 identity and byte verdict gates body transfer, while scope-clock validation,

@@ -1,7 +1,9 @@
 # Complete Request Comparison Contract
 
 Status: real empty-operation baseline and source-grounded comparison contract
-implemented under standing core approval. Independent complete-request reference
+implemented under standing core approval. The first
+[zero-row request reference](./48-ce0-empty-mutation-reference.md) supplies bounded
+cross-host publication/replay and settlement witnesses. Complete-request reference
 implementation and equivalence acceptance remain open.
 
 ## Selected Boundary And Missing Evidence

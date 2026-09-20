@@ -8,7 +8,7 @@ import type { Json } from "flarex-protocol/json";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
-import { defineCmsCommand, makeCmsHost, type CmsHostTestHooks } from "../src/cmsTransaction/host";
+import { defineCmsCommand, makeCmsHost, type CmsHostInput, type CmsHostTestHooks } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
@@ -56,7 +56,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     yield* ctx.documents.delete(ctx.context, ctx.transactionId, input.firstId);
     return yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: input.temporaryTitle });
   }) });
-  const host = await runEffect(makeCmsHost({ database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
+  const input = { database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
     deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
     application: fixture.relationActivation, commands: [insert, read, moveAndReuse], identityAndAccessPolicy: { subject: "ce2-measurement", policy: "cms-scalar" },
     materialization: {
@@ -65,7 +65,8 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
       developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
       candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }),
-    } }, hooks));
+    } } satisfies CmsHostInput<unknown>;
+  const host = await runEffect(makeCmsHost(input, hooks));
   // Multiple active scopes may share this fixture's physical schema. Each
   // inventory observes only its scope and is never included in telemetry.
   const inventory = async () => ({
@@ -130,7 +131,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     return after;
   };
   const verifyInsert = (before: Awaited<ReturnType<typeof inventory>>, value: Json, count: number, prefix: string) => verifyInserts(before, [{ value, count, prefix }]);
-  return { fixture, host, insert, read, moveAndReuse, inventory, verifyInsert, verifyInserts, scope,
+  return { fixture, input, host, insert, read, moveAndReuse, inventory, verifyInsert, verifyInserts, scope,
     priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions, readExecutionCount: () => readExecutions };
 }
 
