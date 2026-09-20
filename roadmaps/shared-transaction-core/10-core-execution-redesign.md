@@ -14,16 +14,19 @@ Do not wait for a separate approval response for each slice. Surface materially
 different decisions explicitly and correct the actual owner; this authorization
 does not permit silent durable-data deletion or unrelated integration expansion.
 
-Status: owner-requested design and implementation-gate plan, with bounded CE0
-attribution/references, CE1 intrinsic membership preparation and bounded row/index
-and unique application implemented; complete-request reference acceptance and remaining
-execution changes are open. Documentation
+Status: selected core execution contracts and connected acceptance complete;
+retained limits and retirement gates are tracked in
+[the acceptance disposition](./70-connected-execution-acceptance.md).
+Bounded preparation/materialization, continuous index maintenance, coordinated
+CMS/native/commerce admission and shared host lifetime are implemented. Immediate
+fresh integrity verification is retained; protected-root replacement and native
+journal coalescing are not selected. Documentation
 approval does not activate new storage, remove locks or broaden any framework
 capability. This is a workstream within the existing shared transaction core,
 not another runtime or metadata authority.
 
 The [remaining implementation plan](./62-core-completion-plan.md) groups the
-remaining gates into connected work packages. It governs the medium-sized goal
+selected gates into connected work packages. It governs the medium-sized goal
 cadence and completion inventory; the existing CE evidence below remains valid.
 Do not reopen completed proofs or expand reference coverage without a concrete
 replacement-contract or acceptance question.
@@ -267,9 +270,11 @@ stale-preparation refusal across zero/eight-row fresh/replayed mutations and
 standalone reads, preserving active-binding absence versus corruption errors.
 The [paired scalar measurement](./57-ce0-paired-request-measurement.md) supplies
 the first admitted complete-request comparison for these bounded operations.
-The current balanced profile misses the one-row mutation relative-latency target;
-reference empty read/empty mutation and core one-row mutation miss observer
-calibration, so those instrumented timings are not accepted as neutral. Common
+The current [connected comparison](./70-connected-execution-acceptance.md) misses
+the thirty-two-row insert relative-latency target and the one-row read per-pair
+consistency target. Other admitted profiles meet them in the bounded sample;
+variation between runs is not an attributable improvement. Several observer calibrations
+miss tolerance, so instrumented timings are not accepted as neutral. Common
 authority/readiness cost and additional nonempty core SQL are traced in the
 [request SQL attribution](./58-ce0-request-sql-attribution.md). The remaining
 nonempty difference belongs to generic dependency, authority, parent, membership
@@ -284,8 +289,9 @@ identity once per nonempty read operation. Every issued definition, key, row and
 stored membership still passes its existing validation. This removes repeated
 scope reads for mixed definitions without changing epoch/readiness ownership,
 32-position chunks or the open scalar latency interpretation.
-Protected readiness-root work, broader reference acceptance and capacity remain
-open.
+Protected readiness-root replacement is not selected under the retained immediate
+integrity contract. Broader reference profiles and capacity remain outside the
+bounded connected acceptance claim.
 
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its
@@ -322,8 +328,9 @@ schema, ownership and relation selection under lifecycle protection while other
 ordinary publication may complete. Its final build/session locks, exact OCC and
 materialization still serialize. [Commerce/composite admission](./66-commerce-admission-before-execution.md)
 also precedes publication exclusion; direct-SQL callbacks and finalizers require
-explicit protected entry and share its fresh clock. Protected readiness and
-final connected acceptance remain open.
+explicit protected entry and share its fresh clock. The
+[acceptance disposition](./70-connected-execution-acceptance.md) owns the selected
+integrity contract, connected proof map and retained performance limits.
 
 [CMS preparation lifetime](./67-host-owned-cms-preparation.md) binds immutable
 Application preparation to the private CMS and existing composite host. Every
@@ -345,12 +352,12 @@ sampled pool pressure, and verifies successful publications and explicit replay.
 The [colocated admission correction](./44-ce3-colocated-admission-catalog.md)
 reuses the held transaction for catalog checks when registered database identity
 matches, preserving separate catalog placement and integrity validation. It
-removes the observed nested pool demand and lets both twelve-slot grid cases
-complete without refusals. The separate overload witness still exposes
-scope-clock lock or statement deadline refusals before command execution, so
+removes the observed nested pool demand. The current hot-scope twelve-slot runs
+still expose scope-clock deadlines at publication after callback execution, so
 zero-refusal behavior is not established across runs.
 Those refusals must leave no durable effects and support an explicit untimed
-retry after rollback. This preserves a measured CE3 limitation; it neither raises
+retry of the replay-safe fixture after rollback. Admission deadlines require zero
+callbacks; publication deadlines require exactly one. This preserves a measured CE3 limitation; it neither raises
 timeouts nor establishes sustained capacity or complete-reference equivalence.
 
 The [publication deadline witness](./30-ce3-publication-deadline.md) now proves

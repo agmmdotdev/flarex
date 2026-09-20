@@ -49,7 +49,10 @@ and [execution gates](./10-core-execution-redesign.md) address costs below the
 framework adapters: enabled-index coverage contention, bounded batch
 materialization, commit-sequence critical sections, physical lifetime and
 measured journal/evidence reduction. Native OCC and shared publication remain;
-new execution and benchmark implementations are pending. The PostgreSQL reference
+the selected execution contracts and bounded reference are implemented. The
+[connected acceptance disposition](./70-connected-execution-acceptance.md) owns
+the current correctness map, integrity decision, numerical limits and retirement
+inventory. The PostgreSQL reference
 is test-only, uses PostgreSQL like Flarex, and must match the selected guarantees.
 
 This domain tracks core transaction, publication and recovery ownership across
@@ -210,9 +213,9 @@ include their consumer switches and logic cleanup; neither requires DDL.
 | [Named cross-domain command](./05-named-command-preflight.md) | Private Currency + scalar CMS + Application profile implemented | Actual domain paths, complete atomic publication, rollback and retained recovery proven |
 | [Atomic commerce composition](../workflow-foundations/09-atomic-composition.md) | Private Product/Currency profile implemented and validated | Exact installation-set admission, aggregate lifetime and complete relational publication through the existing owner |
 | [Application command invocation](./06-application-command-invocation-preflight.md) | Preflight complete; Action-first implementation proposed | Authenticated real Action callback, frozen-intent recovery and explicit shared effect contract; Task invocation separately gated |
-| [Runtime scalability redesign](./09-runtime-scalability-redesign.md) | Design recorded; runtime implementation and database validation pending | Selective work independent of total catalog size, explicit integrity/recovery guarantees, and proven concurrent publication across affected owners |
+| [Runtime scalability redesign](./09-runtime-scalability-redesign.md) | Selected execution/admission and bounded host retention implemented; full selected-evidence verification retained | Generic-framework selective query and capacity remain separately gated; no constant-size warm-admission claim |
 | [Shared query and constraint acceptance](../shared-logical-storage/02-query-and-constraint-acceptance.md) | Required early design/execution gates; not implemented | GLS1 invariant/lock and history contracts; GLS2/GLS3 pending indexed reads, native-Link/strong-reference policies and distinct-connection constraints; GLS5 coordinated overlap/capacity proof |
-| [Core execution redesign](./10-core-execution-redesign.md) | Design recorded; CE0-CE5 execution and measurement pending | Matched PostgreSQL reference, batch materialization, proven index-lifecycle/commit protection and conditional evidence reduction; affected real consumers, failure behavior and retirement pass |
+| [Core execution redesign](./10-core-execution-redesign.md) | Selected contracts implemented; connected disposition in [acceptance](./70-connected-execution-acceptance.md) | Bounded reference and load limits stay explicit; coalescing not selected; generic Medusa storage, advanced migrations and hosted activation remain separate |
 | Overall redesign reconciliation | Open | All required audit findings resolved; retained boundaries justified; independent capabilities explicitly deferred |
 
 The [named-command contract](./05-named-command-preflight.md) is implemented

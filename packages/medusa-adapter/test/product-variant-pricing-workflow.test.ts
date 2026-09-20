@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
@@ -37,6 +37,7 @@ import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCom
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
 
 const cleanup: Array<() => Promise<void>> = [];
+const hostCleanup: Array<Effect.Effect<void>> = [];
 let fixture: CommerceHostTestFixture;
 let product: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
 let pricing: Effect.Success<ReturnType<typeof makeLocalPricingCommands>>;
@@ -48,7 +49,8 @@ let revision: string;
 let linkHost: Effect.Success<ReturnType<typeof makeLocalCommerceHost>>["host"];
 let dismissLink: ReturnType<typeof defineCommerceCommand>, restoreLink: ReturnType<typeof defineCommerceCommand>;
 const execution = (session = fixture.session) => ({ identityAndAccessPolicy: fixture.hostInput.identityAndAccessPolicy,
-  prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }),
+  prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...fixture.hostInput, session, ...composition }).pipe(
+    Effect.tap(host => Effect.sync(() => { hostCleanup.push(host.close); }))),
 });
 const options = () => ({ execution: execution(), modules: installed, revision, subscribers: [{ id: "variant-pricing", revision: "b".repeat(64) }] });
 const inventory = async () => ({ data: await commerceInventory(fixture), events: await fixture.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
@@ -129,6 +131,7 @@ beforeAll(async () => {
   linkHost = (await runEffect(makeLocalCommerceHost({ ...fixture.hostInput, profile: installed.link.profile, commands: [...link.commands, dismissLink, restoreLink] }, link.eventPolicy(await runEffect(requireCommerceProfile(installed.link.profile)), () => Effect.void)))).host;
 });
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+afterEach(() => runEffect(Effect.forEach(hostCleanup.splice(0).reverse(), close => close, { discard: true })));
 describe("connected native Product Variant Pricing", () => {
   it("creates the maximum graph, links actual identities, reads pending rows and settles once", async () => {
     await seed("maximum");
@@ -151,6 +154,9 @@ describe("connected native Product Variant Pricing", () => {
     ].sort());
     expect(after.deliveries).toHaveLength(before.deliveries.length + 25);
     expect(await runEffect(host.run(key, input("maximum")))).toEqual(result);
+    expect(await inventory()).toEqual(after);
+    await runEffect(host.close);
+    expect(await runEffectFailure(host.run(key, input("maximum")))).toMatchObject({ reason: "closed" });
     expect(await inventory()).toEqual(after);
   });
   it("rejects invalid options and oversized inputs without committing any child work", async () => {

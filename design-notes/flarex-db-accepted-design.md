@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-09-14
+Last reviewed: 2026-09-20
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -68,6 +68,25 @@ the accepted shared logical target is implemented. Earlier physical receipts
 and bounded capability descriptions below remain evidence of that baseline.
 
 ## Verdict
+
+### Prepared Execution Integrity
+
+The [core acceptance decision](../roadmaps/shared-transaction-core/70-connected-execution-acceptance.md)
+retains immediate verification of selected metadata dependencies in the accepting
+transaction, including replay and recovery. Reuse bounded immutable preparation
+under explicit host lifetime; always authenticate live scope, placement, binding,
+generation, revocation and readiness. Preparation is not an admission verdict.
+
+An unchanged readiness root cannot replace the selected-dependency checks under
+the current writer and privileged-repair contract. Ordinary framework history
+protection does not establish a dependency-complete invalidation protocol for all
+Application catalog/publication/build writers or privileged edits. Existing
+unchanged-digest tamper refusals stay synchronous; none moves to an audit. Retain
+the corresponding selected-evidence read/hash cost without claiming constant-size
+warm admission. A protected-root replacement requires a separately enforced writer
+contract and an explicit new integrity-detection boundary.
+
+### Overall Direction
 
 The storage backbone is good, but the original unified-runtime proposal was
 too broad for v1.

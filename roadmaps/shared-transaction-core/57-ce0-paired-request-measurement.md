@@ -1,7 +1,8 @@
 # Paired Scalar Request Measurement
 
-Status: bounded paired scalar request measurement implemented; broader CE0
-acceptance and coordinated runtime changes remain open.
+Status: bounded paired scalar request measurement implemented. The
+[connected acceptance disposition](./70-connected-execution-acceptance.md) owns
+the current comparison after coordinated runtime and host-lifetime changes.
 
 ## Selected Equivalence Gate
 
@@ -71,15 +72,17 @@ not make a benchmark pass by relaxing semantics, deleting costs or raising limit
 
 Acceptance requires measurement with independently balanced candidate/mode order.
 An order-confounded report cannot support relative-latency or observer claims.
-The current balanced profile after
-[combined membership application](./59-ce1-combined-membership-application.md)
-misses its normal relative-latency target for one-row mutations. Observer
-calibration misses the declared tolerance for the reference empty read/empty
-mutation and core one-row mutation; instrumented latency is not accepted as
-neutral for those cases. Preserve normal samples and exact SQL counts separately.
-Reads and replay retain the same observed query counts across candidates;
-nonempty core insertion retains additional fixed per-request SQL and transported
-bytes. Common admission/readiness work remains substantial even at zero rows.
+The current connected profile shares prepared-host lifetime/capacity across both
+candidates and misses its normal relative-latency target for thirty-two-row
+inserts. One-row reads meet the median threshold but miss per-pair consistency.
+Other admitted profiles meet their targets in this sample.
+Several observer calibrations miss tolerance; instrumented latency is not
+accepted as neutral. Preserve normal samples and exact SQL counts separately.
+The earlier one-row miss after combined membership application describes that
+checkpoint, not an unchanged current result or proof of a causal improvement.
+Core validates concurrent observations while the reference serializes execution;
+their nonempty SQL difference is not all removable wrapper work. Common
+admission/readiness work remains substantial even at zero rows.
 Attribute those statements to their actual owners before selecting another
 runtime change. Similar total latency does not establish that shared work is
 minimal, or that same-scope serialization is acceptable under load.

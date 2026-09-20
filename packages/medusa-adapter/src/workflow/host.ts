@@ -168,7 +168,7 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   } }));
   const host = yield* execution.prepare({ participants, commands: [command], identityAndAccessPolicy: identity,
     ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) });
-  return Object.freeze({ newRequestKey: host.newRequestKey,
+  return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close,
     run: Effect.fn("Workflow.run")((key: string, value: EncodedInput) => Effect.fromResult(captureCommerceInput(value)).pipe(
       Effect.flatMap(args => host.run(key, command, args)), Effect.flatMap(result => Effect.fromResult(decodeStoredOutput(result))),
     )),

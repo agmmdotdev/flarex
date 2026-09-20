@@ -435,9 +435,9 @@ describe.skipIf(postgresUrl === null)(
         boundary:
           "construction/seed/key generation/assertions excluded; admission through physical settlement included; mutation replay separate",
         common:
-          "admission, codecs, schema validator, bounded readers/lifetime, build/candidate authority, physical settlement and recovery",
+          "scoped host capacity/drain and preparation, fresh admission, codecs, schema validator, bounded readers/request lifetime, build/candidate authority, physical settlement and recovery",
         limitations:
-          "single offered request; small growing logical datasets; live generated IDs/times differ; no server CPU/WAL/buffers/lock-hold/received-byte attribution, native OCC, framework lifecycle, hosted transport or capacity proof",
+          "single offered request; core validates concurrent command observations while reference serializes execution; small growing logical datasets; live generated IDs/times differ; no server CPU/WAL/buffers/lock-hold/received-byte attribution, native OCC, framework lifecycle, hosted transport or capacity proof",
         workloads,
       };
       if (process.env.FLAREX_CE0_PAIRED_REQUEST_REPORT_PATH !== undefined)

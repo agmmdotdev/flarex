@@ -1,8 +1,13 @@
 # Core Execution Completion Plan
 
-Status: active remaining-work plan. Existing CE implementations remain in use;
-the CMS command concurrency and native/commerce admission cutovers are implemented;
-protected readiness and connected acceptance remain open. The owner grants standing approval and requests medium-sized,
+Status: complete for the selected core execution goal, with the measured limits
+and retained consumers in [connected acceptance](./70-connected-execution-acceptance.md).
+Existing CE implementations remain in use;
+the CMS command concurrency and native/commerce admission cutovers are implemented.
+Prepared-host lifetime is bounded; immediate fresh integrity verification is
+selected instead of protected-root replacement. Connected acceptance and retirement
+are recorded in [their disposition](./70-connected-execution-acceptance.md).
+The owner grants standing approval and requests medium-sized,
 connected implementation slices.
 
 ## Scope And Delivery
@@ -105,8 +110,11 @@ evidence formats by default.
 [Host-owned CMS preparation](./67-host-owned-cms-preparation.md) selects one
 revision per constructed CMS/composite host while retaining full fresh admission.
 Rebuilding a host is required after revision change; it cannot update bindings
-or authorize stale replay. The protected-root integrity decision and journal-cost
-disposition remain separate completion gates.
+or authorize stale replay. [Connected acceptance](./70-connected-execution-acceptance.md)
+retains selected-evidence verification because no dependency-complete protected-root
+writer/invalidation contract is enforced. Existing corruption refusals remain
+synchronous. Conditional journal coalescing is not selected on the available
+attribution; its independently authenticated evidence still has active readers.
 
 [Prepared metadata payloads](./68-prepared-metadata-payloads.md) removes redundant
 Application publication/function bytes after verification and accounts for
@@ -157,6 +165,8 @@ entry together. Independent CMS callbacks overlap; materialization and final
 publication still serialize. [Native admission](./65-native-admission-before-publication.md)
 also overlaps ordinary publication while retaining the shared lock hierarchy.
 [Commerce/composite admission](./66-commerce-admission-before-execution.md) now
-uses the same separation with an enforced protected-execution gate. Next address
-protected readiness and connected acceptance. These remaining
-gates are implementation work, not permission for unrelated measurement slices.
+uses the same separation with an enforced protected-execution gate. The
+[connected acceptance record](./70-connected-execution-acceptance.md) maps the
+selected requirements to witnesses, records performance limits and names retained
+migration consumers/removal gates. These gates do not authorize unrelated
+measurement slices or expand the goal into the Medusa storage cutover.

@@ -154,6 +154,14 @@ only the resource schema or deleting `catalogBound` does not complete this gate.
 
 ## B. Separate Prepared Structure, Live Authority And Integrity Audit
 
+Current selection: [connected core acceptance](./70-connected-execution-acceptance.md)
+retains full fresh verification of selected dependencies, including replay and
+recovery. Bounded immutable preparation and explicit runtime drain/release are
+implemented. The protected-root alternative below is not selected: the existing
+writer/protection contract does not enforce dependency-complete invalidation,
+and unchanged-digest tamper refusal remains synchronous. Its retained read/hash
+cost is a declared limitation, not an unfinished protected-root implementation.
+
 Reuse `prepareInstallationRuntime`; do not add a second preparation registry.
 Capture pure schema/query/write mechanics once per exact immutable definition.
 Share only immutable plans, never managers, mutable native DTOs, request-local
@@ -165,7 +173,7 @@ revocation state through the trusted owner. Cache keys must include every
 behavior-changing definition/profile revision. Bound retained cache memory and
 host multiplicity; a per-entry limit alone does not bound many tenants.
 
-The recommended target is a small fresh admission check against a protected,
+The conditional alternative is a small fresh admission check against a protected,
 versioned readiness root, with structural verification at preparation,
 activation and explicit integrity/recovery boundaries. Its prerequisite is a
 written, enforced immutability and invalidation contract: every legitimate
@@ -206,7 +214,7 @@ decision specifies the following:
 | Privileged corruption | Choose immediate request refusal or detection at named verification/audit boundaries; state the detection interval or triggering event, execution policy before detection, and fencing/recovery action afterward. |
 | Regression disposition | Map each existing integrity witness to unchanged refusal or an explicitly approved new detection boundary; prove ordinary-role enforcement and privileged edits with an unchanged root. |
 
-The recommendation is protected immutable metadata with fresh authority checks
+The alternative is protected immutable metadata with fresh authority checks
 and explicit verification boundaries, conditional on that enforcement proof.
 If the required guarantee remains immediate detection of dependency corruption,
 retain the necessary evidence checks. A performance target does not authorize

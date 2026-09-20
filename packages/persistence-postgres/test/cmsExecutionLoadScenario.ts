@@ -32,6 +32,8 @@ interface CmsLoadSample {
   readonly failed: number;
   readonly zeroRefusalTargetMet: boolean;
   readonly explicitRetries: number;
+  readonly admissionDeadlines: number;
+  readonly publicationDeadlines: number;
   readonly elapsedMilliseconds: number;
   readonly completedRequestsPerSecond: number;
   readonly peakActive: number;
@@ -44,6 +46,7 @@ interface CmsLoadSample {
     readonly index: number;
     readonly scopeIndex: number;
     readonly succeeded: boolean;
+    readonly executionAttempts: number;
     readonly sqlStates: readonly (string | null)[];
     readonly queueMilliseconds: number;
     readonly executionMilliseconds: number;
@@ -219,6 +222,7 @@ export async function cmsExecutionLoadScenario(
         index: result.request.index,
         scopeIndex: result.request.scopeIndex,
         succeeded: Exit.isSuccess(result.exit),
+        executionAttempts: result.request.tested.prefixExecutionCount(result.request.args.prefix),
         sqlStates: Exit.isSuccess(result.exit)
           ? []
           : result.exit.cause.reasons.map((reason) =>
@@ -238,14 +242,22 @@ export async function cmsExecutionLoadScenario(
       JSON.stringify({ configuration, ...timing }),
     );
     expect(timing.settled).toBe(configuration.requests);
+    let admissionDeadlines = 0;
+    let publicationDeadlines = 0;
     for (const result of measured.results) {
-      if (Exit.isSuccess(result.exit)) continue;
-      // Both PostgreSQL deadlines can expire before scope-clock admission.
-      // Require that exact owner/operation, plus every failure reason below;
-      // SQLSTATE alone cannot establish pre-command rollback or safe retry.
+      const attempts = result.request.tested.prefixExecutionCount(result.request.args.prefix);
+      if (Exit.isSuccess(result.exit)) {
+        expect(attempts).toBe(1);
+        continue;
+      }
+      // Identify the precise boundary, then independently prove callback count
+      // and absence of durable effects. SQLSTATE alone never establishes retry.
       expect(pool).toBeDefined();
       expect(configuration.concurrency).toBeGreaterThan(1);
-      assertCmsLoadAdmissionRefusal(result.exit.cause);
+      const boundary = assertCmsLoadDeadline(result.exit.cause);
+      expect(attempts).toBe(boundary === "admission" ? 0 : 1);
+      if (boundary === "admission") admissionDeadlines++;
+      else publicationDeadlines++;
     }
     expect(timing.peakActive).toBeLessThanOrEqual(configuration.concurrency);
     for (const result of measured.results) {
@@ -279,8 +291,10 @@ export async function cmsExecutionLoadScenario(
         prior,
         scoped.map((result) => ({ value: result.value, ...result.args })),
       );
+      const refusedExecutions = refused.reduce((sum, result) =>
+        sum + tested.prefixExecutionCount(result.request.args.prefix), 0);
       expect(tested.executionCount()).toBe(
-        (executions[scopeIndex] ?? -1) + scoped.length,
+        (executions[scopeIndex] ?? -1) + scoped.length + refusedExecutions,
       );
       for (const result of refused)
         expect(
@@ -311,6 +325,7 @@ export async function cmsExecutionLoadScenario(
             tested.host.run(result.key, tested.insert, result.args),
           ),
         ).toEqual(result.value);
+        expect(tested.prefixExecutionCount(result.args.prefix)).toBe(1);
         const other = fixtures[(scopeIndex + 1) % fixtures.length];
         if (other !== undefined && other !== tested) {
           const ids = decodeDocuments(result.value).map(
@@ -322,14 +337,17 @@ export async function cmsExecutionLoadScenario(
         }
       }
       expect(tested.executionCount()).toBe(
-        (executions[scopeIndex] ?? -1) + scoped.length,
+        (executions[scopeIndex] ?? -1) + scoped.length + refusedExecutions,
       );
       expect(await tested.inventory()).toEqual(after);
       // Explicit retries are outside timing and only follow completed rollback
-      // plus absence of every refused request's durable publication.
+      // plus absence of every refused request's durable publication. This
+      // fixture only stages transactional inserts; it has no external effects.
+      // This is not retry authorization for arbitrary framework callbacks.
       for (const result of refused) {
         const beforeRetry = await tested.inventory();
         const executed = tested.executionCount();
+        const prefixExecuted = tested.prefixExecutionCount(result.request.args.prefix);
         const value = await runEffect(
           tested.host.run(
             result.request.key,
@@ -344,6 +362,7 @@ export async function cmsExecutionLoadScenario(
           result.request.args.prefix,
         );
         expect(tested.executionCount()).toBe(executed + 1);
+        expect(tested.prefixExecutionCount(result.request.args.prefix)).toBe(prefixExecuted + 1);
         expect(
           await runEffect(
             tested.host.run(
@@ -354,10 +373,11 @@ export async function cmsExecutionLoadScenario(
           ),
         ).toEqual(value);
         expect(tested.executionCount()).toBe(executed + 1);
+        expect(tested.prefixExecutionCount(result.request.args.prefix)).toBe(prefixExecuted + 1);
         expect(await tested.inventory()).toEqual(afterRetry);
       }
     }
-    samples.push({ ...timing, explicitRetries: timing.failed });
+    samples.push({ ...timing, admissionDeadlines, publicationDeadlines, explicitRetries: timing.failed });
   }
   return { configuration, samples };
 }
@@ -372,34 +392,32 @@ function distribution(values: readonly number[]) {
   return { samples: values.length, median, p95, maximum };
 }
 
-/** Only the error gate. The scenario separately proves no execution/effects before retry. */
-export function assertCmsLoadAdmissionRefusal(
+/** Test assertion only; callback counts and rollback must be proved separately. */
+export function assertCmsLoadDeadline(
   cause: Cause.Cause<CmsTransactionError>,
-): void {
+): "admission" | "publication" {
   expect(cause.reasons.length).toBeGreaterThan(0);
-  expect(
-    cause.reasons.some(
-      (reason) =>
-        Cause.isFailReason(reason) &&
-        reason.error instanceof CmsTransactionError &&
-        reason.error.reason === "invalidAuthority" &&
-        reason.error.cause instanceof
-          ScopeAuthorizationRevocationEpochPersistenceError &&
-        reason.error.cause.operation === "lockForOrdinaryWrite",
-    ),
-    Cause.pretty(cause),
-  ).toBe(true);
+  let boundary: "admission" | "publication" | undefined;
   for (const reason of cause.reasons) {
     if (!Cause.isFailReason(reason))
       throw new Error("Unexpected load failure", {
         cause: cause,
       });
     expect(reason.error).toBeInstanceOf(CmsTransactionError);
-    expect(["invalidAuthority", "resourceFailure"]).toContain(
-      reason.error.reason,
-    );
     expect(["55P03", "57014"], Cause.pretty(cause)).toContain(
       findSqlState(reason.error),
     );
+    if (reason.error.reason === "resourceFailure") continue;
+    expect(boundary, "One primary deadline owner is required").toBeUndefined();
+    const owner = reason.error.cause;
+    if (!(owner instanceof ScopeAuthorizationRevocationEpochPersistenceError))
+      throw new Error("Missing load deadline owner", { cause });
+    if (reason.error.reason === "invalidAuthority" && owner.operation === "lockForSnapshotRead")
+      boundary = "admission";
+    else if (reason.error.reason === "statementFailure" && owner.operation === "lockForOrdinaryWrite")
+      boundary = "publication";
+    else throw new Error("Unexpected load deadline boundary", { cause });
   }
+  if (boundary === undefined) throw new Error("Missing primary load deadline", { cause });
+  return boundary;
 }

@@ -35,6 +35,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
   const { fixture } = await cmsHostFixture(persistence);
   const scope = Result.getOrThrow(projectScopeIdUuidV1Result(fixture.authority.scopeId));
   let executions = 0;
+  const prefixExecutions = new Map<string, number>();
   let readExecutions = 0;
   let priorDocumentReads = 0;
   const insert = defineCmsCommand({ name: "measuredInsert", mode: "write", run: Effect.fn("CmsMeasurement.insert")(function* (ctx, args) {
@@ -44,6 +45,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     if ("titles" in input) {
       for (const title of input.titles) documents.push(yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title }));
     } else {
+      prefixExecutions.set(input.prefix, (prefixExecutions.get(input.prefix) ?? 0) + 1);
       for (let index = 0; index < input.count; index++) {
         documents.push(yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: `${input.prefix}-${index.toString().padStart(2, "0")}` }));
       }
@@ -145,7 +147,9 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
   };
   const verifyInsert = (before: Awaited<ReturnType<typeof inventory>>, value: Json, count: number, prefix: string) => verifyInserts(before, [{ value, count, prefix }]);
   return { fixture, input, host, insert, read, moveAndReuse, inventory, verifyInsert, verifyInserts, scope,
-    priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions, readExecutionCount: () => readExecutions };
+    priorDocumentReadCount: () => priorDocumentReads, executionCount: () => executions,
+    prefixExecutionCount: (prefix: string) => prefixExecutions.get(prefix) ?? 0,
+    readExecutionCount: () => readExecutions };
 }
 
 export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession) {

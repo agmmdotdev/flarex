@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import { Cause, Effect, Schema } from "effect";
+import { chargeHostPreparation, retainPreparedHost } from "../src/preparedHostRuntime";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -54,18 +55,26 @@ const digest = (bytes: Uint8Array) =>
 
 /** Test-only fixed point-read request. Admission, storage decoding and lifetime
  * remain common; invocation/accounting and result collection are independent. */
-export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
+type ReferenceInput<Failure> = Pick<CmsHostInput<Failure>,
+  "hostRuntime" | "database" | "controlDatabase" | "session" | "deploymentId" |
+  "authority" | "application" | "identityAndAccessPolicy">;
+
+export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(function* <Failure>(
+  input: ReferenceInput<Failure>, hooks?: Pick<CmsHostTestHooks, "afterAdmission" | "documentReads">,
+) {
+  const measurement = { executions: 0 };
+  const retained = yield* retainPreparedHost(input.hostRuntime, composeCe0CmsReadReference(input, measurement, hooks))
+    .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCe0CmsRequestFailure))));
+  return Object.freeze({ close: retained.close, executionCount: () => measurement.executions,
+    read: (args: Json) => retained.use(host => host.read(args))
+      .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCe0CmsRequestFailure)))),
+  });
+});
+
+const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
   function* <Failure>(
-    input: Pick<
-      CmsHostInput<Failure>,
-      | "database"
-      | "controlDatabase"
-      | "session"
-      | "deploymentId"
-      | "authority"
-      | "application"
-      | "identityAndAccessPolicy"
-    >,
+    input: ReferenceInput<Failure>,
+    measurement: { executions: number },
     hooks?: Pick<CmsHostTestHooks, "afterAdmission" | "documentReads">,
   ) {
     const { database, controlDatabase, session, deploymentId, application } =
@@ -87,11 +96,12 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
       identity.value,
     ).pipe(Effect.mapError(projectCe0CmsRequestFailure));
     yield* digest(canonicalIdentity.canonicalBytes);
+    yield* chargeHostPreparation({ deploymentId, commands: ["measuredReadback"] })
+      .pipe(Effect.mapError(projectCe0CmsRequestFailure));
     const owner = Object.freeze({ hostId: Symbol("ce0.read.reference") });
     const prepared = yield* prepareCmsApplication(
       application, compositionAuthority, controlDatabase, deploymentId,
     ).pipe(Effect.mapError(projectCe0CmsRequestFailure));
-    let executions = 0;
     const read = Effect.fn("Ce0ReadReference.read")(function* (args: Json) {
       const captured = yield* Effect.fromResult(
         capturePrivateJsonData(args, cmsLimits.commandBytes, cmsError),
@@ -186,7 +196,7 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
                         return yield* Effect.fail(
                           cmsError("unsupportedProfile"),
                         );
-                      executions++;
+                      measurement.executions++;
                       const managed = new Set(
                         state.frame.payloadContent?.tables.map(
                           (table) => table.tableId,
@@ -331,6 +341,6 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
         isDecisionUncertain: (error) => error.reason === "decisionUncertain",
       });
     });
-    return Object.freeze({ read, executionCount: () => executions });
+    return Object.freeze({ read });
   },
 );

@@ -4,6 +4,7 @@ import {
   CommittedPointOutcomeCorruptionErrorV1,
 } from "../src/committedPointOutcome";
 import { Effect } from "effect";
+import { PreparedHostRuntimeError } from "../src/preparedHostRuntime";
 import { cmsError, CmsTransactionError } from "../src/cmsTransaction/model";
 import { rethrowPublicationFailure } from "../src/commitPublication/pointCommitProjection";
 import {
@@ -33,6 +34,8 @@ export const projectCe0CmsRequestFailure = (
   cause: unknown,
 ): CmsTransactionError => {
   if (cause instanceof CmsTransactionError) return cause;
+  if (cause instanceof PreparedHostRuntimeError)
+    return cmsError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1)
     return cmsError("requestConflict", cause);
   if (cause instanceof CommittedPointOutcomeCorruptionErrorV1)

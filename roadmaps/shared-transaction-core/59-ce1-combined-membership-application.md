@@ -68,9 +68,12 @@ one membership-head read, one parent check and two writes; larger requests still
 need two chunks and eliminate only the repeated scope read. These are scoped
 SQL-count reductions, not permission to enlarge chunks or omit checks.
 
-The refreshed paired comparison misses the normal relative-latency target for
+The comparison at this isolated membership checkpoint missed the normal relative-latency target for
 one-row mutations. Observer calibration also misses for the reference empty
 read/empty mutation and core one-row mutation. Preserve these misses; the result
 does not establish an overall latency improvement or its causal absence. Keep
 normal timing separate from instrumented evidence and attribute any further
 cost before another correction. Five pairs cannot establish capacity or tails.
+The [connected acceptance disposition](./70-connected-execution-acceptance.md)
+owns the current result after subsequent concurrency and host-lifetime changes;
+do not attribute their combined timing difference to membership batching alone.

@@ -16,7 +16,14 @@ Status: the owner approved the recommended prepared-evidence implementation
 with fresh comparison after rejecting the remaining command latency. This
 approval preserves the current integrity contract; it does not approve the
 larger certificate alternative or changes to transaction/publication authority.
-The first diagnostic prototype is complete; runtime integration remains pending.
+Runtime integration uses host-owned preparation with fresh evidence comparison.
+The [core integrity decision](../shared-transaction-core/70-connected-execution-acceptance.md)
+retains full accepting-transaction comparison of selected installation evidence,
+including replay and recovery. The certificate/root shortcut is not selected;
+ordinary history protections do not justify accepting privileged unchanged-root
+edits. Cold preparation and explicit repository restoration retain their existing
+full verification duties. Shared runtime budgets and drain/release bound host
+preparation lifetime; they do not reduce this integrity contract or its read/hash cost.
 The existing bounded correction remains described
 in [installation acceptance performance](./installation-acceptance-performance.md).
 

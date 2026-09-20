@@ -2,15 +2,16 @@ import { Cause } from "effect";
 import { expect, it } from "vitest";
 import { CmsTransactionError } from "../src/cmsTransaction/model";
 import { ScopeAuthorizationRevocationEpochPersistenceError } from "../src/scopeClock";
-import { assertCmsLoadAdmissionRefusal } from "./cmsExecutionLoadScenario";
+import { assertCmsLoadDeadline } from "./cmsExecutionLoadScenario";
 
 const scopeFailure = (
   code: string,
-  operation: ScopeAuthorizationRevocationEpochPersistenceError["operation"] = "lockForOrdinaryWrite",
+  operation: ScopeAuthorizationRevocationEpochPersistenceError["operation"] = "lockForSnapshotRead",
+  reason: CmsTransactionError["reason"] = "invalidAuthority",
 ) =>
   Cause.fail(
     new CmsTransactionError({
-      reason: "invalidAuthority",
+      reason,
       cause: new ScopeAuthorizationRevocationEpochPersistenceError({
         operation,
         cause: { code },
@@ -25,20 +26,25 @@ const resourceFailure = (
 it.each(["55P03", "57014"])(
   "recognizes the scope admission deadline %s and its drain failure",
   (code) => {
-    expect(() =>
-      assertCmsLoadAdmissionRefusal(scopeFailure(code)),
-    ).not.toThrow();
-    expect(() =>
-      assertCmsLoadAdmissionRefusal(
+    expect(assertCmsLoadDeadline(scopeFailure(code))).toBe("admission");
+    expect(
+      assertCmsLoadDeadline(
         Cause.combine(scopeFailure(code), resourceFailure(code)),
       ),
-    ).not.toThrow();
+    ).toBe("admission");
+    const publication = scopeFailure(code, "lockForOrdinaryWrite", "statementFailure");
+    expect(assertCmsLoadDeadline(publication)).toBe("publication");
+    expect(assertCmsLoadDeadline(Cause.combine(publication, resourceFailure(code)))).toBe("publication");
   },
 );
 
 it.each([
   ["unowned SQLSTATE", resourceFailure("57014")],
   ["different scope operation", scopeFailure("57014", "update")],
+  ["old pre-execution publication assumption", scopeFailure("57014", "lockForOrdinaryWrite")],
+  ["publication reason on admission", scopeFailure("57014", "lockForSnapshotRead", "statementFailure")],
+  ["multiple primary owners", Cause.combine(scopeFailure("57014"), scopeFailure("57014", "lockForOrdinaryWrite", "statementFailure"))],
+  ["unowned publication failure", resourceFailure("57014", "statementFailure")],
   ["different SQLSTATE", scopeFailure("XX000")],
   [
     "mixed resource failure",
@@ -60,6 +66,6 @@ it.each([
 ] as const)(
   "rejects %s despite any accompanying admission failure",
   (_name, cause) => {
-    expect(() => assertCmsLoadAdmissionRefusal(cause)).toThrow();
+    expect(() => assertCmsLoadDeadline(cause)).toThrow();
   },
 );

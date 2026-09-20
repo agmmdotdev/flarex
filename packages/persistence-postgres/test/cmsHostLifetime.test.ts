@@ -7,6 +7,8 @@ import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture
 import { createRelationalPGliteFixture } from "./relationalPGliteWorkerTestSupport";
 import { createFileScopedPostgresFixture } from "./postgresHelpers";
 import { runEffect } from "./effectTestRuntime";
+import { makeCe0CmsReadReference } from "./ce0CmsReadReference";
+import { makeCe0CmsMutationReference } from "./ce0CmsMutationReference";
 
 const cleanup: Array<() => Promise<void>> = [];
 afterAll(async () => {
@@ -147,6 +149,40 @@ it("shares host capacity across shops and drains admitted work before releasing 
             cause: { reason: "capacityExceeded" },
           });
         }
+        const referenceRuntime = yield* makePreparedHostRuntime({ maximumHosts: 2, maximumPreparedBytes: 2_097_152 });
+        const referenceInput = { ...firstShop.input, hostRuntime: referenceRuntime };
+        const referenceEntered = yield* Deferred.make<void>();
+        const referenceRelease = yield* Deferred.make<void>();
+        yield* Effect.addFinalizer(() => Deferred.succeed(referenceRelease, undefined));
+        const readReference = yield* makeCe0CmsReadReference(referenceInput, {
+          afterAdmission: () => Deferred.succeed(referenceEntered, undefined).pipe(Effect.andThen(Deferred.await(referenceRelease))),
+        });
+        const mutationReference = yield* makeCe0CmsMutationReference(referenceInput);
+        expect(yield* Effect.flip(makeCe0CmsReadReference(referenceInput))).toMatchObject({
+          reason: "resourceFailure", cause: { reason: "capacityExceeded" },
+        });
+        const referenceKey = firstShop.host.newRequestKey();
+        const referenceArgs = { count: 1, prefix: "reference-lifetime" };
+        const referenceResult = yield* mutationReference.run(referenceKey, referenceArgs);
+        expect(yield* mutationReference.run(referenceKey, referenceArgs)).toEqual(referenceResult);
+        expect(mutationReference.executionCount()).toBe(1);
+        yield* mutationReference.close;
+        expect(yield* Effect.flip(mutationReference.run(referenceKey, referenceArgs))).toMatchObject({ reason: "closed" });
+        expect(mutationReference.executionCount()).toBe(1);
+        const readingReference = yield* Effect.forkChild(readReference.read([]));
+        yield* Deferred.await(referenceEntered);
+        let referenceClosed = false;
+        const closingReference = yield* Effect.forkChild(readReference.close.pipe(Effect.tap(() => Effect.sync(() => { referenceClosed = true; }))));
+        yield* Effect.yieldNow;
+        expect(referenceClosed).toBe(false);
+        expect(yield* Effect.flip(readReference.read([]))).toMatchObject({ reason: "closed" });
+        yield* Deferred.succeed(referenceRelease, undefined);
+        expect(yield* Fiber.join(readingReference)).toEqual([]);
+        yield* Fiber.join(closingReference);
+        expect(referenceClosed).toBe(true);
+        expect(readReference.executionCount()).toBe(1);
+        const referenceReplacement = yield* makeCe0CmsReadReference(referenceInput);
+        expect(yield* referenceReplacement.read([])).toEqual([]);
       }),
     ),
   );

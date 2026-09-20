@@ -45,15 +45,15 @@ describe.skipIf(postgresUrl === null)("CE0 concurrent CMS core load", () => {
             );
           }
         }
-      const report = {
-        environment,
-        placement: "fixture control metadata and scoped application data share this database and ten-connection pool",
+        const report = {
+          environment,
+          placement: "fixture control metadata and scoped application data share this database and ten-connection pool",
           workload:
             "eight-row active private CMS inserts through host.run and physical COMMIT; two maintained indexes and one unique constraint",
           arrival:
             "finite burst: all 24 requests offered together; bounded request slots; no automatic retry; three measured bursts per configuration",
           target:
-            "zero refusals is recorded per burst, not assumed; only scope-clock admission failures carrying SQLSTATE 55P03 or 57014 with no command execution or durable effects are accepted by correctness checks; explicit confirmed-rollback retries are untimed and excluded from throughput",
+            "zero refusals is recorded per burst, not assumed; only scope-clock admission or final-publication deadlines carrying SQLSTATE 55P03 or 57014 with respectively zero or one callback execution and no durable effects are accepted by correctness checks; explicit confirmed-rollback retries of this transactional-insert fixture are untimed and excluded from throughput",
           timing:
             "queue before request slot + host execution = response; fixture setup, keys, assertions, readback and replay excluded",
           observation:

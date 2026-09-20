@@ -1,4 +1,5 @@
-import { Clock, Effect, Schema } from "effect";
+import { Cause, Clock, Effect, Schema } from "effect";
+import { chargeHostPreparation, retainPreparedHost } from "../src/preparedHostRuntime";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -93,20 +94,24 @@ const hash = (bytes: Uint8Array) =>
 /** Test-only scalar request. Admission, schema validation, readers, lifetime and
  * physical recovery are common. First-insert execution, writes and publication are independent.
  * This incremental reference supplies no complete CE0 timing claim. */
-export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
+type ReferenceInput<Failure> = Pick<CmsHostInput<Failure>,
+  "hostRuntime" | "database" | "controlDatabase" | "session" | "deploymentId" |
+  "authority" | "pointCommitAuthority" | "application" | "identityAndAccessPolicy" | "materialization">;
+
+export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(function* <Failure>(input: ReferenceInput<Failure>) {
+  const measurement = { executions: 0 };
+  const retained = yield* retainPreparedHost(input.hostRuntime, composeCe0CmsMutationReference(input, measurement))
+    .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
+  return Object.freeze({ close: retained.close, executionCount: () => measurement.executions,
+    run: (key: string, args: Json) => retained.use(host => host.run(key, args))
+      .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+  });
+});
+
+const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
   function* <Failure>(
-    input: Pick<
-      CmsHostInput<Failure>,
-      | "database"
-      | "controlDatabase"
-      | "session"
-      | "deploymentId"
-      | "authority"
-      | "pointCommitAuthority"
-      | "application"
-      | "identityAndAccessPolicy"
-      | "materialization"
-    >,
+    input: ReferenceInput<Failure>,
+    measurement: { executions: number },
   ) {
     const {
       database,
@@ -135,11 +140,12 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
     const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
       yield* hash(canonicalIdentity.canonicalBytes),
     );
+    yield* chargeHostPreparation({ deploymentId, identityDigest, commands: ["measuredInsert"] })
+      .pipe(Effect.mapError(projectFailure));
     const owner = Object.freeze({ hostId: Symbol("ce0.cms.reference") });
     const prepared = yield* prepareCmsApplication(
       application, compositionAuthority, controlDatabase, deploymentId,
     ).pipe(Effect.mapError(projectFailure));
-    let executions = 0;
     const run = Effect.fn("Ce0CmsReference.run")(function* (
       requestKey: string,
       args: Json,
@@ -322,7 +328,7 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
                         ),
                       );
                       yield* Effect.fromResult(lifetime.charge(child.bytes));
-                      executions++;
+                      measurement.executions++;
                       const documents: Json[] = [];
                       if (working !== null)
                         for (let index = 0; index < insertCount; index++) {
@@ -460,6 +466,6 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
         isDecisionUncertain: (error) => error.reason === "decisionUncertain",
       });
     });
-    return Object.freeze({ run, executionCount: () => executions });
+    return Object.freeze({ run });
   },
 );

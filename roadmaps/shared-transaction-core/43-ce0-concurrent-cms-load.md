@@ -8,8 +8,8 @@ overload runs and sustained capacity remains unproved.
 
 Measure complete active CMS core insert requests through the existing host,
 admission, materializer, publication and physical settlement. Existing barriers
-prove that disjoint same-scope writers wait on the scope clock and another scope
-can settle. They do not quantify complete requests under offered concurrent work.
+prove that disjoint same-scope callbacks overlap, final publication waits on the
+scope clock and another scope can settle. They do not quantify complete requests under offered concurrent work.
 The recent row-store improvement does not answer that question either.
 
 Use the existing active fixture and generic physical families. Compare a hot
@@ -43,9 +43,12 @@ correlation and unchanged build/session state per scope. Duplicate replay must
 not execute commands or alter any inventory. Same natural keys in different
 scopes remain isolated. Failures are collected through Effect Exit so one refusal
 does not hide other admitted settlements. Unexpected failure, defect or
-interruption fails the baseline. Explicitly classified lock refusals must prove
-no callback execution or durable effects; only then may untimed explicit retries
-prove successful publication and replay. They do not count toward burst throughput.
+interruption fails the baseline. Precisely classified admission deadlines require
+zero callback executions; publication deadlines require exactly one. Both require
+no durable effects. Untimed explicit retries of this transactional-insert fixture
+then prove one new execution, successful publication and replay without another
+execution. They do not count toward burst throughput or authorize arbitrary
+framework-hook retries.
 
 Use scoped Effect concurrency and drain all owned work. No production API,
 schema, lock protocol, retry wrapper, policy, durable format or reset changes.
@@ -61,20 +64,22 @@ This changes only disposable fixture identities, not production ID generation.
 
 The numerical performance target remains every offered request succeeding with
 zero refusals. The [colocated catalog correction](./44-ce3-colocated-admission-catalog.md)
-removes nested acquisitions during prepared admission. Both twelve-slot grid
-configurations can complete without refusals, while the separate overload witness
-still exposes deadline refusals at scope-clock admission. Record
+removes nested acquisitions during prepared admission. Concurrent command
+execution still encounters deadlines at final publication. Record
 `zeroRefusalTargetMet` and failure counts in the report; do not raise limits or
 turn a passing burst into a capacity claim. This is an open CE3 limitation, not a settlement failure
 merely because requests were refused. Correctness requires every offered request
 to settle, successful requests to publish exactly once, and refused requests to
-leave no command execution or durable effects. No replay execution, state leakage
+leave no durable effects with exact boundary-specific callback counts. No replay execution, state leakage
 or remaining borrowed clients is permitted. Require a typed scope-clock failure
-for `lockForOrdinaryWrite`, and SQLSTATE `55P03` or `57014` on every failure reason.
+with `invalidAuthority`/`lockForSnapshotRead` at admission or
+`statementFailure`/`lockForOrdinaryWrite` at publication, and SQLSTATE `55P03` or
+`57014` on every failure reason. Only accompanying typed deadline cleanup failures
+are permitted; a SQLSTATE without that primary owner never establishes the boundary.
 Defects, interruption, uncertain decisions, unrelated operations or SQL states
 remain test failures. The statement-deadline case is demonstrated by PostgreSQL
 errors on the clock acquisition; a lock deadline is not its only possible result.
-Continue attributing pre-transaction preparation and serialized execution cost.
+Continue distinguishing preparation, concurrent callbacks and serialized publication.
 Pool pressure and timeout observations alone do not establish every cause of
 throughput loss; retain the witness before selecting further core corrections.
 Concurrency never exceeds the selected slots. Timing is diagnostic without a
