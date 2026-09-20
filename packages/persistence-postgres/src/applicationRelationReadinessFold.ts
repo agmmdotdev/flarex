@@ -98,7 +98,6 @@ import type {
 } from "./applicationTaskBindings";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import type { FlarexMetadataDatabase } from "./deployments";
-import { detachDriverRows } from "./detachDriverRows";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
@@ -775,13 +774,15 @@ export const validateActiveApplicationRelationReadinessInTransaction =
 interface StoredBundle {
   readonly authority: ApplicationReadinessAuthority;
   readonly deploymentId: string;
-  readonly revision: typeof fxSystemApplicationRevisionsV2.$inferSelect;
-  readonly publication: typeof fxSystemApplicationPublications.$inferSelect;
+  readonly revision: Pick<typeof fxSystemApplicationRevisionsV2.$inferSelect,
+    "revisionId" | "candidateId" | "analysisId" | "sourceArtifactRootSha256" | "manifestSha256">;
+  readonly publication: Pick<typeof fxSystemApplicationPublications.$inferSelect,
+    "publicationSha256" | "functionCatalogSha256" | "schemaSha256" | "schemaVersionId" |
+    "schemaManifestSha256" | "manifestSchemaBindingSha256" | "boundPublicationSha256">;
   readonly manifest: ApplicationManifestWithRelations;
-  readonly functions: ReadonlyArray<
-    typeof fxSystemApplicationFunctions.$inferSelect
-  >;
-  readonly task: ApplicationTaskCatalogSnapshot;
+  readonly functionCount: number;
+  readonly task: Pick<ApplicationTaskCatalogSnapshot,
+    "taskCatalogSha256" | "taskCatalogBindingSha256" | "runtimeHostIdentity" | "compatibilityDate">;
 }
 
 interface PreparedFoldInputs {
@@ -1152,7 +1153,6 @@ const loadBundle = Effect.fn("ApplicationRelationReadinessFold.loadBundle")(
     if (byPath.size !== functionRows.length) {
       return yield* failure("storedState");
     }
-    const functions: Array<(typeof functionRows)[number]> = [];
     for (const fn of manifest.functions) {
       const row = byPath.get(fn.path);
       if (row === undefined) return yield* failure("storedState");
@@ -1169,7 +1169,6 @@ const loadBundle = Effect.fn("ApplicationRelationReadinessFold.loadBundle")(
         !bytesEqualFullScan(row.entryBytes, entryBytes) ||
         !bytesEqualFullScan(row.entrySha256, yield* sha256(entryBytes))
       ) return yield* failure("storedState");
-      functions.push(row);
     }
     const task = yield* taskCatalog.loadInTransaction(
       tx,
@@ -1185,20 +1184,32 @@ const loadBundle = Effect.fn("ApplicationRelationReadinessFold.loadBundle")(
       !bytesEqualFullScan(task.publicationSha256,
         publication.publicationSha256)
     ) return yield* failure("storedState");
-    const ownedRevision = detachDriverRows([revision])[0];
-    const ownedPublication = detachDriverRows([publication])[0];
-    const ownedFunctions = detachDriverRows(functions);
-    if (ownedRevision === undefined || ownedPublication === undefined) {
-      return yield* failure("storedState");
-    }
+    // Retain verified commitments, not the complete driver rows and byte frames.
+    // Every accepting read still executes all verification above before comparing
+    // this snapshot. Copy digests so later driver-buffer reuse cannot change it.
     return Object.freeze({
       authority,
       deploymentId: input.deploymentId,
-      revision: ownedRevision,
-      publication: ownedPublication,
+      revision: Object.freeze({
+        revisionId: revision.revisionId, candidateId: revision.candidateId, analysisId: revision.analysisId,
+        sourceArtifactRootSha256: copyBytes(revision.sourceArtifactRootSha256),
+        manifestSha256: copyBytes(revision.manifestSha256),
+      }),
+      publication: Object.freeze({
+        publicationSha256: copyBytes(publication.publicationSha256),
+        functionCatalogSha256: copyBytes(publication.functionCatalogSha256),
+        schemaSha256: copyBytes(publication.schemaSha256), schemaVersionId: publication.schemaVersionId,
+        schemaManifestSha256: copyBytes(publication.schemaManifestSha256),
+        manifestSchemaBindingSha256: copyBytes(publication.manifestSchemaBindingSha256),
+        boundPublicationSha256: copyBytes(publication.boundPublicationSha256),
+      }),
       manifest,
-      functions: ownedFunctions,
-      task,
+      functionCount: functionRows.length,
+      task: Object.freeze({
+        taskCatalogSha256: copyBytes(task.taskCatalogSha256),
+        taskCatalogBindingSha256: copyBytes(task.taskCatalogBindingSha256),
+        runtimeHostIdentity: task.runtimeHostIdentity, compatibilityDate: task.compatibilityDate,
+      }),
     });
   },
 );
@@ -2491,7 +2502,7 @@ function storedBundlesEqual(left: StoredBundle, right: StoredBundle): boolean {
       right.publication.publicationSha256) &&
     bytesEqualFullScan(left.task.taskCatalogBindingSha256,
       right.task.taskCatalogBindingSha256) &&
-    left.functions.length === right.functions.length;
+    left.functionCount === right.functionCount;
 }
 
 const decodeStoredManifest = Effect.fn(

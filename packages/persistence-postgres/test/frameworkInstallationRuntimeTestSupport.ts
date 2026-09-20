@@ -4,7 +4,9 @@ import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { collectInstallationEvidence, readInstallationEvidence } from "../src/frameworkSchema/installation/runtimeEvidence";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { Effect, Tracer } from "effect";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
+import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
+import * as runtimeData from "../src/frameworkSchema/installation/runtimeData";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { prepareInstallationRuntime, acceptPreparedInstallation, type PreparedInstallationRuntime } from "../src/frameworkSchema/installation/runtime";
 import { fxSystemFrameworkSchemaInstallations as installations } from "../src/frameworkSchema/installation/schema";
@@ -39,6 +41,20 @@ export async function exerciseInstallationRuntime(database: FlarexMetadataDataba
   const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
   const accepted = await database.transaction(tx => runEffect(acceptPreparedInstallation(fixture.prepared, fixture.target, fixture.reference, tx)
     .pipe(Effect.provideService(Tracer.Tracer, tracer))));
+  // Inject at the pure runtime-data conversion boundary: data alone exactly fits
+  // the old budget, but the complete retained payload must refuse construction.
+  const maximum = 8_388_608;
+  const base = { ...accepted, physicalLayoutCanonicalJson: "" };
+  const measured = measureCanonicalJsonUtf8Bytes(base, maximum);
+  if (measured.kind !== "success") throw new Error("Unexpected fixture size");
+  const large = { ...base, physicalLayoutCanonicalJson: "x".repeat(maximum - measured.bytes) };
+  expect(measureCanonicalJsonUtf8Bytes(large, maximum)).toEqual({ kind: "success", bytes: maximum });
+  const conversion = vi.spyOn(runtimeData, "installationRuntimeData").mockReturnValue(large);
+  try {
+    await expect(fixture.prepare()).rejects.toMatchObject({ reason: "resourceFailure" });
+    expect(await fixture.accept()).toEqual(accepted);
+  } finally { conversion.mockRestore(); }
+  expect(await fixture.accept(await fixture.prepare())).toEqual(accepted);
   expect(accepted.readiness).toEqual(fixture.stored.readiness.readiness.frame);
   expect(Object.keys(accepted).sort()).toEqual(["admissionProfile", "physicalLayout", "physicalLayoutCanonicalJson", "planVersion", "readiness"]);
   expect(accepted.physicalLayout).toEqual(fixture.stored.installation.plan.plan.physicalLayout.frame);

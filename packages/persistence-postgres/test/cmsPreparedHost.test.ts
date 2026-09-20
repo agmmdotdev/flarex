@@ -1,6 +1,7 @@
 import { afterAll, expect, it } from "vitest";
 import { Effect, Tracer } from "effect";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { fxSystemApplicationFunctions, fxSystemApplicationPublications } from "../src/applicationRelationSchema";
 import { makeCmsHost } from "../src/cmsTransaction/host";
 import { fxSystemDataBindingHeads } from "../src/frameworkSchema/binding/schema";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
@@ -72,6 +73,46 @@ it("reuses host preparation while revalidating warm reads, writes and replay", a
   expect(await tested.inventory()).toEqual(after);
 
   const db = resource.persistence.drizzle;
+  // The retained bundle now contains commitments rather than these byte frames.
+  // A warm host must nevertheless verify the actual frames, including for replay.
+  const publicationSlot = and(eq(fxSystemApplicationPublications.scopeId, tested.fixture.authority.scopeId),
+    eq(fxSystemApplicationPublications.revisionId, tested.fixture.input.revisionId));
+  const publication = (await db.select().from(fxSystemApplicationPublications).where(publicationSlot))[0];
+  const functionSlot = and(eq(fxSystemApplicationFunctions.scopeId, tested.fixture.authority.scopeId),
+    eq(fxSystemApplicationFunctions.revisionId, tested.fixture.input.revisionId));
+  const functions = await db.select().from(fxSystemApplicationFunctions).where(functionSlot);
+  if (publication === undefined || functions.length === 0) throw new Error("Missing publication fixture");
+  const damage = (bytes: Uint8Array) => {
+    const damaged = new Uint8Array(bytes);
+    damaged[0] = (damaged[0] ?? 0) ^ 1;
+    return damaged;
+  };
+  for (const field of ["schemaBytes", "functionCatalogBytes", "entryBytes"] as const) {
+    const priorCounts = [tested.executionCount(), tested.readExecutionCount()];
+    if (field === "entryBytes") {
+      await db.update(fxSystemApplicationFunctions).set({ entryBytes: new Uint8Array([0]) }).where(functionSlot);
+    } else {
+      await db.update(fxSystemApplicationPublications).set({ [field]: damage(publication[field]) }).where(publicationSlot);
+    }
+    try {
+      for (const request of [host.read(tested.read, []), host.run(key, tested.insert, args),
+        host.run(host.newRequestKey(), tested.insert, { count: 1, prefix: "corrupt-publication" })]) {
+        expect(await runEffectFailure(observe(request))).toMatchObject({ reason: "invalidAuthority" });
+      }
+      expect([tested.executionCount(), tested.readExecutionCount()]).toEqual(priorCounts);
+      expect(await tested.inventory()).toEqual(after);
+    } finally {
+      if (field === "entryBytes") {
+        for (const row of functions) await db.update(fxSystemApplicationFunctions).set({ entryBytes: row.entryBytes })
+          .where(and(functionSlot, eq(fxSystemApplicationFunctions.functionPath, row.functionPath)));
+      } else {
+        await db.update(fxSystemApplicationPublications).set({ [field]: publication[field] }).where(publicationSlot);
+      }
+    }
+    expect(await runEffect(observe(host.run(key, tested.insert, args)))).toEqual(value);
+    expect(await runEffect(observe(host.read(tested.read, [])))).toEqual([]);
+    expect(spans).not.toContain("CmsAdmission.prepare");
+  }
   const slot = eq(
     fxSystemDataBindingHeads.scopeId,
     tested.fixture.authority.scopeId,

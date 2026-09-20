@@ -108,6 +108,12 @@ Rebuilding a host is required after revision change; it cannot update bindings
 or authorize stale replay. Root-only admission, aggregate retained-memory policy
 and the journal-cost disposition remain separate completion gates.
 
+[Prepared metadata payloads](./68-prepared-metadata-payloads.md) removes redundant
+Application publication/function bytes after verification and accounts for
+installation evidence in the per-preparation payload limit. Aggregate host
+retention still needs a deterministic lifetime and shared budget; neither
+compact snapshots nor canonical byte limits establish a process heap bound.
+
 ## 3. Connected Acceptance And Retirement
 
 Outcome: evaluate the implemented contracts through existing native and CMS

@@ -330,6 +330,10 @@ Application preparation to the private CMS and existing composite host. Every
 request and recovery attempt still resolves current placement and validates
 live catalog, readiness and binding evidence before execution or replay. This
 does not replace integrity verification with a readiness-root cache.
+[Prepared payload retention](./68-prepared-metadata-payloads.md) now discards
+verified publication/function byte copies from Application bundles and includes
+installation evidence in its payload budget. Aggregate host lifetime and memory
+admission remain open.
 
 The [concurrent CMS load baseline](./43-ce0-concurrent-cms-load.md) extends these
 barriers to finite complete-request bursts on one and four scopes sharing a

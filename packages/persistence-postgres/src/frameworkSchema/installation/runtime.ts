@@ -30,7 +30,7 @@ interface PreparedState {
   readonly data: InstallationRuntimeData;
 }
 const states = new WeakMap<object, PreparedState>();
-const MAX_RETAINED_DATA_BYTES = 8_388_608;
+const MAX_RETAINED_PAYLOAD_BYTES = 8_388_608;
 
 /** One immutable description per host, with no acquired connection, transaction,
  * fiber, mutable verdict or restored graph retained. Construction failures publish no token.
@@ -54,7 +54,27 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
       const evidence = yield* readInstallationEvidence(tx, coordinates);
       const headFingerprint = yield* lockHeadFingerprint(tx, restored.installation.storageId);
       const data = installationRuntimeData(restored);
-      if (measureCanonicalJsonUtf8Bytes(data, MAX_RETAINED_DATA_BYTES).kind !== "success") return yield* Effect.fail(bindingError("resourceFailure"));
+      // Account for all retained data, including evidence and its coordinates.
+      // Decimal coordinates are only an accounting representation. Borrowed
+      // database/target capabilities are not serialized; this is not heap sizing.
+      const payload = {
+        reference, installationStorageId: restored.installation.storageId.toString(), headFingerprint, evidence, data,
+        coordinates: {
+          ...coordinates,
+          namespace: coordinates.namespace.toString(), collision: coordinates.collision.toString(),
+          receiptPlans: coordinates.receiptPlans.map(id => id.toString()),
+          roots: {
+            installation: coordinates.roots.installation.map(id => id.toString()),
+            plan: coordinates.roots.plan.map(id => id.toString()),
+            admission: coordinates.roots.admission.map(id => id.toString()),
+            attempt: coordinates.roots.attempt.map(id => id.toString()),
+            terminal: coordinates.roots.terminal.map(id => id.toString()),
+            readiness: coordinates.roots.readiness.map(id => id.toString()),
+            history: coordinates.roots.history.map(id => id.toString()),
+          },
+        },
+      };
+      if (measureCanonicalJsonUtf8Bytes(payload, MAX_RETAINED_PAYLOAD_BYTES).kind !== "success") return yield* Effect.fail(bindingError("resourceFailure"));
       return Object.freeze({ target, reference, installationStorageId: restored.installation.storageId, headFingerprint, coordinates, evidence, data });
     }).pipe(withBindingMigrationGraphLimits, withFrameworkMigrationPlanVerification,
       Effect.timeoutOrElse({ duration: 15_000, orElse: () => Effect.fail(bindingError("resourceFailure")) })),
