@@ -51,7 +51,10 @@ authority refusal. PostgreSQL adds lost COMMIT acknowledgement through the real
 physical driver, one callback plus cross-host replay, cancellation after the
 complete publication prefix versus after actual COMMIT, and mixed core/reference
 duplicate-key contention. Pre-commit cancellation rolls back the prefix; after
-COMMIT the interrupted caller can replay the authoritative outcome.
+COMMIT the interrupted caller can replay the authoritative outcome. Those
+settlement cases now live in the shared zero/eight-row
+[settlement matrix](./51-ce0-nonempty-settlement.md); the zero-row authority and
+outcome-refusal scenario remains separate.
 
 The tests preserve current refusal classification: damaged binding evidence is
 projected as `invalidAuthority`, damaged result evidence as `storedCorruption`,

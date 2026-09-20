@@ -185,54 +185,72 @@ export async function ce0FirstInsertReferenceScenario(
       }
     }
   for (const implementation of ["core", "reference"] as const)
-    for (const step of [
-      "rowBatchWritten",
-      "intrinsicIndexBatchWritten",
-      "uniquePublicationApplied",
-      "clockAdvanced",
-    ]) {
-      const fault = new Error(`rollback ${implementation} after ${step}`);
-      const input = {
-        ...tested.input,
-        materialization: {
-          ...tested.input.materialization,
-          afterTransactionStep: async (event: { readonly step: string }) => {
-            if (event.step === step) throw fault;
+    for (const mode of ["defect", "cancel"] as const)
+      for (const step of [
+        "rowBatchWritten",
+        "intrinsicIndexBatchWritten",
+        "uniquePublicationApplied",
+        "clockAdvanced",
+      ]) {
+        const fault = new Error(`rollback ${implementation} after ${step}`);
+        const controller = new AbortController();
+        let injected = 0;
+        const input = {
+          ...tested.input,
+          materialization: {
+            ...tested.input.materialization,
+            afterTransactionStep: async (event: { readonly step: string }) => {
+              if (event.step === step) {
+                injected++;
+                if (mode === "cancel") controller.abort();
+                else throw fault;
+              }
+            },
           },
-        },
-      };
-      const faultyCore = await runEffect(makeCmsHost(input));
-      const faultyReference = await runEffect(
-        makeCe0CmsMutationReference(input),
-      );
-      const before = await tested.inventory();
-      const key = tested.host.newRequestKey();
-      const args = { count: 8, prefix: `rollback-${implementation}-${step}` };
-      const failure = await Effect.runPromiseExit(
-        implementation === "core"
-          ? faultyCore.run(key, tested.insert, args)
-          : faultyReference.run(key, args),
-      );
-      expect(Exit.isFailure(failure)).toBe(true);
-      if (Exit.isFailure(failure)) {
-        expect(failure.cause.reasons).toHaveLength(1);
-        expect(
-          failure.cause.reasons
-            .filter(Cause.isDieReason)
-            .map((reason) => reason.defect),
-        ).toEqual([fault]);
+        };
+        const faultyCore = await runEffect(makeCmsHost(input));
+        const faultyReference = await runEffect(
+          makeCe0CmsMutationReference(input),
+        );
+        const before = await tested.inventory();
+        const key = tested.host.newRequestKey();
+        const args = {
+          count: 8,
+          prefix: `rollback-${mode}-${implementation}-${step}`,
+        };
+        const failure = await Effect.runPromiseExit(
+          implementation === "core"
+            ? faultyCore.run(key, tested.insert, args)
+            : faultyReference.run(key, args),
+          { signal: controller.signal },
+        );
+        expect(injected).toBe(1);
+        expect(Exit.isFailure(failure)).toBe(true);
+        if (Exit.isFailure(failure) && mode === "cancel") {
+          expect(failure.cause.reasons.length).toBeGreaterThan(0);
+          expect(failure.cause.reasons.every(Cause.isInterruptReason)).toBe(
+            true,
+          );
+        }
+        if (Exit.isFailure(failure) && mode === "defect") {
+          expect(failure.cause.reasons).toHaveLength(1);
+          expect(
+            failure.cause.reasons
+              .filter(Cause.isDieReason)
+              .map((reason) => reason.defect),
+          ).toEqual([fault]);
+        }
+        expect(await tested.inventory()).toEqual(before);
+        const value = await runEffect(reference.run(key, args));
+        const after = await tested.verifyInsert(
+          before,
+          value,
+          args.count,
+          args.prefix,
+        );
+        expect(await runEffect(core(key, args))).toEqual(value);
+        expect(await tested.inventory()).toEqual(after);
       }
-      expect(await tested.inventory()).toEqual(before);
-      const value = await runEffect(reference.run(key, args));
-      const after = await tested.verifyInsert(
-        before,
-        value,
-        args.count,
-        args.prefix,
-      );
-      expect(await runEffect(core(key, args))).toEqual(value);
-      expect(await tested.inventory()).toEqual(after);
-    }
   // Actual storage-return corruption must not be mistaken for a business
   // uniqueness conflict, nor accepted just because identity and digest match.
   for (const mode of ["alter", "suppress"] as const) {

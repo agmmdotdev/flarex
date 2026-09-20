@@ -233,9 +233,13 @@ bounded correction reuses the registered catalog reader and canonical decoder;
 it adds correctness work and requires refreshed request baselines before timing
 claims. The [first-insert reference](./50-ce0-first-insert-reference.md) now adds
 independent row/index/claim persistence at one/eight/thirty-two rows with exact
-stored evidence, cross replay and late-write rollback. Document semantics,
-admission and build/candidate authority remain common components. Protected
-readiness-root work and complete nonempty reference acceptance remain open.
+stored evidence, cross replay and late-write rollback. The
+[nonempty settlement matrix](./51-ce0-nonempty-settlement.md) adds eight-row
+uncertainty and cancellation, duplicate/disjoint/unique contention and progress
+in another scope during a held publication. Same-scope serialization remains.
+Document semantics, admission and build/candidate authority remain common
+components. Protected readiness-root work and complete nonempty reference
+acceptance remain open.
 
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its

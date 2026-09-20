@@ -71,7 +71,9 @@ renamed owner. Real altered/suppressed-claim triggers must cause complete rollba
 on both drivers. PostgreSQL driver-result fault injection additionally covers a
 rejection without SQLSTATE and malformed returned row/index/claim identities.
 Run affected types and lint, both read-only reviews, clean up owned resources and
-commit. Broader nonempty stored-corruption, concurrency, cancellation and
-uncertain-settlement witnesses remain open; zero-row witnesses do not establish
-those nonempty cases. Same-request duplicate-title behavior requires a different
-command profile because the measured command generates distinct titles.
+commit. The [nonempty settlement matrix](./51-ce0-nonempty-settlement.md) now
+extends uncertainty, cancellation, duplicate/disjoint/unique contention and
+cross-scope progress to eight-row requests. Broader stored-corruption, lifecycle
+and workload witnesses remain open. Same-request duplicate-title behavior
+requires a different command profile because the measured command generates
+distinct titles.
