@@ -1,3 +1,4 @@
+import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
@@ -225,6 +226,7 @@ export async function withTemporaryPostgresPersistence(
         },
       });
       await current.migrate();
+      await openPreparedHostTestRuntime(current.drizzle);
       return current;
     };
     persistence = options.historicalApplicationAnalysis === true
@@ -238,6 +240,7 @@ export async function withTemporaryPostgresPersistence(
     const cleanupErrors: unknown[] = [];
     const persistenceToClose = persistence;
     if (persistenceToClose !== undefined) {
+      await recordCleanupError(cleanupErrors, () => closePreparedHostTestRuntime(persistenceToClose.drizzle));
       await recordCleanupError(cleanupErrors, () => closeFrameworkMigrationFixture(persistenceToClose));
       await recordCleanupError(cleanupErrors, () => persistenceToClose.close());
     }
@@ -527,6 +530,7 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
       },
     });
     await persistence.migrate();
+    await openPreparedHostTestRuntime(persistence.drizzle);
   } catch (error: unknown) {
     const cleanupErrors: unknown[] = [];
     const persistenceToClose = persistence;
@@ -561,6 +565,7 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
         );
       }
       await assertFrameworkMigrationFixtureIdle(migratedPersistence);
+      await closePreparedHostTestRuntime(migratedPersistence.drizzle);
       const tables = await migratedPersistence.query<{ tablename: string }>(
         `
           select tablename
@@ -594,11 +599,13 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
           await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} enable trigger fx_framework_history_no_truncate`));
         }
       });
+      await openPreparedHostTestRuntime(migratedPersistence.drizzle);
     },
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
       const cleanupErrors: unknown[] = [];
+      await recordCleanupError(cleanupErrors, () => closePreparedHostTestRuntime(migratedPersistence.drizzle));
       await recordCleanupError(cleanupErrors, () => closeFrameworkMigrationFixture(migratedPersistence));
       await recordCleanupError(cleanupErrors, () => migratedPersistence.close());
       await recordCleanupError(cleanupErrors, () =>

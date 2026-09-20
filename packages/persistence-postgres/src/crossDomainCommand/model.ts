@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import { PreparedHostRuntimeError } from "../preparedHostRuntime";
 import type { RequestFailureReason } from "../boundedRequestLifetime";
 import { CmsTransactionError } from "../cmsTransaction/model";
 import { CommerceTransactionError } from "../commerceTransaction/model";
@@ -20,6 +21,7 @@ export const projectCompositePublicationFailure = (cause: unknown): CompositeCom
 /** One root projection for authority and physical/retained-outcome boundaries. */
 export function projectCompositeFailure(cause: unknown): CompositeFailure {
   if (cause instanceof CompositeCommandError || cause instanceof CmsTransactionError || cause instanceof CommerceTransactionError || cause instanceof ApplicationCommandError || cause instanceof ApplicationParticipantError) return cause;
+  if (cause instanceof PreparedHostRuntimeError) return compositeError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return compositeError("requestConflict", cause);
   if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return compositeError("storedCorruption", cause);
   if (cause instanceof ScopePublicationCorruptionError || cause instanceof ScopePublicationResourceError || cause instanceof ScopePublicationSqlFailure) return projectCompositePublicationFailure(cause);

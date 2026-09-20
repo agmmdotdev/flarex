@@ -1,3 +1,4 @@
+import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { Worker } from "node:worker_threads";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -72,9 +73,11 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
     },
   );
   (options.registerCleanup ?? onTestFinished)(async () => {
+    if (runtimeDatabase !== undefined) await closePreparedHostTestRuntime(runtimeDatabase);
     await terminate(new Error("Fixture closed"));
     if (dataDir !== undefined) await rm(dataDir, { recursive: true, force: true });
   });
+  let runtimeDatabase: object | undefined;
   const request = (
     method: "query" | "exec" | "reopen",
     query: string,
@@ -141,6 +144,8 @@ export async function createRelationalPGliteFixture(options: { readonly fileBack
   };
   const persistence = await createPGlitePersistence({ db: client });
   await persistence.migrate();
+  await openPreparedHostTestRuntime(persistence.drizzle);
+  runtimeDatabase = persistence.drizzle;
   const run: RunRelationalSession = Effect.fn(
     "RelationalPGliteTestSession.run",
   )(function* <Value, Failure>(

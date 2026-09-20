@@ -1,3 +1,7 @@
+import { chargeHostPreparation } from "./preparedHostRuntime";
+import { chargeRelationReadinessPreparation } from "./applicationRelationReadiness/Repository";
+import { chargePhysicalDefinitionPreparation } from "./physicalDefinitionLifecycle";
+import { chargeUniqueConstraintPreparation } from "./appUniqueConstraintSetBuildV1";
 import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBuildV1";
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
@@ -1002,6 +1006,13 @@ const prepareActiveFold = Effect.fn("ApplicationRelationReadinessFold.preparePla
     const prepared: PreparedActiveFold = Object.freeze({ kind: "planning", ownershipBudget: new ApplicationWriteOwnershipHistoryBudget(),
       target: inputs.target, bundle: inputs.bundle, schema: inputs.schema, requirements: inputs.requirements,
       uniquePreparation: unique.preparation, ...definitions });
+    yield* Effect.gen(function* () {
+      yield* chargeHostPreparation({ bundle: prepared.bundle, schema: prepared.schema,
+        requirements: prepared.requirements, coldReceiptSetSha256: prepared.coldReceiptSetSha256 });
+      yield* chargeUniqueConstraintPreparation(prepared.uniquePreparation);
+      yield* chargePhysicalDefinitionPreparation(prepared.physicalLifecycle);
+      yield* chargeRelationReadinessPreparation(prepared.relations);
+    }).pipe(Effect.mapError(cause => failureValue("resourceFailure", false, cause)));
     return { prepared };
   },
 );

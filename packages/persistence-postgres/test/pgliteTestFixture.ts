@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { onTestFinished } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -34,7 +35,8 @@ export async function createMigratedPGlitePersistence(registerCleanup: (cleanup:
 
   try {
     const persistence = await createPGlitePersistence({ db });
-    registerCleanup(() => db.close());
+    await openPreparedHostTestRuntime(persistence.drizzle);
+    registerCleanup(async () => { await closePreparedHostTestRuntime(persistence.drizzle); await db.close(); });
     return persistence;
   } catch (error: unknown) {
     await db.close();

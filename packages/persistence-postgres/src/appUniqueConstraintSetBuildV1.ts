@@ -1,3 +1,4 @@
+import { chargeHostPreparation, PreparedHostRuntimeError } from "./preparedHostRuntime";
 import type { Json } from "flarex-protocol/json";
 import {
   readCommitFeedPageInTransactionV1Effect,
@@ -357,6 +358,15 @@ const uniquePreparations = new WeakMap<object, Readonly<{
   snapshot: BuildSnapshot;
   tableIds: ReadonlyArray<CatalogTableId>;
 }>>();
+
+/** The host allocation meters hidden catalog state without borrowing its ports. */
+export const chargeUniqueConstraintPreparation = Effect.fn("AppUniqueConstraintSetBuild.chargePreparation")(
+  (preparation: AppUniqueConstraintSetPreparation) => {
+    const state = uniquePreparations.get(preparation);
+    return state === undefined ? Effect.fail(new PreparedHostRuntimeError({ reason: "invalidPayload" }))
+      : chargeHostPreparation({ scopeId: state.scopeId, snapshot: state.snapshot, tableIds: state.tableIds });
+  },
+);
 
 /** Closed catalog inputs only. No target observation or eligibility is issued. */
 export const prepareAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.prepareCatalog")(

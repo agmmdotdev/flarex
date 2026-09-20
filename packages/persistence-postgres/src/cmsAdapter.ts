@@ -1,3 +1,4 @@
+export { makePreparedHostRuntime, type PreparedHostRuntime, PreparedHostRuntimeError } from "./preparedHostRuntime";
 export {
   defineCmsCommand,
   makeCmsHost,

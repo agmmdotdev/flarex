@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
+import { chargeHostPreparation, retainPreparedHost, type PreparedHostRuntime } from "../preparedHostRuntime";
 import { sql } from "drizzle-orm";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import type { Json } from "flarex-protocol/json";
@@ -89,6 +90,7 @@ import type { CurrencyAnnouncementTestHooks } from "./testSupport";
 
 /** Trusted inputs for the fixed Currency + scalar CMS + Application command. */
 export interface CurrencyAnnouncementHostInput<Failure> {
+  readonly hostRuntime: PreparedHostRuntime;
   readonly database: FlarexMetadataDatabase;
   readonly controlDatabase: FlarexMetadataDatabase;
   readonly session: RelationalSession;
@@ -115,6 +117,15 @@ export interface CurrencyAnnouncementHostInput<Failure> {
 /** Dynamic, trusted host instance; no framework callback or SQL handle is exposed. */
 export const makeCurrencyAnnouncementHost = Effect.fn(
   "CurrencyAnnouncement.make",
+)(function* <Failure>(input: CurrencyAnnouncementHostInput<Failure>, hooks?: CurrencyAnnouncementTestHooks) {
+  const retained = yield* retainPreparedHost(input.hostRuntime, composeCurrencyAnnouncementHost(input, hooks)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCompositeFailure))));
+  return Object.freeze({ close: retained.close, newRequestKey: () => `composite/${crypto.randomUUID()}`,
+    run: (requestKey: string, args: Json) => retained.use(host => host.run(requestKey, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCompositeFailure)))),
+  });
+});
+
+const composeCurrencyAnnouncementHost = Effect.fn(
+  "CurrencyAnnouncement.compose",
 )(function* <Failure>(
   input: CurrencyAnnouncementHostInput<Failure>,
   hooks?: CurrencyAnnouncementTestHooks,
@@ -133,6 +144,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
   );
   if (!isSyntheticBindingReference(capturedInstallation.value))
     return yield* Effect.fail(compositeError("invalidInput"));
+  yield* chargeHostPreparation(capturedInstallation.value).pipe(Effect.mapError(projectCompositeFailure));
   const commerce = Object.freeze({
     target: input.commerce.target,
     profile: input.commerce.profile,
@@ -182,6 +194,9 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
     yield* hashCurrencyAnnouncement(identity.canonicalBytes),
   );
   const owner = Object.freeze({});
+  yield* chargeHostPreparation({ deploymentId, applicationTable, identityDigest, expectedContent: expectedContent ?? null,
+    commands: [{ name: currency.name, mode: currency.mode }, { name: cms.name, mode: cms.mode }],
+  }).pipe(Effect.mapError(projectCompositeFailure));
   const prepared = yield* prepareCmsApplication(
     application, compositionAuthority, controlDatabase, deploymentId,
   ).pipe(Effect.mapError(projectCompositeFailure));

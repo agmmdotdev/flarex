@@ -1,3 +1,4 @@
+import { frameworkMigrationFixturePool } from "../../persistence-postgres/test/frameworkMigrationPostgresFixture";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import type { Json } from "flarex-protocol/json";
@@ -525,13 +526,18 @@ describe("private atomic commerce command", () => {
   it("rolls back every publication stage after both modules have written", async () => {
     const before = await inventory();
     for (const table of ["fx_system_commit", "fx_system_commit_relational_change", "fx_system_idempotency", "fx_system_commit_wake", "fx_system_scope_clock"]) {
+      // The installer owns the physical scope-clock root. Fault-trigger DDL uses
+      // that exact owner; the command itself still runs through the ordinary pool.
+      const owner = table === "fx_system_scope_clock" && "pool" in currency.persistence
+        ? await frameworkMigrationFixturePool(currency.persistence) : undefined;
+      const triggerDdl = (statement: string) => owner === undefined ? currency.persistence.exec(statement) : owner.query(statement);
       await currency.persistence.exec("create function fx_test_atomic_failure() returns trigger language plpgsql as $$ begin raise exception 'atomic publication failure'; end $$");
       try {
-        await currency.persistence.exec(`create trigger fx_test_atomic_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_atomic_failure()`);
+        await triggerDdl(`create trigger fx_test_atomic_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_atomic_failure()`);
         await runEffectFailure(host.run(host.newRequestKey(), proof.command, args("publication")));
         expect(await inventory()).toEqual(before);
       } finally {
-        await currency.persistence.exec(`drop trigger if exists fx_test_atomic_failure on "${table}"`);
+        await triggerDdl(`drop trigger if exists fx_test_atomic_failure on "${table}"`);
         await currency.persistence.exec("drop function fx_test_atomic_failure()");
       }
     }

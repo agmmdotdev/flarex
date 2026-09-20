@@ -18,6 +18,7 @@ import { admitParticipantEvents, prepareAtomicCommerceEvents, type AtomicCommerc
 import { TransactionIdentityAccessPolicySha256V1Schema } from "flarex-protocol/transaction-session";
 import { commerceIdentityEvidence } from "../commerceTransaction/request";
 import { hashAtomicCommerceBytes } from "./request";
+import { chargeHostPreparation } from "../preparedHostRuntime";
 
 export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfiguration<Failure> {
   readonly participants: readonly AtomicCommerceParticipantInput[];
@@ -33,7 +34,7 @@ const decodeCallLimit = Schema.decodeUnknownEffect(CommerceCallLimit);
 /** Captured host configuration, with no request-local state or settlement capability. */
 export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
   CommerceHostConfiguration<Failure>,
-  "identityAndAccessPolicy"
+  "identityAndAccessPolicy" | "hostRuntime"
 > {
   readonly allowed: ReadonlySet<AtomicCommerceCommand>;
   readonly members: Effect.Success<ReturnType<typeof prepareAtomicCommerceParticipants>>;
@@ -111,6 +112,8 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ...members.map((member) => member.descriptor.resources.facts),
   );
   const owner = Object.freeze({ hostId: Symbol("atomic.commerce.host") });
+  yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, limits, factLimit })
+    .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
   return {
     database,
     session,

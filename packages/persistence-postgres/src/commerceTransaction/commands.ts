@@ -32,6 +32,7 @@ export function defineCommerceCommand(name: string, mode: "read" | "write", run:
   return token;
 }
 export interface CommerceHost {
+  readonly close: Effect.Effect<void>;
   readonly newRequestKey: () => string;
   readonly read: (command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly run: (key: string, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;

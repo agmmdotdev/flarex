@@ -1,5 +1,6 @@
 import { captureCommerceResources, defaultCommerceResources, type CommerceResources } from "./resources";
 import { Effect, Schema } from "effect";
+import { chargeHostPreparation } from "../preparedHostRuntime";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { FrameworkSchemaArtifact, FrameworkSchemaArtifactIdentity } from "../frameworkSchema/artifact/model";
 import { copyCapturedFrameworkSchemaArtifactEvidence } from "../frameworkSchema/artifact/canonical";
@@ -206,6 +207,7 @@ export const registerLocalCommerceProfile = Effect.fn("CommerceProfile.registerL
 export const requireCommerceProfile = Effect.fn("CommerceProfile.require")(function* (profile: CommerceProfile) {
   const state = profiles.get(profile);
   if (state === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+  yield* chargeHostPreparation(state).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
   return state;
 });
 

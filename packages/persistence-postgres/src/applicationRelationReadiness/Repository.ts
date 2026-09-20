@@ -1,3 +1,4 @@
+import { chargeHostPreparation, PreparedHostRuntimeError } from "../preparedHostRuntime";
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
@@ -297,6 +298,15 @@ export function getPreparedApplicationRelationReadinessDefinitions(
   return getPreparedApplicationRelationReadinessState(port, prepared)
     ?.definitions ?? null;
 }
+
+/** Include immediate-origin definition sets hidden behind the prepared token. */
+export const chargeRelationReadinessPreparation = Effect.fn("ApplicationRelationReadiness.chargePreparation")(
+  (prepared: PreparedApplicationRelationReadiness) => {
+    const state = preparedApplicationRelationReadinessStates.get(prepared);
+    return state === undefined ? Effect.fail(new PreparedHostRuntimeError({ reason: "invalidPayload" }))
+      : chargeHostPreparation({ prepared, definitions: state.definitions, immediateOrigins: state.immediateOrigins });
+  },
+);
 
 export function hasApplicationRelationSetReadinessEvidenceAuthority(
   port: ApplicationRelationReadinessPort,

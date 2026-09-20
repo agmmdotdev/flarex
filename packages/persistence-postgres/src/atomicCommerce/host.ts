@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
+import { retainPreparedHost } from "../preparedHostRuntime";
 import { sql } from "drizzle-orm";
 import { prepareApplicationBindingSelection } from "../applicationActivation";
 import { runRelationalSession } from "../relationalTransaction/session";
@@ -24,6 +25,15 @@ export type { AtomicCommerceHostInput } from "./configuration";
 export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(function* <Failure>(
   input: AtomicCommerceHostInput<Failure>,
 ): Effect.fn.Return<AtomicCommerceHost, CommerceTransactionError> {
+  const retained = yield* retainPreparedHost(input.hostRuntime, composeAtomicCommerceHost(input)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure))));
+  return Object.freeze({ close: retained.close, newRequestKey: () => `commerce/atomic/${crypto.randomUUID()}`,
+    run: (key, command, args) => retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectCommerceRequestFailure)))),
+  } satisfies AtomicCommerceHost);
+});
+
+const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(function* <Failure>(
+  input: AtomicCommerceHostInput<Failure>,
+): Effect.fn.Return<Omit<AtomicCommerceHost, "close">, CommerceTransactionError> {
   const configuration = yield* prepareAtomicCommerceConfiguration(input);
   const { database, session, target, deploymentId, application, authority, members } = configuration;
   const run: AtomicCommerceHost["run"] = Effect.fn("AtomicCommerce.run")(function* (requestKey, token, args) {

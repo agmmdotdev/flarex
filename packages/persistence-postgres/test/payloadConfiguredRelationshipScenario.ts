@@ -1,3 +1,4 @@
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { expect } from "vitest";
 import { Effect, Result } from "effect";
 import { and, eq } from "drizzle-orm";
@@ -65,7 +66,7 @@ export async function payloadConfiguredRelationshipScenario(
     edges: await db.select().from(fxAppEdgeCurrent), adjacency: await db.select().from(fxAppEdgeAdjacencyVersions),
     relationFacts: await db.select().from(fxSystemCommitRelationAdjacencyChanges), preferences: await db.select().from(table),
     preferenceFacts: await db.select().from(fxSystemCommitPayloadPreferenceDeletions) });
-  const hostInput = { database: db, controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
+  const hostInput = { hostRuntime: preparedHostTestRuntime(db), database: db, controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
     authority: fixture.authorityPorts, application: fixture.relationActivation, pointCommitAuthority: fixture.pointCommitAuthority,
     identityAndAccessPolicy: { subject: "configured-relationship-test" }, payloadPreferenceTarget: target,
     materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),

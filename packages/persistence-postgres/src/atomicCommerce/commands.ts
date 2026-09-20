@@ -44,6 +44,7 @@ export function defineAtomicCommerceCommand(name: string, run: AtomicCommandDefi
 export const getAtomicCommerceCommand = (command: AtomicCommerceCommand) => commands.get(command);
 
 export interface AtomicCommerceHost {
+  readonly close: Effect.Effect<void>;
   readonly newRequestKey: () => string;
   readonly run: (requestKey: string, command: AtomicCommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
 }

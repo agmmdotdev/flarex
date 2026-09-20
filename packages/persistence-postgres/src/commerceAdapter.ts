@@ -1,4 +1,5 @@
 /** Framework-facing private contract; implementation and database owners stay in core. */
+export { makePreparedHostRuntime, type PreparedHostRuntime, PreparedHostRuntimeError } from "./preparedHostRuntime";
 import { getCommerceCommand } from "./commerceTransaction/commands";
 import type { CommerceCommand } from "./commerceTransaction/commands";
 

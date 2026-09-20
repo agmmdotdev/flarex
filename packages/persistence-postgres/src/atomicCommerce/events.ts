@@ -9,6 +9,7 @@ import { commitEventLimits, EventEnvelope, EventName, EventRevision, EventSubscr
 import { requireCommerceAdmission, type CommerceAdmission } from "../commerceTransaction/admission";
 import type { BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { commitEventsDigest } from "../commitEvents/digest";
+import { chargeHostPreparation } from "../preparedHostRuntime";
 
 declare const contractBrand: unique symbol;
 export interface CommerceEventContract { readonly [contractBrand]: true }
@@ -87,6 +88,9 @@ export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(fun
     names.add(definition.name);
   }
   const identity = { producerRevision, contracts: [...allowed.values()].map(({ name, revision, internal }) => ({ name, revision, internal })), subscribers } satisfies Json;
+  yield* chargeHostPreparation({ identity, producerRevision, subscribers,
+    contracts: [...allowed.values()].map(({ name, revision, internal }) => ({ name, revision, internal })),
+  }).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
   return { allowed, identity, validate, producerRevision, subscribers };
 });
 

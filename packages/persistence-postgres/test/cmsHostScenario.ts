@@ -1,3 +1,4 @@
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { cmsHostFixture } from "./cmsHostFixture";
 import { assertCmsParticipantAdmission } from "./cmsParticipantAdmission";
@@ -133,7 +134,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   }) });
   const commands = [create, read, edit, netZero, invalid, borrowedCommit, nestedFailure, invalidId, remove, sameValue, tooMany, tooLarge, duplicate,
     pendingId, callBoundary, bulk, nestedSuccess, paging];
-  const input = { database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
+  const input = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
     authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority, application: fixture.relationActivation, commands,
     identityAndAccessPolicy: { subject: "private-conformance", policy: "cms-scalar" }, materialization: {
       intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),

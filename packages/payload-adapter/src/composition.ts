@@ -1,5 +1,5 @@
 import { BasePayload, type CollectionConfig } from "payload";
-import { Effect } from "effect";
+import { Effect, Scope } from "effect";
 import { cmsError, makeCmsHost, type CmsHost, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { makePayloadDatabaseAdapter } from "./adapter";
 import { makePayloadOperations } from "./operations";
@@ -22,6 +22,7 @@ export const makePayloadComposition = Effect.fn("PayloadAdapter.compose")(functi
   compiled: RuntimeConfiguration, conformance?: ConformanceHooks,
 ) {
   const profile = compiled.configuration.profile;
+  const scope = yield* Effect.scope;
   const collections = compiled.configuration.tables.map(makePayloadCollectionRuntime);
   const bridge = makePayloadDatabaseAdapter(profile, collections, conformance?.onCollection);
   let live = true;
@@ -43,8 +44,14 @@ export const makePayloadComposition = Effect.fn("PayloadAdapter.compose")(functi
   const commands = makePayloadOperations(payload, bridge, profile, collections, () => live, conformance?.onExecute);
   const bind = Effect.fn("PayloadAdapter.bind")(function* <Failure>(input: PayloadHostInput<Failure>): Effect.fn.Return<CmsHost, CmsTransactionError> {
     if (!live) return yield* Effect.fail(cmsError("closed"));
-    const host = yield* makeCmsHost({ ...input, commands: Object.values(commands), expectedContentIdentity: compiled.contentIdentity });
+    const host = yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+      const acquired = yield* restore(makeCmsHost({ ...input, commands: Object.values(commands), expectedContentIdentity: compiled.contentIdentity }));
+      yield* Scope.addFinalizer(scope, acquired.close);
+      return acquired;
+    }));
+    if (!live) return yield* Effect.fail(cmsError("closed"));
     return {
+      close: host.close,
       newRequestKey: host.newRequestKey,
       run: (key, command, args) => Effect.suspend(() => live ? host.run(key, command, args) : Effect.fail(cmsError("closed"))),
       read: (command, args) => Effect.suspend(() => live ? host.read(command, args) : Effect.fail(cmsError("closed"))),

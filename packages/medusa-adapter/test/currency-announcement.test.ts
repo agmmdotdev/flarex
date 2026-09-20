@@ -14,6 +14,7 @@ import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
 import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { makeCurrencyAnnouncementHost } from "../../persistence-postgres/src/crossDomainCommand/host";
+import { makePreparedHostRuntime } from "../../persistence-postgres/src/preparedHostRuntime";
 import { compositeError } from "../../persistence-postgres/src/crossDomainCommand/model";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../../persistence-postgres/src/appDeveloperIndexCommitV1";
@@ -44,7 +45,10 @@ it("settles real Currency, Payload and Application participants once, with compl
     indexes: await db.select().from(fxAppIndexEntryCurrent), unique: await db.select().from(fxAppUniqueKeys), facts: await db.select().from(fxSystemCommitAppRowChanges) });
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const conformance = yield* makePayloadConformanceRuntime();
-    const input = { database: db, controlDatabase: control.drizzle, session: resource.session, deploymentId: native.deploymentId,
+    // Acquire after the borrowed Payload instance so composite hosts drain before
+    // that instance is destroyed when their shared composition scope closes.
+    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 64, maximumPreparedBytes: 67_108_864 });
+    const input = { hostRuntime, database: db, controlDatabase: control.drizzle, session: resource.session, deploymentId: native.deploymentId,
       authority: native.authorityPorts, application: native.relationActivation, pointCommitAuthority: native.pointCommitAuthority,
       identityAndAccessPolicy: { subject: "composite-conformance" }, expectedContentIdentity: payloadScalarContentIdentity,
       materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(control.drizzle), developerIndexes: createAppDeveloperIndexDefinitionPortV1(control.drizzle),

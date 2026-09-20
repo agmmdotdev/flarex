@@ -1,3 +1,4 @@
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { Deferred, Effect, Fiber, Schema } from "effect";
@@ -59,7 +60,7 @@ async function snapshotFixture(persistence: PostgresFlarexPersistence, session: 
     const second = yield* ctx.documents.get(ctx.context, undefined, input.second);
     return { first, second, before: [...before.docs], after: [...after.docs] };
   }) });
-  const host = await runEffect(makeCmsHost({ database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
+  const host = await runEffect(makeCmsHost({ hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
     deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
     application: fixture.relationActivation, commands: [create, change, read], identityAndAccessPolicy: { subject: "snapshot-witness" },
     relationReads: createApplicationRelationReadPort(fixture.control.drizzle, fixture.pointCommitAuthority, fixture.relationCommit, fixture.fold),

@@ -3,7 +3,8 @@ import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery
 import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext, type CommerceHost } from "./commands";
 export { defineCommerceCommand } from "./commands";
 export type { CommerceCommand, CommerceCommandContext, CommerceHost } from "./commands";
-import { Effect, Exit, Schema } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
+import { chargeHostPreparation, retainPreparedHost } from "../preparedHostRuntime";
 import { sql } from "drizzle-orm";
 import type { Json } from "flarex-protocol/json";
 import { canonicalizeJsonOutcome } from "../jsonOutcome";
@@ -63,7 +64,16 @@ export const makeLocalCommerceHost = Effect.fn("CommerceHost.makeLocal")(functio
   return Object.freeze({ host, takeDeliveries: () => Object.freeze(results.splice(0)) });
 });
 
-const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: CommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<CommerceHost, CommerceTransactionError> {
+const makeHost = Effect.fn("CommerceHost.retain")(function* <Failure>(input: CommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<CommerceHost, CommerceTransactionError> {
+  const retained = yield* retainPreparedHost(input.hostRuntime, composeCommerceHost(input, local)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
+  return Object.freeze({ close: retained.close, newRequestKey: () => `commerce/${crypto.randomUUID()}`,
+    run: (key, command, args) => retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+    read: (command, args) => retained.use(host => host.read(command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+    initialize: rows => retained.use(host => host.initialize(rows)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+  } satisfies CommerceHost);
+});
+
+const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: CommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<Omit<CommerceHost, "close">, CommerceTransactionError> {
   const { database, session, target, deploymentId, application, profile } = input;
   if (!hasRelationalSessionDatabase(session, database) || !hasFrameworkSchemaTargetDatabase(target, database) ||
     !hasApplicationBindingComposition(application, input.authority)) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -74,6 +84,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
   const capturedReference = yield* Effect.fromResult(captureCommerceJsonData(input.installation, commerceLimits.rowBytes));
   if (!isSyntheticBindingReference(capturedReference.value)) return yield* Effect.fail(commerceError("invalidInput"));
   const reference = capturedReference.value;
+  yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectFailure));
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const allowed = new Set(input.commands);
   const names = new Set<string>();
@@ -198,10 +209,12 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
     }
     return value;
   });
-  const initializationKey = yield* capturePrivateCanonicalValue({ installationSha256: reference.installation.installationSha256,
-    contractSha256: descriptor.contractSha256 }, 4096, { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });
+  const initializationKeySha256 = (yield* capturePrivateCanonicalValue({ installationSha256: reference.installation.installationSha256,
+    contractSha256: descriptor.contractSha256 }, 4096, { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) })).sha256Hex;
+  yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, initializationKeySha256 })
+    .pipe(Effect.mapError(projectFailure));
   return Object.freeze({ newRequestKey: () => `commerce/${crypto.randomUUID()}`,
     read: (command, args) => execute(null, command, args), run: (key, command, args) => execute(key, command, args),
-    initialize: rows => execute(`commerce/init/${initializationKey.sha256Hex}`, null, rows),
-  } satisfies CommerceHost);
+    initialize: rows => execute(`commerce/init/${initializationKeySha256}`, null, rows),
+  } satisfies Omit<CommerceHost, "close">);
 });

@@ -74,6 +74,7 @@ import {
 import type { ApplicationSchemaAuthorityPublisher } from
   "./applicationSchemaAuthority";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
+import { chargeHostPreparation } from "./preparedHostRuntime";
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
@@ -910,6 +911,9 @@ function makeCompositeApplicationActivationRepository<
       if (hint.readinessKind === "legacy") return (yield* readActive()).selection;
       const readiness = yield* prepareApplicationRelationActiveRead(captured.relationReadiness,
         { deploymentId: captured.deploymentId, revisionId: hint.revisionId });
+      yield* chargeHostPreparation({ authority: located.authority, revisionId: hint.revisionId }).pipe(
+        Effect.mapError(cause => activationError("read", "resourceFailure", hint.revisionId, false, cause)),
+      );
       const token: ApplicationBindingPreparation = Object.freeze({ [bindingPreparationBrand]: true as const });
       bindingPreparations.set(token, Object.freeze({ authority: located.authority, revisionId: hint.revisionId, readiness }));
       return token;

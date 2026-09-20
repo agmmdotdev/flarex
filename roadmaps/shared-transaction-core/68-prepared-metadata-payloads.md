@@ -1,7 +1,8 @@
 # Prepared Metadata Payloads
 
-Status: implemented under standing core approval. Aggregate host
-retention remains open; this does not establish a process memory budget.
+Status: implemented under standing core approval. Aggregate host retention is
+now owned by [scoped prepared hosts](./69-scoped-prepared-hosts.md); neither
+mechanism establishes a process memory budget.
 
 ## Outcome And Preflight
 
@@ -39,10 +40,11 @@ reuse the same host. Preserve installation tamper and cancellation witnesses.
 Run fast and ordinary-role PostgreSQL lanes, affected typechecks/lint and both
 reviewers. Remove the unused full-row copies and row-array types.
 
-## Remaining Lifetime Gate
+## Lifetime Ownership
 
 This bounds the installation payload and removes redundant Application bytes.
-It does not bound aggregate hosts, all Application preparation state, or
-request-time allocations. A shared budget with deterministic release must cover
-opaque definition/relation/unique preparations and host multiplicity. Do not
-count garbage collection as release or report this slice as package-2 completion.
+The shared runtime in [scoped prepared hosts](./69-scoped-prepared-hosts.md)
+adds host multiplicity and opaque definition/relation/unique preparation data to
+explicit lifetime accounting. Request-time allocations retain their own limits.
+Do not count garbage collection as release or report payload limits alone as
+package-2 completion.

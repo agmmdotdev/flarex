@@ -105,14 +105,17 @@ evidence formats by default.
 [Host-owned CMS preparation](./67-host-owned-cms-preparation.md) selects one
 revision per constructed CMS/composite host while retaining full fresh admission.
 Rebuilding a host is required after revision change; it cannot update bindings
-or authorize stale replay. Root-only admission, aggregate retained-memory policy
-and the journal-cost disposition remain separate completion gates.
+or authorize stale replay. The protected-root integrity decision and journal-cost
+disposition remain separate completion gates.
 
 [Prepared metadata payloads](./68-prepared-metadata-payloads.md) removes redundant
 Application publication/function bytes after verification and accounts for
-installation evidence in the per-preparation payload limit. Aggregate host
-retention still needs a deterministic lifetime and shared budget; neither
-compact snapshots nor canonical byte limits establish a process heap bound.
+installation evidence in the per-preparation payload limit.
+[Scoped prepared hosts](./69-scoped-prepared-hosts.md) supplies deterministic
+drain/release and a shared host-count and preparation-data budget for the private
+CMS, commerce, atomic-commerce and existing composite hosts. Compositions supply
+the runtime explicitly; request-owned native preparation keeps its own lifetime.
+These limits do not establish a process heap bound or hosted capacity claim.
 
 ## 3. Connected Acceptance And Retirement
 

@@ -5,7 +5,7 @@ import type { AppRelationEdgeQueryObservation } from "../appRelationEdges";
 import { prepareCmsRelations, makeCmsRelations, type CmsRelations } from "./relations";
 import { hasApplicationRelationReadPortAuthorityForControlDb, hasApplicationRelationReadPortAuthorityForPointCommit, type ApplicationRelationReadPort } from "../applicationRelationRead";
 import { hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget } from "../frameworkSchema/target";
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Cause, Effect, Option, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
@@ -31,6 +31,7 @@ import { makeCmsRequestLifetime } from "./lifetime";
 import { makeCmsDocuments, type CmsDocuments, type CmsDocumentReadTestHooks } from "./documents";
 import { makePayloadPreferenceCleanup, type PayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
 import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
+import { chargeHostPreparation, retainPreparedHost, PreparedHostRuntimeError, type PreparedHostRuntime } from "../preparedHostRuntime";
 
 declare const commandBrand: unique symbol;
 export interface CmsCommand { readonly [commandBrand]: true }
@@ -67,6 +68,7 @@ export const defineCmsCommand = (definition: CommandDefinition): CmsCommand => {
   return token;
 };
 export interface CmsHostInput<Failure> {
+  readonly hostRuntime: PreparedHostRuntime;
   readonly database: FlarexMetadataDatabase;
   readonly controlDatabase: FlarexMetadataDatabase;
   readonly session: RelationalSession;
@@ -85,6 +87,7 @@ export interface CmsHostInput<Failure> {
   readonly expectedContentIdentity?: Readonly<{ configSha256: string; provenanceSha256: string }>;
 }
 export interface CmsHost {
+  readonly close: Effect.Effect<void>;
   readonly newRequestKey: () => string;
   readonly run: (requestKey: string, command: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>;
   readonly read: (command: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>;
@@ -104,6 +107,7 @@ const sha256 = Effect.fn("CmsHost.sha256")((bytes: Uint8Array) => digestBytes(by
 
 const projectFailure = (cause: unknown): CmsTransactionError => {
   if (cause instanceof CmsTransactionError) return cause;
+  if (cause instanceof PreparedHostRuntimeError) return cmsError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return cmsError("requestConflict", cause);
   if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return cmsError("storedCorruption", cause);
   if (cause instanceof RelationalSessionError) return cmsError(cause.reason === "decisionUncertain" ? "decisionUncertain" : "resourceFailure", cause);
@@ -111,9 +115,19 @@ const projectFailure = (cause: unknown): CmsTransactionError => {
 };
 
 export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
+  input: CmsHostInput<Failure>, hooks?: CmsHostTestHooks,
+): Effect.fn.Return<CmsHost, CmsTransactionError> {
+  const retained = yield* retainPreparedHost(input.hostRuntime, composeCmsHost(input, hooks)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
+  return Object.freeze({ close: retained.close, newRequestKey: () => `cms/${crypto.randomUUID()}`,
+    run: (key, command, args) => retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+    read: (command, args) => retained.use(host => host.read(command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
+  } satisfies CmsHost);
+});
+
+const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   input: CmsHostInput<Failure>,
   hooks?: CmsHostTestHooks,
-): Effect.fn.Return<CmsHost, CmsTransactionError> {
+): Effect.fn.Return<Omit<CmsHost, "close">, CmsTransactionError> {
   const { database, session, deploymentId, controlDatabase, application, pointCommitAuthority } = input;
   const relationReads = input.relationReads;
   if (relationReads !== undefined && (!hasApplicationRelationReadPortAuthorityForControlDb(relationReads, controlDatabase) ||
@@ -142,6 +156,8 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   const identity = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, cmsLimits.documentBytes, cmsError));
   const canonicalIdentity = yield* canonicalizeSuccessfulResultV1Effect(identity.value).pipe(Effect.mapError(projectFailure));
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha256(canonicalIdentity.canonicalBytes));
+  yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, expectedContentIdentity: expectedContentIdentity ?? null })
+    .pipe(Effect.mapError(projectFailure));
   const preparedPreferences = preferenceTarget === undefined ? undefined : yield* prepareCmsPreferences(database, session, authority,
     deploymentId, preferenceTarget).pipe(Effect.mapError(projectFailure));
   // A host owns one revision's immutable preparation. Every attempt still accepts
@@ -234,5 +250,5 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
     });
   });
   return Object.freeze({ newRequestKey: () => `cms/${crypto.randomUUID()}`,
-    run: (key, command, args) => execute(key, command, args), read: (command, args) => execute(null, command, args) } satisfies CmsHost);
+    run: (key, command, args) => execute(key, command, args), read: (command, args) => execute(null, command, args) } satisfies Omit<CmsHost, "close">);
 });

@@ -1,3 +1,4 @@
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { Clock, Effect, Schema, Tracer } from "effect";
 import { expect, it } from "vitest";
 import { isJsonObject, type Json } from "flarex-protocol/json";
@@ -104,7 +105,7 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
       payloadLifecycle: { ...installationBindingReference(availability), profiles: [profile.profile] } }));
     await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration,
       "latency-preferences", combined.sha256, prior.head)));
-    const hostInput = { database: persistence.drizzle, controlDatabase: fixture.control.drizzle,
+    const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle,
       session: makePostgresRelationalSession(persistence), deploymentId: fixture.deploymentId, authority: fixture.authorityPorts,
       application: fixture.relationActivation, pointCommitAuthority: fixture.pointCommitAuthority,
       identityAndAccessPolicy: { subject: "payload-latency" }, payloadPreferenceTarget: target,

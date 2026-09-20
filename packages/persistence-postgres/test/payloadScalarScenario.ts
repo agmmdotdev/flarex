@@ -1,3 +1,4 @@
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { UnsupportedPayloadCapability } from "../../payload-adapter/src/testing";
 import { expect } from "vitest";
 import { Effect } from "effect";
@@ -26,7 +27,7 @@ export function payloadScalarScenario(persistence: PGliteFlarexPersistence | Pos
     host: CmsHost; inventory: () => Promise<unknown> }) => Promise<void>) {
   return runEffect(Effect.scoped(makePayloadConformanceRuntime().pipe(Effect.flatMap(conformance => Effect.promise(async () => {
     const { fixture } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields });
-    const hostInput = { database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
+    const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
       deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
       application: fixture.relationActivation,
       identityAndAccessPolicy: { profile: "payload.scalar", release: "3.88.0", access: "closed-headless-local-api", hook: "fixed-nested-conformance" },

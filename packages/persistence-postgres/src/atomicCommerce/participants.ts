@@ -10,6 +10,7 @@ import { isSyntheticBindingReference, sameBindingValue } from "../frameworkSchem
 import { validateCommerceProfileSet } from "../frameworkSchema/binding/commerceBinding";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { prepareInstallationRuntime, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
+import { chargeHostPreparation } from "../preparedHostRuntime";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { getAtomicCommerceParticipant, type AtomicCommerceParticipant } from "./commands";
@@ -45,6 +46,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     const capturedReference = yield* Effect.fromResult(member.reference);
     if (!isSyntheticBindingReference(capturedReference.value)) return yield* Effect.fail(commerceError("invalidInput"));
     const reference = capturedReference.value;
+    yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectCommerceRequestFailure));
     const descriptor = yield* requireCommerceProfile(member.profile);
     if (descriptor.localOnly !== (member.validate !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (!sameBindingValue({ ...descriptor.artifact.identity }, reference.installation.artifact))
@@ -64,6 +66,8 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     }
     definitions += commands.size;
     if (commands.size === 0 || definitions > commerceLimits.commandDefinitions) return yield* Effect.fail(commerceError("limitExceeded"));
+    yield* chargeHostPreparation({ name, commandNames: [...commandNames], eventContracts: events?.contracts ?? [] })
+      .pipe(Effect.mapError(projectCommerceRequestFailure));
     members.push({ participant: member.participant, name, profile: member.profile, reference, descriptor, commands,
       commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate, events });
   }

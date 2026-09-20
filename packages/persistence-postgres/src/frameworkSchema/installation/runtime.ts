@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
+import { chargeHostPreparation } from "../../preparedHostRuntime";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
@@ -34,8 +35,8 @@ const MAX_RETAINED_PAYLOAD_BYTES = 8_388_608;
 
 /** One immutable description per host, with no acquired connection, transaction,
  * fiber, mutable verdict or restored graph retained. Construction failures publish no token.
- * The host owns the token's lifetime; releasing the host makes all state collectible.
- * Concurrent host constructions are independent, with no shared mutable cache. */
+ * The scoped host lease drains calls and drops its implementation before returning
+ * capacity. Hosts retain independent data within the composition's shared budget. */
 export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare")(function* (
   database: FlarexMetadataDatabase, target: FrameworkSchemaTarget, input: InstallationBindingReference,
 ) {
@@ -75,6 +76,7 @@ export const prepareInstallationRuntime = Effect.fn("InstallationRuntime.prepare
         },
       };
       if (measureCanonicalJsonUtf8Bytes(payload, MAX_RETAINED_PAYLOAD_BYTES).kind !== "success") return yield* Effect.fail(bindingError("resourceFailure"));
+      yield* chargeHostPreparation(payload).pipe(Effect.mapError(cause => bindingError("resourceFailure", cause)));
       return Object.freeze({ target, reference, installationStorageId: restored.installation.storageId, headFingerprint, coordinates, evidence, data });
     }).pipe(withBindingMigrationGraphLimits, withFrameworkMigrationPlanVerification,
       Effect.timeoutOrElse({ duration: 15_000, orElse: () => Effect.fail(bindingError("resourceFailure")) })),

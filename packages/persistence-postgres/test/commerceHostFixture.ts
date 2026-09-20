@@ -1,3 +1,4 @@
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { Effect, Result } from "effect";
 import { expect } from "vitest";
 import type { Json } from "flarex-protocol/json";
@@ -76,7 +77,7 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   if (ready.kind !== "ready") throw new Error(`Commerce installation incomplete: ${ready.kind}`);
   expect(ready.availability.installation.admission.admission.frame.admissionProfile).toBe("registered-commerce-fresh");
   const installation = installationBindingReference(ready.availability);
-  const hostInput = { database: persistence.drizzle, session, target: base.target, deploymentId: base.fixture.deploymentId,
+  const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, session, target: base.target, deploymentId: base.fixture.deploymentId,
     authority: base.fixture.authorityPorts, application: base.fixture.relationActivation, profile: prepared.profile, installation,
     identityAndAccessPolicy: { profile: "commerce-test" }, commands };
   const local = localPolicy === undefined ? undefined : await runEffect(makeLocalCommerceHost(hostInput, localPolicy(descriptor)));

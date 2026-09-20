@@ -1,7 +1,8 @@
 # Host-Owned CMS Preparation
 
 Status: implemented under standing core approval. Full evidence verification
-remains; protected-root and aggregate retention gates are not completed here.
+remains; aggregate lifetime and budget are now owned by
+[scoped prepared hosts](./69-scoped-prepared-hosts.md).
 
 ## Outcome And Evidence
 
@@ -41,11 +42,11 @@ its candidate/definition consumers have a separate lifecycle and are not silentl
 made concurrent shared state by this change. No transaction, accepted token,
 mutable working set or readiness verdict is retained by the host.
 
-Use the existing preparation registry; do not add a second cache or new API.
+Use the existing preparation registry rather than a second metadata cache.
 Each host retains one preparation, with no growing revision map. Existing input
-and definition limits still apply. Aggregate host multiplicity and explicit
-retained-byte accounting remain a package-2 gate; this is not a claim of a
-process-wide memory budget.
+and definition limits still apply. The shared runtime in
+[scoped prepared hosts](./69-scoped-prepared-hosts.md) now owns host multiplicity,
+retained-data accounting and drain/release. It is not a process-wide heap budget.
 
 ## Integrity Decision
 

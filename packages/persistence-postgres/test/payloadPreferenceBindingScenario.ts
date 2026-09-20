@@ -1,3 +1,4 @@
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { installPayloadPreferenceFixture } from "./payloadPreferenceFixture";
 import { payloadJoinScenario } from "./payloadJoinScenario";
@@ -94,7 +95,7 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
     { ...frame, payloadLifecycle: { ...lifecycle, readinessSha256: "0".repeat(64) } }]) await runEffectFailure(bindings.prepare(changed));
   let calls = 0;
   const probe = defineCmsCommand({ name: "preference-binding-probe", mode: "read", run: () => Effect.sync(() => { calls += 1; return null; }) });
-  const hostInput = { database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
+  const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
     authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority, application: fixture.relationActivation, commands: [probe], identityAndAccessPolicy: { profile: "preference-binding-only" },
     expectedContentIdentity: payloadScalarContentIdentity,
     materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle), developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle),

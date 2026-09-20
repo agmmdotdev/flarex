@@ -1,3 +1,4 @@
+import { chargeHostPreparation } from "../preparedHostRuntime";
 import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import { prepareInstallationRuntime, acceptPreparedInstallation, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
@@ -100,6 +101,7 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
   }
   const configuration = yield* Effect.fromResult(captureApplicationWritePolicyData(manifest.schema.writePolicies.configuration));
   if (!isPayloadConfiguration(configuration)) return yield* Effect.fail(cmsError("invalidAuthority"));
+  yield* chargeHostPreparation(configuration).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
   const value: PreparedCmsApplication = Object.freeze({ selection, schema, configuration });
   prepared.add(value);
   return value;

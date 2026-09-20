@@ -1,3 +1,4 @@
+import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { Effect, Result, Schema } from "effect";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { appRowIdHexV1ToBytes, decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-id";
@@ -63,7 +64,7 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     yield* ctx.documents.delete(ctx.context, ctx.transactionId, input.firstId);
     return yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: input.temporaryTitle });
   }) });
-  const input = { database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
+  const input = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
     deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
     application: fixture.relationActivation, commands: [insert, read, moveAndReuse], identityAndAccessPolicy: { subject: "ce2-measurement", policy: "cms-scalar" },
     materialization: {

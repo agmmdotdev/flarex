@@ -1,3 +1,4 @@
+import { chargeHostPreparation, PreparedHostRuntimeError } from "./preparedHostRuntime";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -515,6 +516,17 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
   }));
   return prepared;
 });
+
+/** Account for opaque retained data; authority ports and targets remain borrowed. */
+export const chargePhysicalDefinitionPreparation = Effect.fn("PhysicalDefinitionLifecycle.chargePreparation")(
+  (prepared: PreparedPhysicalDefinitionLifecycleReadiness) => {
+    const state = preparedReadinessStates.get(prepared);
+    return state === undefined ? Effect.fail(new PreparedHostRuntimeError({ reason: "invalidPayload" }))
+      : chargeHostPreparation({ deploymentId: state.deploymentId, schemaVersionId: state.schemaVersionId,
+        uniqueSetSha256: state.uniqueSetSha256, indexDefinitions: state.indexDefinitions,
+        authority: state.located.authority, requirements: state.requirements });
+  },
+);
 
 /** Revalidate the catalog using the accepting client when placement is exact.
  * Separate catalogs retain their reader. No transaction or write lock is opened. */

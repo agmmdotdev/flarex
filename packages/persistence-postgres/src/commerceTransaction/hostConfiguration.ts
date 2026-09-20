@@ -1,4 +1,5 @@
 import type { Json } from "flarex-protocol/json";
+import type { PreparedHostRuntime } from "../preparedHostRuntime";
 import type { ApplicationBindingSelectionReader } from "../applicationActivation";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
@@ -9,6 +10,7 @@ import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionA
 /** Trusted deployment composition shared by standalone and atomic commerce.
  * These are borrowed capabilities; each host validates their common authority. */
 export interface CommerceHostConfiguration<Failure> {
+  readonly hostRuntime: PreparedHostRuntime;
   readonly database: FlarexMetadataDatabase;
   readonly session: RelationalSession;
   readonly target: FrameworkSchemaTarget;
