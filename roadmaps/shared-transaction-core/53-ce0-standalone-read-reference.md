@@ -53,5 +53,8 @@ read. Assert the actual snapshot isolation and drain owned fibers/connections.
 
 Run affected types/lint, both read-only reviews, reconcile status and common
 components, stop owned resources and commit. Numerical targets, calibration,
-paired timing, cumulative budget thresholds and broader operations remain open;
-this reference does not close full CE0 or establish scale.
+paired timing and broader operations remain open. The
+[cumulative request witnesses](./54-ce0-cumulative-request-budget.md) cover
+adjacent distinct/cached read sizes under the actual command byte budget;
+exact byte thresholds across configurations remain open. This reference does
+not close full CE0 or establish scale.

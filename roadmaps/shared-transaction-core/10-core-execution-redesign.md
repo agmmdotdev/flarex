@@ -242,8 +242,11 @@ pending inserts, collision/eager uniqueness decisions and accounting order. Sche
 validation, bounded readers, lifetime, admission and build/candidate authority
 remain common components. The [standalone read reference](./53-ce0-standalone-read-reference.md)
 adds independent empty and bounded point readback, unchanged publication state,
-scoped absence/corruption and real snapshot overlap. Protected readiness-root
-work and complete reference acceptance remain open.
+scoped absence/corruption and real snapshot overlap. The
+[cumulative request budget witnesses](./54-ce0-cumulative-request-budget.md)
+compare valid-document accumulation, distinct/cached read boundaries, refusal
+without publication and corrected explicit requests after confirmed rollback.
+Protected readiness-root work and complete reference acceptance remain open.
 
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its

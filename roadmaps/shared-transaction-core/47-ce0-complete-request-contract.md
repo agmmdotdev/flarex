@@ -12,7 +12,10 @@ bounded readers, lifetime and authority remain common. The
 uncertainty, cancellation and scoped contention witnesses to eight-row requests.
 The [standalone read reference](./53-ce0-standalone-read-reference.md) independently
 executes empty and bounded point readback with actual snapshot overlap and no
-publication. Complete-request equivalence and timing acceptance remain open.
+publication. The [cumulative budget witnesses](./54-ce0-cumulative-request-budget.md)
+compare refusal from accumulated valid read/insert work, including cached output
+copies and unchanged durable state. Complete-request equivalence and timing
+acceptance remain open.
 
 ## Selected Boundary And Missing Evidence
 
