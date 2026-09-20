@@ -28,6 +28,11 @@ remain distinct from logical schema evolution.
   and numeric ranges through shared indexes with pending membership and exact
   settlement validation. Complete page/count membership remains bounded. The
   selective-query package continues with representative Pricing and exact constraints.
+- Multiple required-text and compound scalar Payload unique declarations now
+  execute through shared constraint definitions, build/readiness and claims.
+  [Compound uniqueness](./07-payload-compound-uniqueness.md) covers native error
+  projection, pending key reuse and concurrent settlement. Nullable/conditional
+  uniqueness remains a subsequent shared-core contract.
 - Private logical indexes now carry an authenticated exact-decimal projection
   through analysis, build, write maintenance and Application indexed pending reads.
   [The decimal contract](./06-exact-decimal-indexes.md) preserves source text and

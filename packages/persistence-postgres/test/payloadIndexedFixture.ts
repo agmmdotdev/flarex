@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { eq } from "drizzle-orm";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
-import { compilePayloadCollections } from "../../payload-adapter/src/collections";
+import { compilePayloadCollections, type CompiledPayloadCollections } from "../../payload-adapter/src/collections";
 import { makePayloadRuntime } from "../../payload-adapter/src/runtime";
 import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
 import { cmsError } from "../src/cmsTransaction/model";
@@ -27,12 +27,13 @@ export const decodeIndexedDocument = Schema.decodeUnknownSync(Schema.Struct({ id
 
 export const makeIndexedPayloadFixture = Effect.fn("IndexedPayload.fixture")(function* (
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence, session: RelationalSession,
+  configuration?: CompiledPayloadCollections,
 ) {
-  const compiled = yield* compilePayloadCollections([{ slug: "items", fields: [
+  const compiled = configuration ?? (yield* compilePayloadCollections([{ slug: "items", fields: [
     { name: "title", type: "text", required: true, unique: true },
     { name: "category", type: "text", required: true },
     { name: "amount", type: "number", required: true, index: true },
-  ], indexes: [{ fields: ["category", "amount"] }] }]);
+  ], indexes: [{ fields: ["category", "amount"] }] }]));
   const { fixture } = yield* Effect.promise(() => cmsHostFixture(persistence, {}, compiled));
   const runtime = yield* makePayloadRuntime(compiled);
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(fixture.authority.scopeId));
@@ -69,6 +70,6 @@ export const makeIndexedPayloadFixture = Effect.fn("IndexedPayload.fixture")(fun
     facts: await db.select().from(fxSystemCommitAppRowChanges).where(eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitAppRowChanges.commitSeq, fxSystemCommitAppRowChanges.rowId),
     wakes: await db.select().from(fxSystemCommitWakes).where(eq(fxSystemCommitWakes.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitWakes.commitSeq),
   });
-  return { runtime, input, host, seed, hooks, inventory, plans, scans: () => scans };
+  return { runtime, input, host, seed, hooks, inventory, plans, fixture, scans: () => scans };
 });
 export type IndexedPayloadFixture = Effect.Success<ReturnType<typeof makeIndexedPayloadFixture>>;

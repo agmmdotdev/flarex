@@ -21,6 +21,30 @@ const refusal = (input: unknown) => Effect.runPromise(Effect.result(compilePaylo
 const decodeConfiguration = Schema.decodeUnknownResult(PayloadConfigurationSchema);
 
 describe("Payload collection compiler", () => {
+  it("authenticates multiple unique fields and canonical compound unique intent", async () => {
+    const fields = [{ name: "title", type: "text", required: true, unique: true },
+      { name: "alias", type: "text", required: true, unique: true },
+      { name: "category", type: "text", required: true }, { name: "price", type: "number", required: true }];
+    const uniqueIndex = { fields: ["category", "price"], unique: true };
+    const ordinaryIndex = { fields: ["category", "price"] };
+    const compiled = await compile([{ slug: "items", fields, indexes: [ordinaryIndex, uniqueIndex] }]);
+    expect(compiled.configuration.tables[0]?.indexes).toMatchObject([{ fields: ["category", "price"], unique: true }]);
+    expect((await compile([{ slug: "items", fields, indexes: [uniqueIndex, ordinaryIndex] }])).contentIdentity).toEqual(compiled.contentIdentity);
+    const ordinary = await compile([{ slug: "items", fields, indexes: [ordinaryIndex] }]);
+    expect(ordinary.contentIdentity.configSha256).not.toBe(compiled.contentIdentity.configSha256);
+    const analysis = await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: compiled.schemaDefinition }));
+    const manifest = await Effect.runPromise(makeApplicationManifest(analysis, {
+      rootSha256: "1".repeat(64), executionModulePath: "_flarex/execution.js", schemaModulePath: "_flarex/schema.js",
+      modules: [{ path: "_flarex/execution.js", roles: 8, sourceSha256: "2".repeat(64), sourceByteLength: 48 },
+        { path: "_flarex/schema.js", roles: 2, sourceSha256: "3".repeat(64), sourceByteLength: 64 }],
+    }));
+    const verified = await Effect.runPromise(verifyApplicationManifestV3(manifest.manifest));
+    expect(verified.manifest.schema.writePolicies.configuration.tables[0]?.indexes).toMatchObject([{ unique: true }]);
+    const changed = { ...compiled.schemaDefinition, writePolicies: { ...compiled.schemaDefinition.writePolicies,
+      configuration: ordinary.configuration } };
+    expect(await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: changed }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure" });
+  });
   it("uses the shared 15-field declaration boundary before compiling physical indexes", async () => {
     const fields = Array.from({ length: 16 }, (_, index) => ({ name: `field${index}`, type: "text", required: true }));
     const names = fields.map(field => field.name);
@@ -43,7 +67,7 @@ describe("Payload collection compiler", () => {
     const table = compiled.schemaDefinition.tables.items;
     expect(await Effect.runPromise(analyze({ ...compiled.schemaDefinition, tables: { items: { ...table, indexes: [] } } }).pipe(Effect.result)))
       .toMatchObject({ _tag: "Failure" });
-    for (const indexes of [[{ fields: ["category", "unknown"] }], [{ fields: ["price", "price"] }], [{ fields: ["category", "price"], unique: true }]]) {
+    for (const indexes of [[{ fields: ["category", "unknown"] }], [{ fields: ["price", "price"] }]]) {
       expect(Result.isFailure(await refusal([{ ...input[0], indexes }]))).toBe(true);
     }
     const reordered = await compile([{ ...input[0], indexes: [{ fields: ["category", "price"], unique: false }] }]);
@@ -207,14 +231,13 @@ describe("Payload collection compiler", () => {
     }
   });
 
-  it("refuses duplicate/reserved identities, ambiguous slug mapping and multiple unique fields", async () => {
+  it("refuses duplicate/reserved identities and ambiguous slug mapping", async () => {
     const original = definitions()[0]!;
     for (const input of [
       [original, original], [{ ...original, slug: "news_items" }, original],
       ...["users", "payload-preferences", "constructor", "_hidden"].map(slug => [{ ...original, slug }]),
       ...["id", "createdAt", "updatedAt", "constructor", "__proto__"].map(name => [{ ...original, fields: [{ name, type: "text", required: true }] }]),
       [{ ...original, fields: [original.fields[0], original.fields[0]] }],
-      [{ ...original, fields: [original.fields[0], { name: "second", type: "text", required: true, unique: true }] }],
     ]) expect(Result.isFailure(await refusal(input))).toBe(true);
   });
 

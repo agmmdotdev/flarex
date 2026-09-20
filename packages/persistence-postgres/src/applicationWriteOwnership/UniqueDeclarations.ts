@@ -1,4 +1,5 @@
 import type { ApplicationManifestWithRelations } from "@flarex/analysis/application-analysis";
+import { digestApplicationWritePolicyFrame, payloadUniqueSelections } from "@flarex/analysis/internal/application-write-policy";
 import { Effect, Result } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
@@ -27,10 +28,8 @@ type BoundSchema = Readonly<{
   schemaVersionId: CatalogSchemaVersionId;
   tables: ReadonlyArray<ApplicationSchemaTableBinding>;
 }>;
-// Logical identity is table-scoped and the admitted policy permits only one
-// unique constraint per managed table. Field identity belongs to the physical
-// spec, so no user field name is truncated or prefixed into a catalog identifier.
-const descriptor = SchemaManifestAppIndexDescriptorSchema.make("payload_unique");
+// Table-local identity derives from the full ordered selection, independently
+// of declaration order and without truncating user field names.
 
 /** Only the authenticated publication/readiness owners supply this manifest/binding pair. */
 const declarations = Effect.fn("ApplicationUniqueDeclarations.lower")(function* (
@@ -42,10 +41,14 @@ const declarations = Effect.fn("ApplicationUniqueDeclarations.lower")(function* 
   for (const configured of manifest.schema.writePolicies.configuration.tables) {
     const table = bound.tables.find(candidate => candidate.logicalName === configured.logicalTableName);
     if (table === undefined) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
-    for (const field of configured.fields) {
-      if (field.kind === "relationship" || field.unique !== true) continue;
+    for (const fields of payloadUniqueSelections(configured)) {
+      const digest = yield* digestApplicationWritePolicyFrame(fields).pipe(
+        Effect.mapError(cause => new ApplicationWriteOwnershipError({
+          reason: cause.reason === "digestUnavailable" ? "resourceFailure" : "invalidEvidence", cause,
+        })));
+      const descriptor = SchemaManifestAppIndexDescriptorSchema.make(`u_${digest.slice(0, 60)}`);
       const physicalSpec = yield* Effect.fromResult(decodeAppUniqueConstraintPhysicalSpecV1Result({
-        kind: "appUniqueConstraint", specVersion: 1, orderedFields: [field.name], sparse: false,
+        kind: "appUniqueConstraint", specVersion: 1, orderedFields: fields, sparse: false,
         localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
         keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
       }).pipe(Result.mapError(cause => new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause }))));

@@ -103,6 +103,11 @@ in an ordered key does not itself decide whether to acquire a unique claim.
 Only the authoritative transaction may settle before/after predicate membership,
 claim release/acquisition, affected rows and their publication together.
 
+The [Payload compound uniqueness implementation](./07-payload-compound-uniqueness.md)
+executes multiple required-text and compound required-scalar constraints through
+shared claims, including native failures, pending key reuse and exact concurrent
+settlement. It does not yet implement the nullable or conditional policies above.
+
 The first Product lifecycle witness creates A with handle `shirt`, soft-deletes
 A, creates active B with that handle, and attempts to restore A. Require the
 native conflict result with no partial row/index/claim/event state. Add concurrent

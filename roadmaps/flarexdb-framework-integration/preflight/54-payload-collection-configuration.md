@@ -7,7 +7,11 @@ and production activation remain gated
 The [indexed Payload query contract](../../shared-logical-storage/05-indexed-payload-queries.md)
 supersedes this slice's original refusal of ordinary indexes and ID/unique-only
 queries. It implements scalar/compound index compilation and bounded equality
-prefix/numeric range execution; the other capability gates remain in force.
+prefix/numeric range execution. The [shared uniqueness contract](../../shared-logical-storage/07-payload-compound-uniqueness.md)
+supersedes the original one-unique-field limit and descriptor below: current
+declarations support multiple required-text constraints and compound required
+scalar keys, using a descriptor derived from the full ordered selection. The
+remaining configuration and migration gates stay in force.
 
 ## Outcome And Explicit Limits
 

@@ -74,6 +74,7 @@ const ConfigurationFields = {
     indexes: Schema.optionalKey(Schema.Array(Schema.Struct({
       name: SchemaManifestAppIndexDescriptorSchema,
       fields: Schema.Array(SchemaManifestAppIndexFieldPathSchema).check(Schema.isMinLength(1), Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS)),
+      unique: Schema.optionalKey(Schema.Literal(true)),
     }).annotate(StrictStructOptions)).check(Schema.isMaxLength(16))),
     fields: Schema.Array(Schema.Union([ScalarField, OptionalRelationField, ManyPostRelationField])).check(Schema.isMaxLength(64)),
   }).annotate(StrictStructOptions)).check(
@@ -105,9 +106,6 @@ export const PayloadConfigurationSchema = Schema.Union([
     if (table.timestamps ? managed.length !== 2 || managed.some(field => field.kind !== "date" || field.defaultValue !== undefined || field.unique !== undefined) : managed.length !== 0) {
       return "Managed timestamps must agree with the declared date fields";
     }
-  }
-  if (config.tables.some(table => table.fields.filter(field => field.kind !== "relationship" && field.unique === true).length > 1)) {
-    return "At most one unique text field is admitted per Payload table";
   }
   const many = config.profile === "payload.content-many" || config.profile === "payload.content-joins";
   const relations = config.tables.flatMap(table => table.fields.filter(field => field.kind === "relationship"));

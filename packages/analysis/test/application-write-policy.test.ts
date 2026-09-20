@@ -33,19 +33,20 @@ describe("Application write-policy evidence", () => {
     expect(accepts([{ ...table, timestamps: true, fields: [{ name: "updatedAt", kind: "date" }, { name: "createdAt", kind: "date" }] }])).toBe(true);
     expect(accepts([table, { ...table, logicalTableName: "other" }])).toBe(false);
   });
-  it("authenticates one required text unique declaration without reinterpreting old descriptor bytes", async () => {
+  it("authenticates required text unique declarations without reinterpreting old descriptor bytes", async () => {
     const fixture = policyFixture();
     const configure = (fields: Json, version = 3) => ({ ...fixture, configuration: {
       ...fixture.configuration, version, tables: [{ logicalTableName: "posts", collectionSlug: "posts", timestamps: false, fields }],
     } });
     const unique = configure([{ name: "title", kind: "text", unique: true }]);
     expect(Result.isSuccess(decodeApplicationWritePolicies(unique, ["audit", "posts"]))).toBe(true);
+    expect(Result.isSuccess(decodeApplicationWritePolicies(configure([{ name: "other", kind: "text", unique: true },
+      { name: "title", kind: "text", unique: true }]), ["audit", "posts"]))).toBe(true);
     expect(hash(unique.configuration)).not.toBe(hash(fixture.configuration));
     for (const invalid of [
       configure([{ name: "title", kind: "text" }], 1),
       configure([{ name: "title", kind: "text" }], 2),
       configure([{ name: "title", kind: "number", unique: true }]),
-      configure([{ name: "other", kind: "text", unique: true }, { name: "title", kind: "text", unique: true }]),
       { ...unique, configuration: { ...unique.configuration, tables: [{ ...unique.configuration.tables[0], fields: [{ name: "title", kind: "text", unique: undefined }] }] } },
       configure([{ name: "title", kind: "text", unique: false }]),
     ]) expect(Result.isFailure(decodeApplicationWritePolicies(invalid, ["audit", "posts"]))).toBe(true);

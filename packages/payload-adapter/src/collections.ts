@@ -36,7 +36,7 @@ const NativeCollections = Schema.Array(Schema.Struct({
   slug: PayloadCollectionSlugSchema,
   fields: Schema.Array(NativeField).check(Schema.isMinLength(1), Schema.isMaxLength(62)),
   indexes: Schema.optionalKey(Schema.Array(Schema.Struct({ fields: Schema.Array(FieldName).check(Schema.isMinLength(2), Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS)),
-    unique: Schema.optionalKey(Schema.Literal(false)),
+    unique: Schema.optionalKey(Schema.Boolean),
   }).annotate(strict)).check(Schema.isMaxLength(16))),
   timestamps: Schema.optionalKey(Schema.Literal(true)),
   lockDocuments: Schema.optionalKey(Schema.Literal(false)),
@@ -52,8 +52,7 @@ const NativeCollections = Schema.Array(Schema.Struct({
   }
   return collections.some(collection => new Set(collection.fields.map(field => field.name)).size !== collection.fields.length ||
     collection.indexes?.some(index => new Set(index.fields).size !== index.fields.length || index.fields.some(name =>
-      !collection.fields.some(field => field.name === name && field.type !== "relationship"))) ||
-    collection.fields.filter(field => field.type === "text" && field.unique).length > 1) ? "Duplicate fields or multiple unique fields" : undefined;
+      !collection.fields.some(field => field.name === name && field.type !== "relationship")))) ? "Duplicate or unknown index fields" : undefined;
 }));
 const decodeCollections = Schema.decodeUnknownEffect(NativeCollections);
 const access = { read: () => true, create: () => true, update: () => true, delete: () => true };
@@ -61,7 +60,7 @@ const compiledCollections = new WeakSet<object>();
 
 function nativeCollection(collection: typeof NativeCollections.Type[number]): CollectionConfig {
   return { slug: collection.slug, fields: collection.fields.map(field => ({ ...field })),
-    ...(collection.indexes === undefined ? {} : { indexes: collection.indexes.map(index => ({ fields: [...index.fields], unique: false })) }),
+    ...(collection.indexes === undefined ? {} : { indexes: collection.indexes.map(index => ({ fields: [...index.fields], unique: index.unique ?? false })) }),
     timestamps: true, lockDocuments: false, enableQueryPresets: false, defaultSort: "id", access: { ...access } };
 }
 
@@ -139,19 +138,21 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
         ...(native.defaultValue === undefined ? {} : { defaultValue: native.defaultValue }) });
     }
     if ((sanitized.sanitizedIndexes?.length ?? 0) !== (definition.indexes?.length ?? 0) ||
-      sanitized.sanitizedIndexes?.some((index, position) => index.unique || index.fields.length !== definition.indexes?.[position]?.fields.length || index.fields.some((field, fieldPosition) =>
+      sanitized.sanitizedIndexes?.some((index, position) => index.unique !== (definition.indexes?.[position]?.unique ?? false) || index.fields.length !== definition.indexes?.[position]?.fields.length || index.fields.some((field, fieldPosition) =>
         field.path !== definition.indexes?.[position]?.fields[fieldPosition] || field.pathHasLocalized))) {
       return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized compound index semantics"));
     }
     const indexes: NonNullable<PayloadConfiguration["tables"][number]["indexes"]>[number][] = [];
-    const selections = [...definition.fields.flatMap(field => field.type !== "relationship" && field.index ? [[field.name]] : []),
-      ...(definition.indexes?.map(index => index.fields) ?? [])];
-    const seen = new Set<string>();
+    const selections = [...definition.fields.flatMap(field => field.type !== "relationship" && field.index ? [{ fields: [field.name], unique: false }] : []),
+      ...(definition.indexes ?? [])];
     for (const selection of selections) {
-      const digest = yield* digestApplicationWritePolicyFrame(selection);
-      if (seen.has(digest)) continue;
-      seen.add(digest);
-      indexes.push({ name: yield* decodeIndexName(`i_${digest.slice(0, 60)}`), fields: yield* decodeIndexFields(selection) });
+      const digest = yield* digestApplicationWritePolicyFrame(selection.fields);
+      const name = yield* decodeIndexName(`i_${digest.slice(0, 60)}`);
+      const existing = indexes.findIndex(index => index.name === name);
+      const unique = selection.unique === true || (existing >= 0 && indexes[existing]?.unique === true);
+      const index = { name, fields: yield* decodeIndexFields(selection.fields), ...(unique ? { unique: true as const } : {}) };
+      if (existing >= 0) indexes[existing] = index;
+      else indexes.push(index);
     }
     indexes.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
     tables.push({ logicalTableName: payloadCollectionLogicalName(definition.slug), collectionSlug: definition.slug, timestamps: true, fields,

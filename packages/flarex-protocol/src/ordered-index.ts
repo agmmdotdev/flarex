@@ -798,7 +798,7 @@ export function compileAppOrderedIndexBoundsV1(input: {
         issue: { reason: "unsupportedByIdExpression", expressionIndex: index },
       });
     }
-    if (!samePhysicalField(expressionField, expectedField)) {
+    if (expectedField === undefined || !samePhysicalField(expressionField, expectedField)) {
       throw new InvalidOrderedIndexRangeV1Error({
         issue: { reason: "fieldOrder", expressionIndex: index },
       });

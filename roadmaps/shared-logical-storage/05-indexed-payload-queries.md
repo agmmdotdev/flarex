@@ -19,7 +19,9 @@ No adapter SQL, separate index store, extra transaction or fallback query engine
 
 The executing pinned Payload collection contract defines scalar index options
 and compound `{ fields, unique? }` declarations. This slice admits ordinary
-indexes; existing single unique-text fields remain supported. Compound uniqueness,
+indexes; [compound uniqueness](./07-payload-compound-uniqueness.md) subsequently
+extends those declarations and the existing required-text unique fields. In this
+query slice,
 localization, optional-field/null policies beyond current scalar contracts,
 arbitrary Boolean expressions, custom sort, unbounded aggregate queries, Pricing
 and generic commerce remain outside this slice.

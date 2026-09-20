@@ -17,8 +17,8 @@ export type PayloadCollection = PayloadConfiguration["tables"][number];
 
 /** Metadata-derived query policy is compiled once per collection, never per request. */
 export function makePayloadQuery(collection: PayloadCollection) {
-  const unique = collection.fields.find(field => field.kind !== "relationship" && field.unique === true)?.name;
-  const allowed = new Set(["id", ...(unique === undefined ? [] : [unique]), ...(collection.indexes?.flatMap(index => index.fields) ?? [])]);
+  const unique = collection.fields.filter(field => field.kind !== "relationship" && field.unique === true).map(field => field.name);
+  const allowed = new Set(["id", ...unique, ...(collection.indexes?.flatMap(index => index.fields) ?? [])]);
   const Where = Schema.Record(Schema.String, Predicate).check(Schema.makeFilter(value => {
     for (const [name, predicate] of Object.entries(value)) {
       if (!allowed.has(name)) return "Unsupported query field";
@@ -29,7 +29,7 @@ export function makePayloadQuery(collection: PayloadCollection) {
       } else if (typeof predicate.equals !== (kind === "number" ? "number" : kind === "boolean" ? "boolean" : "string") ||
         (kind === "date" && (typeof predicate.equals !== "string" || !isCanonicalIsoTimestamp(predicate.equals)))) return "Query value does not match the field";
     }
-    return Object.keys(value).length === 0 || value.id !== undefined || (unique !== undefined && value[unique]?.equals !== undefined) ||
+    return Object.keys(value).length === 0 || value.id !== undefined || unique.some(field => value[field]?.equals !== undefined) ||
       collection.indexes?.some(index => index.fields[0] !== undefined && value[index.fields[0]] !== undefined)
       ? undefined : "Query requires a declared index prefix";
   }));

@@ -40,11 +40,11 @@ const transactionId = (state: RequestBridge): CmsPresentedTransactionId => {
 };
 function projectUniqueFailure(state: RequestBridge, error: CmsTransactionError) {
   const constraint = error.uniqueConstraint;
-  const field = state.collection.fields.find(candidate => candidate.kind !== "relationship" && candidate.unique === true);
   if (error.reason !== "uniqueConflict" || constraint === undefined || constraint.tableName !== state.collection.logicalTableName ||
-    field === undefined || constraint.orderedFields.length !== 1 || constraint.orderedFields[0] !== field.name) return error;
-  return new ValidationError({ collection: state.collection.collectionSlug, errors: [{ path: field.name,
-    tableName: state.collection.collectionSlug, message: state.request.t?.("error:valueMustBeUnique") ?? "Value must be unique" }],
+    !state.collection.uniqueSelections.some(fields => fields.length === constraint.orderedFields.length &&
+      fields.every((field, position) => field === constraint.orderedFields[position]))) return error;
+  return new ValidationError({ collection: state.collection.collectionSlug, errors: constraint.orderedFields.map(path => ({ path,
+    tableName: state.collection.collectionSlug, message: state.request.t?.("error:valueMustBeUnique") ?? "Value must be unique" })),
   req: state.request }, state.request.t);
 }
 const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransactionError>): Promise<Value> =>

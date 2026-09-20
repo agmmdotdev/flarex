@@ -137,8 +137,10 @@ implementation.
 - Native conditional uniqueness, decimal/null/order semantics and rich Link
   constraints need an explicit shared-core capability matrix.
 - Payload indexed queries retain bounded complete membership, numeric-only ranges,
-  native ID ordering and the existing single unique-text contract. General Boolean
-  queries, custom sorting and compound uniqueness remain unsupported.
+  native ID ordering and required scalar fields. Multiple text-field and compound
+  scalar uniqueness use the shared claim owner; see [the constraint contract](./07-payload-compound-uniqueness.md).
+  General Boolean queries, custom sorting and nullable/conditional uniqueness
+  remain unsupported.
 - Generic families do not remove catalog-dependent guards, early scope locks,
   request evidence cost, build cost, tenant skew or shared-database contention.
 - Generic schema evolution still needs conversion/build/readiness and old-reader

@@ -196,9 +196,12 @@ separates capability contracts from concrete collection definitions and traces
 the required analysis, binding, and deletion-owner corrections. Its
 first new proof is two fresh Payload-owned scalar collections, not arbitrary
 configuration, relation expansion, migration, or serving support. Its uniqueness
-prerequisite authenticates single-text unique intent, prepares the definitions
+prerequisite authenticates unique intent, prepares the definitions
 in trusted schema publication, and refuses mismatched
 sets during readiness and activation revalidation. Existing scalar conformance
+now shares multiple required-text and compound scalar constraint lowering with
+configured collections; [shared uniqueness](../shared-logical-storage/07-payload-compound-uniqueness.md)
+owns this extension and its remaining nullable/conditional gates. Scalar conformance
 no longer seeds its own unique definition. The private collection compiler now
 captures the admitted native definition set, sanitizes owned copies, and
 lowers through shared schema authoring into the existing loaded-source analysis
