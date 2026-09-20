@@ -898,7 +898,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         expect(
           measured.observation.phases.intrinsicMembershipPreparing?.queryCalls ??
             0,
-        ).toBe(indexed ? 3 : 0);
+        ).toBe(indexed ? 2 : 0);
       }
     });
   }, 120_000);

@@ -313,12 +313,20 @@ interface DecodedAppendAppIndexEntryRevisionV1 {
   readonly keySha256: Uint8Array;
 }
 
-interface DecodedAppIndexRangeReadV1 {
+interface CapturedIndexReadDefinition {
   readonly scopeId: ScopeId;
-  readonly scopeUuid: ScopeUuidV1;
+  readonly scopeProjection: ScopeIdUuidProjectionV1;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly physicalSpec: AppOrderedIndexPhysicalSpecV1;
+}
+
+interface PreparedIndexReadDefinition extends CapturedIndexReadDefinition {
   readonly physicalSpecSha256: Uint8Array;
+}
+
+interface DecodedAppIndexRangeReadV1
+  extends Omit<PreparedIndexReadDefinition, "scopeProjection"> {
+  readonly scopeUuid: ScopeUuidV1;
   readonly bounds: Readonly<{
     readonly startInclusive?: Uint8Array;
     readonly endExclusive?: Uint8Array;
@@ -870,44 +878,56 @@ export const readAppIndexMembershipHeadsInTransactionEffect = Effect.fn(
   ReadonlyArray<AppIndexMembershipHeadV1 | null>,
   ReadAppIndexRangeV1Error
 > {
+  const scopeId = input.scopeId;
   const definitions = new Map<
     LocatedAppIndexDefinitionV1,
-    DecodedAppIndexRangeReadV1
+    PreparedIndexReadDefinition
   >();
+  let scopeUuid: ScopeUuidV1 | undefined;
   const decoded: DecodedMembershipPosition[] = [];
   for (const position of input.positions) {
-    let definition = definitions.get(position.definition);
+    const {
+      definition: locatedDefinition,
+      encodedKey: inputKey,
+      rowId: inputRowId,
+    } = position;
+    let definition = definitions.get(locatedDefinition);
     if (definition === undefined) {
-      definition = yield* decodeRangeReadEffect(tx, {
-        scopeId: input.scopeId,
-        definition: position.definition,
-        bounds: {},
-        limit: 1,
-      });
-      definitions.set(position.definition, definition);
+      const captured = yield* Effect.fromResult(
+        captureIndexReadDefinitionResult(scopeId, locatedDefinition),
+      );
+      definition = yield* prepareIndexReadDefinitionEffect(captured);
+      definitions.set(locatedDefinition, definition);
+    }
+    if (scopeUuid === undefined) {
+      scopeUuid = yield* requireScopeUuidEffect(
+        tx,
+        definition.scopeId,
+        definition.scopeProjection,
+      );
     }
     const encodedKey = yield* Effect.fromResult(
       decodeWriteFieldResult(
-        decodeOrderedKeyResult(position.encodedKey),
+        decodeOrderedKeyResult(inputKey),
         "invalidEncodedKey",
       ),
     );
     yield* Effect.try({try:()=>decodeAppOrderedIndexKeyV1({spec:definition.physicalSpec,encodedKey}),catch:cause=>new InvalidAppIndexEntryInputError("invalidEncodedKey",cause)});
     const rowId = yield* Effect.fromResult(
       decodeWriteFieldResult(
-        decodeOrderedRowIdResult(position.rowId),
+        decodeOrderedRowIdResult(inputRowId),
         "invalidRowId",
       ),
     );
     decoded.push({
       identity: {
-        scopeId: input.scopeId,
+        scopeId,
         indexDefinitionId: definition.indexDefinitionId,
-        tableId: position.definition.access.tableId,
+        tableId: locatedDefinition.access.tableId,
         encodedKey,
         rowId,
       },
-      scopeUuid: definition.scopeUuid,
+      scopeUuid,
       physicalSpec: definition.physicalSpec,
       physicalSpecSha256: definition.physicalSpecSha256,
       keyBytes: orderedIndexKeyBytesHexV1ToBytes(encodedKey),
@@ -1338,6 +1358,57 @@ const decodeBackfilledAppendInputEffect = Effect.fn(
   });
 });
 
+function captureIndexReadDefinitionResult(
+  inputScopeId: ScopeId,
+  definition: LocatedAppIndexDefinitionV1,
+): Result.Result<CapturedIndexReadDefinition, InvalidAppIndexEntryInputError> {
+  return Result.gen(function* () {
+    const scopeId = yield* decodeReadFieldResult(
+      decodeScopeIdResult(inputScopeId),
+      "invalidScopeId",
+    );
+    const scopeProjection = yield* projectScopeIdUuidV1Result(scopeId).pipe(
+      Result.mapError(
+        (cause) => new InvalidAppIndexEntryInputError("invalidScopeId", cause),
+      ),
+    );
+    if (
+      !isLocatedAppIndexDefinitionV1(definition) ||
+      definition.scopeId !== scopeId
+    ) {
+      return yield* Result.fail(
+        new InvalidAppIndexEntryInputError("invalidLocatedDefinition"),
+      );
+    }
+    return Object.freeze({
+      scopeId,
+      scopeProjection,
+      indexDefinitionId: definition.indexDefinitionId,
+      physicalSpec: definition.physicalSpec,
+    });
+  });
+}
+
+const prepareIndexReadDefinitionEffect = Effect.fn(
+  "AppIndexEntries.prepareReadDefinition",
+)(function* (
+  captured: CapturedIndexReadDefinition,
+): Effect.fn.Return<PreparedIndexReadDefinition, AppIndexEntryHashError> {
+  const canonicalPhysicalSpec = yield* Effect.tryPromise({
+    try: () => canonicalizeAppIndexPhysicalSpecV1(captured.physicalSpec),
+    catch: (cause) => new AppIndexEntryHashError("read", cause),
+  });
+  return Object.freeze({
+    scopeId: captured.scopeId,
+    scopeProjection: captured.scopeProjection,
+    indexDefinitionId: captured.indexDefinitionId,
+    physicalSpec: captured.physicalSpec,
+    physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+      canonicalPhysicalSpec.sha256Hex,
+    ),
+  });
+});
+
 const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
   function* (
     tx: AppIndexEntryTransaction,
@@ -1346,10 +1417,7 @@ const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
     const captured = yield* Effect.fromResult(
       decodeRangeReadInputResult(input),
     );
-    const canonicalPhysicalSpec = yield* Effect.tryPromise({
-      try: () => canonicalizeAppIndexPhysicalSpecV1(captured.physicalSpec),
-      catch: (cause) => new AppIndexEntryHashError("read", cause),
-    });
+    const definition = yield* prepareIndexReadDefinitionEffect(captured);
     const scopeUuid = yield* requireScopeUuidEffect(
       tx,
       captured.scopeId,
@@ -1360,9 +1428,7 @@ const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
       scopeUuid,
       indexDefinitionId: captured.indexDefinitionId,
       physicalSpec: captured.physicalSpec,
-      physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
-        canonicalPhysicalSpec.sha256Hex,
-      ),
+      physicalSpecSha256: definition.physicalSpecSha256,
       bounds: captured.bounds,
       ...(captured.after === undefined ? {} : { after: captured.after }),
       limit: captured.limit,
@@ -1374,11 +1440,7 @@ function decodeRangeReadInputResult(
   input: AppIndexRangeReadV1Base,
 ): Result.Result<
   Omit<DecodedAppIndexRangeReadV1, "scopeUuid" | "physicalSpecSha256"> & {
-    readonly scopeProjection: ReturnType<
-      typeof projectScopeIdUuidV1Result
-    > extends Result.Result<infer Value, unknown>
-      ? Value
-      : never;
+    readonly scopeProjection: ScopeIdUuidProjectionV1;
   },
   InvalidAppIndexEntryInputError
 > {
@@ -1398,25 +1460,10 @@ function decodeRangeReadInputResult(
         new InvalidAppIndexEntryInputError("invalidBounds"),
       );
     }
-    const scopeId = yield* decodeReadFieldResult(
-      decodeScopeIdResult(input.scopeId),
-      "invalidScopeId",
+    const definition = yield* captureIndexReadDefinitionResult(
+      input.scopeId,
+      input.definition,
     );
-    const scopeProjection = yield* projectScopeIdUuidV1Result(scopeId).pipe(
-      Result.mapError(
-        (cause) => new InvalidAppIndexEntryInputError("invalidScopeId", cause),
-      ),
-    );
-    if (
-      !isLocatedAppIndexDefinitionV1(input.definition) ||
-      input.definition.scopeId !== scopeId
-    ) {
-      return yield* Result.fail(
-        new InvalidAppIndexEntryInputError("invalidLocatedDefinition"),
-      );
-    }
-    const indexDefinitionId = input.definition.indexDefinitionId;
-    const physicalSpec = input.definition.physicalSpec;
     const startInclusive =
       input.bounds.startInclusive === undefined
         ? undefined
@@ -1456,7 +1503,7 @@ function decodeRangeReadInputResult(
     const after =
       input.after === undefined
         ? undefined
-        : yield* decodeCursorResult(input.after, physicalSpec);
+        : yield* decodeCursorResult(input.after, definition.physicalSpec);
     if (
       after !== undefined &&
       ((startBytes !== undefined &&
@@ -1477,10 +1524,7 @@ function decodeRangeReadInputResult(
       );
     }
     return Object.freeze({
-      scopeId,
-      scopeProjection,
-      indexDefinitionId,
-      physicalSpec,
+      ...definition,
       bounds: Object.freeze({
         ...(startBytes === undefined ? {} : { startInclusive: startBytes }),
         ...(endBytes === undefined ? {} : { endExclusive: endBytes }),

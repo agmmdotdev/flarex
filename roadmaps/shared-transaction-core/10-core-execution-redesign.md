@@ -265,6 +265,12 @@ and ownership checks plus bounded index writes.
 removes duplicated batch entry and combines writes within existing chunk limits;
 it establishes fewer SQL calls, not a general latency improvement. Removing
 validation is not an admitted shortcut.
+[Membership read preparation](./60-ce1-membership-read-preparation.md) separates
+definition preparation from range handling and checks the immutable scope
+identity once per nonempty read operation. Every issued definition, key, row and
+stored membership still passes its existing validation. This removes repeated
+scope reads for mixed definitions without changing epoch/readiness ownership,
+32-position chunks or the open scalar latency interpretation.
 Protected readiness-root work, broader reference acceptance and capacity remain
 open.
 

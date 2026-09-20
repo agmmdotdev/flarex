@@ -1,4 +1,5 @@
 import { verifyIndexBatches } from "./indexBatchScenario";
+import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -85,6 +86,11 @@ const deploymentId = "deployment_s10_pglite";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describe("S10 app-index revision and current storage", () => {
+  it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
+    const persistence = await indexPersistence();
+    await verifyMembershipReadPreparation(persistence.drizzle, scopeId, epoch, locatedDefinition);
+  });
+
   it.each(["membership", "range"] as const)("preserves %s query construction defects and classifies SQL rejections", async (kind) => {
     const persistence = await indexPersistence();
     const defect = new Error("query construction defect");

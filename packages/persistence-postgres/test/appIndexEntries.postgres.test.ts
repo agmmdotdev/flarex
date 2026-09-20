@@ -1,4 +1,5 @@
 import { verifyIndexBatches } from "./indexBatchScenario";
+import { verifyMembershipReadPreparation } from "./indexMembershipReadScenario";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -69,6 +70,13 @@ const deploymentId = "deployment_s10_postgres";
 let locatedDefinition: LocatedAppIndexDefinitionV1;
 
 describePostgres("real PostgreSQL S10 app-index storage", () => {
+  it("prepares mixed membership definitions with one fresh scope check per operation", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      await insertClock(persistence);
+      await verifyMembershipReadPreparation(persistence.drizzle, scopeId, epoch, locatedDefinition);
+    });
+  });
+
   it("applies bounded index batches with exact returned keys and atomic rollback", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       await insertClock(persistence);
