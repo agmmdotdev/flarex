@@ -5,8 +5,10 @@ clock schema and revocation owner. The [CMS snapshot cutover](./38-ce3-cms-snaps
 now applies this contract through the existing physical/session and admission
 owners. The [native publication cutover](./39-ce3-native-publication-snapshots.md)
 extends it to the native final kernel, and [native attempt protection](./40-ce3-native-attempt-snapshots.md)
-covers preparation and attempt lifecycle. Commerce profiles retain stronger
-exclusion pending cutover.
+covers preparation and attempt lifecycle. The [commerce cutover](./61-ce3-commerce-publication-snapshots.md)
+extends snapshot/ordinary-write profiles to existing commerce reads and
+standalone/atomic publication. Bootstrap and cross-domain hosts retain stronger
+protection; broader concurrent writer work remains open.
 
 ## Decision And Ownership
 
@@ -44,8 +46,8 @@ compatibility of two locks alone is insufficient.
 - `scopeClockInitialization.ts` owns initial identity; publication must never
   alter scope identity, generation, fence, epoch or revocation fields.
 - `commitPublication/publication.ts` advances only sequence/time. CMS selects
-  no-key-update protection, as does the native final-publication kernel; commerce,
-  atomic commerce and cross-domain hosts retain stronger clock locks. Native
+  no-key-update protection, as do native, ordinary commerce and atomic-commerce
+  publication; bootstrap and cross-domain hosts retain stronger clock locks. Native
   activation, journal work, replacement, recovery, finishing and terminalization
   use ordinary-write protection without changing scope authority. All retain
   clock-first ordering.
@@ -53,7 +55,7 @@ compatibility of two locks alone is insufficient.
   transitions also take strong clock protection. Do not classify them as ordinary
   publishers merely because they write metadata rather than the clock itself.
 - `physicalSession/postgres.ts` selects isolation before its configuration query.
-  `relationalTransaction/session.ts` names command and snapshot-read profiles. CMS
+  `relationalTransaction/session.ts` names command and snapshot-read profiles. CMS and commerce
   standalone reads select repeatable read; nested reads retain their mutation's
   pending state and transaction profile.
 

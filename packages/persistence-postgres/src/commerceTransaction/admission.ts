@@ -72,7 +72,9 @@ export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.w
   const admit = Effect.fn("CommerceAdmission.admitBinding")(function* (application: ApplicationBindingReference, accepted?: AcceptedApplicationBinding) {
     let head: DataBindingHeadToken | null = null;
     if (!bootstrap) {
-      const current = yield* readBindingHead(tx, authority, "none");
+      // A snapshot may predate a binding transition that finished before the
+      // scope lock. Lock the head to refuse stale membership at admission.
+      const current = yield* readBindingHead(tx, authority, "share");
       if (Option.isNone(current)) return yield* Effect.fail(commerceError("bindingChanged"));
       const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
       if (Option.isNone(candidate)) return yield* Effect.fail(commerceError("storedCorruption"));

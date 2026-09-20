@@ -53,7 +53,9 @@ publication regressions in PGlite and ordinary-role PostgreSQL, including
 revocation/fence changes, duplicate requests, conflict/recovery and interruption.
 Run affected types/lint and both final reviews, remove displaced helpers/selectors
 and stale test assumptions, stop owned resources and commit. Broader capacity,
-full Workerd invocation overlap and commerce cutover retain their own gates.
+full Workerd invocation overlap and broader mixed-owner concurrency retain their
+own gates. Existing commerce reads/publication have their separate
+[snapshot cutover](./61-ce3-commerce-publication-snapshots.md).
 
 The connected witness exposed two exclusive clock reads before activation: the
 active relation readiness read and active selection read. Both consume immutable

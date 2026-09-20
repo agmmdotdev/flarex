@@ -128,8 +128,14 @@ and incoming-relation snapshots. [Native publication](./39-ce3-native-publicatio
 also overlaps these readers. [Native attempt protection](./40-ce3-native-attempt-snapshots.md)
 extends overlap through active selection, session activation, journal work and
 finishing. Attempt replacement, recovery and terminalization use ordinary-write
-protection; actual scope transitions retain their strong locks. Commerce
-publication profiles and concurrent same-scope writers remain open.
+protection; actual scope transitions retain their strong locks.
+[Commerce snapshots and publication](./61-ce3-commerce-publication-snapshots.md)
+extend these profiles to existing commerce reads and ordinary standalone/atomic
+writes. Fresh binding-head protection rejects revoked membership after snapshot
+formation. Bootstrap and cross-domain hosts retain strong protection; standalone
+CMS still refuses commerce-bearing bindings outside its admitted composite gate.
+Concurrent same-scope writers and the coordinated publication-last protocol
+remain open.
 The [active readiness lock correction](./37-ce3-active-readiness-locks.md) replaces
 exclusive stored-active validation locks with shared protection at the existing
 fold owner. Same-scope CMS reads can admit concurrently; lifecycle updates remain

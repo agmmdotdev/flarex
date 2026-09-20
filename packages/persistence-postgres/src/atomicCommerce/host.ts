@@ -6,7 +6,7 @@ import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../scopeClock";
 import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
@@ -47,7 +47,7 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
               ),
               (cause) => commerceError("statementFailure", cause),
             );
-            const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId);
+            const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId);
             return yield* withAtomicCommerceAdmissions(
               members,
               target,

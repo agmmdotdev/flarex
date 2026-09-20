@@ -3,8 +3,11 @@
 Status: implemented for the existing CMS host. The subsequent
 [native publication cutover](./39-ce3-native-publication-snapshots.md) also permits
 native publication alongside these snapshots. [Native attempt protection](./40-ce3-native-attempt-snapshots.md)
-also permits session preparation and finishing while a snapshot stays open. Commerce publication
-hosts retain strong exclusion; general concurrent writers and CE3 remain open.
+also permits session preparation and finishing while a snapshot stays open.
+[Commerce's own read/publication cutover](./61-ce3-commerce-publication-snapshots.md)
+uses the same physical profiles. Standalone CMS still rejects commerce-bearing
+bindings without an admitted composite context; mixed-framework read capability,
+general concurrent writers and CE3 remain open.
 
 ## Contract And Owners
 
@@ -27,9 +30,9 @@ pending changes. The framework receives a read-only data capability, not SQL
 `READ ONLY`, which would prohibit the admission locks.
 
 The strong lifecycle clock helper remains unchanged. Authorization revocation,
-retained-history movement and lifecycle changes remain exclusive. Other existing
-commerce publication hosts retain their current stronger protection pending their own
-connected cutover; they still exclude these readers safely. No parallel writer
+retained-history movement and lifecycle changes remain exclusive. Ordinary
+commerce and atomic-commerce publication now use ordinary-write protection;
+bootstrap and cross-domain hosts retain stronger protection. No parallel writer
 execution, sequence reassignment or additional authority is introduced.
 
 ## Fresh Admission And Failure

@@ -18,7 +18,7 @@ import { hasApplicationBindingComposition, prepareApplicationBindingSelection } 
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
-import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
+import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForOrdinaryWriteInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
 import { hasRelationalSessionDatabase, runRelationalSession } from "../relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
@@ -105,9 +105,13 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(commerceError("invalidAuthority"));
       const active = yield* prepareApplicationBindingSelection(application);
-      return yield* runRelationalSession(session, "command", tx => Effect.scoped(Effect.gen(function* () {
+      return yield* runRelationalSession(session, key === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`), cause => commerceError("statementFailure", cause));
-        const clock = yield* (key === null ? lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId) : lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId));
+        const clock = yield* (key === null
+          ? lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId)
+          : bootstrap
+            ? lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId)
+            : lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId));
         return yield* withCommerceAdmission(profile, target, reference, active, tx, located.authority, clock, bootstrap, installationRuntime, admission => Effect.gen(function* () {
           const admitted = yield* requireCommerceAdmission(admission);
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(projectFailure));
