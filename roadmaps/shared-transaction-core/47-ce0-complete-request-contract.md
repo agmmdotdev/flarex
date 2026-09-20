@@ -21,7 +21,11 @@ first-failure order, complete rollback and input identity. The
 [request authority matrix](./56-ce0-request-authority-matrix.md) checks stale
 clock/catalog/build evidence and missing or damaged active bindings across
 zero/eight-row fresh/replayed mutations and standalone empty/populated reads.
-Complete-request equivalence and timing acceptance remain open.
+The [paired scalar request measurement](./57-ce0-paired-request-measurement.md)
+admits diagnostic timing for these selected operations with predeclared targets
+and explicit observer calibration results, including misses. Broader
+complete-request and CE0 acceptance remain open; admitted scalar timing does not
+imply arbitrary framework equivalence.
 
 ## Selected Boundary And Missing Evidence
 

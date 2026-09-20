@@ -39,7 +39,8 @@ creating another publisher or physical transaction owner.
 No production contract, schema, persisted format or runtime consumer changes.
 Expose the existing measurement fixture's composition input for differential
 construction; retain one setup and inventory owner. No displaced production path
-exists to retire. The new reference stays under `test/` and is not timed yet.
+exists to retire. The reference stays under `test/`; its admitted scalar timing
+is now owned by the [paired measurement](./57-ce0-paired-request-measurement.md).
 
 ## Validation And Completion
 
@@ -69,5 +70,6 @@ catalog's omitted ordered-definition check. Affected types, lint and both projec
 remain mandatory before committing each implementation slice.
 
 The zero-row profile supplies no claim about independent admission cost, insert
-performance, many-shop capacity or full CE0 equivalence. Timing remains gated by
-the complete-request comparison contract and additional differential profiles.
+performance, many-shop capacity or full CE0 equivalence. The paired measurement
+retains the complete-request comparison contract and explicitly limits its
+admitted operation/configuration; additional profiles retain their own gates.

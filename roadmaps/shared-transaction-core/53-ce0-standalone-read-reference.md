@@ -52,8 +52,10 @@ reader releases, old values throughout that snapshot and new values on a fresh
 read. Assert the actual snapshot isolation and drain owned fibers/connections.
 
 Run affected types/lint, both read-only reviews, reconcile status and common
-components, stop owned resources and commit. Numerical targets, calibration,
-paired timing and broader operations remain open. The
+components, stop owned resources and commit. Numerical targets, calibration and
+bounded point-read timing now belong to the
+[paired scalar measurement](./57-ce0-paired-request-measurement.md); broader
+operations remain open. The
 [cumulative request witnesses](./54-ce0-cumulative-request-budget.md) cover
 adjacent distinct/cached read sizes under the actual command byte budget;
 exact byte thresholds across configurations remain open. This reference does

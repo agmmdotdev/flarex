@@ -252,7 +252,14 @@ first-failure ordering and request identity without a second mutation owner.
 The [request authority matrix](./56-ce0-request-authority-matrix.md) compares
 stale-preparation refusal across zero/eight-row fresh/replayed mutations and
 standalone reads, preserving active-binding absence versus corruption errors.
-Protected readiness-root work and complete reference acceptance remain open.
+The [paired scalar measurement](./57-ce0-paired-request-measurement.md) supplies
+the first admitted complete-request comparison for these bounded operations.
+The balanced profile meets normal relative-latency targets; reference replay
+after eight/thirty-two-row mutations misses observer calibration, so its
+instrumented latency is not accepted as neutral. Common authority/readiness
+cost and additional nonempty core SQL remain attribution work.
+Protected readiness-root work, broader reference acceptance and capacity remain
+open.
 
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its
