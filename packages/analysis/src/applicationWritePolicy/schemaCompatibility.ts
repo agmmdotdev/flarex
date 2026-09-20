@@ -2,14 +2,21 @@ import { Result } from "effect";
 import type { ValidatorJSON } from "flarex/values";
 import { ApplicationWritePolicyError, type ApplicationWritePolicies } from "./model.ts";
 import type { AnalyzedApplicationRelation } from "../applicationRelationAnalysis.ts";
+import type { DeploymentAnalysis } from "../index.ts";
 
 /** Payload-owned validators and native relation declarations must agree exactly. */
 export function validateApplicationWritePolicySchema(
   policies: ApplicationWritePolicies,
-  tables: ReadonlyArray<Readonly<{ readonly name: string; readonly validator: ValidatorJSON }>>,
+  tables: ReadonlyArray<Readonly<{ readonly tableId: number; readonly name: string; readonly validator: ValidatorJSON }>>,
   relations: ReadonlyArray<AnalyzedApplicationRelation> = [],
+  indexes: DeploymentAnalysis["schema"]["indexes"] = [],
 ): Result.Result<void, ApplicationWritePolicyError> {
   for (const configured of policies.configuration.tables) {
+    const table = tables.find(candidate => candidate.name === configured.logicalTableName);
+    if (configured.indexes?.some(expected => !indexes.some(actual => actual.tableId === table?.tableId &&
+      actual.name === expected.name && actual.fields.length === expected.fields.length && actual.fields.every((field, position) => field === expected.fields[position])))) {
+      return Result.fail(new ApplicationWritePolicyError({ reason: "configurationMismatch", path: `configuration.tables.${configured.logicalTableName}.indexes` }));
+    }
     const validator = tables.find(table => table.name === configured.logicalTableName)?.validator;
     if (validator?.type !== "object" ||
       Object.keys(validator.value).length !== configured.fields.length ||

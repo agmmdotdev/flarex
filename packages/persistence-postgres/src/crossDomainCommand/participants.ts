@@ -92,6 +92,7 @@ export const makeCurrencyAnnouncementParticipants = Effect.fn(
     cmsLifetime,
     AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis),
     lowering.uniqueDefinitions,
+    lowering.indexDefinitions,
   );
   const relations = yield* makeCmsRelations(
     Option.none(),

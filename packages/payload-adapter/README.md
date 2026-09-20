@@ -37,9 +37,17 @@ primitive constraints without merging caller and sanitized adapter boundaries.
 Native Payload validation/defaults and the existing authenticated loader path
 remain separate owners.
 
-Scalar collection/field names are application supplied; only id and the one
-declared unique text field admit equality queries. Bound table identity also
+Scalar collection/field names are application supplied. ID and the one declared
+unique text field admit equality queries; scalar `index: true` and ordinary
+compound `indexes: [{ fields: [...] }]` admit equality prefixes and numeric ranges
+on the next field. Native ID paging and complete counts retain the CMS matched-row
+and byte limits; custom sorting and compound uniqueness fail closed. Bound table identity also
 guards point reads and writes. Preference deletion authenticates the exact
 pending document's native collection key. The fixed posts configurations and
 identities live in `conformanceProfile.ts`; relation/many/join capabilities remain
 closed conformance regressions, not generalized authoring support.
+
+Numeric writes and query predicates use positive zero after native validation.
+The shared core retains exact signed floats. Retained negative-zero Payload rows
+require an audited conversion and index rebuild before this storage contract is
+adopted; runtime translation does not repair them.

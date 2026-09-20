@@ -6,7 +6,7 @@ The active [completion plan](./03-completion-plan.md) owns the finite shared-sto
 cutover goal under standing approval, following the completed core execution work.
 It includes existing consumer migrations and structural-engine retirement; advanced
 evolution retains its separate boundary. [Selective CMS/Payload lookups](./04-selective-cms-lookups.md)
-is the first connected query slice.
+and [indexed Payload queries](./05-indexed-payload-queries.md) implement the current selective query contract.
 
 Sequencing warning: [advanced framework schema evolution](./deferred-framework-schema-evolution.md)
 is a separately approved follow-on after the core redesign. GLS work establishes
@@ -16,7 +16,7 @@ full migration/ownership transitions prerequisites for core completion.
 
 Status: accepted development-phase architecture replacement; the first
 [candidate-admission slice](./02-candidate-admission.md) is implemented as private metadata admission.
-Selective CMS/Payload ID and unique-key reads are implemented; generic Medusa
+Selective CMS/Payload ID, unique-key and ordinary-index reads are implemented; generic Medusa
 row execution and later gates remain pending. The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
@@ -69,10 +69,12 @@ into core. Runtime optimization follows this storage decision.
 
 Application/Payload data already uses fixed physical row, index, unique and
 edge families. Definitions and scoped keys identify logical data. Payload's
-collection compiler currently admits a narrow unique-field contract, emits no
-ordinary logical indexes. CMS ID and complete flat unique-key equality reads use
-point/unique slots, including pending changes and exact conflict decisions;
-broad or unindexed find still uses bounded collection reads.
+collection compiler admits scalar `index: true` and ordinary compound indexes.
+CMS ID and complete flat unique-key equality reads use point/unique slots;
+declared index prefixes and numeric ranges use shared ordered entries, including
+pending changes and exact conflict decisions. Native ID pagination and complete
+counts are bounded by matched identities and bytes; broad or unindexed find still
+uses bounded collection reads.
 Generic storage therefore exists without complete generic framework query support.
 
 Medusa currently compiles admitted models to physical module tables. Deployment
@@ -134,8 +136,9 @@ implementation.
   not exist as a proven replacement of the physical relational path.
 - Native conditional uniqueness, decimal/null/order semantics and rich Link
   constraints need an explicit shared-core capability matrix.
-- Payload ordinary/compound index compilation and indexed non-ID queries need
-  connected core work, not only collection-schema acceptance.
+- Payload indexed queries retain bounded complete membership, numeric-only ranges,
+  native ID ordering and the existing single unique-text contract. General Boolean
+  queries, custom sorting and compound uniqueness remain unsupported.
 - Generic families do not remove catalog-dependent guards, early scope locks,
   request evidence cost, build cost, tenant skew or shared-database contention.
 - Generic schema evolution still needs conversion/build/readiness and old-reader

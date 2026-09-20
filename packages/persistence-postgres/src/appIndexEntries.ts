@@ -2,6 +2,7 @@ import { bytesEqualFullScan, isUint8Array } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
+import { observeDrizzleRawQuery } from "./drizzleQueryObservation";
 import { type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import {
   CatalogTableIdSchema,
@@ -1068,6 +1069,7 @@ export const scanCurrentAppIndexInTransactionEffect = Effect.fn(
 )(function* (
   tx: AppIndexEntryTransaction,
   input: ScanCurrentAppIndexV1Input,
+  observer?: Parameters<typeof observeDrizzleRawQuery<"scanCurrent">>[2],
 ): Effect.fn.Return<AppIndexRangePageV1, ReadAppIndexRangeV1Error> {
   const decoded = yield* decodeRangeReadEffect(tx, input);
   return yield* executeAndDecodeRangeEffect(
@@ -1075,6 +1077,7 @@ export const scanCurrentAppIndexInTransactionEffect = Effect.fn(
     decoded,
     buildCurrentRangeStatement(decoded),
     "scanCurrent",
+    observer,
   );
 });
 
@@ -1692,8 +1695,10 @@ const executeAndDecodeRangeEffect = Effect.fn(
   input: DecodedAppIndexRangeReadV1,
   statement: SQL,
   operation: AppIndexEntryReadPersistenceError["operation"],
+  observer?: Parameters<typeof observeDrizzleRawQuery<"scanCurrent">>[2],
 ): Effect.fn.Return<AppIndexRangePageV1, ReadAppIndexRangeV1Error> {
   const query = tx.execute(statement);
+  observeDrizzleRawQuery("scanCurrent", query, observer);
   const driverResult = yield* Effect.uninterruptible(
     Effect.tryPromise({
       try: () => query,

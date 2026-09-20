@@ -4,6 +4,11 @@ Status: private scalar-first compiler, authenticated admission, multi-collection
 runtime routing, and collection-aware deletion implemented; broader configuration
 and production activation remain gated
 
+The [indexed Payload query contract](../../shared-logical-storage/05-indexed-payload-queries.md)
+supersedes this slice's original refusal of ordinary indexes and ID/unique-only
+queries. It implements scalar/compound index compilation and bounded equality
+prefix/numeric range execution; the other capability gates remain in force.
+
 ## Outcome And Explicit Limits
 
 Let an application supply supported native Payload collection definitions once.

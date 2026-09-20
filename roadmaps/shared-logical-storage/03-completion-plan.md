@@ -24,8 +24,10 @@ remain distinct from logical schema evolution.
 - Application/Payload content uses generic row/index/unique/edge families.
   CMS ID and complete flat unique-key selections now use point/slot reads and
   exact settlement decisions, including pending membership and scan interleaving.
-  Ordinary Payload index declarations remain unsupported; the selective-query
-  package continues with ordinary/compound access and representative Pricing.
+  Ordinary scalar and compound Payload declarations now execute equality prefixes
+  and numeric ranges through shared indexes with pending membership and exact
+  settlement validation. Complete page/count membership remains bounded. The
+  selective-query package continues with representative Pricing and exact constraints.
 - Existing Medusa models still use physical relational artifacts and installation
   evidence. Exact numeric presentation, native Links and current workflow tests
   are replacement obligations, not generic query proofs.

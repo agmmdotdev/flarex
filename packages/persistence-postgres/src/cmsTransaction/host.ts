@@ -218,7 +218,8 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
           return yield* Effect.gen(function* () {
             yield* Effect.fromResult(lifetime.charge(captured.bytes + evidence.canonicalBytes.byteLength));
             const participant = commit === null ? null : yield* enterCmsApplicationCommit(commit, admission, lifetime);
-            const working = yield* makeCmsDocuments(admission, lifetime, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), participant?.uniqueDefinitions ?? prepared.uniqueDefinitions, testHooks?.documentReads);
+            const working = yield* makeCmsDocuments(admission, lifetime, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis),
+              participant?.uniqueDefinitions ?? prepared.uniqueDefinitions, participant?.indexDefinitions ?? prepared.indexDefinitions, testHooks?.documentReads);
             const incoming = yield* makeCmsRelations(relations, admission, lifetime, working.documents, key === null, testHooks?.observeIncomingQuery);
             const preferences = yield* makePayloadPreferenceCleanup(admission, lifetime, working.pendingDeletions);
             const invoke = Effect.fn("CmsHost.invoke")(function* (context: CmsRequestContext, child: CmsCommand, childArgs: Json): Effect.fn.Return<Json, CmsTransactionError> {

@@ -11,6 +11,7 @@ import {
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
 import type { CmsClosedDocuments } from "./documents";
 import { cmsError } from "./model";
+import { readCmsIndexRange, sameCmsIndexMembership } from "./indexReads";
 
 /** Validate the complete command, including decisions that did not produce writes. */
 export const validateCmsDocumentContribution = Effect.fn(
@@ -100,6 +101,13 @@ export const validateCmsDocumentContribution = Effect.fn(
     ) {
       return yield* Effect.fail(cmsError("writeConflict"));
     }
+  }
+  for (const read of closed.indexReads) {
+    if (read.definition.access.kind !== "developer" || !allowed.has(read.definition.access.tableId.toString())) {
+      return yield* Effect.fail(cmsError("invalidAuthority"));
+    }
+    const current = yield* readCmsIndexRange(state.tx, state.authority.scopeId, read);
+    if (!sameCmsIndexMembership(read.entries, current)) return yield* Effect.fail(cmsError("writeConflict"));
   }
   // Materialization requires the actual final-change objects in its dependency
   // set. Preserve every other observation instead of equating reads with writes.

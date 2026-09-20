@@ -374,6 +374,6 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
       });
       return Object.freeze({ lower });
     });
-    return Object.freeze({ uniqueDefinitions: prepared.unique, prepareDelta });
+    return Object.freeze({ uniqueDefinitions: prepared.unique, indexDefinitions: prepared.developer, prepareDelta });
   },
 );

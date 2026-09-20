@@ -246,6 +246,6 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       );
       return allocation.commitSeq;
     });
-    return Object.freeze({ uniqueDefinitions: prepared.core.unique, finalize });
+    return Object.freeze({ uniqueDefinitions: prepared.core.unique, indexDefinitions: prepared.core.developer, finalize });
   },
 );

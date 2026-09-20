@@ -1,5 +1,5 @@
 import { payloadJoinQuery, type PayloadJoinQuery } from "./joins";
-import { payloadHasMany, payloadJoins, payloadIsManagedField } from "./contract";
+import { canonicalPayloadNumber, payloadHasMany, payloadJoins, payloadIsManagedField } from "./contract";
 import type { PayloadCollectionRuntime } from "./collectionRuntime";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ValidationError, type BaseDatabaseAdapter, type DatabaseAdapterObj,
@@ -92,7 +92,7 @@ const payloadFields = (profile: PayloadContentProfile, collection: PayloadCollec
     if (scalar.kind === "date") {
       if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new UnsupportedPayloadCapability("date");
       normalized[key] = new Date(value).toISOString();
-    } else normalized[key] = value;
+    } else normalized[key] = scalar.kind === "number" && typeof value === "number" ? canonicalPayloadNumber(value) : value;
   }
   if (creationTimestamp !== undefined) {
     if (payloadHasMany(profile)) normalized.relatedPosts ??= [];
@@ -154,12 +154,6 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
   const one = async (args: Parameters<BaseDatabaseAdapter["findOne"]>[0]) => {
     const state = admit(args, true);
     const predicate = where(state, args.where);
-    if (predicate._id !== undefined) {
-      const value = await run(state, state.context.documents.get(state.context.context, transactionId(state), predicate._id, state.collection.logicalTableName));
-      const found = value === null || Object.entries(predicate).some(([field, expected]) => value[field] !== expected) ? null : document(state.collection, value);
-      await roots(state, found === null ? [] : [found], args.joins);
-      return found;
-    }
     const result = await run(state, state.context.documents.find(state.context.context, transactionId(state), state.collection.logicalTableName, { where: predicate, offset: 0, limit: 1 }));
     const found = result.docs[0] === undefined ? null : document(state.collection, result.docs[0]);
     await roots(state, found === null ? [] : [found], args.joins);

@@ -80,7 +80,7 @@ export function decodeApplicationManifestV3(
     const writePolicies = yield* decodeApplicationWritePolicies(
       schema.get("writePolicies"), base.schema.tables.map(table => table.name),
     ).pipe(Result.mapError(policyContractError));
-    yield* validateApplicationWritePolicySchema(writePolicies, base.schema.tables, relations).pipe(Result.mapError(policyContractError));
+    yield* validateApplicationWritePolicySchema(writePolicies, base.schema.tables, relations, base.schema.indexes).pipe(Result.mapError(policyContractError));
     return Object.freeze({
       format: APPLICATION_MANIFEST_FORMAT_V1,
       version: 3,

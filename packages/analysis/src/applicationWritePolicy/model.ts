@@ -1,4 +1,5 @@
 import { Data, Schema } from "effect";
+import { SchemaManifestAppIndexDescriptorSchema, SchemaManifestAppIndexFieldPathSchema, MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS } from "flarex-protocol/schema-manifest";
 
 const StrictStructOptions = { parseOptions: { onExcessProperty: "error" } } as const;
 
@@ -70,6 +71,10 @@ const ConfigurationFields = {
     logicalTableName: Identity,
     collectionSlug: PayloadCollectionSlugSchema,
     timestamps: Schema.Boolean,
+    indexes: Schema.optionalKey(Schema.Array(Schema.Struct({
+      name: SchemaManifestAppIndexDescriptorSchema,
+      fields: Schema.Array(SchemaManifestAppIndexFieldPathSchema).check(Schema.isMinLength(1), Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS)),
+    }).annotate(StrictStructOptions)).check(Schema.isMaxLength(16))),
     fields: Schema.Array(Schema.Union([ScalarField, OptionalRelationField, ManyPostRelationField])).check(Schema.isMaxLength(64)),
   }).annotate(StrictStructOptions)).check(
     Schema.isMinLength(1),
@@ -91,6 +96,11 @@ export const PayloadConfigurationSchema = Schema.Union([
   for (const table of config.tables) {
     if (table.logicalTableName !== payloadCollectionLogicalName(table.collectionSlug)) return "Collection-to-table mapping mismatch";
     if (new Set(table.fields.map(field => field.name)).size !== table.fields.length) return "Duplicate field name";
+    if (new Set(table.indexes?.map(index => index.name)).size !== (table.indexes?.length ?? 0) ||
+      table.indexes?.some(index => new Set(index.fields).size !== index.fields.length ||
+        index.fields.some(name => !table.fields.some(field => field.name === name && field.kind !== "relationship")))) {
+      return "Indexes require distinct declared scalar fields and names";
+    }
     const managed = table.fields.filter(field => field.name === "createdAt" || field.name === "updatedAt");
     if (table.timestamps ? managed.length !== 2 || managed.some(field => field.kind !== "date" || field.defaultValue !== undefined || field.unique !== undefined) : managed.length !== 0) {
       return "Managed timestamps must agree with the declared date fields";

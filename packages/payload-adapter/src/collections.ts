@@ -1,12 +1,13 @@
 import { BasePayload, createLocalReq, validations, type CollectionConfig, type PayloadRequest } from "payload";
 import { Effect, Schema } from "effect";
-import { applicationSchemaDefinition, applicationTableDefinition } from "@flarex/application-schema-definition/application-schema";
+import { applicationSchemaDefinition, applicationTableDefinition, snapshotApplicationTableDefinition } from "@flarex/application-schema-definition/application-schema";
 import { applicationIdValidatorJson, applicationObjectValidatorJson, applicationScalarValidatorJson } from "@flarex/application-schema-definition/validator-json";
 import { decodeRelationDeclarationsV1Result } from "flarex-protocol/internal/relation-declaration-v1";
 import { captureApplicationWritePolicyData, digestApplicationWritePolicyFrame, verifyApplicationWritePolicies,
   PayloadCollectionSlugSchema, payloadCollectionLogicalName,
   type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
-import { SchemaManifestAppTableNameSchema } from "flarex-protocol/schema-manifest";
+import { SchemaManifestAppTableNameSchema, SchemaManifestAppIndexDescriptorSchema, SchemaManifestAppIndexFieldPathSchema,
+  MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS } from "flarex-protocol/schema-manifest";
 import { cmsError } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { makePayloadDatabaseAdapter } from "./adapter";
 import { buildPayloadConfiguration } from "./configuration";
@@ -15,7 +16,7 @@ import { payloadScalarProvenance } from "./contract";
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const FieldName = SchemaManifestAppTableNameSchema.check(Schema.makeFilter(name =>
   ["id", "createdAt", "updatedAt", "constructor", "prototype"].includes(name) ? "Reserved field name" : undefined));
-const common = { name: FieldName, required: Schema.Literal(true) };
+const common = { name: FieldName, required: Schema.Literal(true), index: Schema.optionalKey(Schema.Literal(true)) };
 const NumberDefault = Schema.Finite.check(Schema.makeFilter(value => Object.is(value, -0) ? "Negative zero is not canonical" : undefined));
 const NativeField = Schema.Union([
   Schema.Struct({ ...common, type: Schema.Literal("text"), unique: Schema.optionalKey(Schema.Literal(true)), defaultValue: Schema.optionalKey(Schema.String) }).annotate(strict),
@@ -29,9 +30,14 @@ const NativeField = Schema.Union([
 ]);
 type NativeField = typeof NativeField.Type;
 const decodeField = Schema.decodeUnknownEffect(NativeField);
+const decodeIndexName = Schema.decodeUnknownEffect(SchemaManifestAppIndexDescriptorSchema);
+const decodeIndexFields = Schema.decodeUnknownEffect(Schema.Array(SchemaManifestAppIndexFieldPathSchema));
 const NativeCollections = Schema.Array(Schema.Struct({
   slug: PayloadCollectionSlugSchema,
   fields: Schema.Array(NativeField).check(Schema.isMinLength(1), Schema.isMaxLength(62)),
+  indexes: Schema.optionalKey(Schema.Array(Schema.Struct({ fields: Schema.Array(FieldName).check(Schema.isMinLength(2), Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS)),
+    unique: Schema.optionalKey(Schema.Literal(false)),
+  }).annotate(strict)).check(Schema.isMaxLength(16))),
   timestamps: Schema.optionalKey(Schema.Literal(true)),
   lockDocuments: Schema.optionalKey(Schema.Literal(false)),
   enableQueryPresets: Schema.optionalKey(Schema.Literal(false)),
@@ -45,6 +51,8 @@ const NativeCollections = Schema.Array(Schema.Struct({
     return "At most one relationship targeting a configured collection is admitted";
   }
   return collections.some(collection => new Set(collection.fields.map(field => field.name)).size !== collection.fields.length ||
+    collection.indexes?.some(index => new Set(index.fields).size !== index.fields.length || index.fields.some(name =>
+      !collection.fields.some(field => field.name === name && field.type !== "relationship"))) ||
     collection.fields.filter(field => field.type === "text" && field.unique).length > 1) ? "Duplicate fields or multiple unique fields" : undefined;
 }));
 const decodeCollections = Schema.decodeUnknownEffect(NativeCollections);
@@ -53,6 +61,7 @@ const compiledCollections = new WeakSet<object>();
 
 function nativeCollection(collection: typeof NativeCollections.Type[number]): CollectionConfig {
   return { slug: collection.slug, fields: collection.fields.map(field => ({ ...field })),
+    ...(collection.indexes === undefined ? {} : { indexes: collection.indexes.map(index => ({ fields: [...index.fields], unique: false })) }),
     timestamps: true, lockDocuments: false, enableQueryPresets: false, defaultSort: "id", access: { ...access } };
 }
 
@@ -114,11 +123,13 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
         continue;
       }
       const native = yield* decodeField({ name: field.name, type: field.type, required: "required" in field ? field.required : undefined,
+        ...("index" in field && field.index === true ? { index: true } : {}),
         ...("unique" in field && field.unique === true ? { unique: true } : {}),
         ...("defaultValue" in field && field.defaultValue !== undefined ? { defaultValue: field.defaultValue } : {}),
       }).pipe(Effect.mapError(cause => cmsError("unsupportedProfile", cause)));
       if (source === undefined || source.type === "relationship" || native.type === "relationship" || native.type !== source.type ||
         (native.type === "text" && native.unique) !== (source.type === "text" && source.unique) ||
+        native.index !== source.index ||
         native.defaultValue !== (source.defaultValue === undefined && source.type === "checkbox" ? false : source.defaultValue)) {
         return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized field semantics"));
       }
@@ -127,7 +138,24 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
         ...(native.type === "text" && native.unique ? { unique: true as const } : {}),
         ...(native.defaultValue === undefined ? {} : { defaultValue: native.defaultValue }) });
     }
-    tables.push({ logicalTableName: payloadCollectionLogicalName(definition.slug), collectionSlug: definition.slug, timestamps: true, fields });
+    if ((sanitized.sanitizedIndexes?.length ?? 0) !== (definition.indexes?.length ?? 0) ||
+      sanitized.sanitizedIndexes?.some((index, position) => index.unique || index.fields.length !== definition.indexes?.[position]?.fields.length || index.fields.some((field, fieldPosition) =>
+        field.path !== definition.indexes?.[position]?.fields[fieldPosition] || field.pathHasLocalized))) {
+      return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized compound index semantics"));
+    }
+    const indexes: NonNullable<PayloadConfiguration["tables"][number]["indexes"]>[number][] = [];
+    const selections = [...definition.fields.flatMap(field => field.type !== "relationship" && field.index ? [[field.name]] : []),
+      ...(definition.indexes?.map(index => index.fields) ?? [])];
+    const seen = new Set<string>();
+    for (const selection of selections) {
+      const digest = yield* digestApplicationWritePolicyFrame(selection);
+      if (seen.has(digest)) continue;
+      seen.add(digest);
+      indexes.push({ name: yield* decodeIndexName(`i_${digest.slice(0, 60)}`), fields: yield* decodeIndexFields(selection) });
+    }
+    indexes.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    tables.push({ logicalTableName: payloadCollectionLogicalName(definition.slug), collectionSlug: definition.slug, timestamps: true, fields,
+      ...(indexes.length === 0 ? {} : { indexes }) });
   }
   tables.sort((left, right) => left.logicalTableName < right.logicalTableName ? -1 : left.logicalTableName > right.logicalTableName ? 1 : 0);
   const provenanceSha256 = yield* digestApplicationWritePolicyFrame(payloadScalarProvenance);
@@ -141,11 +169,11 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
   // The shared schema authoring owner validates identifiers and owns validator copies.
   // All inputs below are compiler-owned; a failure here is an invariant defect.
   const schema = applicationSchemaDefinition(Object.fromEntries(tables.map(table => [table.logicalTableName,
-    applicationTableDefinition(applicationObjectValidatorJson(Object.fromEntries(table.fields.map(field => [field.name, {
+    snapshotApplicationTableDefinition({ ...applicationTableDefinition(applicationObjectValidatorJson(Object.fromEntries(table.fields.map(field => [field.name, {
       fieldType: field.kind === "relationship" ? applicationIdValidatorJson(field.target) :
         applicationScalarValidatorJson(field.kind === "number" ? "number" : field.kind === "boolean" ? "boolean" : "string"),
       optional: field.kind === "relationship",
-    }])))),
+    }])))), indexes: table.indexes?.map(index => ({ descriptor: index.name, fields: index.fields })) ?? [] }),
   ])));
   const relations = yield* Effect.fromResult(decodeRelationDeclarationsV1Result(relationFields.map(({ table, field }) => ({
     format: "flarex.relation-declaration", version: 1,
@@ -154,7 +182,8 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
     inverse: { cardinality: "many", name: null }, localized: false, onTargetDelete: "restrict",
   })))).pipe(Effect.orDie);
   const schemaDefinition = Object.freeze({ tables: Object.freeze(Object.fromEntries(schema.tables.map(table => [table.logicalName,
-    Object.freeze({ kind: "table", validator: Object.freeze({ isFlarexValidator: true, json: table.definition.documentType }), indexes: Object.freeze([]) }),
+    Object.freeze({ kind: "table", validator: Object.freeze({ isFlarexValidator: true, json: table.definition.documentType }),
+      indexes: Object.freeze(schema.indexes.filter(index => index.tableLogicalName === table.logicalName).map(index => Object.freeze({ name: index.descriptor, fields: index.fields }))) }),
   ]))), relations, writePolicies: verified.policies });
   const compiled = Object.freeze({ configuration: verified.policies.configuration, schemaDefinition,
     logicalDefinition: Object.freeze({ kind: "documents" as const, tables: schema.tables, indexes: schema.indexes, relations }),

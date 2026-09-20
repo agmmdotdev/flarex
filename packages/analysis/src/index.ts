@@ -299,7 +299,7 @@ export const analyzeLoadedApplicationSourcePackageEffect = Effect.fn(
     policyProperty.value,
     analysis.schema.tables.map(table => table.name),
   ).pipe(Effect.mapError(cause => schemaError("Invalid Application write policies.", cause)));
-  yield* Effect.fromResult(validateApplicationWritePolicySchema(verified.policies, analysis.schema.tables, relations)).pipe(
+  yield* Effect.fromResult(validateApplicationWritePolicySchema(verified.policies, analysis.schema.tables, relations, analysis.schema.indexes)).pipe(
     Effect.mapError(cause => schemaError("Application write policies do not match the schema.", cause)),
   );
   return { ...analysis, relations, writePolicies: verified.policies };

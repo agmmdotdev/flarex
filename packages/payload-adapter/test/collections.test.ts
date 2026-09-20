@@ -21,6 +21,34 @@ const refusal = (input: unknown) => Effect.runPromise(Effect.result(compilePaylo
 const decodeConfiguration = Schema.decodeUnknownResult(PayloadConfigurationSchema);
 
 describe("Payload collection compiler", () => {
+  it("uses the shared 15-field declaration boundary before compiling physical indexes", async () => {
+    const fields = Array.from({ length: 16 }, (_, index) => ({ name: `field${index}`, type: "text", required: true }));
+    const names = fields.map(field => field.name);
+    const compiled = await compile([{ slug: "items", fields, indexes: [{ fields: names.slice(0, 15) }] }]);
+    expect(compiled.configuration.tables[0]?.indexes?.[0]?.fields).toHaveLength(15);
+    expect(await refusal([{ slug: "items", fields, indexes: [{ fields: names }] }]))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    expect(decodeConfiguration({ ...compiled.configuration, tables: compiled.configuration.tables.map(table => ({ ...table,
+      indexes: table.indexes?.map(index => ({ ...index, fields: names })),
+    })) })).toMatchObject({ _tag: "Failure" });
+  });
+  it("compiles ordinary and compound indexes and rejects a missing schema projection", async () => {
+    const input = [{ slug: "items", fields: [{ name: "category", type: "text", required: true },
+      { name: "price", type: "number", required: true, index: true }], indexes: [{ fields: ["category", "price"] }] }];
+    const compiled = await compile(input);
+    expect(compiled.configuration.tables[0]?.indexes?.map(index => [...index.fields]).sort()).toEqual([["category", "price"], ["price"]]);
+    const analyze = (schemaDefinition: unknown) => analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition });
+    const analysis = await Effect.runPromise(analyze(compiled.schemaDefinition));
+    expect(analysis.schema.indexes).toHaveLength(2);
+    const table = compiled.schemaDefinition.tables.items;
+    expect(await Effect.runPromise(analyze({ ...compiled.schemaDefinition, tables: { items: { ...table, indexes: [] } } }).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure" });
+    for (const indexes of [[{ fields: ["category", "unknown"] }], [{ fields: ["price", "price"] }], [{ fields: ["category", "price"], unique: true }]]) {
+      expect(Result.isFailure(await refusal([{ ...input[0], indexes }]))).toBe(true);
+    }
+    const reordered = await compile([{ ...input[0], indexes: [{ fields: ["category", "price"], unique: false }] }]);
+    expect(reordered.contentIdentity).toEqual(compiled.contentIdentity);
+  });
   it.each(["authors", "article-authors"])("compiles one native relationship with target %s through Analysis", async target => {
     const definitions = [
       { slug: target, fields: [{ name: "name", type: "text", required: true }] },
@@ -172,7 +200,7 @@ describe("Payload collection compiler", () => {
       { name: "value", type: "text", required: true, unique: undefined },
       { name: "value", type: "number", required: true, unique: true },
       { name: "value", type: "relationship", relationTo: "catalog" },
-      { name: "value", type: "text", required: true, index: true },
+      { name: "value", type: "text", required: true, index: "unsupported" },
     ]) expect(Result.isFailure(await refusal([{ slug: "items", fields: [field] }]))).toBe(true);
     for (const flags of [{ timestamps: false }, { lockDocuments: true }, { enableQueryPresets: true }, { defaultSort: "headline" }, { auth: true }, { versions: true }]) {
       expect(Result.isFailure(await refusal([{ ...definitions()[0], ...flags }]))).toBe(true);

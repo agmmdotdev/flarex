@@ -144,12 +144,12 @@ references outside local atomic guarantees.
 
 ## Indexed Payload And Pending Visibility
 
-Wire supported native single-field and compound-index definitions to actual
-indexed Local API execution. The current narrow grammar refuses those ordinary
-index options; the new proof must extend compilation and execution together,
-not claim they were already accepted. Exercise a selective non-ID lookup, range
-or compound sort as admitted, native page/count behavior and unique create/update
-without reading every unrelated collection record.
+Native ordinary single-field and compound-index definitions now compile and
+execute through the [indexed Payload query contract](./05-indexed-payload-queries.md).
+Its admitted operations cover selective non-ID equality, equality prefixes and
+numeric ranges, native ID page ordering and bounded complete counts without
+reading every unrelated collection record. Custom sorting and compound uniqueness
+remain separate capabilities; do not infer them from ordinary index support.
 
 All participating reads within a transaction must see the same pending state.
 Change an indexed value from 10 to 20, query both ranges before commit, follow a

@@ -118,6 +118,9 @@ export function decodeApplicationWritePolicies(
     );
     yield* validateOrder(policies.tables.map(table => table.logicalTableName), "tables");
     yield* validateOrder(policies.configuration.tables.map(table => table.logicalTableName), "configuration.tables");
+    for (const table of policies.configuration.tables) {
+      yield* validateOrder((table.indexes ?? []).map(index => index.name), `configuration.${table.logicalTableName}.indexes`);
+    }
     // Revision 3 preserves native field traversal order; the schema rejects duplicates.
     const expected = [...logicalTableNames].sort(compareUtf16Strings);
     if (expected.length !== policies.tables.length || expected.some((name, index) =>
@@ -148,6 +151,7 @@ function freezePolicies(value: ApplicationWritePolicies): ApplicationWritePolici
       tables: Object.freeze(value.configuration.tables.map(table => Object.freeze({
         ...table,
         fields: Object.freeze(table.fields.map(field => Object.freeze({ ...field }))),
+        ...(table.indexes === undefined ? {} : { indexes: Object.freeze(table.indexes.map(index => Object.freeze({ ...index, fields: Object.freeze([...index.fields]) }))) }),
       }))),
     }),
     tables: Object.freeze(value.tables.map(table => Object.freeze({ ...table }))),

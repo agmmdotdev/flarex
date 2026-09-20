@@ -15,9 +15,11 @@ installation receipts and completed tests are baseline evidence. They do not
 override the replacement target or prove its implementation. Physical lifecycle
 work with retained system consumers must be inventoried before removal.
 
-Payload logical index compilation, indexed non-ID queries, and relation
-semantics must be proved through the shared core and native Local API. Current
-limited compiler/query support is baseline evidence, not complete indexing.
+Payload ordinary scalar/compound index compilation and bounded indexed non-ID
+queries now execute through shared core and native Local API under the
+[indexed-query contract](../shared-logical-storage/05-indexed-payload-queries.md).
+That contract supersedes earlier ID/unique-only query limits below. Complete
+framework indexing and cross-framework relation semantics remain open gates.
 
 ## Status And Scope
 

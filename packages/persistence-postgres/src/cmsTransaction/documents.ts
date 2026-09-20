@@ -1,4 +1,4 @@
-import { Effect, Option, Result, Schema } from "effect";
+import { Effect, Option, Result } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result,
@@ -20,13 +20,10 @@ import type { ApplicationDocumentObservation } from "../applicationDocumentMater
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
 import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 import type { CmsRequestLifetime } from "./lifetime";
-
-const CmsFindQuery = Schema.Struct({
-  where: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null])),
-  offset: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
-  limit: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: cmsLimits.pageRows })),
-});
-const decodeFindQuery = Schema.decodeUnknownResult(CmsFindQuery, { onExcessProperty: "error" });
+import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
+import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
+import { readCmsIndexRange, type CmsIndexRead } from "./indexReads";
+import { decodeCmsFindQuery, isCmsRange, selectCmsIndex, cmsQueryMatches } from "./query";
 const uniqueReadKey = (definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1) =>
   projected.canonical.kind === "claim"
     ? JSON.stringify([definition.uniqueConstraintDefinitionId, projected.canonical.localeKey, projected.canonical.encodedKey])
@@ -61,6 +58,7 @@ export interface CmsClosedDocuments {
   readonly dependencies: readonly ApplicationDocumentObservation[];
   readonly scans: readonly Readonly<{ tableId: CatalogTableId; frontier: CommitSeq | null }>[];
   readonly uniqueReads: readonly CmsUniqueRead[];
+  readonly indexReads: readonly CmsIndexRead[];
 }
 export interface CmsUniqueRead {
   readonly constraintId: AppUniqueConstraintIdV1;
@@ -123,8 +121,9 @@ export interface CmsDocuments {
 }
 
 export interface CmsDocumentReadTestHooks {
-  readonly beforeRead?: (selection: "point" | "batch" | "scan") => Effect.Effect<void, CmsTransactionError>;
+  readonly beforeRead?: (selection: "point" | "batch" | "scan" | "index") => Effect.Effect<void, CmsTransactionError>;
   readonly observeQuery?: Parameters<typeof readBoundedCurrentAppRowsInTransactionEffect>[2];
+  readonly observeIndexQuery?: Parameters<typeof readCmsIndexRange>[3];
 }
 
 export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
@@ -132,6 +131,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   lifetime: CmsRequestLifetime,
   creationTime: AppCreationTimeV1,
   uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[],
+  indexDefinitions: readonly LocatedAppIndexDefinitionV1[],
   testHooks?: CmsDocumentReadTestHooks,
 ) {
   const state = yield* requireCmsAdmission(admission);
@@ -147,6 +147,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   const dependencies = new Map<AppDocumentIdV1, ApplicationDocumentObservation>();
   const scans = new Map<CatalogTableId, CommitSeq | null>();
   const uniqueReads = new Map<string, CmsUniqueRead>();
+  const indexReads = new Map<string, CmsIndexRead>();
   const attempts: CmsDocumentAttempt[] = [];
   let inserted = 0;
   let closed = false;
@@ -369,7 +370,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     lifetime.operation(context, id, "read", Effect.gen(function* () {
       const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), cmsError));
       yield* charge(captured.bytes);
-      const query = yield* Effect.fromResult(decodeFindQuery(captured.value).pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
+      const query = yield* Effect.fromResult(decodeCmsFindQuery(captured.value).pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
       const table = yield* Effect.fromResult(tableForName(tableName));
       let candidates: Iterable<PendingDocument> = rows.values();
       if (query.where._id !== undefined) {
@@ -381,10 +382,38 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       } else {
         const where = query.where;
         const definition = uniqueDefinitions.find(candidate => candidate.tableId === table.tableId &&
-          candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field)));
+          candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field) && !isCmsRange(where[field])));
         if (definition === undefined) {
-          if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
-          candidates = rows.values();
+          const selected = yield* Effect.fromResult(selectCmsIndex(indexDefinitions, table.tableId, where));
+          if (Option.isNone(selected)) {
+            if (Object.values(where).some(isCmsRange)) return yield* Effect.fail(cmsError("invalidInput"));
+            if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
+            candidates = rows.values();
+          } else if (!scanned.has(table.tableId) || indexReads.has(selected.value.identity)) {
+            const selection = selected.value;
+            let read = indexReads.get(selection.identity);
+            if (read === undefined) {
+              if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
+              const entries = yield* readCmsIndexRange(state.tx, state.authority.scopeId, selection, testHooks?.observeIndexQuery);
+              yield* charge(128 + entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
+              if (entries.some(entry => entry.tableId !== table.tableId) || new Set(entries.map(entry => entry.rowId)).size !== entries.length) {
+                return yield* Effect.fail(cmsError("storedCorruption"));
+              }
+              const missing = entries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
+              if (!scanned.has(table.tableId) && missing.length > 0) yield* readBase(table.tableId, undefined, missing.map(entry => entry.rowId));
+              for (const entry of entries) {
+                const { pending } = yield* locate(appDocumentIdV1FromRowIdentity(entry));
+                if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(cmsError("writeConflict"));
+                const encoded = yield* Effect.fromResult(lowerAppDeveloperIndexKeyV1(selection.definition, pending.base.document, pending.base.creationTime)
+                  .pipe(Result.mapError(cause => cmsError("storedCorruption", cause))));
+                if (encoded !== entry.encodedKey) return yield* Effect.fail(cmsError("writeConflict"));
+              }
+              read = Object.freeze({ definition: selection.definition, bounds: selection.bounds, entries });
+              indexReads.set(selection.identity, read);
+            }
+            const members = new Set(read.entries.map(entry => appDocumentIdV1FromRowIdentity(entry)));
+            candidates = [...rows.values()].filter(row => row.tableId === table.tableId && (members.has(row.documentId) || row.attempts.length > 0));
+          }
         } else {
           const document = yield* canonicalizeFlarexValueV1Effect(where, "appDocument")
             .pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
@@ -401,13 +430,12 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
           }
         }
       }
-      const predicate = Object.entries(query.where);
       const matched: { id: AppDocumentIdV1; document: CanonicalFlarexValueV1 }[] = [];
       for (const row of candidates) {
         if (row.tableId !== table.tableId || row.current === null) continue;
         const document = row.current.value;
         if (!isNonArrayRecord(document)) return yield* Effect.fail(cmsError("storedCorruption"));
-        if (predicate.every(([field, expected]) => Object.hasOwn(document, field) && document[field] === expected)) matched.push({ id: row.documentId, document: row.current });
+        if (yield* Effect.fromResult(cmsQueryMatches(document, query.where))) matched.push({ id: row.documentId, document: row.current });
       }
       matched.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
       const docs = yield* Effect.forEach(matched.slice(query.offset, query.offset + query.limit), row => Effect.fromResult(output(row.document, true)));
@@ -434,7 +462,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       attempts: Object.freeze([...attempts]), noFinalRows: Object.freeze(noFinalRows),
       dependencies: Object.freeze([...dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
       scans: Object.freeze([...scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
-      uniqueReads: Object.freeze([...uniqueReads.values()]) }));
+      uniqueReads: Object.freeze([...uniqueReads.values()]), indexReads: Object.freeze([...indexReads.values()]) }));
     return closure;
   });
   const documents = Object.freeze({ get, getMany, find, insert, delete: remove,

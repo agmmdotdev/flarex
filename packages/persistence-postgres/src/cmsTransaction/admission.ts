@@ -15,6 +15,9 @@ import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import { MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
+import { createAppDeveloperIndexDefinitionPortV1 } from "../appDeveloperIndexCommitV1";
+import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
+import { MAX_RECONCILED_DEFINITIONS } from "../indexBuildReconciliation";
 import { captureApplicationWritePolicyData, PayloadConfigurationSchema, type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 import type { ApplicationBindingInput, ApplicationBindingSelectionReader, AcceptedApplicationBinding } from "../applicationActivation";
 import { prepareApplicationBindingSelection, readApplicationBindingPreparationInputs, withAcceptedApplicationBinding, hasApplicationBindingComposition } from "../applicationActivation";
@@ -39,6 +42,7 @@ export interface PreparedCmsApplication {
   readonly selection: ApplicationBindingInput;
   readonly schema: ApplicationRelationSchemaAuthority;
   readonly uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[];
+  readonly indexDefinitions: readonly LocatedAppIndexDefinitionV1[];
 }
 export interface CmsAdmissionState {
   readonly binding: AcceptedApplicationBinding;
@@ -123,7 +127,15 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
   // into the prepared-host payload contract.
   yield* chargeHostPreparation(uniqueDefinitions.map(definition => ({ ...definition, createdAt: definition.createdAt.getTime() })))
     .pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
-  const value: PreparedCmsApplication = Object.freeze({ selection, schema, configuration, uniqueDefinitions });
+  const indexDefinitions = yield* createAppDeveloperIndexDefinitionPortV1(controlDb).locate({
+    deploymentId: deployment, scopeId: scope.scopeId, schemaVersionId: schema.schemaVersionId,
+    tableIds: schema.writePolicy.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId),
+    maximumDefinitions: MAX_RECONCILED_DEFINITIONS,
+  });
+  if (indexDefinitions === null) return yield* Effect.fail(cmsError("invalidAuthority"));
+  yield* chargeHostPreparation(indexDefinitions.map(definition => ({ ...definition, createdAt: definition.createdAt.getTime() })))
+    .pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
+  const value: PreparedCmsApplication = Object.freeze({ selection, schema, configuration, uniqueDefinitions, indexDefinitions });
   prepared.add(value);
   return value;
 });
