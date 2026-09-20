@@ -258,40 +258,27 @@ export async function payloadRelationScenario(input: {
         await write(relation.runtime.commands.delete, { collection: "posts", id: interruptedId });
         for (const first of ["insert", "delete"] as const) {
           const raceTarget = documentId(await write(relation.runtime.commands.create, { collection: "posts", data: { title: `race-${first}`, publishedAt: "2026-01-01" } }));
-          const entered = barrier<number>();
+          const entered = barrier<void>();
           const release = barrier<void>();
-          const holder = await runEffect(makeCmsHost(composition, { afterAdmission: Effect.fn("RelationTest.holdClock")(function* (tx) {
-            const rows = yield* Effect.promise(() => tx.select({ pid: sql<number>`pg_backend_pid()` }).from(fxSystemScopeClocks).limit(1));
-            if (rows[0] === undefined) throw new Error("Missing backend PID");
-            entered.resolve(rows[0].pid);
+          const holder = await runEffect(makeCmsHost(composition, { afterDocumentClosure: Effect.fn("RelationTest.holdCommand")(function* () {
+            entered.resolve();
             yield* Effect.promise(() => release.promise);
           }) }));
           const firstCommand = first === "insert" ? relation.runtime.commands.update : relation.runtime.commands.delete;
           const firstArgs = first === "insert" ? { collection: "posts", id: source, data: { relatedPost: raceTarget } } : { collection: "posts", id: raceTarget };
-          const firstRun = runEffect(holder.run(holder.newRequestKey(), firstCommand, firstArgs).pipe(Effect.result));
-          const firstObserved = Promise.allSettled([firstRun]);
-          let secondObserved: typeof firstObserved | undefined;
-          let results: Array<Awaited<typeof firstObserved>[number]> = [];
-          try {
-            const pid = await withDeadline(Promise.race([entered.promise, firstObserved.then(() => { throw new Error("Holder exited before admission"); })]));
-            const secondRun = runEffect(host.run(host.newRequestKey(), first === "insert" ? relation.runtime.commands.delete : relation.runtime.commands.update,
-              first === "insert" ? { collection: "posts", id: raceTarget } : { collection: "posts", id: source, data: { relatedPost: raceTarget } }).pipe(Effect.result));
-            secondObserved = Promise.allSettled([secondRun]);
-            const deadline = performance.now() + 5000;
-            let waiting = false;
-            while (!waiting && performance.now() < deadline) {
-              const rows = await persistence.pool.query<{ waiting: boolean }>("select exists(select 1 from pg_stat_activity where $1::int = any(pg_blocking_pids(pid))) as waiting", [pid]);
-              waiting = rows.rows[0]?.waiting === true;
-              if (!waiting) await new Promise(resolve => setTimeout(resolve, 10));
-            }
-            expect(waiting).toBe(true);
-          } finally {
-            release.resolve();
-            results = [...await firstObserved, ...(secondObserved === undefined ? [] : await secondObserved)];
-          }
-          expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
-          expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: first === "insert" ? "relationDeleteRestricted" : "relationTargetMissing" } } });
-          if (first === "insert") {
+          // Reuse the scoped overlap owner: timeout interrupts and joins both
+          // requests, and the second completes before the first is released.
+          const results = await runEffect(overlappingSnapshotRace(
+            holder.run(holder.newRequestKey(), firstCommand, firstArgs),
+            host.run(host.newRequestKey(), first === "insert" ? relation.runtime.commands.delete : relation.runtime.commands.update,
+              first === "insert" ? { collection: "posts", id: raceTarget } : { collection: "posts", id: source, data: { relatedPost: raceTarget } }),
+            entered.promise, () => release.resolve(),
+          ));
+          // This admitted Payload path does not read the target body; the shared
+          // relation planner owns target liveness and delete restrictions.
+          expect(results[0]).toMatchObject({ status: "fulfilled", value: { _tag: "Failure", failure: { reason: first === "insert" ? "relationTargetMissing" : "relationDeleteRestricted" } } });
+          expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: "Success" } });
+          if (first === "delete") {
             await write(relation.runtime.commands.update, { collection: "posts", id: source, data: { relatedPost: null } });
             await write(relation.runtime.commands.delete, { collection: "posts", id: raceTarget });
           }

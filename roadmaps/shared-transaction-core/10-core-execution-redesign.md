@@ -248,7 +248,8 @@ independent row/index/claim persistence at one/eight/thirty-two rows with exact
 stored evidence, cross replay and late-write rollback. The
 [nonempty settlement matrix](./51-ce0-nonempty-settlement.md) adds eight-row
 uncertainty and cancellation, duplicate/disjoint/unique contention and progress
-in another scope during a held publication. Same-scope serialization remains.
+in another scope during a held publication. Those measurements predate the
+[CMS concurrency cutover](./64-cms-concurrent-command-settlement.md).
 The [first-insert executor](./52-ce0-first-insert-execution.md) independently owns
 pending inserts, collision/eager uniqueness decisions and accounting order. Schema
 validation, bounded readers, lifetime, admission and build/candidate authority
@@ -312,10 +313,11 @@ publication remains uncommitted. [Unlocked planning](./31-ce3-unlocked-planning.
 removes the earlier same-scope wait in binding and document preparation: planning
 captures authenticated definitions and candidate inputs without claiming live
 readiness. The accepting transaction checks current unique builds, candidate
-receipts, head/fence and lifecycle before issuing authority. Disjoint requests
-and duplicates now wait at the main exclusive scope clock. This is preparation
-overlap; command execution, sequence-consuming materialization and publication
-remain serialized pending the coordinated CE3 protocol.
+receipts, head/fence and lifecycle before issuing authority. The subsequent
+[CMS concurrency cutover](./64-cms-concurrent-command-settlement.md) also permits
+independent same-scope command execution. Duplicates wait on request exclusion;
+sequence-consuming materialization and publication retain the shared lock.
+Other writer profiles and final connected acceptance remain open.
 
 The [concurrent CMS load baseline](./43-ce0-concurrent-cms-load.md) extends these
 barriers to finite complete-request bursts on one and four scopes sharing a

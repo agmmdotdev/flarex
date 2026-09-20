@@ -212,7 +212,8 @@ export const makeCurrencyAnnouncementParticipants = Effect.fn(
         commerceLifetime,
         commerceClosure,
       );
-      const appChanges = yield* application.consume(appClosure);
+      const appChanges = (yield* application.consume(appClosure)).map(change =>
+        Object.freeze({ ...change, readAt: cmsState.clock.lastCommitSeq }));
       const changes = [...cmsContribution.changes, ...appChanges].toSorted(
         (a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId),
       );

@@ -97,7 +97,7 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
         {
           scopeId: state.authority.scopeId,
           tableId: table.tableId,
-          snapshotCommitSeq: state.clock.lastCommitSeq,
+          minimumCommitSeq: state.clock.lastCommitSeq,
           maximumIdentities: cmsLimits.identities,
           maximumDocumentBytes: cmsLimits.documentBytes,
           maximumTotalValueBytes: lifetime.remainingBytes(),
@@ -118,7 +118,7 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
       );
       yield* charge(128);
       observed.add(id);
-      for (const row of rows) {
+      for (const row of rows.rows) {
         if (pending.size + loaded.size >= cmsLimits.identities)
           return yield* Effect.fail(cmsError("limitExceeded"));
         yield* charge(
@@ -287,7 +287,8 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
           pending.set(
             documentId,
             Object.freeze({
-              kind: "live",
+            kind: "live",
+            readAt: state.clock.lastCommitSeq,
               tableId: table.tableId,
               rowId,
               documentId,

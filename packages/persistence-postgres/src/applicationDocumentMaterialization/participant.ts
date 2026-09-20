@@ -41,6 +41,7 @@ export class ApplicationParticipantError extends Data.TaggedError("ApplicationPa
  readonly cause?: unknown;
 }> {}
 const participantError = (reason: ApplicationParticipantError["reason"], cause?: unknown) => new ApplicationParticipantError({ reason, ...(cause === undefined ? {} : { cause }) });
+import type { ApplicationDocumentObservation } from "./model";
 export interface PreparedApplicationParticipant {
   readonly schema: ApplicationRelationSchemaAuthority;
   readonly command: ApplicationDocumentDefinitionCommand;
@@ -234,12 +235,13 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
     );
     let preparedDelta = false;
     const prepareDelta = Effect.fn("ApplicationParticipant.prepareDelta")(function* (
-      changes: ApplicationDocumentMaterializationCommand["rowIntents"], dependencies: readonly PointCommitDependencyV1[],
+      changes: ApplicationDocumentMaterializationCommand["rowIntents"], dependencies: readonly ApplicationDocumentObservation[],
     ) {
       if (preparedDelta) return yield* Effect.fail(participantError("invalidAuthority"));
       preparedDelta = true;
       const allowed = new Set(prepared.command.rowIntents.map(row => row.tableId));
-      if (dependencies.some(row => !allowed.has(row.tableId)) || new Set(dependencies.map(row => row.documentId)).size !== dependencies.length || changes.some(row => !dependencies.includes(row))) return yield* Effect.fail(participantError("invalidAuthority"));
+      const observed = new Set<PointCommitDependencyV1>(dependencies);
+      if (dependencies.some(row => !allowed.has(row.tableId)) || new Set(dependencies.map(row => row.documentId)).size !== dependencies.length || changes.some(row => !observed.has(row))) return yield* Effect.fail(participantError("invalidAuthority"));
       const command: ApplicationDocumentMaterializationCommand = {
         authorityPins,
         rowIntents: changes,
@@ -267,9 +269,16 @@ export const enterApplicationDocumentParticipant = Effect.fn("ApplicationPartici
       const heads = yield* participantKernel(() =>
         loadPointCommitHeads(tx, clock, command, prepared.options),
       );
-      yield* Effect.fromResult(
-        validatePointCommitDependenciesResult(command, heads),
-      ).pipe(Effect.mapError((cause) => participantError(cause instanceof PointCommitConflictV1Error ? "writeConflict" : "storedCorruption", cause)));
+      for (const [index, dependency] of dependencies.entries()) {
+        const head = heads[index];
+        if (head === undefined || dependency.readAt < 0n || dependency.readAt > scopeClock.lastCommitSeq)
+          return yield* Effect.fail(participantError("invalidAuthority"));
+        yield* Effect.fromResult(validatePointCommitDependenciesResult({
+          authorityPins: { ...authorityPins, snapshotToken: { ...authorityPins.snapshotToken, commitSeq: dependency.readAt } },
+          dependencies: [dependency],
+        }, [head])).pipe(Effect.mapError(cause => participantError(
+          cause instanceof PointCommitConflictV1Error ? "writeConflict" : "storedCorruption", cause)));
+      }
       const changed = new Set(changes.map(row => row.tableId));
       const selectedDeveloper = developer.filter(index => changed.has(index.definition.access.tableId));
       const selectedUnique = prepared.unique.filter(definition => changed.has(definition.tableId));

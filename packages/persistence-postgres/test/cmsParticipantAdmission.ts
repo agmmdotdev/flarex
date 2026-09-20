@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { expect } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { fxSystemIndexBuildStates } from "../src/schema";
+import { enterApplicationDocumentParticipant } from "../src/applicationDocumentMaterialization/participant";
 import {
   prepareCmsApplication,
   withCmsAdmission,
@@ -106,7 +107,10 @@ export async function assertCmsParticipantAdmission<Failure>(
                   eq(fxSystemIndexBuildStates.indexDefinitionId, intrinsic.indexDefinitionId),
                 )).returning());
                 expect(removed).toHaveLength(1);
-                const missingBuild = yield* Effect.result(enterCmsApplicationCommit(prepared, admission, lifetime));
+                // The materializer now enters at settlement, after publication
+                // exclusion. Exercise that owner directly under this locked fixture.
+                const missingBuild = yield* Effect.result(enterApplicationDocumentParticipant(
+                  prepared.core, tx, authority, clock, application.schema));
                 expect(missingBuild).toMatchObject({ _tag: "Failure", failure: {
                   reason: "storedCorruption", cause: { reason: "intrinsicIndexBuildInvalid" },
                 } });

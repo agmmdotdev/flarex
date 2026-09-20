@@ -16,6 +16,7 @@ import { readAppUniqueKeySlotInTransactionEffect, AppUniqueKeyPersistenceError, 
 import type { AppUniqueConstraintIdV1, AppUniqueKeyProjectionV1 } from "../appUniqueKeyContract";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { PointCommitDependencyV1 } from "../pointCommitTransaction";
+import type { ApplicationDocumentObservation } from "../applicationDocumentMaterialization/model";
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
 import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 import type { CmsRequestLifetime } from "./lifetime";
@@ -30,7 +31,7 @@ interface PendingDocument {
   current: CanonicalFlarexValueV1 | null;
   readonly attempts: number[];
 }
-export type CmsFinalDocumentChange = PointCommitDependencyV1 & (
+export type CmsFinalDocumentChange = ApplicationDocumentObservation & (
   | Readonly<{ kind: "live"; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1 }>
   | Readonly<{ kind: "deleted" }>
 );
@@ -46,7 +47,7 @@ export interface CmsClosedDocuments {
   readonly changes: readonly CmsFinalDocumentChange[];
   readonly attempts: readonly CmsDocumentAttempt[];
   readonly noFinalRows: readonly AppDocumentIdV1[];
-  readonly dependencies: readonly PointCommitDependencyV1[];
+  readonly dependencies: readonly ApplicationDocumentObservation[];
   readonly scans: readonly Readonly<{ tableId: CatalogTableId; frontier: CommitSeq | null }>[];
   readonly uniqueReads: readonly CmsUniqueRead[];
 }
@@ -131,8 +132,8 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   // SAFETY: this owner alone registers the live working set; the handle conveys no rows.
   const pendingDeletions = Object.freeze({}) as CmsPendingDeletions;
   deletionSets.set(pendingDeletions, Object.freeze({ admission, lifetime, rows }));
-  const scanned = new Set<CatalogTableId>();
-  const dependencies = new Map<AppDocumentIdV1, PointCommitDependencyV1>();
+  const scanned = new Map<CatalogTableId, CommitSeq>();
+  const dependencies = new Map<AppDocumentIdV1, ApplicationDocumentObservation>();
   const scans = new Map<CatalogTableId, CommitSeq | null>();
   const uniqueReads = new Map<string, CmsUniqueRead>();
   const attempts: CmsDocumentAttempt[] = [];
@@ -149,6 +150,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
   const charge = (bytes: number) => Effect.fromResult(lifetime.charge(bytes));
   const observe = Effect.fn("CmsDocuments.observe")(function* (
     tableId: CatalogTableId, rowId: AppRowIdHexV1, base: AppRowRevisionV1 | null,
+    readAt = scanned.get(tableId) ?? state.clock.lastCommitSeq,
   ) {
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
     if (dependencies.has(documentId)) return;
@@ -159,7 +161,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       : Object.freeze({ kind: "missing", basis: base === null
         ? Object.freeze({ kind: "noVisibleRevision" })
         : Object.freeze({ kind: "tombstone", revisionCommitSeq: base.commitSeq }) });
-    dependencies.set(documentId, Object.freeze({ documentId, tableId, rowId,
+    dependencies.set(documentId, Object.freeze({ documentId, tableId, rowId, readAt,
       dependency: Object.freeze({ kind: "appRowPoint", documentId, observed }) }));
   });
   const captureFields = (input: unknown) => Result.gen(function* () {
@@ -183,17 +185,21 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     if (closed) return yield* Effect.fail(cmsError("closed"));
     const table = yield* Effect.fromResult(tableForId(tableId));
     if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead(rowIds !== undefined ? "batch" : rowId !== undefined ? "point" : "scan");
-    const loaded = yield* readBoundedCurrentAppRowsInTransactionEffect(state.tx, {
-      scopeId: state.authority.scopeId, tableId, snapshotCommitSeq: state.clock.lastCommitSeq,
+    const capture = yield* readBoundedCurrentAppRowsInTransactionEffect(state.tx, {
+      scopeId: state.authority.scopeId, tableId, minimumCommitSeq: state.clock.lastCommitSeq,
       maximumIdentities: rowIds === undefined ? cmsLimits.identities : cmsLimits.identities - dependencies.size, maximumDocumentBytes: cmsLimits.documentBytes,
       maximumTotalValueBytes: lifetime.remainingBytes(), ...(rowId === undefined ? {} : { rowId }),
       ...(rowIds === undefined ? {} : { rowIds }),
     }, testHooks?.observeQuery).pipe(Effect.mapError(cause => cmsError(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
       ? "limitExceeded" : cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause)));
+    const loaded = capture.rows;
     for (const base of loaded) {
       const documentId = appDocumentIdV1FromRowIdentity(base);
-      yield* observe(tableId, base.rowId, base);
-      if (rows.has(documentId)) continue;
+      const alreadyObserved = dependencies.has(documentId);
+      yield* observe(tableId, base.rowId, base, capture.commitSeq);
+      // A later scan must not replace a cached absence with a newly committed
+      // row. Settlement detects the conflicting dependency; reads stay repeatable.
+      if (alreadyObserved || rows.has(documentId)) continue;
       if (rows.size >= cmsLimits.identities) return yield* Effect.fail(cmsError("limitExceeded"));
       yield* charge(128 + (base.kind === "live" ? base.document.canonicalBytes.byteLength : 0));
       rows.set(documentId, { tableId, tableName: table.logicalName, rowId: base.rowId, documentId, base,
@@ -201,7 +207,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     }
     for (const selected of rowIds ?? (rowId === undefined ? [] : [rowId])) {
       if (!dependencies.has(appDocumentIdV1FromRowIdentity({ tableId, rowId: selected }))) {
-        yield* observe(tableId, selected, null);
+        yield* observe(tableId, selected, null, capture.commitSeq);
       }
     }
     if (rowId === undefined && rowIds === undefined) {
@@ -209,7 +215,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       for (const base of loaded) if (frontier === null || base.commitSeq > frontier) frontier = base.commitSeq;
       yield* charge(64);
       scans.set(tableId, frontier);
-      scanned.add(tableId);
+      scanned.set(tableId, capture.commitSeq);
     }
   });
   const locate = Effect.fn("CmsDocuments.locate")(function* (inputId: string, tableName?: string) {
@@ -242,7 +248,10 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
         const owner = slot.value;
         if (owner.tableId !== pending.tableId) return yield* Effect.fail(cmsError("storedCorruption"));
         const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(owner));
-        if (owned?.base?.kind !== "live") return yield* Effect.fail(cmsError("storedCorruption"));
+        // Slot and owner revision were captured together. A cached or later row
+        // capture can differ legitimately under concurrent publication.
+        if (owned?.base?.commitSeq !== owner.ownerCommitSeq) return yield* Effect.fail(cmsError("writeConflict"));
+        if (owned.base.kind !== "live") return yield* Effect.fail(cmsError("storedCorruption"));
         const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
           .pipe(Result.mapError(cause => cmsError("storedCorruption", cause))));
         if (base.canonical.kind !== "claim" || base.canonical.localeKey !== projected.canonical.localeKey ||

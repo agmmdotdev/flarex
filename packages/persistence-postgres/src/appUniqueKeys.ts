@@ -24,6 +24,7 @@ import {
 } from "flarex-protocol/ordered-index";
 import {
   ScopeEpochSchema,
+  CommitSeqSchema,
   ScopeIdSchema,
   ScopeUuidV1Schema,
   projectScopeIdUuidV1Result,
@@ -1401,6 +1402,7 @@ function decodeStoredValidationClaimResult(stored: unknown) {
 const decodeSlotIdentity = Schema.decodeUnknownResult(Schema.Struct({
   scopeId: ScopeIdSchema, constraintId: CatalogUniqueConstraintDefinitionIdSchema,
 }));
+const decodeSlotOwnerCommitSeq = Schema.decodeUnknownResult(Schema.toType(CommitSeqSchema));
 
 /** Bounded committed-slot lookup. The caller owns admission and transaction
  * protection; pending changes and final claiming remain with their existing owners. */
@@ -1413,20 +1415,32 @@ export const readAppUniqueKeySlotInTransactionEffect = Effect.fn("AppUniqueKeys.
     const canonical = yield* Effect.fromResult(canonicalizeAppUniqueKeyV1Result(input.key)).pipe(Effect.mapError(cause => invalid("invalidNextKey", cause)));
     if (canonical.kind === "omitted") return Option.none();
     const expected = yield* hashClaimEffect(canonical, liveSha256);
-    const rows = yield* persistenceEffect(tx.select().from(fxAppUniqueKeys).where(and(
+    const rows = yield* persistenceEffect(tx.select({ claim: fxAppUniqueKeys,
+      ownerCommitSeq: fxAppRowCurrent.commitSeq, tombstone: fxAppRowRevisions.isTombstone,
+      publishedThrough: fxSystemScopeClocks.lastCommitSeq,
+    }).from(fxAppUniqueKeys).leftJoin(fxAppRowCurrent, and(
+      eq(fxAppRowCurrent.scopeUuid, fxAppUniqueKeys.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppUniqueKeys.tableId),
+      eq(fxAppRowCurrent.rowId, fxAppUniqueKeys.rowId),
+    )).leftJoin(fxAppRowRevisions, and(
+      eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
+      eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
+    )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).where(and(
       eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid), eq(fxAppUniqueKeys.constraintId, identity.constraintId),
       eq(fxAppUniqueKeys.localeKey, expected.localeKey), eq(fxAppUniqueKeys.canonicalKeySha256, expected.canonicalKeySha256),
     )).limit(2));
     if (rows.length > 1) return yield* Effect.fail(corruption("one unique-key slot has multiple owners"));
     const stored = rows[0];
     if (stored === undefined) return Option.none();
-    const row = yield* Effect.fromResult(storedField(decodeStoredClaimRowResult(stored)));
+    if (stored.ownerCommitSeq === null || stored.tombstone !== false || stored.publishedThrough === null ||
+      stored.ownerCommitSeq > stored.publishedThrough) return yield* Effect.fail(corruption("slot owner is not a published live revision"));
+    const ownerCommitSeq = yield* Effect.fromResult(storedField(decodeSlotOwnerCommitSeq(stored.ownerCommitSeq)));
+    const row = yield* Effect.fromResult(storedField(decodeStoredClaimRowResult(stored.claim)));
     yield* Effect.fromResult(compareStoredKeyResult(row, expected, identity.constraintId));
     const claim = yield* Effect.fromResult(decodeStoredClaimResult(identity.scopeId, row, expected));
     if (claim.scopeUuid !== scope.scopeUuid || claim.constraintId !== identity.constraintId) {
       return yield* Effect.fail(corruption("slot lookup returned a foreign identity"));
     }
-    return Option.some(claim);
+    return Option.some(Object.freeze({ ...claim, ownerCommitSeq }));
   },
 );
 

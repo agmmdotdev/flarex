@@ -235,7 +235,7 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
                                     {
                                       scopeId: located.authority.scopeId,
                                       tableId: identity.tableId,
-                                      snapshotCommitSeq: clock.lastCommitSeq,
+                                      minimumCommitSeq: clock.lastCommitSeq,
                                       maximumIdentities: cmsLimits.identities,
                                       maximumDocumentBytes:
                                         cmsLimits.documentBytes,
@@ -261,8 +261,8 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
                                     ),
                                   );
                                 yield* Effect.fromResult(lifetime.charge(128));
-                                if (found.length === 0) rows.set(identity.id, null);
-                                for (const row of found) {
+                                if (found.rows.length === 0) rows.set(identity.id, null);
+                                for (const row of found.rows) {
                                   if (rows.size >= cmsLimits.identities)
                                     return yield* Effect.fail(
                                       cmsError("limitExceeded"),

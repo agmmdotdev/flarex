@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { expect } from "vitest";
+import { Effect } from "effect";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -145,7 +146,7 @@ export async function verifyBoundedCurrentCapture(
   const bounds = {
     scopeId,
     tableId,
-    snapshotCommitSeq,
+    minimumCommitSeq: snapshotCommitSeq,
     maximumIdentities: 3,
     maximumDocumentBytes: 1_048_576,
     maximumTotalValueBytes: 1_048_576,
@@ -163,7 +164,7 @@ export async function verifyBoundedCurrentCapture(
         tx,
         { ...bounds, ...input },
         (query) => captured.push(query.name),
-      );
+      ).pipe(Effect.map(capture => capture.rows));
     for (const rowId of [undefined, firstId]) {
       captured.length = 0;
       const inspectAccepted = async () => {
@@ -278,10 +279,10 @@ export async function verifyBoundedCurrentCapture(
     captured.length = 0;
     expect(
       await runEffectFailure(
-        read({ snapshotCommitSeq: CommitSeqSchema.make(1n) }),
+        read({ minimumCommitSeq: CommitSeqSchema.make(3n) }),
       ),
     ).toMatchObject({ issue: { reason: "invalidSnapshotCommitSeq" } });
-    expect(captured).toEqual([]);
+    expect(captured).toHaveLength(1);
   });
   const rollback = new Error("Rollback capture corruption probe");
   for (const corruption of ["dangling", "future", "canonical"] as const) {

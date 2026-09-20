@@ -2,6 +2,7 @@ import { validateCmsDocumentContribution } from "./contribution";
 import { prepareApplicationDocumentParticipant, enterApplicationDocumentParticipant } from "../applicationDocumentMaterialization/participant";
 import { allocatePointCommitKernelResult, readPointCommitDatabaseTime, writeScopePublicationPrefix, advanceScopePublicationClock } from "../commitPublication/pointCommitProjection";
 import type { ApplicationDocumentMaterializationOptions } from "../applicationDocumentMaterialization/model";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../scopeClock";
 import type { CmsMaterializationTestHooks } from "./testSupport";
 import type { FlarexMetadataDatabase } from "../deployments";
 
@@ -72,13 +73,6 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
     const epoch = yield* Effect.fromResult(
       projectScopeEpochUuidV1Result(state.clock.epoch),
     ).pipe(Effect.mapError((cause) => cmsError("invalidAuthority", cause)));
-    const clock = {
-      record: state.clock,
-      scopeUuid: scope.scopeUuid,
-      epochUuid: epoch.epochUuid,
-    };
-    const core = yield* enterApplicationDocumentParticipant(prepared.core, state.tx, state.authority, state.clock, state.schema)
-      .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
     let finalized = false;
     const finalize = Effect.fn("CmsCommit.finalize")(function* (
       closure: CmsDocumentClosure,
@@ -91,7 +85,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       yield* requireCmsAdmission(admission, state.tx);
       if (
         finalized ||
-        identity.scopeUuid !== clock.scopeUuid ||
+        identity.scopeUuid !== scope.scopeUuid ||
         !lifetime.isClosing()
       )
         return yield* Effect.fail(cmsError("invalidAuthority"));
@@ -105,6 +99,17 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
         dependencies: closed.dependencies, scans: closed.scans, uniqueReads: closed.uniqueReads,
         changes: closed.changes, noFinalRows: closed.noFinalRows,
       });
+      // Admission protects lifecycle; only settlement excludes ordinary publishers.
+      const current = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(state.tx, state.authority.scopeId)
+        .pipe(Effect.mapError(cause => cmsError("statementFailure", cause)));
+      if (current.epoch !== state.clock.epoch || current.storageGeneration !== state.clock.storageGeneration ||
+        current.storageGenerationFence !== state.clock.storageGenerationFence ||
+        current.oldestAvailableCommitSeq !== state.clock.oldestAvailableCommitSeq || current.lastCommitSeq < state.clock.lastCommitSeq) {
+        return yield* Effect.fail(cmsError("invalidAuthority"));
+      }
+      const clock = { record: current, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
+      const core = yield* enterApplicationDocumentParticipant(prepared.core, state.tx, state.authority, current, state.schema)
+        .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
       const { dependencies } = yield* validateCmsDocumentContribution(admission, closed);
       const delta = yield* core.prepareDelta(closed.changes, dependencies)
         .pipe(Effect.catchTag("ApplicationParticipantError", error => Effect.fail(cmsError(error.reason, error.cause))));
@@ -241,6 +246,6 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       );
       return allocation.commitSeq;
     });
-    return Object.freeze({ uniqueDefinitions: core.uniqueDefinitions, finalize });
+    return Object.freeze({ uniqueDefinitions: prepared.core.unique, finalize });
   },
 );

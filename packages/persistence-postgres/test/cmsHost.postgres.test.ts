@@ -105,13 +105,22 @@ describe.skipIf(postgresUrl === null)("private scalar CMS host (Postgres)", () =
       buildClient = await persistence.pool.connect();
       const buildPid = (await buildClient.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0]?.pid;
       if (buildPid === undefined) throw new Error("Expected build contender PID");
-      const buildBlocked = buildClient.query("select index_definition_id from fx_system_index_build_state where scope_id=$1 for update", [tested.fixture.authority.scopeId]);
+      // Maintenance follows the core hierarchy: lifecycle protection precedes
+      // build mutation. Materializer build locks move to settlement; compatible
+      // admission SHARE locks on unique builds remain during callbacks.
+      const buildBlocked = buildClient.query(`with lifecycle as materialized (
+        select scope_id from fx_system_scope_clock where scope_id=$1 for update
+      ) select build.index_definition_id from fx_system_index_build_state build
+        join lifecycle on lifecycle.scope_id=build.scope_id for update of build`, [tested.fixture.authority.scopeId]);
       buildDrain = buildBlocked.catch(() => undefined);
       await waitForQuery(buildPid, "fx_system_index_build_state", true);
       uniqueClient = await persistence.pool.connect();
       const uniquePid = (await uniqueClient.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0]?.pid;
       if (uniquePid === undefined) throw new Error("Expected unique build contender PID");
-      const uniqueBlocked = uniqueClient.query("select unique_constraint_definition_id from fx_system_unique_constraint_build where scope_id=$1 for update", [tested.fixture.authority.scopeId]);
+      const uniqueBlocked = uniqueClient.query(`with lifecycle as materialized (
+        select scope_id from fx_system_scope_clock where scope_id=$1 for update
+      ) select build.unique_constraint_definition_id from fx_system_unique_constraint_build build
+        join lifecycle on lifecycle.scope_id=build.scope_id for update of build`, [tested.fixture.authority.scopeId]);
       uniqueDrain = uniqueBlocked.catch(() => undefined);
       await waitForQuery(uniquePid, "fx_system_unique_constraint_build", true);
       activationFiber = Effect.runFork(tested.bindings.activate({ ...tested.activationRequest, requestId: "competing-activation" }).pipe(Effect.exit));

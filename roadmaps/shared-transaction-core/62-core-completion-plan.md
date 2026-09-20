@@ -1,8 +1,8 @@
 # Core Execution Completion Plan
 
 Status: active remaining-work plan. Existing CE implementations remain in use;
-the coordinated write protocol and protected readiness cutover are not yet
-implemented. The owner grants standing approval and requests medium-sized,
+the CMS command concurrency cutover is implemented; broader write coordination
+and protected readiness remain open. The owner grants standing approval and requests medium-sized,
 connected implementation slices.
 
 ## Scope And Delivery
@@ -33,14 +33,14 @@ execution, materialization and final publication in the resulting claims.
   schema, build, session, lease, journal, dependency and materialization work.
   Its earlier native execution already has exact dependency evidence. Preserve
   the existing OCC/retry owners and validate those earlier reads at settlement.
-- `cmsTransaction/host.ts` still holds the publication lock across command
-  execution. The command-settlement prerequisite now retains point, absence,
-  tombstone, collection-scan and unique observations beside pending writes.
-  Preserve that complete decision evidence during the concurrency cutover.
-- `appRows.ts`'s bounded current capture requires the observed scope sequence
-  to equal the supplied snapshot sequence. It is not a historical reader for a
-  command whose snapshot survives another commit. Do not remove that check and
-  retain the old claim of coherent reads.
+- `cmsTransaction/host.ts` now admits concurrent command execution using exact
+  request exclusion and lifecycle protection. Settlement takes the publication
+  lock and validates complete point, absence, tombstone, scan and unique
+  observations. Each point observation retains its own capture sequence.
+- `appRows.ts` captures bounded current rows and their publication ceiling in
+  one statement. CMS commands validate those statement observations at
+  settlement; standalone reads retain physical repeatable-read snapshots.
+  This is not a historical reader or a native mutation snapshot replacement.
 - `payloadPreferences/cleanup.ts` now captures intent during the command and
   selects/deletes during settlement. Retain that boundary when moving execution
   ahead of publication protection; do not reintroduce callback-side business
@@ -131,9 +131,9 @@ incorrect result, unsafe race or incomplete consumer migration is not completion
 
 The [CMS command settlement contract](./63-cms-command-settlement-contract.md)
 replaces the write-only contribution and callback-side preference DML as the
-first connected prerequisite. The current CMS host still owns serialized
-execution until its bounded-read and request-exclusion contracts move together.
-The next substantive implementation work remains package 1's coordinated protocol.
-The source constraints above rule out a simple CMS callback/lock reorder; they
-are inputs to that preflight, not permission to preserve serialization forever
-or to replace implementation with further unrelated measurement slices.
+first connected prerequisite. The [CMS concurrency cutover](./64-cms-concurrent-command-settlement.md)
+moves bounded capture, request exclusion, dependency validation and materializer
+entry together. Independent CMS callbacks overlap; materialization and final
+publication still serialize. Next address native and existing commerce/composite
+preparation under the shared hierarchy, then protected readiness. These remaining
+gates are implementation work, not permission for unrelated measurement slices.

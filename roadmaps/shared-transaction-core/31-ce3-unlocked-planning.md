@@ -1,7 +1,10 @@
 # Planning Inputs Before Commit Exclusion
 
 Status: planning/acceptance separation implemented under standing core-redesign
-approval. Coordinated parallel execution and publication remain open.
+approval. The [CMS command cutover](./64-cms-concurrent-command-settlement.md)
+subsequently replaces callback-wide publication exclusion; the serialized CMS
+execution descriptions below are the boundary of this earlier preparation slice.
+Materialization/publication still serialize, and broader profile coordination is open.
 
 ## Outcome And Contract
 

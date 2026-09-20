@@ -775,19 +775,19 @@ export const readCurrentAppRowInTransactionEffect = Effect.fn(
 });
 
 /**
- * Private bounded current view for a caller holding the scope clock through
- * its complete operation. Includes tombstones in the examined identity limit.
- * The pinned clock must be current; this is not a historical collection scan.
+ * Private bounded statement-current view. The caller protects lifecycle and
+ * either owns a physical snapshot or validates all observations at settlement.
+ * Rows and their publication ceiling come from one statement snapshot.
  */
 export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   "AppRows.readBoundedCurrentSet",
 )(function* (
   tx: AppRowTransaction,
-  input: Readonly<{ scopeId: ScopeId; tableId: CatalogTableId; snapshotCommitSeq: CommitSeq;
+  input: Readonly<{ scopeId: ScopeId; tableId: CatalogTableId; minimumCommitSeq: CommitSeq;
     maximumIdentities: number; maximumDocumentBytes: number; maximumTotalValueBytes: number;
     rowId?: AppRowIdHexV1; rowIds?: readonly AppRowIdHexV1[] }>,
   observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2],
-): Effect.fn.Return<ReadonlyArray<AppRowRevisionV1>, ReadAppRowError> {
+): Effect.fn.Return<Readonly<{ rows: readonly AppRowRevisionV1[]; commitSeq: CommitSeq }>, ReadAppRowError> {
   if (!Number.isSafeInteger(input.maximumIdentities) || input.maximumIdentities < 0 || input.maximumIdentities > 256 ||
     !Number.isSafeInteger(input.maximumDocumentBytes) || input.maximumDocumentBytes < 1 || input.maximumDocumentBytes > 1_048_576 ||
     !Number.isSafeInteger(input.maximumTotalValueBytes) || input.maximumTotalValueBytes < 0 || input.maximumTotalValueBytes > 1_048_576) {
@@ -795,15 +795,12 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   }
   const scopeId = yield* Effect.fromResult(decodeReadFieldResult(decodeScopeIdResult(input.scopeId), "invalidScopeId"));
   const tableId = yield* Effect.fromResult(decodeReadFieldResult(decodeCatalogTableIdResult(input.tableId), "invalidTableId"));
-  const snapshotCommitSeq = yield* Effect.fromResult(decodeReadFieldResult(decodeCommitSeqResult(input.snapshotCommitSeq), "invalidSnapshotCommitSeq"));
+  const minimumCommitSeq = yield* Effect.fromResult(decodeReadFieldResult(decodeCommitSeqResult(input.minimumCommitSeq), "invalidSnapshotCommitSeq"));
   const scopeUuid = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId).pipe(
     Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidScopeId", cause })),
   ));
-  const clocks = yield* readAppRowRowsEffect(tx.select({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq })
-    .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid.scopeUuid)).limit(1), "readScopeAuthority");
-  if (clocks[0]?.lastCommitSeq !== snapshotCommitSeq) {
-    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "invalidSnapshotCommitSeq", cause: snapshotCommitSeq }));
-  }
+  const clock = tx.$with("capture_clock").as(tx.select({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq })
+    .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid.scopeUuid)).limit(1));
   const join = and(
       eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
       eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
@@ -822,7 +819,6 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   if (selectedRowIds !== undefined && new Set(selectedRowIds).size !== selectedRowIds.length) {
     return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: "duplicate identity batch" }));
   }
-  if (selectedRowIds?.length === 0) return Object.freeze([]);
   const where = and(eq(fxAppRowCurrent.scopeUuid, scopeUuid.scopeUuid), eq(fxAppRowCurrent.tableId, tableId),
     selectedRowId === undefined ? undefined : eq(fxAppRowCurrent.rowId, appRowIdHexV1ToBytes(selectedRowId)),
     selectedRowIds === undefined ? undefined : inArray(fxAppRowCurrent.rowId, selectedRowIds.map(appRowIdHexV1ToBytes)));
@@ -831,10 +827,11 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
       // The scoped current-pointer key and exact revision join admit at most
       // one row. Check its budget in SQL without constructing an aggregate.
       const bytes = sql`coalesce(octet_length(${fxAppRowRevisions.valueBytes}), 0)`;
-      const withinBudget = sql<boolean>`${input.maximumIdentities} >= 1
+      const withinBudget = sql<boolean>`${fxAppRowCurrent.rowId} is null or (${input.maximumIdentities} >= 1
         and ${bytes} <= ${input.maximumDocumentBytes}
-        and ${bytes} <= ${input.maximumTotalValueBytes}`;
-      return tx.select({
+        and ${bytes} <= ${input.maximumTotalValueBytes})`;
+      return tx.with(clock).select({
+        observedCommitSeq: clock.lastCommitSeq,
         withinBudget,
         pointer: fxAppRowCurrent,
         revision: {
@@ -842,7 +839,7 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
           valueBytes: sql`case when ${withinBudget} then ${fxAppRowRevisions.valueBytes} else null end`
             .mapWith(fxAppRowRevisions.valueBytes),
         },
-      }).from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where).limit(1);
+      }).from(clock).leftJoin(fxAppRowCurrent, where).leftJoin(fxAppRowRevisions, join).limit(1);
     }
     // LIMIT applies before aggregation: total stored table size must not enter
     // the capture budget, and rejected bodies must never cross the driver.
@@ -859,11 +856,12 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
         and coalesce(max(${bounded.bytes}), 0) <= ${input.maximumDocumentBytes}
         and coalesce(sum(${bounded.bytes}), 0) <= ${input.maximumTotalValueBytes}`.as("within_budget"),
     }).from(bounded));
-    return tx.with(bounded, budget).select({
+    return tx.with(clock, bounded, budget).select({
+      observedCommitSeq: clock.lastCommitSeq,
       withinBudget: budget.allowed,
       pointer: { scopeUuid: bounded.scopeUuid, tableId: bounded.tableId, rowId: bounded.rowId, commitSeq: bounded.commitSeq },
       revision: fxAppRowRevisions,
-    }).from(budget).leftJoin(bounded, sql`${budget.allowed}`).leftJoin(fxAppRowRevisions, and(
+    }).from(clock).crossJoin(budget).leftJoin(bounded, sql`${budget.allowed}`).leftJoin(fxAppRowRevisions, and(
       eq(fxAppRowRevisions.scopeUuid, bounded.scopeUuid),
       eq(fxAppRowRevisions.tableId, bounded.tableId),
       eq(fxAppRowRevisions.rowId, bounded.rowId),
@@ -873,13 +871,13 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   observeDrizzleQuery("currentCapture", capture, observer);
   const rows = yield* readAppRowRowsEffect(capture, "readCurrentRevision");
   const verdict = rows[0];
-  if (verdict === undefined) {
-    if (selectedRowId !== undefined) return Object.freeze([]);
-    return yield* Effect.die(new Error("Bounded current capture returned no budget verdict."));
+  if (verdict === undefined || verdict.observedCommitSeq < minimumCommitSeq) {
+    return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "invalidSnapshotCommitSeq", cause: minimumCommitSeq }));
   }
   if (!verdict.withinBudget) {
     return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: "bounded current view exceeds capture budget" }));
   }
+  const commitSeq = yield* Effect.fromResult(decodeReadFieldResult(decodeCommitSeqResult(verdict.observedCommitSeq), "invalidSnapshotCommitSeq"));
   const revisions: AppRowRevisionV1[] = [];
   for (const row of rows) {
     // A valid empty selection retains only the aggregate verdict.
@@ -888,12 +886,12 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
       Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidRowId", cause })),
     ));
     const identity = { scopeId, tableId, rowId };
-    if (row.revision === null || row.pointer.commitSeq > snapshotCommitSeq) {
-      return yield* Effect.fail(new AppRowStorageCorruptionError(identity, "bounded current pointer is not visible at the pinned clock"));
+    if (row.revision === null || row.pointer.commitSeq > row.observedCommitSeq) {
+      return yield* Effect.fail(new AppRowStorageCorruptionError(identity, "bounded current pointer exceeds its statement publication clock"));
     }
     revisions.push(yield* decodeRevisionRowEffect(identity, row.revision));
   }
-  return Object.freeze(revisions);
+  return Object.freeze({ rows: Object.freeze(revisions), commitSeq });
 });
 
 export async function appendAppRowRevisionAndAdvanceCurrentInTransaction(

@@ -51,11 +51,10 @@ Retain precise point dependencies for point queries. A later indexed query
 implementation must provide its own narrower predicate evidence.
 
 Reusing the existing point dependency validator, table frontier reader and
-unique slot reader avoids another OCC engine. Keep the current scope exclusion
-until the following cutover replaces bounded-current capture and request
-exclusion as well. This named retained consumer is the current CMS host; its
-removal gate is actual independent same-scope command execution with fresh
-settlement validation and the completion-plan concurrency witnesses.
+unique slot reader avoids another OCC engine. The subsequent
+[CMS concurrency cutover](./64-cms-concurrent-command-settlement.md) replaces
+callback-wide publication exclusion together with bounded capture and request
+exclusion. Final validation and materialization retain publication protection.
 
 ## Validation And Completion
 

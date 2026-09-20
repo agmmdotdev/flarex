@@ -1,7 +1,10 @@
 # Active Request Concurrency Baseline
 
 Status: complete-request CMS concurrency baseline implemented under standing
-core-redesign approval. The coordinated concurrency replacement remains open.
+core-redesign approval. The original same-scope blocking baseline below is
+superseded by the [CMS command cutover](./64-cms-concurrent-command-settlement.md):
+independent callbacks overlap and wait only at publication; duplicate requests
+wait before callbacks on request-key exclusion. Cross-scope proofs remain active.
 
 ## Outcome And Evidence
 

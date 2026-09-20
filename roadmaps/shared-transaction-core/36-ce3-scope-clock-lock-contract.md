@@ -8,7 +8,9 @@ extends it to the native final kernel, and [native attempt protection](./40-ce3-
 covers preparation and attempt lifecycle. The [commerce cutover](./61-ce3-commerce-publication-snapshots.md)
 extends snapshot/ordinary-write profiles to existing commerce reads and
 standalone/atomic publication. Bootstrap and cross-domain hosts retain stronger
-protection; broader concurrent writer work remains open.
+protection. The [CMS command cutover](./64-cms-concurrent-command-settlement.md)
+adds validated read-committed execution under lifecycle protection before
+ordinary publication exclusion; broader writer coordination remains open.
 
 ## Decision And Ownership
 
@@ -23,6 +25,7 @@ The lock contract is:
 | Operation | Clock protection | Isolation and meaning |
 | --- | --- | --- |
 | Standalone snapshot read | `FOR KEY SHARE` | Repeatable read; preserve one data/clock snapshot and exclude strong authority transitions. |
+| CMS command execution | `FOR KEY SHARE` after request-key exclusion | Read committed; bounded cached observations retain statement sequences and all validate at settlement. No business DML or materializer entry before publication; admission retains compatible unique-build SHARE protection. |
 | Ordinary attempt/data write and publication | `FOR NO KEY UPDATE` | Existing write isolation and clock-first order; mutually exclusive sequence allocation remains. Only sequence/time may change under this mode. |
 | Authority, retention or scope lifecycle transition | `FOR UPDATE` before inspecting/changing protected state | Retain strong exclusion against readers and publishers, including non-key authority fields. |
 

@@ -31,13 +31,14 @@ const makePublicationBarrier = Effect.fn(function* () {
   };
 });
 
-const waitForScopeClockWaiter = Effect.fn(function* (persistence: PostgresFlarexPersistence, holderPid: number) {
+const waitForCommandWaiter = Effect.fn(function* (persistence: PostgresFlarexPersistence, holderPid: number, duplicate: boolean) {
   const deadline = (yield* Clock.monotonicTimeNanos) + 5_000_000_000n;
   while ((yield* Clock.monotonicTimeNanos) < deadline) {
     const result = yield* Effect.tryPromise({
       try: () => persistence.query(`select pid, position('for share' in lower(query))>0 as shared
         from pg_stat_activity where datname=current_database() and wait_event_type='Lock'
-        and $1::int=any(pg_blocking_pids(pid)) and position('fx_system_scope_clock' in query)>0`, [holderPid]),
+        and $1::int=any(pg_blocking_pids(pid)) and position($2 in query)>0`,
+        [holderPid, duplicate ? "pg_advisory_xact_lock" : "fx_system_scope_clock"]),
       catch: cause => new Error("Could not observe PostgreSQL scope-clock wait", { cause }),
     });
     const rows = yield* decodeBlockers(result.rows);
@@ -210,7 +211,7 @@ describe.skipIf(postgresUrl === null)("active CMS request concurrency", () => {
     expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
   }), 120_000);
 
-  it.each(["independent", "duplicate"] as const)("observes same-scope blocking and correct %s settlement", mode => withPersistence(async persistence => {
+  it.each(["independent", "duplicate"] as const)("separates publication and request exclusion for %s settlement", mode => withPersistence(async persistence => {
     const barrier = await runEffect(makePublicationBarrier());
     let activePid = 0;
     const session = makePostgresRelationalSession(persistence, { lifecycleFault: event => {
@@ -228,12 +229,12 @@ describe.skipIf(postgresUrl === null)("active CMS request concurrency", () => {
       const holderPid = activePid;
       expect(holderPid).toBeGreaterThan(0);
       const competing = yield* tested.host.run(otherKey, tested.insert, otherArgs).pipe(Effect.forkScoped);
-      const waiter = yield* waitForScopeClockWaiter(persistence, holderPid);
+      const waiter = yield* waitForCommandWaiter(persistence, holderPid, mode === "duplicate");
       expect(waiter.pid).not.toBe(holderPid);
-      // Planning overlaps the held publication. The remaining wait is the
-      // main transaction's exclusive clock acquisition before callback execution.
+      // Independent callbacks finish before waiting for publication; duplicates
+      // wait on their request key before entering any callback.
       expect(waiter.shared).toBe(false);
-      expect(tested.executionCount()).toBe(1);
+      expect(tested.executionCount()).toBe(mode === "duplicate" ? 1 : 2);
       expect(yield* Effect.promise(() => tested.inventory())).toEqual(before);
       yield* barrier.open;
       const firstValue = yield* Fiber.join(held);

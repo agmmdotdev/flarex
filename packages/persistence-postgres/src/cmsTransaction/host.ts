@@ -20,7 +20,7 @@ import type { ApplicationBindingSelectionReader } from "../applicationActivation
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect, type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
-import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForOrdinaryWriteInTransactionEffect } from "../scopeClock";
+import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock";
 import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
 import { RelationalSessionError } from "../relationalTransaction/model";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
@@ -165,8 +165,12 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
       return yield* runRelationalSession(session, requestKey === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`),
           cause => cmsError("statementFailure", cause));
-        const clock = yield* (requestKey === null ? lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId) :
-          lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId));
+        // Exclusion is scoped to the exact request, before admission or callbacks.
+        // The hash is only a lock address; durable evidence still authenticates identity.
+        if (key !== null) yield* runDrizzleStatementEffect(tx.execute(sql`select pg_advisory_xact_lock(
+          hashtextextended(${JSON.stringify(["flarex.cms.request", located.authority.scopeId, key])}, 0))`),
+          cause => cmsError("statementFailure", cause));
+        const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
         return yield* withCmsAdmission(prepared, tx, located.authority, clock, admission => Effect.gen(function* () {
           const state = yield* requireCmsAdmission(admission);
           // Native join capabilities borrow this acceptance; no extra readiness transaction.

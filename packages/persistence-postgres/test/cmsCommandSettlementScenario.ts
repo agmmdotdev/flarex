@@ -19,6 +19,7 @@ import {
   fxAppRowCurrent,
   fxAppRowRevisions,
   fxAppUniqueKeys,
+  fxSystemScopeClocks,
 } from "../src/schema";
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
@@ -189,7 +190,7 @@ export async function cmsCommandSettlementScenario(
   });
   const evidence: Evidence[] = [];
   let activeTx: FlarexMetadataTransaction | undefined;
-  let fault: "point" | "scan" | "unique" | null = null;
+  let fault: "point" | "point-conflict" | "scan" | "unique" | null = null;
   const host = await runEffect(
     makeCmsHost(
       { ...fixture.input, commands: [remove, decide, point, scan, unique] },
@@ -210,7 +211,7 @@ export async function cmsCommandSettlementScenario(
               eq(fxAppRowCurrent.tableId, identity.tableId),
               eq(fxAppRowCurrent.rowId, Buffer.from(identity.rowId, "hex")),
             );
-            if (fault === "point" || fault === "scan") {
+            if (fault === "point" || fault === "point-conflict" || fault === "scan") {
               const clock = fixtureState.clock[0];
               const revision = fixtureState.revisions.find((row) =>
                 bytesEqualFullScan(
@@ -235,6 +236,11 @@ export async function cmsCommandSettlementScenario(
                   .set({ commitSeq })
                   .where(where),
                 (cause) => cmsError("statementFailure", cause),
+              );
+              if (fault === "point-conflict") yield* runDrizzleStatementEffect(
+                activeTx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
+                  eq(fxSystemScopeClocks.scopeUuid, fixture.scope.scopeUuid)),
+                cause => cmsError("statementFailure", cause),
               );
             }
             if (fault === "unique")
@@ -309,6 +315,7 @@ export async function cmsCommandSettlementScenario(
   fixtureState = after;
   for (const [kind, command, reason] of [
     ["point", point, "storedCorruption"],
+    ["point-conflict", point, "writeConflict"],
     ["scan", scan, "writeConflict"],
     ["unique", unique, "writeConflict"],
   ] as const) {

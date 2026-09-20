@@ -289,7 +289,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   await expect(persistence.drizzle.transaction(async tx => {
     const locked = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, fixture.authority.scopeId));
     const snapshotCommitSeq = locked.lastCommitSeq;
-    const bounds = { scopeId: fixture.authority.scopeId, tableId: posts.tableId, snapshotCommitSeq,
+    const bounds = { scopeId: fixture.authority.scopeId, tableId: posts.tableId, minimumCommitSeq: snapshotCommitSeq,
       maximumIdentities: 256, maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576 };
     const seed = async (ordinal: number) => {
       const rowId = decodeAppRowIdHexV1(ordinal.toString(16).padStart(32, "0"));
@@ -300,7 +300,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
         schemaVersionId: fixture.relation.binding.schemaVersionId, creationTime, value: document });
     };
     for (let count = beforeBounds.rows.length; count < 256; count += 1) await seed(100_000 + count);
-    expect(await runEffect(readBoundedCurrentAppRowsInTransactionEffect(tx, bounds))).toHaveLength(256);
+    expect((await runEffect(readBoundedCurrentAppRowsInTransactionEffect(tx, bounds))).rows).toHaveLength(256);
     await seed(200_000);
     expect(await runEffectFailure(readBoundedCurrentAppRowsInTransactionEffect(tx, bounds))).toMatchObject({ issue: { reason: "rowLimitExceeded" } });
     throw rollbackProbe;
@@ -313,7 +313,7 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
         eq(fxAppRowRevisions.tableId, posts.tableId), eq(fxAppRowRevisions.isTombstone, false)));
       const observed: string[] = [];
       expect(await runEffectFailure(readBoundedCurrentAppRowsInTransactionEffect(tx, {
-        scopeId: fixture.authority.scopeId, tableId: posts.tableId, snapshotCommitSeq: locked.lastCommitSeq,
+        scopeId: fixture.authority.scopeId, tableId: posts.tableId, minimumCommitSeq: locked.lastCommitSeq,
         maximumIdentities: 256, maximumDocumentBytes: 65_536, maximumTotalValueBytes: aggregate ? 32_768 : 1_048_576,
       }, query => { observed.push(query.name); }))).toMatchObject({ issue: { reason: "rowLimitExceeded" } });
       expect(observed).toEqual(["currentCapture"]);

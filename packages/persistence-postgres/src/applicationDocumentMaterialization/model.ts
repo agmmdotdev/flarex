@@ -115,6 +115,9 @@ export interface ApplicationDocumentMaterializationOptions {
   ) => void;
 }
 
+/** Trusted command observations can originate in distinct statement snapshots. */
+export type ApplicationDocumentObservation = PointCommitDependencyV1 & Readonly<{ readAt: CommitSeq }>;
+
 export interface PointCommitDependencyV1 {
   readonly documentId: AppDocumentIdV1;
   readonly tableId: CatalogTableId;
