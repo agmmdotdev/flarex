@@ -1,8 +1,10 @@
 import { Socket } from "node:net";
+import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { Client, type Pool, type PoolClient } from "pg";
 import { Schema } from "effect";
-import { getTableName } from "drizzle-orm";
+import { getTableName, isTable } from "drizzle-orm";
+import * as schema from "../src/drizzleSchema";
 import type { PointCommitTransactionProofStepV1 } from "../src/pointCommitTransaction";
 import {
   fxAppRowRevisions,
@@ -68,6 +70,7 @@ interface BorrowedClient {
 export async function withPostgresExecutionObservation<Value>(
   pool: Pool,
   run: (markStep: (step: PostgresExecutionPhase) => void) => Promise<Value>,
+  options?: { readonly attributeStatements: boolean },
 ) {
   if (
     observedPools.has(pool) ||
@@ -83,6 +86,25 @@ export async function withPostgresExecutionObservation<Value>(
   const commands = new Map<string, number>();
   const familyQueries = new Map<string, number>();
   const familyCommands = new Map<string, Map<string, number>>();
+  const knownFamilies =
+    options?.attributeStatements === true
+      ? new Set<string>(
+          Object.values(schema).flatMap((value) =>
+            isTable(value) ? [getTableName(value)] : [],
+          ),
+        )
+      : null;
+  const statementShapes = new Map<
+    string,
+    {
+      readonly sha256: string;
+      readonly command: string;
+      readonly families: readonly string[];
+      readonly sqlTextBytes: number;
+      readonly ordinals: number[];
+    }
+  >();
+  let queryOrdinal = 0;
   let phase: PostgresExecutionPhase = "resolveAndLock";
   let unsupported = false;
   let checkouts = 0;
@@ -151,11 +173,31 @@ export async function withPostgresExecutionObservation<Value>(
               ? verb
               : "other";
           commands.set(command, (commands.get(command) ?? 0) + 1);
+          if (knownFamilies !== null) {
+            const sha256 = createHash("sha256").update(text).digest("hex");
+            let shape = statementShapes.get(sha256);
+            if (shape === undefined) {
+              shape = {
+                sha256,
+                command,
+                families: [...new Set(text.match(/\bfx_[a-z0-9_]+\b/g) ?? [])]
+                  .filter((name) => knownFamilies.has(name))
+                  .toSorted(),
+                sqlTextBytes: Buffer.byteLength(text, "utf8"),
+                ordinals: [],
+              };
+              statementShapes.set(sha256, shape);
+            }
+            shape.ordinals.push(queryOrdinal++);
+          }
           for (const family of families) {
             if (text.includes(family)) {
               familyQueries.set(family, (familyQueries.get(family) ?? 0) + 1);
               let counts = familyCommands.get(family);
-              if (counts === undefined) { counts = new Map(); familyCommands.set(family, counts); }
+              if (counts === undefined) {
+                counts = new Map();
+                familyCommands.set(family, counts);
+              }
               counts.set(command, (counts.get(command) ?? 0) + 1);
             }
           }
@@ -221,10 +263,17 @@ export async function withPostgresExecutionObservation<Value>(
           0,
         ),
         commands: Object.fromEntries(commands),
+        statementShapes:
+          knownFamilies === null ? null : [...statementShapes.values()],
         familyQueries: Object.fromEntries(familyQueries),
         // Top-level verb of statements mentioning a family, not a SQL parser or
         // affected-row count. WITH is deliberately separate from direct DML.
-        familyCommands: Object.fromEntries([...familyCommands].map(([family, counts]) => [family, Object.fromEntries(counts)])),
+        familyCommands: Object.fromEntries(
+          [...familyCommands].map(([family, counts]) => [
+            family,
+            Object.fromEntries(counts),
+          ]),
+        ),
         phases: Object.fromEntries(phases),
       },
     };

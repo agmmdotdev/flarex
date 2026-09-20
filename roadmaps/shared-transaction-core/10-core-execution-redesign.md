@@ -257,7 +257,11 @@ the first admitted complete-request comparison for these bounded operations.
 The balanced profile meets normal relative-latency targets; reference replay
 after eight/thirty-two-row mutations misses observer calibration, so its
 instrumented latency is not accepted as neutral. Common authority/readiness
-cost and additional nonempty core SQL remain attribution work.
+cost and additional nonempty core SQL are traced in the
+[request SQL attribution](./58-ce0-request-sql-attribution.md). The fixed
+nonempty difference belongs to generic dependency, authority, parent, membership
+and ownership checks plus split index writes. Shared membership application is
+the next correction candidate; removing validation is not an admitted shortcut.
 Protected readiness-root work, broader reference acceptance and capacity remain
 open.
 
