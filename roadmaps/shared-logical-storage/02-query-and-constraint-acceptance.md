@@ -106,7 +106,10 @@ claim release/acquisition, affected rows and their publication together.
 The [Payload compound uniqueness implementation](./07-payload-compound-uniqueness.md)
 executes multiple required-text and compound required-scalar constraints through
 shared claims, including native failures, pending key reuse and exact concurrent
-settlement. It does not yet implement the nullable or conditional policies above.
+settlement. The subsequent [shared conditional constraint contract](./08-conditional-unique-constraints.md)
+implements actual-null predicates and null-distinct tuple participation in core
+build and settlement. Its shared-row lifecycle witnesses do not yet establish
+native Medusa error projection or generic commerce execution.
 
 The first Product lifecycle witness creates A with handle `shirt`, soft-deletes
 A, creates active B with that handle, and attempts to restore A. Require the

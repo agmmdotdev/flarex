@@ -25,8 +25,8 @@ import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
 import { readCmsIndexRange, type CmsIndexRead } from "./indexReads";
 import { decodeCmsFindQuery, isCmsRange, selectCmsIndex, cmsQueryMatches } from "./query";
 const uniqueReadKey = (definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1) =>
-  projected.canonical.kind === "claim"
-    ? JSON.stringify([definition.uniqueConstraintDefinitionId, projected.canonical.localeKey, projected.canonical.encodedKey])
+  projected.kind === "claim"
+    ? JSON.stringify([definition.uniqueConstraintDefinitionId, projected.localeKey, projected.encodedKey])
     : null;
 
 interface PendingDocument {
@@ -244,7 +244,7 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1,
   ) {
     const readKey = uniqueReadKey(definition, projected);
-    if (projected.canonical.kind !== "claim" || readKey === null) return null;
+    if (projected.kind !== "claim" || readKey === null) return null;
     const cached = uniqueReads.get(readKey);
     if (cached !== undefined) return cached.owner === null ? null : appDocumentIdV1FromRowIdentity(cached.owner);
     const slot = yield* readAppUniqueKeySlotInTransactionEffect(state.tx, { scopeId: state.authority.scopeId,
@@ -260,11 +260,11 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       if (owned.base.kind !== "live") return yield* Effect.fail(cmsError("storedCorruption"));
       const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
         .pipe(Result.mapError(cause => cmsError("storedCorruption", cause))));
-      if (base.canonical.kind !== "claim" || base.canonical.localeKey !== projected.canonical.localeKey ||
-        base.canonical.encodedKey !== projected.canonical.encodedKey) return yield* Effect.fail(cmsError("storedCorruption"));
+      if (base.kind !== "claim" || base.localeKey !== projected.localeKey ||
+        base.encodedKey !== projected.encodedKey) return yield* Effect.fail(cmsError("storedCorruption"));
     }
     const ownerId = Option.isNone(slot) ? null : appDocumentIdV1FromRowIdentity(slot.value);
-    yield* charge(128 + projected.canonical.canonicalKeyBytes.byteLength);
+    yield* charge(128 + projected.canonicalKeyBytes.byteLength);
     uniqueReads.set(readKey, Object.freeze({ constraintId: definition.uniqueConstraintDefinitionId,
       key: projected.projection, owner: Option.isNone(slot) ? null : Object.freeze({ tableId: slot.value.tableId, rowId: slot.value.rowId }) }));
     return ownerId;
@@ -274,14 +274,14 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       if (definition.tableId !== pending.tableId) continue;
       const projected = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, document)
         .pipe(Result.mapError(cause => cmsError("documentInvalid", cause))));
-      if (projected.canonical.kind !== "claim") continue;
+      if (projected.kind !== "claim") continue;
       yield* locateUnique(definition, projected);
       for (const other of rows.values()) {
         if (other.tableId !== pending.tableId || other.documentId === pending.documentId || other.current === null) continue;
         const existing = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, other.current)
           .pipe(Result.mapError(cause => cmsError("storedCorruption", cause))));
-        if (existing.canonical.kind === "claim" && existing.canonical.localeKey === projected.canonical.localeKey &&
-          existing.canonical.encodedKey === projected.canonical.encodedKey) return yield* Effect.fail(new CmsTransactionError({
+        if (existing.kind === "claim" && existing.localeKey === projected.localeKey &&
+          existing.encodedKey === projected.encodedKey) return yield* Effect.fail(new CmsTransactionError({
             reason: "uniqueConflict", uniqueConstraint: Object.freeze({ tableName: pending.tableName,
               orderedFields: Object.freeze([...definition.physicalSpec.orderedFields]) }),
           }));
@@ -382,6 +382,8 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
       } else {
         const where = query.where;
         const definition = uniqueDefinitions.find(candidate => candidate.tableId === table.tableId &&
+          candidate.physicalSpec.predicate === undefined &&
+          !(candidate.physicalSpec.nullsDistinct === true && candidate.physicalSpec.orderedFields.some(field => where[field] === null)) &&
           candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field) && !isCmsRange(where[field])));
         if (definition === undefined) {
           const selected = yield* Effect.fromResult(selectCmsIndex(indexDefinitions, table.tableId, where));

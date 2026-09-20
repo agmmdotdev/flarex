@@ -199,7 +199,7 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
             ).pipe(
               Effect.mapError((cause) => cmsError("documentInvalid", cause)),
             );
-            if (key.canonical.kind !== "claim") continue;
+            if (key.kind !== "claim") continue;
             const slot = yield* readAppUniqueKeySlotInTransactionEffect(
               state.tx,
               {
@@ -219,9 +219,9 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
                 ),
               ),
             );
-            const observation = JSON.stringify([definition.uniqueConstraintDefinitionId, key.canonical.localeKey, key.canonical.encodedKey]);
+            const observation = JSON.stringify([definition.uniqueConstraintDefinitionId, key.localeKey, key.encodedKey]);
             if (!observedUnique.has(observation)) {
-              yield* charge(128 + key.canonical.canonicalKeyBytes.byteLength);
+              yield* charge(128 + key.canonicalKeyBytes.byteLength);
               observedUnique.add(observation);
             }
             if (Option.isSome(slot)) {
@@ -242,9 +242,9 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
                 Effect.mapError((cause) => cmsError("storedCorruption", cause)),
               );
               if (
-                actual.canonical.kind !== "claim" ||
-                actual.canonical.localeKey !== key.canonical.localeKey ||
-                actual.canonical.encodedKey !== key.canonical.encodedKey
+                actual.kind !== "claim" ||
+                actual.localeKey !== key.localeKey ||
+                actual.encodedKey !== key.encodedKey
               )
                 return yield* Effect.fail(cmsError("storedCorruption"));
             }
@@ -263,9 +263,9 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
                 Effect.mapError((cause) => cmsError("storedCorruption", cause)),
               );
               if (
-                actual.canonical.kind === "claim" &&
-                actual.canonical.localeKey === key.canonical.localeKey &&
-                actual.canonical.encodedKey === key.canonical.encodedKey
+                actual.kind === "claim" &&
+                actual.localeKey === key.localeKey &&
+                actual.encodedKey === key.encodedKey
               )
                 return yield* Effect.fail(
                   new CmsTransactionError({

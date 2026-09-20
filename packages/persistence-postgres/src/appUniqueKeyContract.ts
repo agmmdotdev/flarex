@@ -45,7 +45,7 @@ export interface CanonicalAppUniqueKeyClaimV1 {
 
 export interface OmittedAppUniqueKeyClaimV1 {
   readonly kind: "omitted";
-  readonly reason: "sparseMissing";
+  readonly reason: "sparseMissing" | "predicateExcluded" | "nullDistinct";
   readonly localeKey: string;
 }
 

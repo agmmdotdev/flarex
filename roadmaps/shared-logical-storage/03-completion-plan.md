@@ -31,13 +31,16 @@ remain distinct from logical schema evolution.
 - Multiple required-text and compound scalar Payload unique declarations now
   execute through shared constraint definitions, build/readiness and claims.
   [Compound uniqueness](./07-payload-compound-uniqueness.md) covers native error
-  projection, pending key reuse and concurrent settlement. Nullable/conditional
-  uniqueness remains a subsequent shared-core contract.
+  projection, pending key reuse and concurrent settlement.
+- [Conditional shared constraints](./08-conditional-unique-constraints.md) now
+  authenticate an actual-null predicate and null-distinct tuple participation.
+  Builds, write maintenance and validation share claim/exclusion lowering.
+  Native Medusa declaration translation and generic execution remain required.
 - Private logical indexes now carry an authenticated exact-decimal projection
   through analysis, build, write maintenance and Application indexed pending reads.
   [The decimal contract](./06-exact-decimal-indexes.md) preserves source text and
   uses existing shared index bytes. This is an ordered-value prerequisite;
-  calculated Pricing, conditional unique constraints and commerce cutover remain.
+  calculated Pricing and commerce cutover remain.
 - Existing Medusa models still use physical relational artifacts and installation
   evidence. Exact numeric presentation, native Links and current workflow tests
   are replacement obligations, not generic query proofs.

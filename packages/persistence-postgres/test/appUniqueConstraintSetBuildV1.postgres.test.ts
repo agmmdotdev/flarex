@@ -5,6 +5,7 @@ import {
   APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
   APP_UNIQUE_KEY_CODEC_VERSION_V1,
   decodeAppUniqueConstraintPhysicalSpecV1,
+  type AppUniqueConstraintPhysicalSpecV1,
 } from "flarex-protocol/app-unique-constraint-definition";
 import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from
   "flarex-protocol/app-document";
@@ -67,6 +68,34 @@ const LOCATOR = Object.freeze({
 } as const satisfies ScopePhysicalLocator);
 
 describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
+  it.each([false, true])("builds conditional nullable keys with active duplicate = %s", async duplicate => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const spec = decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
+        orderedFields: ["email"], sparse: false, nullsDistinct: true, predicate: { kind: "fieldIsNull", field: "deleted_at" },
+        localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 });
+      const fixture = await fixtureFor(persistence, spec);
+      await closeFixtureSet(fixture);
+      for (const [position, fields] of [
+        { email: "same", deleted_at: null }, { email: "same", deleted_at: duplicate ? null : "2026-01-01" },
+        { email: null, deleted_at: null }, { email: null, deleted_at: null },
+      ].entries()) await appendLiveRow(fixture, (position + 1).toString(16).padStart(32, "0"), fields.email, 1n, null, { deleted_at: fields.deleted_at });
+      await persistence.query("update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1", [fixture.scopeId]);
+      await reconcile(fixture);
+      await advanceBackfill(fixture, 16);
+      await advanceBackfill(fixture, 16);
+      if (duplicate) {
+        await expect(advanceBackfill(fixture, 16)).rejects.toMatchObject({ _tag: "AppUniqueKeyConflictError" });
+        expect((await persistence.query("select row_id from fx_app_unique_key")).rows).toEqual([]);
+        expect((await persistence.query("select lifecycle, cursor_row_id from fx_system_unique_constraint_build")).rows)
+          .toMatchObject([{ lifecycle: "backfilling", cursor_row_id: null }]);
+      } else {
+        expect(await advanceBackfill(fixture, 16)).toMatchObject({ claimed: 1, omitted: 3 });
+        await advanceUntilEnabled(fixture);
+        expect((await persistence.query<{ id: string }>("select encode(row_id, 'hex') id from fx_app_unique_key")).rows)
+          .toEqual([{ id: "1".padStart(32, "0") }]);
+      }
+    });
+  }, 120_000);
   it("bounds inherited claim draining and recovers rollback plus a lost response", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
     const fixture = await fixtureFor(persistence);
@@ -527,7 +556,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
   }, 120_000);
 });
 
-async function fixtureFor(persistence: PostgresFlarexPersistence) {
+async function fixtureFor(persistence: PostgresFlarexPersistence, uniqueSpec?: AppUniqueConstraintPhysicalSpecV1) {
   const deploymentId = "deployment_unique_set_pg";
   const scopeId = ScopeIdSchema.make(
     "scope_74000000-0000-4000-8000-000000000001",
@@ -564,7 +593,8 @@ async function fixtureFor(persistence: PostgresFlarexPersistence) {
         documentType: {
           type: "object",
           value: {
-            email: { fieldType: { type: "string" }, optional: false },
+            email: { fieldType: { type: "union", value: [{ type: "null" }, { type: "string" }] }, optional: false },
+            deleted_at: { fieldType: { type: "union", value: [{ type: "null" }, { type: "string" }] }, optional: true },
           },
         },
       },
@@ -581,7 +611,7 @@ async function fixtureFor(persistence: PostgresFlarexPersistence) {
         schemaVersionId,
         tableId: table.tableId,
         descriptor: SchemaManifestAppIndexDescriptorSchema.make("by_email"),
-        physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+        physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
           kind: "appUniqueConstraint",
           specVersion: 1,
           orderedFields: ["email"],
@@ -669,9 +699,10 @@ async function advanceUntilEnabled(
 async function appendLiveRow(
   fixture: Awaited<ReturnType<typeof fixtureFor>>,
   rowIdText: string,
-  email: string,
+  email: string | null,
   commitSeq = 1n,
   prevCommitSeq: bigint | null = null,
+  fields: Readonly<Record<string, string | null>> = {},
 ) {
   const rowId = decodeAppRowIdHexV1(rowIdText);
   const creationTime = decodeAppCreationTimeV1(1_750_000_000_000);
@@ -679,7 +710,7 @@ async function appendLiveRow(
     tableId: fixture.tableId,
     rowId,
     creationTime,
-    fields: { email },
+    fields: { email, ...fields },
   });
   await fixture.persistence.drizzle.transaction(async (tx) => {
     await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{

@@ -14,7 +14,7 @@ import type { TransactionGrantDeploymentIdV1 } from
   "flarex-protocol/transaction-grant";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 
-import { lowerAppDocumentOrderedFieldValuesV1 } from
+import { appDocumentPathIsNull, lowerAppDocumentOrderedFieldValuesV1 } from
   "./appDocumentOrderedFieldValuesV1";
 import {
   locateAppUniqueConstraintDefinitionsForSchemaEffect,
@@ -30,7 +30,8 @@ import {
 import {
   canonicalizeAppUniqueKeyV1Result,
   type AppUniqueKeyProjectionV1,
-  type CanonicalAppUniqueKeyV1,
+  type CanonicalAppUniqueKeyClaimV1,
+  type OmittedAppUniqueKeyClaimV1,
   type InvalidAppUniqueKeyContractV1Error,
 } from "./appUniqueKeyContract";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -119,19 +120,22 @@ export function createAppUniqueConstraintDefinitionPortV1(
 }
 
 /** Pure lowering from one authenticated document into the S11 projection. */
-export function lowerAppUniqueConstraintProjectionV1Result(
+function lowerAppUniqueConstraintProjectionV1Result(
   definition: LocatedAppUniqueConstraintDefinitionV1,
   document: CanonicalFlarexValueV1,
-): Result.Result<AppUniqueKeyProjectionV1, OrderedIndexKeyTooLargeError> {
+): Result.Result<AppUniqueKeyProjectionV1 | OmittedAppUniqueKeyClaimV1, OrderedIndexKeyTooLargeError> {
   return Result.try({
-    try: () => Object.freeze({
-      sparse: definition.physicalSpec.sparse,
-      localeKey: null,
-      values: lowerAppDocumentOrderedFieldValuesV1(
-        document,
-        definition.physicalSpec.orderedFields,
-      ),
-    }),
+    try: () => {
+      const spec = definition.physicalSpec;
+      if (spec.predicate !== undefined && !appDocumentPathIsNull(document, spec.predicate.field)) {
+        return Object.freeze({ kind: "omitted" as const, reason: "predicateExcluded" as const, localeKey: "" });
+      }
+      if (spec.nullsDistinct === true && spec.orderedFields.some(field => appDocumentPathIsNull(document, field))) {
+        return Object.freeze({ kind: "omitted" as const, reason: "nullDistinct" as const, localeKey: "" });
+      }
+      return Object.freeze({ sparse: spec.sparse, localeKey: null,
+        values: lowerAppDocumentOrderedFieldValuesV1(document, spec.orderedFields) });
+    },
     catch: (cause) => {
       if (cause instanceof OrderedIndexKeyTooLargeError) return cause;
       throw cause;
@@ -139,12 +143,11 @@ export function lowerAppUniqueConstraintProjectionV1Result(
   });
 }
 
-export interface LoweredCanonicalAppUniqueConstraintV1 {
-  readonly projection: AppUniqueKeyProjectionV1;
-  readonly canonical: CanonicalAppUniqueKeyV1;
-}
+export type LoweredCanonicalAppUniqueConstraintV1 =
+  | (CanonicalAppUniqueKeyClaimV1 & { readonly projection: AppUniqueKeyProjectionV1 })
+  | OmittedAppUniqueKeyClaimV1;
 
-/** One canonical lowering owner shared by point commit and future backfill. */
+/** One canonical lowering owner shared by point commit, CMS and backfill. */
 export function lowerCanonicalAppUniqueConstraintV1Result(
   definition: LocatedAppUniqueConstraintDefinitionV1,
   document: CanonicalFlarexValueV1,
@@ -152,16 +155,12 @@ export function lowerCanonicalAppUniqueConstraintV1Result(
   LoweredCanonicalAppUniqueConstraintV1,
   InvalidAppUniqueKeyContractV1Error | OrderedIndexKeyTooLargeError
 > {
-  return lowerAppUniqueConstraintProjectionV1Result(
-    definition,
-    document,
-  ).pipe(
-    Result.flatMap((projection) =>
-      canonicalizeAppUniqueKeyV1Result(projection).pipe(
-        Result.map((canonical) => Object.freeze({ projection, canonical })),
-      )
-    ),
-  );
+  return Result.gen(function* () {
+    const projection = yield* lowerAppUniqueConstraintProjectionV1Result(definition, document);
+    if ("kind" in projection) return projection;
+    const canonical = yield* canonicalizeAppUniqueKeyV1Result(projection);
+    return canonical.kind === "omitted" ? canonical : Object.freeze({ ...canonical, projection });
+  });
 }
 
 /** Reuse the nominal control-catalog composition for ownership recovery. */

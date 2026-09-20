@@ -1,4 +1,5 @@
 import { readCe0Environment } from "./ce0Environment";
+import { conditionalUniqueSpec } from "./conditionalUniqueTestSupport";
 import { readOrderedMembershipStorage } from "./orderedMembershipStorageScenario";
 import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
@@ -1764,6 +1765,60 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     },
     120_000,
   );
+
+  it("enforces conditional handle deletion, reuse, restore and concurrent claims", async () => {
+    await withPostgresPersistence(async persistence => {
+      const randomUuid = uuidFactory("96518a00");
+      const scope = await createScope(persistence, randomUuid, "conditional_handles");
+      const options = await prepareUniqueConstraintForPostgres(persistence, scope, conditionalUniqueSpec);
+      const publisher = createPublisher(persistence, options);
+      const first = await createAttempt(persistence, randomUuid, scope, "conditional_a",
+        { kind: "insert", name: "shirt", fields: { deleted_at: null } });
+      await runEffect(publisher.publish(first.publicationCommand));
+      const firstIntent = first.command.rowIntents[0];
+      if (firstIntent?.kind !== "live") throw new Error("Expected first handle owner");
+      const scopeUuid = first.command.sealIdentity.scopeUuid;
+      const deleted = await createAttempt(persistence, randomUuid, scope, "conditional_delete_a",
+        { kind: "patch", documentId: firstIntent.documentId, patch: { deleted_at: "2026-01-01" } });
+      await runEffect(publisher.publish(deleted.publicationCommand));
+      expect(await uniqueKeyState(persistence, scopeUuid)).toEqual([]);
+      const replacement = await createAttempt(persistence, randomUuid, scope, "conditional_b",
+        { kind: "insert", name: "shirt", fields: { deleted_at: null } });
+      await runEffect(publisher.publish(replacement.publicationCommand));
+      const restore = await createAttempt(persistence, randomUuid, scope, "conditional_restore_a",
+        { kind: "patch", documentId: firstIntent.documentId, patch: { deleted_at: null } });
+      const before = await durableState(persistence, scopeUuid);
+      const claims = await uniqueKeyState(persistence, scopeUuid);
+      expect(await runFailure(publisher.publish(restore.publicationCommand))).toBeInstanceOf(AppUniqueKeyConflictError);
+      expect(await durableState(persistence, scopeUuid)).toEqual(before);
+      expect(await uniqueKeyState(persistence, scopeUuid)).toEqual(claims);
+      const restoredElsewhere = await createAttempt(persistence, randomUuid, scope, "conditional_restore_renamed",
+        { kind: "patch", documentId: firstIntent.documentId, patch: { name: "other", deleted_at: null } });
+      await runEffect(publisher.publish(restoredElsewhere.publicationCommand));
+      expect(await uniqueKeyState(persistence, scopeUuid)).toHaveLength(2);
+      const replayState = await durableState(persistence, scopeUuid);
+      await runEffect(publisher.publish(restoredElsewhere.publicationCommand));
+      expect(await durableState(persistence, scopeUuid)).toEqual(replayState);
+      const left = await createAttempt(persistence, randomUuid, scope, "conditional_race_left",
+        { kind: "insert", name: "race", fields: { deleted_at: null } });
+      const right = await createAttempt(persistence, randomUuid, scope, "conditional_race_right",
+        { kind: "insert", name: "race", fields: { deleted_at: null } });
+      const raced = await runEffect(Effect.all(
+        [publisher.publish(left.publicationCommand), publisher.publish(right.publicationCommand)]
+          .map(effect => effect.pipe(Effect.result)),
+        { concurrency: "unbounded" },
+      ));
+      expect(raced.filter(Result.isSuccess)).toHaveLength(1);
+      expect(raced.filter(Result.isFailure)).toMatchObject([{ failure: { _tag: "AppUniqueKeyConflictError" } }]);
+      expect(await uniqueKeyState(persistence, scopeUuid)).toHaveLength(3);
+      const otherScope = await createScope(persistence, randomUuid, "conditional_other_scope");
+      const otherOptions = await prepareUniqueConstraintForPostgres(persistence, otherScope, conditionalUniqueSpec);
+      const other = await createAttempt(persistence, randomUuid, otherScope, "conditional_other_shirt",
+        { kind: "insert", name: "shirt", fields: { deleted_at: null } });
+      await runEffect(createPublisher(persistence, otherOptions).publish(other.publicationCommand));
+      expect(await uniqueKeyState(persistence, other.command.sealIdentity.scopeUuid)).toHaveLength(1);
+    });
+  }, 120_000);
 
   it("maintains unique claims and atomically rejects PostgreSQL conflicts", async () => {
     await withPostgresPersistence(async (persistence) => {
@@ -4516,12 +4571,13 @@ async function createAttempt(
     | Readonly<{
         readonly kind: "insert";
         readonly name: string;
+        readonly fields?: Readonly<Record<string, string | null>>;
       }>
     | Readonly<{
         readonly kind: "patch" | "delete";
         readonly documentId: ReturnType<typeof appDocumentIdV1FromRowIdentity>;
         readonly name?: string;
-        readonly patch?: Readonly<Record<string, string>>;
+        readonly patch?: Readonly<Record<string, string | null>>;
       }>
     | Readonly<{
         readonly kind: "bulkPatch";
@@ -4628,7 +4684,7 @@ async function createAttempt(
       await runPointOperation(store, table, {
         kind: "insert",
         syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-        fields: { name: materialWrite.name },
+        fields: { name: materialWrite.name, ...materialWrite.fields },
       });
     } else if (
       typeof materialWrite === "object" &&
@@ -5116,6 +5172,7 @@ async function developerIndexBuildCursor(
 async function prepareUniqueConstraintForPostgres(
   persistence: PostgresFlarexPersistence,
   scope: ScopeScenario,
+  uniqueSpec?: typeof conditionalUniqueSpec,
 ): Promise<
   Required<Pick<PointCommitTransactionProofOptionsV1, "uniqueConstraints">>
 > {
@@ -5125,7 +5182,7 @@ async function prepareUniqueConstraintForPostgres(
       schemaVersionId: scope.schemaVersionId,
       tableId: decodeCatalogTableId(1),
       descriptor: SchemaManifestAppIndexDescriptorSchema.make("unique_name"),
-      physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+      physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
         kind: "appUniqueConstraint",
         specVersion: 1,
         orderedFields: ["name"],
@@ -6129,6 +6186,8 @@ function appTable(
       documentType: {
         type: "object",
         value: {
+          deleted_at: { fieldType: { type: "union", value: [{ type: "null" }, { type: "string" }] }, optional: true },
+          nullable_key: { fieldType: { type: "union", value: [{ type: "null" }, { type: "string" }] }, optional: true },
           name: {
             fieldType: { type: "string" },
             optional: true,

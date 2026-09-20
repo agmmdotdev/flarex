@@ -106,6 +106,7 @@ import {
 import {
   hasAppUniqueConstraintDefinitionAuthorityV1,
   lowerCanonicalAppUniqueConstraintV1Result,
+  type LoweredCanonicalAppUniqueConstraintV1,
 } from "../appUniqueConstraintCommitV1";
 import {
   isLocatedAppUniqueConstraintDefinitionV1,
@@ -128,7 +129,6 @@ import {
 } from "../appUniqueKeys";
 import {
   type AppUniqueKeyProjectionV1,
-  type CanonicalAppUniqueKeyV1,
 } from "../appUniqueKeyContract";
 import {
   appendAppIndexEntryRevisionsInTransactionEffect,
@@ -1486,10 +1486,10 @@ export async function preparePointCommitUniqueKeyActions(
           rowId: intent.rowId,
           rowPrevCommitSeq:
             loaded.head.kind === "live" ? loaded.head.revisionCommitSeq : null,
-          previousProjection: previous?.projection ?? null,
-          previousCanonical: previous?.canonical ?? null,
-          nextProjection: next?.projection ?? null,
-          nextCanonical: next?.canonical ?? null,
+          previousProjection: previous?.kind === "claim" ? previous.projection : null,
+          previousCanonical: previous,
+          nextProjection: next?.kind === "claim" ? next.projection : null,
+          nextCanonical: next,
         }),
       );
     }
@@ -1560,10 +1560,7 @@ export async function preparePointCommitUniqueKeyActions(
 function lowerPointCommitUniqueKey(
   definition: LocatedAppUniqueConstraintDefinitionV1,
   document: CanonicalFlarexValueV1,
-): Readonly<{
-  readonly projection: AppUniqueKeyProjectionV1;
-  readonly canonical: CanonicalAppUniqueKeyV1;
-}> {
+): LoweredCanonicalAppUniqueConstraintV1 {
   return projectPointCommitTransactionResult(
     lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(
       Result.mapError(

@@ -10,6 +10,7 @@ import {
   APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
   APP_UNIQUE_KEY_CODEC_VERSION_V1,
   decodeAppUniqueConstraintPhysicalSpecV1,
+  type AppUniqueConstraintPhysicalSpecV1,
 } from "flarex-protocol/app-unique-constraint-definition";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import {
@@ -76,6 +77,31 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("C08-B1 closed unique-set build foundation", () => {
+  it.each([false, true])("builds conditional nullable keys with active duplicate = %s", async duplicate => {
+    const fixture = await fixtureFor(`conditional_${duplicate}`);
+    const spec = decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,
+      orderedFields: ["email"], sparse: false, nullsDistinct: true, predicate: { kind: "fieldIsNull", field: "deleted_at" },
+      localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1, keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1 });
+    await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false, spec));
+    await closeSet(fixture);
+    for (const [position, fields] of [
+      { email: "same", deleted_at: null }, { email: "same", deleted_at: duplicate ? null : "2026-01-01" },
+      { email: null, deleted_at: null }, { email: null, deleted_at: null },
+    ].entries()) await appendDocument(fixture, rowId(position + 1), 1n, null, { tenantId: "t", ...fields });
+    await setClockCommit(fixture, 1n);
+    await reconcile(fixture);
+    await advanceBackfill(fixture, 16);
+    await advanceBackfill(fixture, 16);
+    if (duplicate) {
+      await expect(advanceBackfill(fixture, 16)).rejects.toMatchObject({ _tag: "AppUniqueKeyConflictError" });
+      expect(await uniqueClaims(fixture)).toEqual([]);
+      expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "backfilling", cursor_row_hex: null }]);
+    } else {
+      expect(await advanceBackfill(fixture, 16)).toMatchObject({ claimed: 1, omitted: 3 });
+      await advanceToEnabled(fixture, 16);
+      expect(await uniqueClaims(fixture)).toMatchObject([{ row_id_hex: rowId(1) }]);
+    }
+  });
   it.each(["malformed", "getterDefect"] as const)("preserves %s driver wrapper failure semantics", async mode => {
     const fixture = await closedFixture(`driver_${mode}`);
     await reconcile(fixture);
@@ -1320,6 +1346,7 @@ function prepareBinding(
   fixture: Fixture,
   descriptor: string,
   sparse: boolean,
+  uniqueSpec?: AppUniqueConstraintPhysicalSpecV1,
 ) {
   return runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
     fixture.persistence.drizzle,
@@ -1328,7 +1355,7 @@ function prepareBinding(
       schemaVersionId: fixture.schemaVersionId,
       tableId: fixture.tableId,
       descriptor: SchemaManifestAppIndexDescriptorSchema.make(descriptor),
-      physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+      physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
         kind: "appUniqueConstraint",
         specVersion: 1,
         orderedFields: descriptor === "by_email"
@@ -1466,7 +1493,7 @@ async function appendDocument(
   rowId: AppRowIdHexV1,
   commitSeq: bigint,
   prevCommitSeq: bigint | null,
-  fields: Readonly<Record<string, string>>,
+  fields: Readonly<Record<string, string | null>>,
 ) {
   const creationTime = decodeAppCreationTimeV1(1_750_000_000_000);
   const document = await canonicalizeAppDocumentV1({
@@ -1573,12 +1600,13 @@ function appTable(logicalName: string): SchemaManifestAppTableDeclarationInputV1
       documentType: {
         type: "object",
         value: {
+          deleted_at: { fieldType: { type: "union", value: [{ type: "null" }, { type: "string" }] }, optional: true },
           tenantId: {
             fieldType: { type: "string" },
             optional: false,
           },
           email: {
-            fieldType: { type: "string" },
+            fieldType: { type: "union", value: [{ type: "null" }, { type: "string" }] },
             optional: false,
           },
         },

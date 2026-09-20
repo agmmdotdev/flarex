@@ -1260,7 +1260,7 @@ export const fxControlUniqueConstraintDefinitions = pgTable(
           )}
           and (${table.physicalSpecJson} - 'keyCodecIdentity'
             - 'keyCodecVersion' - 'kind' - 'localePolicy'
-            - 'orderedFields' - 'sparse' - 'specVersion') = '{}'::jsonb
+            - 'orderedFields' - 'sparse' - 'specVersion' - 'predicate' - 'nullsDistinct') = '{}'::jsonb
           and ${table.physicalSpecJson} ->> 'kind' = 'appUniqueConstraint'
           and ${table.physicalSpecJson} -> 'specVersion' = '1'::jsonb
           and ${table.physicalSpecJson} ->> 'keyCodecIdentity'
@@ -1272,6 +1272,15 @@ export const fxControlUniqueConstraintDefinitions = pgTable(
           and jsonb_array_length(${table.physicalSpecJson} -> 'orderedFields')
             between 1 and 15
           and jsonb_typeof(${table.physicalSpecJson} -> 'sparse') = 'boolean'
+          and (not (${table.physicalSpecJson} ? 'nullsDistinct')
+            or ${table.physicalSpecJson} -> 'nullsDistinct' = 'true'::jsonb)
+          and (not (${table.physicalSpecJson} ? 'predicate') or (
+            jsonb_typeof(${table.physicalSpecJson} -> 'predicate') = 'object'
+            and ((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'field') = '{}'::jsonb
+            and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNull'
+            and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'field') = 'string'
+            and length(${table.physicalSpecJson} -> 'predicate' ->> 'field') > 0
+          ))
         ) is true
       `,
     ),

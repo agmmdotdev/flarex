@@ -30,6 +30,14 @@ const MISSING_DOCUMENT_PATH: unique symbol = Symbol(
   "FlarexDB/MissingOrderedDocumentPath",
 );
 
+/** Predicate evaluation must not encode a value that does not participate in a key. */
+export function appDocumentPathIsNull(document: CanonicalFlarexValueV1, path: string): boolean {
+  if (!isCanonicalFlarexRuntimeObjectV1(document.value)) {
+    throw new TypeError("Expected a canonical application document object.");
+  }
+  return readCanonicalDocumentPath(document.value, path) === null;
+}
+
 function readCanonicalDocumentPath(
   root: Readonly<Record<string, CanonicalFlarexRuntimeValueV1>>,
   path: string,

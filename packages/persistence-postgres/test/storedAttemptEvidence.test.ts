@@ -1,4 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
+import { conditionalUniqueSpec, conditionalProjectionCases } from "./conditionalUniqueTestSupport";
 import { readOrderedMembershipStorage } from "./orderedMembershipStorageScenario";
 
 import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
@@ -230,7 +231,7 @@ import {
 } from "../src/appDeveloperIndexCommitV1";
 import {
   createAppUniqueConstraintDefinitionPortV1,
-  lowerAppUniqueConstraintProjectionV1Result,
+  lowerCanonicalAppUniqueConstraintV1Result,
 } from "../src/appUniqueConstraintCommitV1";
 import {
   ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
@@ -5683,6 +5684,41 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     },
   );
 
+  it.each([false, true])("settles conditional active-key membership with restore = %s", async restore => {
+    const prepared = await prepareO07BScenario(`conditional_unique_${restore}`, async (current, table) => {
+      const first = await runPointOperation(current.store, table, { kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n), fields: { name: "shirt", deleted_at: null } });
+      if (first.kind !== "completed" || first.outcome.kind !== "inserted") throw new Error("Expected first handle owner");
+      await runPointOperation(current.store, table, { kind: "patch", documentId: first.outcome.documentId,
+        syscallSequence: CommitSyscallSequenceV1Schema.make(2n), patch: { deleted_at: "2026-01-01" } });
+      await runPointOperation(current.store, table, { kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(3n), fields: { name: "shirt", deleted_at: null } });
+      if (restore) await runPointOperation(current.store, table, { kind: "patch", documentId: first.outcome.documentId,
+        syscallSequence: CommitSyscallSequenceV1Schema.make(4n), patch: { deleted_at: null } });
+    }, current => prepareUniqueConstraintForO06(current, false, false, false, conditionalUniqueSpec));
+    const definitions = await runEffect(prepared.proofOptions.uniqueConstraints!.locate({
+      deploymentId: prepared.current.anchor.deploymentId, scopeId: prepared.current.anchor.scopeId,
+      schemaVersionId: prepared.current.schemaVersionId, tableIds: [decodeCatalogTableId(1)], maximumDefinitions: 16,
+    }));
+    if (definitions?.[0] === undefined) throw new Error("Missing conditional definition");
+    await conditionalProjectionCases(definitions[0]);
+    const before = await o06DurableState(prepared.scopeUuid);
+    if (restore) {
+      expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan))).toBeInstanceOf(AppUniqueKeyConflictError);
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual(before);
+      expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
+    } else {
+      await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
+      expect(await uniqueKeyState(prepared.scopeUuid)).toHaveLength(1);
+      const after = await o06DurableState(prepared.scopeUuid);
+      expect(after).toMatchObject({ current_rows: "2", commit_headers: "1" });
+      expect(await runFailure(prepared.authentication.resumePointCommit({ deploymentId: prepared.current.anchor.deploymentId,
+        scopeId: prepared.current.anchor.scopeId, sessionId: prepared.current.anchor.sessionId,
+        attemptFence: prepared.current.anchor.attemptFence.toString() }))).toMatchObject({ _tag: "StoredAttemptAlreadyCommittedV1Error" });
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual(after);
+    }
+  });
+
   it("preserves same-key claims, releases deletes, and omits sparse keys", async () => {
     let uniqueWrites = 0;
     const sameKey = await prepareO07BScenario(
@@ -8020,6 +8056,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     seedExistingRow = false,
     sparse = false,
     eligibilityAuthorityUnavailable = false,
+    uniqueSpec?: typeof conditionalUniqueSpec,
   ): Promise<
     Required<
       Pick<
@@ -8035,7 +8072,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         schemaVersionId: current.schemaVersionId,
         tableId,
         descriptor: SchemaManifestAppIndexDescriptorSchema.make("unique_name"),
-        physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+        physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
           kind: "appUniqueConstraint",
           specVersion: 1,
           orderedFields: ["name"],
@@ -8102,7 +8139,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             writeEpoch: clock.epoch,
             previous: null,
             next: Result.getOrThrow(
-              lowerAppUniqueConstraintProjectionV1Result(definition, document),
+              lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(Result.map(key => key.kind === "claim" ? key.projection : null)),
             ),
           }]),
         ),
@@ -8252,7 +8289,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           writeEpoch: clock.epoch,
           previous: null,
           next: Result.getOrThrow(
-            lowerAppUniqueConstraintProjectionV1Result(definition, document),
+            lowerCanonicalAppUniqueConstraintV1Result(definition, document).pipe(Result.map(key => key.kind === "claim" ? key.projection : null)),
           ),
         }]),
       );
@@ -9887,6 +9924,8 @@ function appTable(
       documentType: {
         type: "object",
         value: {
+          deleted_at: { fieldType: { type: "union", value: [{ type: "null" }, { type: "string" }] }, optional: true },
+          nullable_key: { fieldType: { type: "union", value: [{ type: "null" }, { type: "string" }] }, optional: true },
           name: {
             fieldType: { type: "string" },
             optional: true,

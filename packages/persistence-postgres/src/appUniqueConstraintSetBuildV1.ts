@@ -2853,7 +2853,7 @@ function lowerValidationExpectation(
         stateError(authority, snapshot, "loweringInvalid", cause),
       ),
       Result.map((lowered) =>
-        lowered.canonical.kind === "claim" ? lowered.projection : null,
+        lowered.kind === "claim" ? lowered.projection : null,
       ),
     ),
   );

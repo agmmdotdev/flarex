@@ -736,6 +736,13 @@
       "when": 1789832762752,
       "tag": "0104_unique_maintenance",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1789910589951,
+      "tag": "0105_conditional_unique_constraints",
+      "breakpoints": true
     }
   ]
 }

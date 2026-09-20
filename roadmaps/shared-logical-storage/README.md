@@ -134,13 +134,14 @@ implementation.
 
 - Generic Medusa schema/index/query translation and mutation materialization do
   not exist as a proven replacement of the physical relational path.
-- Native conditional uniqueness, decimal/null/order semantics and rich Link
-  constraints need an explicit shared-core capability matrix.
+- Core actual-null predicates and null-distinct unique participation are
+  [implemented](./08-conditional-unique-constraints.md). Native Medusa predicate
+  translation, end-to-end decimal/null semantics and rich Link constraints remain.
 - Payload indexed queries retain bounded complete membership, numeric-only ranges,
   native ID ordering and required scalar fields. Multiple text-field and compound
   scalar uniqueness use the shared claim owner; see [the constraint contract](./07-payload-compound-uniqueness.md).
-  General Boolean queries, custom sorting and nullable/conditional uniqueness
-  remain unsupported.
+  General Boolean queries, custom sorting and Payload nullable/conditional unique
+  declarations remain unsupported by its admitted configuration profile.
 - Generic families do not remove catalog-dependent guards, early scope locks,
   request evidence cost, build cost, tenant skew or shared-database contention.
 - Generic schema evolution still needs conversion/build/readiness and old-reader

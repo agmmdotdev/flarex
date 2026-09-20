@@ -21,8 +21,9 @@ Pinned Payload 3.88.0 `sanitizeCompoundIndexes` retains the declared field order
 and defaults `unique` to false. Accept only current flat required scalar fields;
 individual uniqueness remains required text. Missing, nullable, localized,
 conditional and decimal-projected uniqueness are outside this slice. In
-particular Medusa's soft-delete predicate requires a subsequent explicit core
-physical-spec contract; this slice does not claim generic Medusa execution.
+particular Medusa's soft-delete predicate now has a subsequent explicit
+[core physical-spec contract](./08-conditional-unique-constraints.md); neither
+slice claims generic Medusa execution or expanded native Payload configuration.
 
 ## Cutover And Cleanup
 

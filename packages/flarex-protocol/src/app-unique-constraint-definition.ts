@@ -57,6 +57,11 @@ export const AppUniqueConstraintPhysicalSpecV1Schema = Schema.Struct({
   specVersion: Schema.Literal(1),
   orderedFields: UniqueConstraintFieldsV1Schema,
   sparse: Schema.Boolean,
+  nullsDistinct: Schema.optionalKey(Schema.Literal(true)),
+  predicate: Schema.optionalKey(Schema.Struct({
+    kind: Schema.Literal("fieldIsNull"),
+    field: SchemaManifestAppIndexFieldPathSchema,
+  }).annotate(StrictStructOptions)),
   localePolicy: Schema.Struct({ kind: Schema.Literal("none") }).annotate(
     StrictStructOptions,
   ),
@@ -179,6 +184,8 @@ function snapshotPhysicalSpec(
     specVersion: spec.specVersion,
     orderedFields: Object.freeze(Array.from(spec.orderedFields)),
     sparse: spec.sparse,
+    ...(spec.nullsDistinct === undefined ? {} : { nullsDistinct: spec.nullsDistinct }),
+    ...(spec.predicate === undefined ? {} : { predicate: Object.freeze({ ...spec.predicate }) }),
     localePolicy: Object.freeze({ kind: spec.localePolicy.kind }),
     keyCodecIdentity: spec.keyCodecIdentity,
     keyCodecVersion: spec.keyCodecVersion,
@@ -191,7 +198,10 @@ function encodePhysicalSpec(spec: AppUniqueConstraintPhysicalSpecV1): string {
     `{"keyCodecIdentity":"${APP_UNIQUE_KEY_CODEC_IDENTITY_V1}",` +
     `"keyCodecVersion":1,"kind":"appUniqueConstraint",` +
     `"localePolicy":{"kind":"none"},` +
-    `"orderedFields":[${fields}],"sparse":${String(spec.sparse)},` +
+    (spec.nullsDistinct === undefined ? "" : `"nullsDistinct":true,`) +
+    `"orderedFields":[${fields}],` +
+    (spec.predicate === undefined ? "" : `"predicate":{"field":${encodeJsonString(spec.predicate.field)},"kind":"fieldIsNull"},`) +
+    `"sparse":${String(spec.sparse)},` +
     `"specVersion":1}`
   );
 }

@@ -341,7 +341,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
       for (const definition of prepared.unique) {
         if (definition.tableId !== row.tableId)
           return yield* Effect.fail(cmsError("unsupportedProfile"));
-        const { canonical } = yield* Effect.fromResult(
+        const canonical = yield* Effect.fromResult(
           lowerCanonicalAppUniqueConstraintV1Result(definition, row.document),
         ).pipe(Effect.mapError((cause) => cmsError("storedCorruption", cause)));
         if (canonical.kind !== "claim")
