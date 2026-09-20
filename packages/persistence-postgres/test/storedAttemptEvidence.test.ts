@@ -5496,7 +5496,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(after[0]?.encodedKeyHex).not.toBe(before[0]?.encodedKeyHex);
   });
 
-  it("orders developer-index and unique sidecars and rolls both back together", async () => {
+  it("orders shared index and unique sidecars and rolls them back together", async () => {
     const sidecarSteps: PointCommitTransactionProofStepV1[] = [];
     let uniqueWrites = 0;
     const prepared = await prepareO07BScenario(
@@ -5513,6 +5513,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         });
       },
       async (current) => ({
+        ...(await enableIntrinsicIndexForO06(current)),
         ...(await prepareDeveloperIndexForO06(current, true)),
         ...(await prepareUniqueConstraintForO06(current, true)),
         afterTransactionStep: (event) => {
@@ -5571,11 +5572,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const afterDeveloper = await developerIndexState(prepared.scopeUuid);
     const afterUnique = await uniqueKeyState(prepared.scopeUuid);
-    expect(afterDeveloper.revisions).toHaveLength(3);
-    expect(afterDeveloper.current).toMatchObject([{ commitSeq: "2" }]);
+    expect(afterDeveloper.revisions).toHaveLength(4);
+    expect(afterDeveloper.revisions.filter(row => row.indexDefinitionId === "1")).toEqual(
+      beforeDeveloper.revisions.filter(row => row.indexDefinitionId === "1"),
+    );
+    expect(afterDeveloper.current.filter(row => row.indexDefinitionId === "1")).toEqual(
+      beforeDeveloper.current.filter(row => row.indexDefinitionId === "1"),
+    );
+    expect(afterDeveloper.current.filter(row => row.indexDefinitionId !== "1")).toMatchObject([{ commitSeq: "2" }]);
     expect(afterUnique).toHaveLength(1);
-    expect(afterDeveloper.current[0]?.encodedKeyHex).not.toBe(
-      beforeDeveloper.current[0]?.encodedKeyHex,
+    expect(afterDeveloper.current.find(row => row.indexDefinitionId !== "1")?.encodedKeyHex).not.toBe(
+      beforeDeveloper.current.find(row => row.indexDefinitionId !== "1")?.encodedKeyHex,
     );
     expect(afterUnique[0]?.encodedKeyHex).not.toBe(
       beforeUnique[0]?.encodedKeyHex,
@@ -5913,8 +5920,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "rowBatchWriting",
       "rowBatchWritten",
       "tentativeRowWritten",
-      "intrinsicIndexBatchWriting",
-      "intrinsicIndexBatchWritten",
+      "indexBatchWriting",
+      "indexBatchWritten",
       "intrinsicIndexEntryWritten",
       "beforeRollback",
     ]);

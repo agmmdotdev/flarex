@@ -1,7 +1,8 @@
 # Complete Request SQL Attribution
 
-Status: bounded complete-request attribution implemented; shared materialization
-correction and protected readiness-root work remain open.
+Status: bounded complete-request attribution implemented; combined membership
+application is implemented, while broader evidence reuse and protected
+readiness-root work remain open.
 
 ## Outcome And Boundary
 
@@ -54,19 +55,20 @@ numerical run receipts belong in the report and commit rather than a roadmap log
 
 ## Current Owner Attribution
 
-The nonempty scalar difference is fixed across the admitted one/eight/thirty-two
-row profiles. Exact statement hashes differ for some equivalent writes, so the
+After [combined membership application](./59-ce1-combined-membership-application.md),
+the nonempty scalar difference is thirteen calls at one/eight rows and seventeen
+at thirty-two rows. Exact statement hashes differ for some equivalent writes, so the
 net call attribution uses top-level command and mentioned-family sets, followed
 by source inspection; hashes alone are not semantic equivalence evidence.
 
 | Additional core calls | Owner and retained purpose |
 | --- | --- |
-| Six scope-clock reads | Two membership-head readers, row append authority, two index append authority checks, and unique mutation authority |
-| Four membership-head reads | Intrinsic/developer action preparation and each index append's predecessor validation |
-| Three current-row/revision checks | Live-parent validation for both index batches and unique ownership |
+| Five scope-clock reads | Two membership-head readers, row append authority, combined index append authority, and unique mutation authority |
+| Three/four membership-head reads | Intrinsic/developer action preparation and combined index append's bounded predecessor validation |
+| Two/three current-row/revision checks | Live-parent validation for one/two index chunks and unique ownership |
 | Two unique-key reads | Action preparation reads current owners; mutation application locks and validates current owners and key slots before writing |
 | One dependency-head query | Shared participant validates the closed command against current/latest revision evidence |
-| Two index writes | Intrinsic and developer membership batches each write revisions and current pointers; the restricted reference combines the two families of memberships |
+| Zero/two index writes | The shared writer combines memberships but retains 32-transition chunks; at thirty-two rows it writes two chunks while the restricted reference writes its complete bounded set |
 
 The source owners are `applicationDocumentMaterialization/participant.ts`,
 `applicationDocumentMaterialization/materialization.ts`, `appRows.ts`,
@@ -85,17 +87,12 @@ does not imply it is safe to reuse stale authority. The responsible owners are
 Protected metadata/readiness-root gates remain required before replacing deep
 integrity verification with a cached commitment.
 
-## Next Correction Boundary
+## Correction Boundary And Remaining Work
 
-Investigate a single bounded membership application at the existing shared
-materialization/index owner: keep intrinsic and developer logical preparation,
-then combine their physical membership application where order and failure
-semantics permit. This addresses duplicated authority, parent and predecessor
-reads plus split writes without adding a privileged skip-validation flag.
-Existing bounded chunks may still require multiple physical writes; no reduction
-is assumed at every row count, and changing a batch budget needs its own proof.
-Before implementation, preflight exact failure order, duplicate positions,
-per-command budgets, live/tombstone transitions, unchanged memberships, mixed
-intrinsic/developer history and native/CMS consumers. A passing first-insert
-reference alone cannot authorize that replacement. Broader evidence reuse across
-row/index/unique owners and cross-request metadata caching are separate decisions.
+Combined membership application retains intrinsic/developer logical preparation,
+all storage checks and bounded chunks at the existing shared owners. Its owning
+preflight covers failure order, budgets, mixed transitions and native/CMS proofs;
+the specialized reference alone is not its authority. Broader evidence reuse
+across row/index/unique owners and cross-request metadata caching are separate
+decisions. The refreshed one-row latency miss remains open; fewer SQL calls are
+not by themselves evidence that complete requests became faster.

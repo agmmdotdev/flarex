@@ -192,7 +192,7 @@ export async function ce0FirstInsertReferenceScenario(
     for (const mode of ["defect", "cancel"] as const)
       for (const step of [
         "rowBatchWritten",
-        "intrinsicIndexBatchWritten",
+        "indexBatchWritten",
         "uniquePublicationApplied",
         "clockAdvanced",
       ]) {
@@ -219,7 +219,7 @@ export async function ce0FirstInsertReferenceScenario(
         const before = await tested.inventory();
         const key = tested.host.newRequestKey();
         const args = {
-          count: 8,
+          count: step === "indexBatchWritten" ? 32 : 8,
           prefix: `rollback-${mode}-${implementation}-${step}`,
         };
         const failure = await Effect.runPromiseExit(

@@ -71,10 +71,12 @@ not make a benchmark pass by relaxing semantics, deleting costs or raising limit
 
 Acceptance requires measurement with independently balanced candidate/mode order.
 An order-confounded report cannot support relative-latency or observer claims.
-The balanced diagnostic profile meets its normal relative-latency targets.
-Observer calibration misses the declared tolerance for reference replay after
-eight/thirty-two-row mutations; instrumented latency is not accepted as neutral
-for those cases. Preserve the normal samples and exact SQL counts separately.
+The current balanced profile after
+[combined membership application](./59-ce1-combined-membership-application.md)
+misses its normal relative-latency target for one-row mutations. Observer
+calibration misses the declared tolerance for the reference empty read/empty
+mutation and core one-row mutation; instrumented latency is not accepted as
+neutral for those cases. Preserve normal samples and exact SQL counts separately.
 Reads and replay retain the same observed query counts across candidates;
 nonempty core insertion retains additional fixed per-request SQL and transported
 bytes. Common admission/readiness work remains substantial even at zero rows.

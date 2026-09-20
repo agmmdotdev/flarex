@@ -254,14 +254,17 @@ stale-preparation refusal across zero/eight-row fresh/replayed mutations and
 standalone reads, preserving active-binding absence versus corruption errors.
 The [paired scalar measurement](./57-ce0-paired-request-measurement.md) supplies
 the first admitted complete-request comparison for these bounded operations.
-The balanced profile meets normal relative-latency targets; reference replay
-after eight/thirty-two-row mutations misses observer calibration, so its
-instrumented latency is not accepted as neutral. Common authority/readiness
-cost and additional nonempty core SQL are traced in the
-[request SQL attribution](./58-ce0-request-sql-attribution.md). The fixed
+The current balanced profile misses the one-row mutation relative-latency target;
+reference empty read/empty mutation and core one-row mutation miss observer
+calibration, so those instrumented timings are not accepted as neutral. Common
+authority/readiness cost and additional nonempty core SQL are traced in the
+[request SQL attribution](./58-ce0-request-sql-attribution.md). The remaining
 nonempty difference belongs to generic dependency, authority, parent, membership
-and ownership checks plus split index writes. Shared membership application is
-the next correction candidate; removing validation is not an admitted shortcut.
+and ownership checks plus bounded index writes.
+[Combined membership application](./59-ce1-combined-membership-application.md)
+removes duplicated batch entry and combines writes within existing chunk limits;
+it establishes fewer SQL calls, not a general latency improvement. Removing
+validation is not an admitted shortcut.
 Protected readiness-root work, broader reference acceptance and capacity remain
 open.
 

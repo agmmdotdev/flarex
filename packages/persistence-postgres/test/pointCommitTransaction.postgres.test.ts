@@ -766,8 +766,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
                 ...intrinsic,
                 afterTransactionStep: async (event) => {
                   if (
-                    event.step === "intrinsicIndexBatchWriting" ||
-                    event.step === "intrinsicIndexBatchWritten" ||
+                    event.step === "indexBatchWriting" ||
+                    event.step === "indexBatchWritten" ||
                     event.step === "rowBatchWriting" ||
                     event.step === "rowBatchWritten" ||
                     event.step === "intrinsicMembershipPreparing" ||
@@ -783,7 +783,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         expect(
           measured.observation.phases.intrinsicMembershipPreparing?.queryCalls,
         ).toBe(1 + Math.ceil(rowCount / 32));
-        expect(measured.observation.phases.intrinsicIndexBatchWriting?.queryCalls).toBe(1 + 4 * Math.ceil(rowCount / 32));
+        expect(measured.observation.phases.indexBatchWriting?.queryCalls).toBe(1 + 4 * Math.ceil(rowCount / 32));
         expect(measured.observation.phases.rowBatchWriting?.queryCalls).toBe(1 + 2 * Math.ceil(rowCount / 32));
         expect(
           (
@@ -864,8 +864,8 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
                 ...options,
                 afterTransactionStep: async (event) => {
                   if (
-                    event.step === "intrinsicIndexBatchWriting" ||
-                    event.step === "intrinsicIndexBatchWritten" ||
+                    event.step === "indexBatchWriting" ||
+                    event.step === "indexBatchWritten" ||
                     event.step === "rowBatchWriting" ||
                     event.step === "rowBatchWritten" ||
                     event.step === "intrinsicMembershipPreparing" ||
@@ -1879,7 +1879,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     });
   }, 120_000);
 
-  it("orders developer-index and unique sidecars and rolls both back together", async () => {
+  it("orders shared index and unique sidecars and rolls them back together", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96418c00");
       const scope = await createScope(
@@ -1889,6 +1889,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         true,
       );
       const proofOptions = Object.freeze({
+        ...(await enableIntrinsicIndexForPostgres(persistence, scope)),
         ...(await prepareDeveloperIndexForPostgres(persistence, scope)),
         ...(await prepareUniqueConstraintForPostgres(persistence, scope)),
       });
@@ -1994,11 +1995,17 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         persistence,
         inserted.command.sealIdentity.scopeUuid,
       );
-      expect(afterDeveloper.revisions).toHaveLength(3);
-      expect(afterDeveloper.current).toMatchObject([{ commitSeq: "2" }]);
+      expect(afterDeveloper.revisions).toHaveLength(4);
+      expect(afterDeveloper.revisions.filter(row => row.indexDefinitionId === "1")).toEqual(
+        beforeDeveloper.revisions.filter(row => row.indexDefinitionId === "1"),
+      );
+      expect(afterDeveloper.current.filter(row => row.indexDefinitionId === "1")).toEqual(
+        beforeDeveloper.current.filter(row => row.indexDefinitionId === "1"),
+      );
+      expect(afterDeveloper.current.filter(row => row.indexDefinitionId !== "1")).toMatchObject([{ commitSeq: "2" }]);
       expect(afterUnique).toHaveLength(1);
-      expect(afterDeveloper.current[0]?.encodedKeyHex).not.toBe(
-        beforeDeveloper.current[0]?.encodedKeyHex,
+      expect(afterDeveloper.current.find(row => row.indexDefinitionId !== "1")?.encodedKeyHex).not.toBe(
+        beforeDeveloper.current.find(row => row.indexDefinitionId !== "1")?.encodedKeyHex,
       );
       expect(afterUnique[0]?.encodedKeyHex).not.toBe(
         beforeUnique[0]?.encodedKeyHex,

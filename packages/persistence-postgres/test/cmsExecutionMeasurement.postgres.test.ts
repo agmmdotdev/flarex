@@ -6,6 +6,7 @@ import { cmsExecutionMeasurementCorrectness, cmsExecutionMeasurementFixture } fr
 import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
 import { readCe0Environment } from "./ce0Environment";
 import { runEffect } from "./effectTestRuntime";
+import { makeCmsHost } from "../src/cmsTransaction/host";
 
 type Observation = Awaited<ReturnType<typeof withPostgresExecutionObservation>>["observation"];
 interface Sample {
@@ -26,6 +27,27 @@ interface Workload {
 
 describe.skipIf(postgresUrl === null)("CE2 active CMS request measurement", () => {
   const withPersistence = useFileScopedPostgresPersistence();
+  it("combines index families while retaining bounded membership SQL", () => withPersistence(async persistence => {
+    const tested = await cmsExecutionMeasurementFixture(persistence, makePostgresRelationalSession(persistence));
+    for (const count of [1, 16, 17, 32]) {
+      const before = await tested.inventory();
+      const titles = Array.from({ length: count }, (_, index) => `combined-sql-${count}-${index}`);
+      let batches = 0;
+      const measured = await withPostgresExecutionObservation(persistence.pool, async mark => {
+        const host = await runEffect(makeCmsHost({ ...tested.input, materialization: {
+          ...tested.input.materialization,
+          afterTransactionStep: async event => {
+            if (event.step === "indexBatchWriting") { batches++; mark(event.step); }
+            else if (event.step === "indexBatchWritten") mark(event.step);
+          },
+        } }));
+        return runEffect(host.run(host.newRequestKey(), tested.insert, { titles }));
+      });
+      expect(batches).toBe(1);
+      expect(measured.observation.phases.indexBatchWriting?.queryCalls).toBe(1 + 4 * Math.ceil((count * 2) / 32));
+      await tested.verifyInserts(before, [{ value: measured.value, titles }]);
+    }
+  }), 120_000);
   it("proves active request state, replay and conflict rollback", () => withPersistence(async persistence => {
     expect((await persistence.query<{ superuser: boolean }>("select rolsuper as superuser from pg_roles where rolname=current_user")).rows[0]?.superuser).toBe(false);
     await cmsExecutionMeasurementCorrectness(persistence, makePostgresRelationalSession(persistence));

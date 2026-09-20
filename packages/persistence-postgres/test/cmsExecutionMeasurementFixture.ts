@@ -177,6 +177,29 @@ export async function cmsExecutionMeasurementCorrectness(persistence: PGliteFlar
     }
     expect(await tested.inventory()).toEqual(after);
   }
+  // Two memberships per new row must share one application, including the
+  // 32-transition SQL boundary. Replay must not re-enter that application.
+  const indexSteps: string[] = [];
+  const combined = await runEffect(makeCmsHost({ ...tested.input, materialization: {
+    ...tested.input.materialization,
+    afterTransactionStep: async event => { indexSteps.push(event.step); },
+  } }));
+  for (const count of [16, 17]) {
+    indexSteps.length = 0;
+    const before = await tested.inventory();
+    const titles = Array.from({ length: count }, (_, index) => `combined-${count}-${index}`);
+    const key = combined.newRequestKey();
+    const value = await runEffect(combined.run(key, tested.insert, { titles }));
+    const after = await tested.verifyInserts(before, [{ value, titles }]);
+    expect(indexSteps.filter(step => step === "indexBatchWriting")).toHaveLength(1);
+    expect(indexSteps.filter(step => step === "indexBatchWritten")).toHaveLength(1);
+    expect(indexSteps.filter(step => step === "intrinsicIndexEntryWritten")).toHaveLength(count);
+    expect(indexSteps.filter(step => step === "developerIndexEntryWritten")).toHaveLength(count);
+    const steps = [...indexSteps];
+    expect(await runEffect(combined.run(key, tested.insert, { titles }))).toEqual(value);
+    expect(indexSteps).toEqual(steps);
+    expect(await tested.inventory()).toEqual(after);
+  }
   // Preserve the actual growing-catalog failure: more stored identities than
   // the request budget must not prevent a selective unique insert or conflict.
   for (let batch = 0; batch < 9; batch++) {

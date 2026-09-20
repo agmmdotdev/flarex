@@ -618,30 +618,30 @@ export async function materializeApplicationDocumentRows(
   for (let rowIndex = 0; rowIndex < rowRevisions.length; rowIndex += 1) {
     await emitTransactionStep(options, command, "tentativeRowWritten");
   }
-  if (intrinsicActions.size > 0) {
-    await emitTransactionStep(options, command, "intrinsicIndexBatchWriting");
+  const indexActions = [
+    ...intrinsicActions.values(),
+    ...developerIndexActions.map(action => ({
+      kind: action.kind, scopeId: command.authorityPins.scopeId, definition: action.definition,
+      encodedKey: action.encodedKey, rowId: action.rowId, writeEpoch, commitSeq,
+    })),
+  ];
+  if (indexActions.length > 0) {
+    await emitTransactionStep(options, command, "indexBatchWriting");
     projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-      appendAppIndexEntryRevisionsInTransactionEffect(tx, [...intrinsicActions.values()]).pipe(
+      appendAppIndexEntryRevisionsInTransactionEffect(tx, indexActions).pipe(
         Effect.mapError(cause => cause instanceof AppIndexEntryWritePersistenceError || cause instanceof AppIndexEntryReadPersistenceError
-          ? new PointCommitSqlFailureMarkerV1("writeIntrinsicIndexEntry", cause.cause) : cause),
+          ? new PointCommitSqlFailureMarkerV1("writeIndexEntries", cause.cause) : cause),
       ),
     ));
-    await emitTransactionStep(options, command, "intrinsicIndexBatchWritten");
-    for (let i = 0; i < intrinsicActions.size; i += 1)
+    await emitTransactionStep(options, command, "indexBatchWritten");
+    for (let i = 0; i < intrinsicActions.size; i++)
       await emitTransactionStep(options, command, "intrinsicIndexEntryWritten");
+    for (let i = 0; i < developerIndexActions.length; i++)
+      await emitTransactionStep(options, command, "developerIndexEntryWritten");
   }
-
   for (const intrinsic of intrinsicBuilds) {
     await resetPointCommitIntrinsicIndexValidation(tx, intrinsic.build);
   }
-  await writePointCommitDeveloperIndexActions(
-    tx,
-    command,
-    commitSeq,
-    writeEpoch,
-    developerIndexActions,
-    options,
-  );
   await writePointCommitUniqueKeyActions(
     tx,
     command,
@@ -1958,25 +1958,6 @@ function compareDeveloperIndexEntryActions(
   );
 }
 
-async function writePointCommitDeveloperIndexActions(
-  tx: AppRowTransaction,
-  command: ApplicationDocumentMaterializationCommand,
-  commitSeq: CommitSeq,
-  writeEpoch: ScopeEpoch,
-  actions: ReadonlyArray<PointCommitDeveloperIndexEntryActionV1>,
-  options: ApplicationDocumentMaterializationOptions,
-): Promise<void> {
-  projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-    appendAppIndexEntryRevisionsInTransactionEffect(tx, actions.map(action => ({
-      kind: action.kind, scopeId: command.authorityPins.scopeId, definition: action.definition,
-      encodedKey: action.encodedKey, rowId: action.rowId, writeEpoch, commitSeq,
-    }))).pipe(Effect.mapError(cause => cause instanceof AppIndexEntryWritePersistenceError || cause instanceof AppIndexEntryReadPersistenceError
-      ? new PointCommitSqlFailureMarkerV1("writeDeveloperIndexEntry", cause.cause) : cause)),
-  ));
-  for (let i = 0; i < actions.length; i += 1)
-    await emitTransactionStep(options, command, "developerIndexEntryWritten");
-}
-
 async function writePointCommitUniqueKeyActions(
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
@@ -2211,7 +2192,7 @@ const prepareIntrinsicIndexActionsEffect = Effect.fn(
     Effect.mapError((failure) =>
       failure instanceof AppIndexEntryReadPersistenceError
         ? new PointCommitSqlFailureMarkerV1(
-            "writeIntrinsicIndexEntry",
+            "loadIntrinsicIndexEntryHeads",
             failure.cause,
           )
         : failure,

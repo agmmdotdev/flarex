@@ -3,6 +3,8 @@
 Status: bounded index application is implemented under standing owner authorization.
 Unique ownership application is now covered by the
 [unique batch slice](./17-ce1-unique-batch-application.md).
+Intrinsic and developer transitions now enter the writer together through
+[combined membership application](./59-ce1-combined-membership-application.md).
 
 ## Outcome And Boundary
 
@@ -50,7 +52,7 @@ Online writes now apply as sets; private intrinsic/developer hooks retain one
 notification per action after their set succeeds. Tests may not infer committed
 state or individual SQL execution from a hook. Failure order across actions
 changes to batch validation/application. There is no public API or data migration.
-Private `intrinsicIndexBatchWriting`/`intrinsicIndexBatchWritten` observations
+Private `indexBatchWriting`/`indexBatchWritten` observations
 bracket scope authentication, membership/parent checks and writes for measurement.
 
 ## Proof And Completion

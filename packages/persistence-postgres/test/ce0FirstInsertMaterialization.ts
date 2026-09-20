@@ -387,7 +387,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
     const step = (
       name:
         | "rowBatchWritten"
-        | "intrinsicIndexBatchWritten"
+        | "indexBatchWritten"
         | "uniquePublicationApplied",
     ) =>
       Effect.promise(async () => {
@@ -477,7 +477,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
       )
     )
       return yield* Effect.fail(cmsError("storedCorruption"));
-    yield* step("intrinsicIndexBatchWritten");
+    yield* step("indexBatchWritten");
     const writtenClaims = yield* runDrizzleStatementEffect(
       tx.insert(fxAppUniqueKeys).values(claims).returning(),
       failedStatement,
