@@ -6,7 +6,8 @@ import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../scopeClock";
+import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock";
+import { enterCommercePublication } from "../commerceTransaction/admission";
 import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
@@ -47,7 +48,7 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
               ),
               (cause) => commerceError("statementFailure", cause),
             );
-            const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId);
+            const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
             return yield* withAtomicCommerceAdmissions(
               members,
               target,
@@ -66,6 +67,7 @@ export const makeAtomicCommerceHost = Effect.fn("AtomicCommerce.makeHost")(funct
                     located.authority,
                     clock,
                   );
+                  yield* enterCommercePublication(admissions);
                   const retained = yield* createCommittedJsonOutcomeResolver(tx)
                     .resolve(evidence.lookup)
                     .pipe(Effect.mapError(projectCommerceRequestFailure));

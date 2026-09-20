@@ -2,13 +2,17 @@
 
 Status: snapshot and ordinary publication cutover implemented with connected
 validation and review complete. Broader CE3 acceptance remains open.
+The [admission cutover](./66-commerce-admission-before-execution.md) subsequently
+moves metadata checks ahead of protected command execution and includes the
+existing composite owner.
 
 ## Outcome And Evidence
 
 Migrate the existing commerce read API from command isolation plus publication
 exclusion to the shared repeatable-read snapshot profile and key-share scope
 protection. Ordinary standalone and atomic-commerce writes use no-key-update
-scope protection, retaining clock-first serialization between writers. This is
+scope protection for business execution and publication, retaining writer
+serialization after concurrent metadata admission. This is
 an execution-contract correction at existing core owners, not a new Medusa
 module, workflow, storage or public API capability.
 
@@ -22,7 +26,8 @@ Mixed CMS/commerce reads and cross-domain composition keep their own gates.
 
 `commerceTransaction/host.ts` selects the existing `snapshotRead` physical profile
 and snapshot clock helper for reads. Normal writes and atomic root publication
-select the ordinary-write helper. Bootstrap retains the strong clock lock: its
+enter lifecycle protection for metadata and then the explicit commerce publication
+gate. Bootstrap retains the strong clock lock: its
 initialization marker changes installation eligibility. Scope transitions,
 bindings, revocation and retention retain their existing strong locks.
 

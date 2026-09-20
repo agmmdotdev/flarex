@@ -320,7 +320,9 @@ sequence-consuming materialization and publication retain the shared lock.
 [Native final admission](./65-native-admission-before-publication.md) validates
 schema, ownership and relation selection under lifecycle protection while other
 ordinary publication may complete. Its final build/session locks, exact OCC and
-materialization still serialize. Existing commerce/composite preparation and
+materialization still serialize. [Commerce/composite admission](./66-commerce-admission-before-execution.md)
+also precedes publication exclusion; direct-SQL callbacks and finalizers require
+explicit protected entry and share its fresh clock. Protected readiness and
 final connected acceptance remain open.
 
 The [concurrent CMS load baseline](./43-ce0-concurrent-cms-load.md) extends these

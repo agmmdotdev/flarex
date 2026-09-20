@@ -18,12 +18,12 @@ import { hasApplicationBindingComposition, prepareApplicationBindingSelection } 
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
-import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForOrdinaryWriteInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
+import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
 import { hasRelationalSessionDatabase, runRelationalSession } from "../relationalTransaction/session";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
 import { finalizeCommerceCommit } from "./publication";
-import { withCommerceAdmission, requireCommerceAdmission } from "./admission";
+import { withCommerceAdmission, requireCommerceAdmission, enterCommercePublication } from "./admission";
 import { prepareInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation, type CommerceRowObservation } from "./store";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
@@ -107,11 +107,9 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
       const active = yield* prepareApplicationBindingSelection(application);
       return yield* runRelationalSession(session, key === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`), cause => commerceError("statementFailure", cause));
-        const clock = yield* (key === null
-          ? lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId)
-          : bootstrap
-            ? lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId)
-            : lockScopeClockForOrdinaryWriteInTransactionEffect(tx, located.authority.scopeId));
+        const clock = yield* (bootstrap
+          ? lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId)
+          : lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId));
         return yield* withCommerceAdmission(profile, target, reference, active, tx, located.authority, clock, bootstrap, installationRuntime, admission => Effect.gen(function* () {
           const admitted = yield* requireCommerceAdmission(admission);
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(projectFailure));
@@ -123,6 +121,7 @@ const makeHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: Co
             expectedFunctionPath: TransactionFunctionPathV1Schema.make(`__flarex_private_commerce/${root?.name ?? "initialize"}`),
             expectedRequestSha256: TransactionRequestSha256V1Schema.make(yield* sha(evidence.canonicalBytes)) };
           if (lookup !== null) {
+            yield* enterCommercePublication([admission]);
             const retained = yield* createCommittedJsonOutcomeResolver(tx).resolve(lookup);
             if (retained.kind === "available") return retained.successfulResult.valueJson;
             if (retained.kind === "expired") return yield* Effect.fail(commerceError("resultUnavailable"));

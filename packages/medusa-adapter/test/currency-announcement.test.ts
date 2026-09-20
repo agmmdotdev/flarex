@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from "vitest";
-import { Effect, Exit, Fiber, Tracer } from "effect";
+import { Deferred, Effect, Exit, Fiber, Tracer } from "effect";
 import { currencyAnnouncementWrite } from "../src/currency-service";
 import { prepareCurrencyProfile } from "../src/currency-contract";
 import { commerceHostFixture } from "../../persistence-postgres/test/commerceHostFixture";
@@ -137,6 +137,37 @@ it("settles real Currency, Payload and Application participants once, with compl
       yield* assertNativeCommandPublication(fixture, host.run(host.newRequestKey(), args("native-overlap")), "overlap");
       if ("pool" in resource.persistence) {
         const postgres = resource.persistence;
+        const entered = yield* Deferred.make<void>();
+        const admitted = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const overlapBefore = yield* Effect.promise(inventory);
+        const heldHost = yield* makeCurrencyAnnouncementHost(input, {
+          beforeApplication: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
+        });
+        const admissionSpans: string[] = [];
+        const admissionTracer = Tracer.make({ span(options) {
+          admissionSpans.push(options.name);
+          if (options.name === "CommerceAdmission.enterPublication") Effect.runSync(Deferred.succeed(admitted, undefined));
+          return new Tracer.NativeSpan(options);
+        } });
+        yield* Effect.scoped(Effect.gen(function* () {
+          const first = yield* heldHost.run(heldHost.newRequestKey(), args("admission-held")).pipe(Effect.forkScoped);
+          yield* Deferred.await(entered).pipe(Effect.timeout("5 seconds"));
+          const second = yield* host.run(host.newRequestKey(), args("admission-overlap"))
+            .pipe(Effect.provideService(Tracer.Tracer, admissionTracer), Effect.forkScoped);
+          yield* Deferred.await(admitted).pipe(Effect.timeout("5 seconds"));
+          expect(admissionSpans).toContain("CmsAdmission.withTransaction");
+          expect(admissionSpans).toContain("CommerceBinding.verify");
+          expect(yield* Deferred.isDone(release)).toBe(false);
+          yield* Deferred.succeed(release, undefined);
+          expect(yield* Fiber.join(first)).toMatchObject({ cms: { title: "admission-held" } });
+          expect(yield* Fiber.join(second)).toMatchObject({ cms: { title: "admission-overlap" } });
+        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds")));
+        const overlapAfter = yield* Effect.promise(inventory);
+        expect(overlapAfter.commerce.commits.length).toBe(overlapBefore.commerce.commits.length + 2);
+        expect(overlapAfter.commerce.outcomes.length).toBe(overlapBefore.commerce.outcomes.length + 2);
+        expect(overlapAfter.commerce.clocks[0]?.lastCommitSeq).toBe((overlapBefore.commerce.clocks[0]?.lastCommitSeq ?? -1n) + 2n);
+        expect(overlapAfter.rows.length).toBe(overlapBefore.rows.length + 4);
         const duplicatesBefore = (yield* Effect.promise(inventory));
         const duplicateCalls = conformance.observations.executions();
         const duplicateKey = host.newRequestKey();

@@ -48,6 +48,7 @@ interface ParticipantInput {
   readonly cmsAdmission: CmsAdmission;
   readonly cmsState: CmsAdmissionState;
   readonly commerceAdmission: CommerceAdmission;
+  readonly publicationClock: CmsAdmissionState["clock"];
   readonly lifetime: BoundedRequestLifetime<CompositeFailure>;
   readonly transactionId: string;
   readonly applicationTable: string;
@@ -213,7 +214,7 @@ export const makeCurrencyAnnouncementParticipants = Effect.fn(
         commerceClosure,
       );
       const appChanges = (yield* application.consume(appClosure)).map(change =>
-        Object.freeze({ ...change, readAt: cmsState.clock.lastCommitSeq }));
+        Object.freeze({ ...change, readAt: input.publicationClock.lastCommitSeq }));
       const changes = [...cmsContribution.changes, ...appChanges].toSorted(
         (a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId),
       );

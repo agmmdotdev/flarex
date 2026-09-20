@@ -7,8 +7,10 @@ owners. The [native publication cutover](./39-ce3-native-publication-snapshots.m
 extends it to the native final kernel, and [native attempt protection](./40-ce3-native-attempt-snapshots.md)
 covers preparation and attempt lifecycle. The [commerce cutover](./61-ce3-commerce-publication-snapshots.md)
 extends snapshot/ordinary-write profiles to existing commerce reads and
-standalone/atomic publication. Bootstrap and cross-domain hosts retain stronger
-protection. The [CMS command cutover](./64-cms-concurrent-command-settlement.md)
+standalone/atomic publication. Bootstrap retains stronger protection; the
+[commerce admission cutover](./66-commerce-admission-before-execution.md) extends
+ordinary publication protection to the existing composite and moves all three
+commerce hosts' admission ahead of exclusion. The [CMS command cutover](./64-cms-concurrent-command-settlement.md)
 adds validated read-committed execution under lifecycle protection before
 ordinary publication exclusion. [Native admission](./65-native-admission-before-publication.md)
 uses the same lifecycle mode for metadata validation before final publication
@@ -29,6 +31,7 @@ The lock contract is:
 | Standalone snapshot read | `FOR KEY SHARE` | Repeatable read; preserve one data/clock snapshot and exclude strong authority transitions. |
 | CMS command execution | `FOR KEY SHARE` after request-key exclusion | Read committed; bounded cached observations retain statement sequences and all validate at settlement. No business DML or materializer entry before publication; admission retains compatible unique-build SHARE protection. |
 | Native final admission | `FOR KEY SHARE` | Read committed; coherent replay lookup and lifecycle-stable schema/ownership validation precede publication. Build/session/lease/journal locks and exact OCC follow a fresh NO KEY UPDATE clock. |
+| Ordinary commerce/composite admission | `FOR KEY SHARE` | Metadata and request evidence only; installation/head SHARE locks remain. Explicit entry obtains fresh NO KEY UPDATE before callbacks, business SQL or materializer entry. Stores and finalizers require that entry. |
 | Ordinary attempt/data write and publication | `FOR NO KEY UPDATE` | Existing write isolation and clock-first order; mutually exclusive sequence allocation remains. Only sequence/time may change under this mode. |
 | Authority, retention or scope lifecycle transition | `FOR UPDATE` before inspecting/changing protected state | Retain strong exclusion against readers and publishers, including non-key authority fields. |
 
@@ -53,7 +56,7 @@ compatibility of two locks alone is insufficient.
   alter scope identity, generation, fence, epoch or revocation fields.
 - `commitPublication/publication.ts` advances only sequence/time. CMS selects
   no-key-update protection, as do native, ordinary commerce and atomic-commerce
-  publication; bootstrap and cross-domain hosts retain stronger clock locks. Native
+  publication and the existing composite; bootstrap retains strong protection. Native
   activation, journal work, replacement, recovery, finishing and terminalization
   use ordinary-write protection without changing scope authority. All retain
   clock-first ordering.

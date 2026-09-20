@@ -13,7 +13,7 @@ import { decodeCommerceDriverRows as driverRows } from "./driverRows";
 import { runOwnedPromise } from "../ownedPromise";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import type { RelationalPhysicalColumn } from "../relationalSchema/physical/model";
-import { requireCommerceAdmission, type CommerceAdmission } from "./admission";
+import { requireCommerceAdmission, requireCommercePublication, type CommerceAdmission } from "./admission";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
 import type { CommerceProfileState, CommerceTableCapability } from "./profile";
 import { makeCommerceWriteEnvelopePolicy } from "./writeEnvelope";
@@ -281,6 +281,7 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     lifetime.operation(context, id, mode, Effect.gen(function* () {
       yield* requireCommerceAdmission(admission);
       if (work.closed) return yield* Effect.fail(commerceError("closed"));
+      if (mode === "write") yield* requireCommercePublication(admission);
       return yield* operation;
     }));
   const find: CommerceStore["find"] = Effect.fn("CommerceStore.find")((context, input) => guard(context, "read", Effect.gen(function* () {

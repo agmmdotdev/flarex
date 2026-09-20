@@ -1,8 +1,8 @@
 # Core Execution Completion Plan
 
 Status: active remaining-work plan. Existing CE implementations remain in use;
-the CMS command concurrency cutover is implemented; broader write coordination
-and protected readiness remain open. The owner grants standing approval and requests medium-sized,
+the CMS command concurrency and native/commerce admission cutovers are implemented;
+protected readiness and connected acceptance remain open. The owner grants standing approval and requests medium-sized,
 connected implementation slices.
 
 ## Scope And Delivery
@@ -53,6 +53,10 @@ execution, materialization and final publication in the resulting claims.
 - Existing commerce, composite and lifecycle owners participate in the lock
   hierarchy. No automatic clock-first fallback may access the same resources
   as a conflicting business-first protocol.
+- Standalone/atomic commerce and the existing composite validate metadata under
+  KEY SHARE, then explicitly enter NO KEY UPDATE before direct-SQL callbacks.
+  Stores and finalizers require that entry and use its fresh clock. These profiles
+  overlap admission, while business execution and publication remain serialized.
 
 ### Design And Cutover Gate
 
@@ -137,5 +141,7 @@ moves bounded capture, request exclusion, dependency validation and materializer
 entry together. Independent CMS callbacks overlap; materialization and final
 publication still serialize. [Native admission](./65-native-admission-before-publication.md)
 also overlaps ordinary publication while retaining the shared lock hierarchy.
-Next address existing commerce/composite preparation, then protected readiness. These remaining
+[Commerce/composite admission](./66-commerce-admission-before-execution.md) now
+uses the same separation with an enforced protected-execution gate. Next address
+protected readiness and connected acceptance. These remaining
 gates are implementation work, not permission for unrelated measurement slices.

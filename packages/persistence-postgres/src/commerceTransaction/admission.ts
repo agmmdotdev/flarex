@@ -15,7 +15,7 @@ import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTarget } from "../fr
 import { scopePhysicalLocatorsEqual } from "../scopePhysicalLocator";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
-import type { ScopeClockRecord } from "../scopeClock";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect, type ScopeClockRecord } from "../scopeClock";
 import type { CommerceProfile } from "./profile";
 import { verifyCommerceBinding, verifyCommerceInstallation } from "./binding";
 import { commerceError } from "./model";
@@ -32,6 +32,8 @@ interface AdmissionState {
   readonly bootstrap: boolean;
 }
 const admissions = new WeakMap<object, AdmissionState>();
+type PublicationEntry = Readonly<{ kind: "entering" }> | Readonly<{ kind: "entered"; clock: ScopeClockRecord }>;
+const publicationEntries = new WeakMap<CommerceAdmission, PublicationEntry>();
 
 export const withCommerceAdmission = Effect.fn("CommerceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
   profile: CommerceProfile, target: FrameworkSchemaTarget, reference: InstallationBindingReference,
@@ -85,14 +87,17 @@ export const withCommerceInstallationAdmissions = Effect.fn("CommerceAdmission.w
       for (const profile of profiles) yield* verifyCommerceBinding(tx, authority.scopeId, profile, binding, availability);
       head = Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 });
     }
-    const tokens = descriptors.map(descriptor => {
+    const tokens = Object.freeze(descriptors.map(descriptor => {
       // SAFETY: the registry alone grants authority and revokes it with the physical transaction.
       const token = Object.freeze({}) as CommerceAdmission;
       admissions.set(token, Object.freeze({ tx, authority, clock, reference, descriptor, head, bootstrap }));
       return token;
-    });
+    }));
     return yield* Effect.suspend(() => work(tokens, accepted)).pipe(Effect.ensuring(Effect.sync(() => {
-      for (const token of tokens) admissions.delete(token);
+      for (const token of tokens) {
+        publicationEntries.delete(token);
+        admissions.delete(token);
+      }
     })));
   });
   // Keep installation locks before Application acceptance. Standalone selections
@@ -106,4 +111,53 @@ export const requireCommerceAdmission = Effect.fn("CommerceAdmission.require")(f
   const state = admissions.get(admission);
   if (state === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   return state;
+});
+
+/** Trusted roots enter once, after metadata admission and before any business SQL.
+ * Admission samples remain immutable because accepted binding proofs pin them. */
+export const enterCommercePublication = Effect.fn("CommerceAdmission.enterPublication")(function* (
+  members: readonly CommerceAdmission[],
+) {
+  const captured = Object.freeze([...members]);
+  const first = captured[0];
+  if (first === undefined || new Set(captured).size !== captured.length)
+    return yield* Effect.fail(commerceError("invalidAuthority"));
+  const root = admissions.get(first);
+  if (root === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const states: AdmissionState[] = [];
+  // Validate and reserve without yielding, so overlapping entry cannot pass twice.
+  for (const member of captured) {
+    const state = admissions.get(member);
+    if (state === undefined || publicationEntries.has(member) || state.tx !== root.tx || state.authority !== root.authority ||
+      state.clock !== root.clock || state.bootstrap !== root.bootstrap)
+      return yield* Effect.fail(commerceError("invalidAuthority"));
+    states.push(state);
+  }
+  const pending: PublicationEntry = Object.freeze({ kind: "entering" });
+  for (const member of captured) publicationEntries.set(member, pending);
+  return yield* Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(root.tx, root.authority.scopeId)
+      .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
+    const admitted = root.clock;
+    if (clock.scopeId !== admitted.scopeId || clock.epoch !== admitted.epoch ||
+      clock.storageGeneration !== admitted.storageGeneration || clock.storageGenerationFence !== admitted.storageGenerationFence ||
+      clock.oldestAvailableCommitSeq !== admitted.oldestAvailableCommitSeq || clock.lastCommitSeq < admitted.lastCommitSeq ||
+      captured.some((member, index) => admissions.get(member) !== states[index] || publicationEntries.get(member) !== pending))
+      return yield* Effect.fail(commerceError("invalidAuthority"));
+    const entered: PublicationEntry = Object.freeze({ kind: "entered", clock });
+    for (const member of captured) publicationEntries.set(member, entered);
+    return clock;
+  }).pipe(Effect.ensuring(Effect.sync(() => {
+    for (const member of captured) if (publicationEntries.get(member) === pending) publicationEntries.delete(member);
+  })));
+});
+
+/** An admitted read or metadata-only preparation cannot authorize business writes. */
+export const requireCommercePublication = Effect.fn("CommerceAdmission.requirePublication")(function* (
+  admission: CommerceAdmission,
+) {
+  yield* requireCommerceAdmission(admission);
+  const entry = publicationEntries.get(admission);
+  if (entry?.kind !== "entered") return yield* Effect.fail(commerceError("invalidAuthority"));
+  return entry.clock;
 });

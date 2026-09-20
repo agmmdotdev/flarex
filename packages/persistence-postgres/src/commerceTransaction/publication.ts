@@ -1,7 +1,7 @@
 import { publishCommerceAtoms } from "./publicationBoundary";
 import type { CanonicalJsonOutcome } from "../jsonOutcome";
 import { fxSystemFrameworkInitializations } from "../frameworkSchema/installation/initializationSchema";
-import { requireCommerceAdmission, type CommerceAdmission } from "./admission";
+import { requireCommerceAdmission, requireCommercePublication, type CommerceAdmission } from "./admission";
 import { consumeCommerceRows, type CommerceRowClosure } from "./store";
 import { commerceError, type CommerceTransactionError } from "./model";
 import type { BoundedRequestLifetime } from "../boundedRequestLifetime";
@@ -19,6 +19,7 @@ export const consumeCommerceContribution = Effect.fn("CommerceCommit.consumeCont
  admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>, closure: CommerceRowClosure,
 ) {
  const state = yield* requireCommerceAdmission(admission);
+ yield* requireCommercePublication(admission);
  const facts = yield* consumeCommerceRows(closure, admission, lifetime);
  return facts.map(fact => ({ ...fact, installationSha256: state.reference.installation.installationSha256, artifactSha256: state.descriptor.artifact.identity.artifactSha256 }));
 });
@@ -34,18 +35,21 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   events?: Readonly<{ admission: CommerceAdmission; closure: CommerceEventClosure }>,
 ): Effect.fn.Return<CommitSeq, CommerceTransactionError> {
   const state = yield* requireCommerceAdmission(admission);
+  const publicationClock = yield* requireCommercePublication(admission);
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
-  const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(state.clock.epoch)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
+  const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(publicationClock.epoch)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   if (identity.scopeUuid !== scope.scopeUuid || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
   const facts = yield* consumeCommerceContribution(admission, lifetime, closure);
   for (const member of additional) {
     const participant = yield* requireCommerceAdmission(member.admission);
+    if ((yield* requireCommercePublication(member.admission)) !== publicationClock)
+      return yield* Effect.fail(commerceError("invalidAuthority"));
     if (state.bootstrap || participant.bootstrap || participant.tx !== state.tx || participant.clock !== state.clock ||
       participant.authority !== state.authority || participant.head === null || state.head === null ||
       !sameBindingValue(participant.head, state.head)) return yield* Effect.fail(commerceError("invalidAuthority"));
     facts.push(...yield* consumeCommerceContribution(member.admission, lifetime, member.closure));
   }
-  const clock = { record: state.clock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
+  const clock = { record: publicationClock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
   const now = yield* publishCommerceAtoms(() => readScopePublicationDatabaseTime(state.tx, scope.scopeId, {}));
   const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, now))
     .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));

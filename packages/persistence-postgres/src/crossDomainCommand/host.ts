@@ -39,6 +39,7 @@ import {
   type CommerceProfile,
 } from "../commerceTransaction/profile";
 import {
+  enterCommercePublication,
   withCommerceAdmission,
   type CommerceAdmission,
 } from "../commerceTransaction/admission";
@@ -68,7 +69,7 @@ import {
 } from "../relationalTransaction/session";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import {
-  lockScopeClockForUpdateInTransactionEffect,
+  lockScopeClockForSnapshotReadInTransactionEffect,
   type ScopeClockRecord,
 } from "../scopeClock";
 import { createCommittedPointOutcomeResolverV1 } from "../committedPointOutcome";
@@ -278,6 +279,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
               yield* hashCurrencyAnnouncement(evidence.canonicalBytes),
             ),
           };
+          const publicationClock = yield* enterCommercePublication([commerceAdmission]);
           const outcome = yield* createCommittedPointOutcomeResolverV1(
             admitted.tx,
           ).resolve(lookup);
@@ -311,7 +313,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
               documents,
               admitted.tx,
               located.authority,
-              clock,
+              publicationClock,
               prepared.schema,
             );
             const participants = yield* makeCurrencyAnnouncementParticipants(
@@ -319,6 +321,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
                 cmsAdmission,
                 cmsState: admitted,
                 commerceAdmission,
+                publicationClock,
                 lifetime,
                 transactionId,
                 applicationTable,
@@ -341,7 +344,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
               tx: admitted.tx,
               scopeId: scope.scopeId,
               clock: {
-                record: clock,
+                record: publicationClock,
                 scopeUuid: scope.scopeUuid,
                 epochUuid: epoch.epochUuid,
               },
@@ -371,7 +374,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
               ),
               (cause) => compositeError("resourceFailure", cause),
             );
-            const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+            const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(
               tx,
               located.authority.scopeId,
             );
