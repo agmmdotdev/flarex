@@ -53,10 +53,12 @@ COMMIT the interrupted caller can replay the authoritative outcome.
 
 The tests preserve current refusal classification: damaged binding evidence is
 projected as `invalidAuthority`, damaged result evidence as `storedCorruption`,
-and unexpected publication-hook failures remain defects. Cross-scope reference
-isolation, stale definition/fence transitions and absent-outcome ambiguity remain
-additional differential witnesses. Common owner tests do not substitute for
-those reference acceptance gates. Affected types, lint and both project reviews
+and unexpected publication-hook failures remain defects. The
+[authority and absent-outcome witnesses](./49-ce0-reference-authority-and-absence.md)
+add cross-scope isolation and overlap, changed generation/fence/epoch, damaged
+definitions/bindings and build eligibility after preparation, and actual
+PostgreSQL ambiguity with no outcome. They also correct the shared accepting
+catalog's omitted ordered-definition check. Affected types, lint and both project reviews
 remain mandatory before committing each implementation slice.
 
 The zero-row profile supplies no claim about independent admission cost, insert

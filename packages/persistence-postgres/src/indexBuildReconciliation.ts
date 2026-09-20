@@ -462,6 +462,7 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
     db,
     input.deploymentId,
     input.schemaVersionId,
+    requirements.developerIndexes.length,
   );
   if (bindings.length !== requirements.developerIndexes.length) {
     return yield* Effect.fail(new IndexBuildReconciliationCatalogV1Error({

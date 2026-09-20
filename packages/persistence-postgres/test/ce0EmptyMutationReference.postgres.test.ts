@@ -57,7 +57,7 @@ describe.skipIf(postgresUrl === null)(
               )
             ).rows[0]?.superuser,
           ).toBe(false);
-          const { tested, reference, args } =
+          const { tested, reference, args, other, otherReference } =
             await ce0EmptyMutationReferenceScenario(
               persistence,
               makePostgresRelationalSession(persistence),
@@ -110,6 +110,86 @@ describe.skipIf(postgresUrl === null)(
             expect(await runEffect(reference.run(key, args))).toEqual([]);
             expect(
               tested.executionCount() - executions + ref.executionCount(),
+            ).toBe(1);
+            expect(await tested.inventory()).toEqual(after);
+          }
+
+          // A failure before sending COMMIT is conservatively uncertain to the
+          // physical owner. Quarantine rolls back its prefix; recovery must not
+          // interpret the absent outcome as permission to execute again.
+          for (const implementation of ["core", "reference"] as const) {
+            const fault = new Error(
+              "COMMIT boundary failed before transmission",
+            );
+            let failedPid: number | undefined;
+            const acquiredPids: number[] = [];
+            const session = makePostgresRelationalSession(persistence, {
+              lifecycleFault: (event) => {
+                const pid: unknown = Reflect.get(event.client, "processID");
+                if (typeof pid !== "number")
+                  throw new Error("Expected backend PID");
+                if (event.phase === "begin" && event.edge === "after")
+                  acquiredPids.push(pid);
+                if (
+                  event.phase === "commit" &&
+                  event.edge === "before" &&
+                  failedPid === undefined
+                ) {
+                  failedPid = pid;
+                  throw fault;
+                }
+              },
+            });
+            const core = await runEffect(
+              makeCmsHost({ ...tested.input, session }),
+            );
+            const ref = await runEffect(
+              makeCe0EmptyMutationReference({ ...tested.input, session }),
+            );
+            const before = await tested.inventory();
+            const callbacks = tested.executionCount();
+            const key = tested.host.newRequestKey();
+            const failed = await runEffect(
+              Effect.exit(
+                implementation === "core"
+                  ? core.run(key, tested.insert, args)
+                  : ref.run(key, args),
+              ),
+            );
+            expect(Exit.isFailure(failed)).toBe(true);
+            if (Exit.isFailure(failed)) {
+              expect(failed.cause.reasons).toHaveLength(2);
+              expect(failed.cause.reasons.every(Cause.isFailReason)).toBe(true);
+              expect(
+                failed.cause.reasons
+                  .filter(Cause.isFailReason)
+                  .map((reason) => reason.error),
+              ).toMatchObject([
+                {
+                  reason: "decisionUncertain",
+                  cause: { reason: "decisionUncertain" },
+                },
+                { reason: "decisionUncertain" },
+              ]);
+            }
+            expect(acquiredPids).toHaveLength(2);
+            expect(acquiredPids[0]).toBe(failedPid);
+            expect(acquiredPids[1]).not.toBe(failedPid);
+            expect(
+              tested.executionCount() - callbacks + ref.executionCount(),
+            ).toBe(1);
+            expect(await tested.inventory()).toEqual(before);
+            // Explicit re-entry is a new caller decision after the uncertain
+            // refusal; it is not the automatic recovery branch above.
+            const referenceCallbacks = reference.executionCount();
+            expect(await runEffect(reference.run(key, args))).toEqual([]);
+            expect(reference.executionCount()).toBe(referenceCallbacks + 1);
+            const after = await tested.verifyInsert(before, [], 0, args.prefix);
+            expect(
+              await runEffect(tested.host.run(key, tested.insert, args)),
+            ).toEqual([]);
+            expect(
+              tested.executionCount() - callbacks + ref.executionCount(),
             ).toBe(1);
             expect(await tested.inventory()).toEqual(after);
           }
@@ -263,6 +343,53 @@ describe.skipIf(postgresUrl === null)(
             counts + 1,
           );
           await tested.verifyInsert(before, [], 0, args.prefix);
+          expect(persistence.pool.waitingCount).toBe(0);
+          expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
+
+          const scopeEntered = await runEffect(Deferred.make<void>());
+          const scopeRelease = await runEffect(Deferred.make<void>());
+          const scopeHolder = await runEffect(
+            makeCmsHost(tested.input, {
+              afterPreferenceFacts: () =>
+                Deferred.succeed(scopeEntered, undefined).pipe(
+                  Effect.andThen(Deferred.await(scopeRelease)),
+                ),
+            }),
+          );
+          const scopeBefore = await tested.inventory();
+          const otherBefore = await other.inventory();
+          const sharedKey = tested.host.newRequestKey();
+          const otherCallbacks = otherReference.executionCount();
+          await runEffect(
+            Effect.scoped(
+              Effect.gen(function* () {
+                const held = yield* scopeHolder
+                  .run(sharedKey, tested.insert, args)
+                  .pipe(Effect.forkScoped);
+                yield* Deferred.await(scopeEntered);
+                expect(yield* otherReference.run(sharedKey, args)).toEqual([]);
+                expect(yield* Deferred.isDone(scopeRelease)).toBe(false);
+                expect(otherReference.executionCount()).toBe(
+                  otherCallbacks + 1,
+                );
+                expect(yield* Effect.promise(() => tested.inventory())).toEqual(
+                  scopeBefore,
+                );
+                yield* Deferred.succeed(scopeRelease, undefined);
+                expect(yield* Fiber.join(held)).toEqual([]);
+              }).pipe(
+                Effect.ensuring(Deferred.succeed(scopeRelease, undefined)),
+                Effect.timeout("20 seconds"),
+              ),
+            ),
+          );
+          await tested.verifyInsert(scopeBefore, [], 0, args.prefix);
+          await other.verifyInsert(otherBefore, [], 0, args.prefix);
+          expect(await runEffect(reference.run(sharedKey, args))).toEqual([]);
+          expect(
+            await runEffect(other.host.run(sharedKey, other.insert, args)),
+          ).toEqual([]);
+          expect(otherReference.executionCount()).toBe(otherCallbacks + 1);
           expect(persistence.pool.waitingCount).toBe(0);
           expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
         }),

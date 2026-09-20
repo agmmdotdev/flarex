@@ -40,6 +40,14 @@ without acquiring their accepting locks. Reconstruct and compare the bundle
 again under accepting protection before any callback. Concurrent lifecycle
 changes may invalidate preparation; they must not authorize stale execution.
 
+The accepting catalog check also restores the ordered definition set and its
+schema-version bindings through their existing decoders, comparing exact
+identity and canonical specification with preparation. The
+[reference authority witness](./49-ce0-reference-authority-and-absence.md)
+exposed the previous omission beside the unique closure check. This remains a
+fresh bounded catalog observation, not an atomic snapshot across separately
+placed control and data databases or the deferred protected-metadata fast path.
+
 Candidate write-guard preparation reads and decodes its head without a scope
 lock, then compiles the authenticated immutable candidate schema. Applying the
 guard rechecks the current head against the locked generation, fence and epoch

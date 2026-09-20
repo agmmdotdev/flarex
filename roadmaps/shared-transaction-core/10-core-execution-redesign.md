@@ -225,6 +225,14 @@ empty-delta validation, lifetime and recovery owners are shared and disclosed.
 This bounded first profile is not timed; nonempty and remaining differential
 acceptance still gate the complete-request comparison.
 
+[Reference authority and absence](./49-ce0-reference-authority-and-absence.md)
+adds cross-scope, stale-preparation and absent-outcome witnesses. It exposed an
+accepting-catalog gap: ordered definitions and their normalized bindings now
+receive fresh integrity validation beside the existing unique closure. The
+bounded correction reuses the registered catalog reader and canonical decoder;
+it adds correctness work and requires refreshed request baselines before timing
+claims. Protected readiness-root and nonempty reference work remain open.
+
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its
 identity and byte verdict gates body transfer, while scope-clock validation,

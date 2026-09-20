@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { prepareApplicationBindingSelection, withAcceptedApplicationBinding } from "../src/applicationActivation";
 import { fxSystemApplicationReadiness, fxSystemApplicationReadinessRelations } from "../src/applicationRelationSchema";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
-import { fxControlBoundApplicationSchemas, fxControlSchemaVersionUniqueConstraintSets, fxSystemApplicationRevisionsV2 } from "../src/schema";
+import { fxControlBoundApplicationSchemas, fxControlIndexDefinitions, fxControlSchemaVersionUniqueConstraintSets, fxSystemApplicationRevisionsV2 } from "../src/schema";
 import { lockScopeClockForShareInTransactionEffect } from "../src/scopeClock";
 import { prepareReadinessEvidence, relationReadinessFixture } from "./applicationRelationReadinessFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -13,7 +13,7 @@ import { postgresUrl, useFileScopedPostgresPersistence, withTemporaryPostgresPer
 describe.skipIf(postgresUrl === null)("active readiness admission locks", () => {
   const withPersistence = useFileScopedPostgresPersistence();
 
-  it.each(["schema binding", "unique closure"] as const)("rejects %s corruption observed inside the accepting transaction", kind => withPersistence(async persistence => {
+  it.each(["schema binding", "unique closure", "ordered definition"] as const)("rejects %s corruption observed inside the accepting transaction", kind => withPersistence(async persistence => {
     const fixture = await relationReadinessFixture({ persistence, bindingAdmission: true });
     await prepareReadinessEvidence(fixture);
     await runEffect(fixture.fold.settle(fixture.input));
@@ -24,13 +24,17 @@ describe.skipIf(postgresUrl === null)("active readiness admission locks", () => 
       if (kind === "schema binding") {
         await tx.update(fxControlBoundApplicationSchemas).set({ bindingBytes: new Uint8Array([1]) })
           .where(eq(fxControlBoundApplicationSchemas.deploymentId, fixture.deploymentId));
-      } else {
+      } else if (kind === "unique closure") {
         await tx.update(fxControlSchemaVersionUniqueConstraintSets).set({ definitionSetSha256: new Uint8Array(32) })
           .where(eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, fixture.deploymentId));
+      } else {
+        const rows = await tx.update(fxControlIndexDefinitions).set({ physicalSpecBytes: new Uint8Array([1]) })
+          .where(eq(fxControlIndexDefinitions.deploymentId, fixture.deploymentId)).returning();
+        expect(rows.length).toBeGreaterThan(0);
       }
       const clock = await runEffect(lockScopeClockForShareInTransactionEffect(tx, fixture.authority.scopeId));
       expect(await runEffectFailure(withAcceptedApplicationBinding(selection, tx, clock, () => Effect.void)))
-        .toMatchObject({ _tag: kind === "schema binding" ? "ReadApplicationRelationBindingError" : "AppUniqueConstraintSetClosureCorruptionV1Error" });
+        .toMatchObject({ _tag: kind === "schema binding" ? "ReadApplicationRelationBindingError" : kind === "unique closure" ? "AppUniqueConstraintSetClosureCorruptionV1Error" : "AppIndexDefinitionCatalogCorruptionError" });
       throw rollback;
     })).rejects.toBe(rollback);
     await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {

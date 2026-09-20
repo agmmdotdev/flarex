@@ -34,11 +34,11 @@ import {
   type PreparedAppSchemaPublicationV1,
 } from "../src/appSchemaPublicationPreparation";
 import {
-  AppSchemaPublicationV1ProjectionError,
   publishPreparedAppSchemaV1InTransactionEffect,
 } from "../src/appSchemaPublicationTransaction";
 import type { PreparedAppTableDefinitionsArtifactV1 } from "../src/appTableDefinitionsArtifacts";
 import {
+  AppIndexDefinitionCatalogCorruptionError,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   prepareAppDeveloperIndexDefinitionBindingV1Effect,
 } from "../src/appIndexDefinitions";
@@ -722,7 +722,7 @@ describe("app-schema V1 publication transaction", () => {
     });
   });
 
-  it("rejects an unexpected schema-version binding as a typed projection mismatch", async () => {
+  it("rejects excess schema-version bindings as catalog corruption and rolls back", async () => {
     const persistence = await migratedPersistence();
     const deploymentId = "deployment_schema_publication_v1_extra_binding";
     await insertDeployment(persistence, deploymentId);
@@ -783,16 +783,12 @@ describe("app-schema V1 publication transaction", () => {
     await expect(
       publishPrepared(persistence, targetPublication),
     ).rejects.toMatchObject({
-      name: "AppSchemaPublicationV1ProjectionError",
-      issue: {
-        reason: "schemaBindingCountMismatch",
-        expectedCount: 1,
-        actualCount: 2,
-      },
+      name: "AppIndexDefinitionCatalogCorruptionError",
+      detail: "schema-version binding count exceeds the required maximum",
     });
     await expect(
       publishPrepared(persistence, targetPublication),
-    ).rejects.toBeInstanceOf(AppSchemaPublicationV1ProjectionError);
+    ).rejects.toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
     await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
       tables: 1,
       indexes: 2,

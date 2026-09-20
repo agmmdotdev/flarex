@@ -9,12 +9,21 @@ import { fxSystemIdempotency } from "../src/schema";
 import { fxSystemDataBindingCandidates } from "../src/frameworkSchema/binding/schema";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { makeCe0EmptyMutationReference } from "./ce0EmptyMutationReference";
+import { ce0EmptyMutationBoundaryScenario } from "./ce0EmptyMutationBoundaryScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 export async function ce0EmptyMutationReferenceScenario(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   session: RelationalSession,
-) {
+): Promise<{
+  tested: Awaited<ReturnType<typeof cmsExecutionMeasurementFixture>>;
+  reference: Effect.Success<ReturnType<typeof makeCe0EmptyMutationReference>>;
+  args: { count: number; prefix: string };
+  other: Awaited<ReturnType<typeof cmsExecutionMeasurementFixture>>;
+  otherReference: Effect.Success<
+    ReturnType<typeof makeCe0EmptyMutationReference>
+  >;
+}> {
   const tested = await cmsExecutionMeasurementFixture(persistence, session);
   const reference = await runEffect(
     makeCe0EmptyMutationReference(tested.input),
@@ -240,5 +249,10 @@ export async function ce0EmptyMutationReferenceScenario(
       expect(await tested.inventory()).toEqual(after);
     }
   }
-  return { tested, reference, args };
+  const boundaries = await ce0EmptyMutationBoundaryScenario(
+    tested,
+    persistence,
+    session,
+  );
+  return { tested, reference, args, ...boundaries };
 }

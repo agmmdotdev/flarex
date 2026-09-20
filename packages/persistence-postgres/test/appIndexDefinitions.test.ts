@@ -302,6 +302,7 @@ describe("immutable app index definitions", () => {
           persistence.drizzle,
           deploymentId,
           schemaId("schema_definition_v2"),
+          1,
         ),
       ),
     ).resolves.toMatchObject([{ indexDefinitionId: 1 }]);
@@ -333,6 +334,7 @@ describe("immutable app index definitions", () => {
         db,
         "",
         schemaId("schema_definition_invalid_read"),
+        1,
       ),
     );
 
@@ -354,6 +356,7 @@ describe("immutable app index definitions", () => {
         listDb,
         "deployment_index_definition_binding_read_failure",
         schemaId("schema_definition_binding_read_failure"),
+        1,
       ),
     );
 
@@ -385,6 +388,60 @@ describe("immutable app index definitions", () => {
     });
   });
 
+  it.each([-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER])(
+    "rejects invalid binding maximum %s before SQL",
+    async (maximumBindings) => {
+      const select = vi.fn(() => {
+        throw new Error("Unexpected SQL");
+      });
+      // SAFETY: this reader must reject the input before touching the database.
+      const db = { select } as unknown as StableTableCatalogTransaction;
+      expect(
+        await runEffectFailure(
+          listAppSchemaVersionIndexBindingsEffect(
+            db,
+            "deployment_binding_limit",
+            schemaId("schema_binding_limit"),
+            maximumBindings,
+          ),
+        ),
+      ).toMatchObject({
+        _tag: "InvalidAppIndexDefinitionBindingInputError",
+        issue: { reason: "invalidMaximumBindings" },
+      });
+      expect(select).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([0, 1])(
+    "bounds binding acquisition and refuses overflow for maximum %s",
+    async (maximumBindings) => {
+      const limit = vi.fn();
+      // Invalid bodies make this also prove overflow is refused before decoding.
+      const db = developerSelectTransaction(
+        () =>
+          Promise.resolve(
+            Array.from({ length: maximumBindings + 1 }, () => ({})),
+          ),
+        limit,
+      );
+      expect(
+        await runEffectFailure(
+          listAppSchemaVersionIndexBindingsEffect(
+            db,
+            "deployment_binding_limit",
+            schemaId("schema_binding_limit"),
+            maximumBindings,
+          ),
+        ),
+      ).toMatchObject({
+        _tag: "AppIndexDefinitionCatalogCorruptionError",
+        detail: "schema-version binding count exceeds the required maximum",
+      });
+      expect(limit).toHaveBeenCalledExactlyOnceWith(maximumBindings + 1);
+    },
+  );
+
   it("preserves schema-binding query construction failures as defects", async () => {
     const defect = new Error("schema binding query construction defect");
     const db = {
@@ -398,6 +455,7 @@ describe("immutable app index definitions", () => {
         db,
         "deployment_index_definition_binding_read_defect",
         schemaId("schema_definition_binding_read_defect"),
+        1,
       ),
     );
 
@@ -424,6 +482,7 @@ describe("immutable app index definitions", () => {
         db,
         "deployment_index_definition_binding_corruption",
         schemaId("schema_definition_binding_corruption"),
+        1,
       ),
     );
 
@@ -445,6 +504,7 @@ describe("immutable app index definitions", () => {
         db,
         "deployment_index_definition_binding_interruption",
         schemaId("schema_definition_binding_interruption"),
+        1,
       ),
     );
 
@@ -1712,13 +1772,14 @@ interface DeveloperSelectQuery
   extends PromiseLike<ReadonlyArray<unknown>> {
   from(): DeveloperSelectQuery;
   where(): DeveloperSelectQuery;
-  limit(): DeveloperSelectQuery;
+  limit(count: number): DeveloperSelectQuery;
   orderBy(): DeveloperSelectQuery;
   for(): DeveloperSelectQuery;
 }
 
 function developerSelectTransaction(
   run: (selectCall: number) => Promise<ReadonlyArray<unknown>>,
+  onLimit?: (count: number) => void,
 ): StableTableCatalogTransaction {
   let selectCall = 0;
   return {
@@ -1728,7 +1789,7 @@ function developerSelectTransaction(
       const query: DeveloperSelectQuery = {
         from: () => query,
         where: () => query,
-        limit: () => query,
+        limit: count => { onLimit?.(count); return query; },
         orderBy: () => query,
         for: () => query,
         then: (onFulfilled, onRejected) =>

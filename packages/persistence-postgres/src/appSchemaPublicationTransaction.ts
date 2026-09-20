@@ -159,6 +159,7 @@ export const publishPreparedAppSchemaV1InTransactionEffect = Effect.fn(
     tx,
     publication.deploymentId,
     publication.schemaVersionId,
+    developerResults.length,
   );
   yield* Effect.fromResult(
     verifyExactSchemaVersionBindingsResult(

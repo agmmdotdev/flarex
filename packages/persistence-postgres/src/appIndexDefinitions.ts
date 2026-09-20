@@ -201,6 +201,7 @@ export type InvalidAppIndexDefinitionBindingInputIssue =
   | { readonly reason: "invalidInputShape" }
   | { readonly reason: "invalidDeploymentId" }
   | { readonly reason: "invalidSchemaVersionId" }
+  | { readonly reason: "invalidMaximumBindings" }
   | { readonly reason: "invalidTableId" }
   | { readonly reason: "invalidLogicalIndexId" }
   | { readonly reason: "invalidIndexDefinitionId" }
@@ -1522,22 +1523,33 @@ export const getAppSchemaVersionIndexBindingEffect = Effect.fn(
     : yield* Effect.fromResult(decodeStoredBindingResult(row));
 });
 
+/** Read the complete binding set within the caller's compiled requirement bound.
+ * Overflow is corruption, never a truncated successful set. */
 export const listAppSchemaVersionIndexBindingsEffect = Effect.fn(
   "AppIndexDefinitions.listSchemaVersionBindings",
 )(function* (
   db: FlarexMetadataDatabase,
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
+  maximumBindings: number,
 ): Effect.fn.Return<
   ReadonlyArray<AppSchemaVersionIndexBindingRecord>,
   ReadAppSchemaVersionIndexBindingError
 > {
   const decoded = yield* Effect.fromResult(
-    decodeSchemaVersionBindingListInputResult(
-      deploymentId,
-      schemaVersionId,
-    ),
+    decodeSchemaVersionBindingListInputResult(deploymentId, schemaVersionId),
   );
+  if (
+    !Number.isSafeInteger(maximumBindings) ||
+    maximumBindings < 0 ||
+    maximumBindings >= Number.MAX_SAFE_INTEGER
+  ) {
+    return yield* Effect.fail(
+      new InvalidAppIndexDefinitionBindingInputError({
+        reason: "invalidMaximumBindings",
+      }),
+    );
+  }
   const query = db
     .select()
     .from(fxControlSchemaVersionIndexBindings)
@@ -1553,14 +1565,24 @@ export const listAppSchemaVersionIndexBindingsEffect = Effect.fn(
         ),
       ),
     )
-    .orderBy(fxControlSchemaVersionIndexBindings.logicalIndexId);
+    .orderBy(fxControlSchemaVersionIndexBindings.logicalIndexId)
+    .limit(maximumBindings + 1);
   const rows = yield* readDefinitionRowsEffect(
     query,
-    (cause) => new AppSchemaVersionIndexBindingPersistenceError(
-      "listBySchemaVersion",
-      cause,
-    ),
+    (cause) =>
+      new AppSchemaVersionIndexBindingPersistenceError(
+        "listBySchemaVersion",
+        cause,
+      ),
   );
+  if (rows.length > maximumBindings) {
+    return yield* Effect.fail(
+      new AppIndexDefinitionCatalogCorruptionError(
+        decoded.deploymentId,
+        "schema-version binding count exceeds the required maximum",
+      ),
+    );
+  }
   return yield* Effect.fromResult(decodeStoredBindingsResult(rows));
 });
 
@@ -2752,6 +2774,8 @@ function invalidInputMessage(
       return "App index definition deployment ID is invalid.";
     case "invalidSchemaVersionId":
       return "App index definition schema version ID is invalid.";
+    case "invalidMaximumBindings":
+      return "App schema binding maximum must be a nonnegative safe integer with room for an overflow row.";
     case "invalidTableId":
       return "App index definition table ID is invalid.";
     case "invalidLogicalIndexId":

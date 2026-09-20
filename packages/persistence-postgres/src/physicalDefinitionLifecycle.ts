@@ -44,7 +44,10 @@ import { runEffectTransaction } from "./effectTransaction";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   getAppIndexDefinitionByIdEffect,
+  listRequiredAppIndexDefinitionsEffect,
+  listAppSchemaVersionIndexBindingsEffect,
   type ReadAppIndexDefinitionError,
+  type ReadAppSchemaVersionIndexBindingError,
 } from "./appIndexDefinitions";
 import {
   getAppUniqueConstraintDefinitionByIdEffect,
@@ -206,6 +209,7 @@ interface PreparedReadinessState {
   readonly deploymentId: string;
   readonly schemaVersionId: PublishedPhysicalRequirementSnapshotV1["schemaVersionId"];
   readonly uniqueSetSha256: LocatedAppUniqueConstraintSetClosureV1["closure"]["definitionSetSha256Hex"];
+  readonly indexDefinitions: PublishedPhysicalRequirementSnapshotV1["definitions"];
   readonly located: LocatedTrustedScopeAuthority<
     LocatedPhysicalDefinitionLifecycleTarget
   >;
@@ -355,6 +359,8 @@ export type ValidatePhysicalDefinitionLifecycleReadinessCatalogError =
   | InvalidPhysicalDefinitionLifecyclePortError
   | InvalidPreparedPhysicalDefinitionLifecycleReadinessError
   | ReadAppUniqueConstraintSetClosureV1Error
+  | ReadAppIndexDefinitionError
+  | ReadAppSchemaVersionIndexBindingError
   | PhysicalDefinitionLifecycleConflictError;
 
 export interface StoredPhysicalDefinitionLifecycle {
@@ -503,6 +509,7 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
     deploymentId: snapshot.deploymentId,
     schemaVersionId: snapshot.schemaVersionId,
     uniqueSetSha256: uniqueClosure.closure.definitionSetSha256Hex,
+    indexDefinitions: snapshot.definitions,
     located,
     requirements: Object.freeze(requirements),
   }));
@@ -511,22 +518,121 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
 
 /** Revalidate the catalog using the accepting client when placement is exact.
  * Separate catalogs retain their reader. No transaction or write lock is opened. */
-export const validatePhysicalDefinitionLifecycleReadinessCatalogEffect = Effect.fn(
-  "PhysicalDefinitionLifecycle.validateReadinessCatalog",
-)(function* (port: PhysicalDefinitionLifecyclePort, prepared: PreparedPhysicalDefinitionLifecycleReadiness, tx: AppRowTransaction):
-  Effect.fn.Return<void, ValidatePhysicalDefinitionLifecycleReadinessCatalogError> {
-  const catalog = portStates.get(port);
-  const state = preparedReadinessStates.get(prepared);
-  if (catalog === undefined) return yield* Effect.fail(new InvalidPhysicalDefinitionLifecyclePortError());
-  if (state === undefined || state.port !== port) return yield* Effect.fail(new InvalidPreparedPhysicalDefinitionLifecycleReadinessError());
-  const closure = yield* readAppUniqueConstraintSetClosureV1Effect(
-    hasLocatedReadCommittedTargetDatabaseV1(state.located.target, catalog.controlDb) ? tx : catalog.controlDb,
-    state.deploymentId, state.schemaVersionId,
-  );
-  if (closure === null || closure.closure.definitionSetSha256Hex !== state.uniqueSetSha256) {
-    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({ reason: "storedStateInvalid" }));
-  }
-});
+export const validatePhysicalDefinitionLifecycleReadinessCatalogEffect =
+  Effect.fn("PhysicalDefinitionLifecycle.validateReadinessCatalog")(function* (
+    port: PhysicalDefinitionLifecyclePort,
+    prepared: PreparedPhysicalDefinitionLifecycleReadiness,
+    tx: AppRowTransaction,
+  ): Effect.fn.Return<
+    void,
+    ValidatePhysicalDefinitionLifecycleReadinessCatalogError
+  > {
+    const catalog = portStates.get(port);
+    const state = preparedReadinessStates.get(prepared);
+    if (catalog === undefined)
+      return yield* Effect.fail(
+        new InvalidPhysicalDefinitionLifecyclePortError(),
+      );
+    if (state === undefined || state.port !== port)
+      return yield* Effect.fail(
+        new InvalidPreparedPhysicalDefinitionLifecycleReadinessError(),
+      );
+    const reader = hasLocatedReadCommittedTargetDatabaseV1(
+      state.located.target,
+      catalog.controlDb,
+    )
+      ? tx
+      : catalog.controlDb;
+    const closure = yield* readAppUniqueConstraintSetClosureV1Effect(
+      reader,
+      state.deploymentId,
+      state.schemaVersionId,
+    );
+    if (
+      closure === null ||
+      closure.closure.definitionSetSha256Hex !== state.uniqueSetSha256
+    ) {
+      return yield* Effect.fail(
+        new PhysicalDefinitionLifecycleConflictError({
+          reason: "storedStateInvalid",
+        }),
+      );
+    }
+    // A prepared canonical definition is not proof that its stored catalog body
+    // still has integrity at admission. Restore the bounded ordered set just as
+    // the unique closure above is restored; the existing reader owns decoding.
+    const developers = state.indexDefinitions.filter(
+      (definition) => definition.access.kind === "developer",
+    );
+    const bindings = yield* listAppSchemaVersionIndexBindingsEffect(
+      reader,
+      state.deploymentId,
+      state.schemaVersionId,
+      developers.length,
+    );
+    const expectedById = new Map(
+      state.indexDefinitions.map((definition) => [
+        definition.indexDefinitionId,
+        definition,
+      ]),
+    );
+    if (
+      bindings.length !== developers.length ||
+      bindings.some((binding) => {
+        const definition = expectedById.get(binding.indexDefinitionId);
+        return (
+          definition?.access.kind !== "developer" ||
+          definition.access.logicalIndexId !== binding.logicalIndexId
+        );
+      })
+    ) {
+      return yield* Effect.fail(
+        new PhysicalDefinitionLifecycleConflictError({
+          reason: "storedStateInvalid",
+        }),
+      );
+    }
+    const indexes = yield* listRequiredAppIndexDefinitionsEffect(
+      reader,
+      state.deploymentId,
+      {
+        developerDefinitionIds: developers.map(
+          (definition) => definition.indexDefinitionId,
+        ),
+        creationTime: state.indexDefinitions
+          .filter((definition) => definition.access.kind === "by_creation_time")
+          .map((definition) => ({
+            tableId: definition.tableId,
+            physicalSpecSha256Hex: definition.physicalSpecSha256Hex,
+          })),
+      },
+    );
+    if (
+      indexes.length !== state.indexDefinitions.length ||
+      indexes.some((index) => {
+        const expected = expectedById.get(index.indexDefinitionId);
+        return (
+          expected === undefined ||
+          index.access.kind !== expected.access.kind ||
+          index.access.tableId !== expected.tableId ||
+          (index.access.kind === "developer" &&
+            (expected.access.kind !== "developer" ||
+              index.access.logicalIndexId !==
+                expected.access.logicalIndexId)) ||
+          index.physicalSpecCodecVersion !==
+            expected.physicalSpecCodecVersion ||
+          index.physicalSpecBytesHex !== expected.physicalSpecBytesHex ||
+          index.physicalSpecSha256Hex !== expected.physicalSpecSha256Hex
+        );
+      })
+    ) {
+      return yield* Effect.fail(
+        new PhysicalDefinitionLifecycleConflictError({
+          reason: "storedStateInvalid",
+        }),
+      );
+    }
+  });
 
 export const validatePhysicalDefinitionLifecycleReadinessInTransactionEffect =
   Effect.fn("PhysicalDefinitionLifecycle.validateReadinessInTransaction")(

@@ -22,10 +22,10 @@ import {
   type PreparedAppSchemaPublicationV1,
 } from "../src/appSchemaPublicationPreparation";
 import {
-  AppSchemaPublicationV1ProjectionError,
   publishPreparedAppSchemaV1InTransactionEffect,
 } from "../src/appSchemaPublicationTransaction";
 import {
+  AppIndexDefinitionCatalogCorruptionError,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   prepareAppDeveloperIndexDefinitionBindingV1Effect,
 } from "../src/appIndexDefinitions";
@@ -438,16 +438,12 @@ describePostgres("real Postgres app-schema V1 publication", () => {
       await expect(
         persistence.publishAppSchemaV1(targetInput),
       ).rejects.toMatchObject({
-        name: "AppSchemaPublicationV1ProjectionError",
-        issue: {
-          reason: "schemaBindingCountMismatch",
-          expectedCount: 1,
-          actualCount: 2,
-        },
+        name: "AppIndexDefinitionCatalogCorruptionError",
+        detail: "schema-version binding count exceeds the required maximum",
       });
       await expect(
         persistence.publishAppSchemaV1(targetInput),
-      ).rejects.toBeInstanceOf(AppSchemaPublicationV1ProjectionError);
+      ).rejects.toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
       await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
         tables: 1,
         indexes: 2,
