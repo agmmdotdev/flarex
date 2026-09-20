@@ -317,7 +317,11 @@ receipts, head/fence and lifecycle before issuing authority. The subsequent
 [CMS concurrency cutover](./64-cms-concurrent-command-settlement.md) also permits
 independent same-scope command execution. Duplicates wait on request exclusion;
 sequence-consuming materialization and publication retain the shared lock.
-Other writer profiles and final connected acceptance remain open.
+[Native final admission](./65-native-admission-before-publication.md) validates
+schema, ownership and relation selection under lifecycle protection while other
+ordinary publication may complete. Its final build/session locks, exact OCC and
+materialization still serialize. Existing commerce/composite preparation and
+final connected acceptance remain open.
 
 The [concurrent CMS load baseline](./43-ce0-concurrent-cms-load.md) extends these
 barriers to finite complete-request bursts on one and four scopes sharing a

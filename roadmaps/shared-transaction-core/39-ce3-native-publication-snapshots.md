@@ -3,6 +3,8 @@
 Status: implemented for the native final-publication and rollback-proof kernel.
 [Native attempt protection](./40-ce3-native-attempt-snapshots.md) extends this
 contract through preparation and attempt lifecycle. Broader CE3 work remains open.
+The [native admission cutover](./65-native-admission-before-publication.md)
+subsequently separates lifecycle-stable metadata checks from publication exclusion.
 
 ## Outcome And Boundaries
 
@@ -23,9 +25,10 @@ native attempt protection design. They do not change scope identity, authority o
 retained history. Keep the existing query observation, exact clock decoder and
 error projection; no parallel commit implementation is introduced.
 
-The publication kernel retains clock-first ordering, active-head/readiness shared
-locks, exact session/lease/journal locks, fresh OCC checks and sequence-bound
-materialization. The shared relation writer already uses publication protection.
+The publication kernel now takes lifecycle KEY SHARE before active-head/readiness
+validation, then fresh publication NO KEY UPDATE before build/session/lease/journal
+locks, exact OCC and sequence-bound materialization. The shared relation writer
+already uses publication protection.
 Scope authority/revocation/history changes retain their strong locks. Metadata
 transitions required by candidate guards may still contend; this is not a claim
 that every native lifecycle phase overlaps a reader.

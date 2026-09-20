@@ -10,7 +10,9 @@ extends snapshot/ordinary-write profiles to existing commerce reads and
 standalone/atomic publication. Bootstrap and cross-domain hosts retain stronger
 protection. The [CMS command cutover](./64-cms-concurrent-command-settlement.md)
 adds validated read-committed execution under lifecycle protection before
-ordinary publication exclusion; broader writer coordination remains open.
+ordinary publication exclusion. [Native admission](./65-native-admission-before-publication.md)
+uses the same lifecycle mode for metadata validation before final publication
+protection; broader writer coordination remains open.
 
 ## Decision And Ownership
 
@@ -26,6 +28,7 @@ The lock contract is:
 | --- | --- | --- |
 | Standalone snapshot read | `FOR KEY SHARE` | Repeatable read; preserve one data/clock snapshot and exclude strong authority transitions. |
 | CMS command execution | `FOR KEY SHARE` after request-key exclusion | Read committed; bounded cached observations retain statement sequences and all validate at settlement. No business DML or materializer entry before publication; admission retains compatible unique-build SHARE protection. |
+| Native final admission | `FOR KEY SHARE` | Read committed; coherent replay lookup and lifecycle-stable schema/ownership validation precede publication. Build/session/lease/journal locks and exact OCC follow a fresh NO KEY UPDATE clock. |
 | Ordinary attempt/data write and publication | `FOR NO KEY UPDATE` | Existing write isolation and clock-first order; mutually exclusive sequence allocation remains. Only sequence/time may change under this mode. |
 | Authority, retention or scope lifecycle transition | `FOR UPDATE` before inspecting/changing protected state | Retain strong exclusion against readers and publishers, including non-key authority fields. |
 

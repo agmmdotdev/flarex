@@ -51,6 +51,7 @@ import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from "./intrinsicCrea
 import { CommittedPointOutcomeCorruptionErrorV1, CommittedPointOutcomeInputErrorV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeSqlErrorV1, type CommittedPointOutcomeResolutionV1, type CommittedPointOutcomeTokenV1, type CommittedPointSuccessfulResultV1, type CommittedPointOutcomeCorruptionReasonV1, type CommittedPointOutcomeMismatchV1, type CommittedPointOutcomeRequestEvidenceV1, type ResolveCommittedPointOutcomeErrorV1, type ResolveCommittedPointOutcomeInputV1, validateCommittedPointOutcomeRequestEvidenceShapeV1, validateCommittedPointOutcomeStoredScalarsAfterRequestShapeV1 } from "./committedPointOutcome";
 
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
+import { createCommittedPointOutcomeResolverV1 } from "./committedPointOutcome";
 import { observeDrizzleQuery as observeCompiledDrizzleQuery } from "./drizzleQueryObservation";
 import { decodeScopeClockRecordResult, ScopeClockCorruptionError, ScopeClockNotFoundError, type ScopeClockRecord } from "./scopeClock";
 import { resolveLocatedTrustedScopeAuthorityEffect, TrustedScopeAuthorityPortError, TrustedScopeAuthorityResolutionError, type LocatedTrustedScopeAuthority, type TrustedScopeAuthority, type TrustedScopeAuthorityError } from "./scopeAuthorityResolution";
@@ -790,6 +791,7 @@ export interface PointCommitOutcomeResolutionPortV1 {
 }
 
 export type PointCommitTransactionProofStepV1 =
+  | "lifecycleProtected"
   | "clockLocked"
   | "activeApplicationSchemaValidated"
   | "activeRelationSelectionValidated"
@@ -4687,18 +4689,33 @@ async function runPointCommitTransactionKernel(
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitTransactionModeV1,
 ): Promise<PointCommitKernelResultV1> {
-  const clock = await lockPointCommitClock(tx, command, options);
-  await emitTransactionStep(options, command, "clockLocked");
+  // Only lifecycle-stable metadata may be read before publication exclusion.
+  // Session/build locks stay below the upgrade: their other owners are clock-first.
+  const admissionClock = await lockPointCommitClock(
+    tx, command, options, "key share",
+  );
+  await emitTransactionStep(options, command, "lifecycleProtected");
   if (
     mode === "publish" &&
-    await inspectCommittedOutcomeInTransaction(tx, clock, command, options) !==
-      null
+    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      // The shared resolver captures the outcome and its ceiling in one query.
+      // admissionClock may precede a concurrent duplicate's publication.
+      createCommittedPointOutcomeResolverV1(tx).resolve(
+        captureCommittedOutcomeLookup(command),
+      ).pipe(
+        Effect.mapError(error => error instanceof CommittedPointOutcomeSqlErrorV1
+          ? new PointCommitSqlFailureMarkerV1("recheckOutcome", error.cause)
+          : error),
+      ),
+    )).kind !== "missing"
   ) {
     await emitTransactionStep(options, command, "outcomeRechecked");
     return Object.freeze({ kind: "existing" });
   }
   projectPointCommitTransactionResult(
-    requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
+    requireLockedClockAuthorityResult(
+      admissionClock, preliminaryAuthority, command,
+    ),
   );
   projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
     validateApplicationWriteOwnershipForCommit(tx, { scopeId: command.authorityPins.scopeId,
@@ -4736,6 +4753,18 @@ async function runPointCommitTransactionKernel(
       "activeApplicationSchemaValidated",
     );
   }
+  const clock = await lockPointCommitClock(tx, command, options);
+  await emitTransactionStep(options, command, "clockLocked");
+  if (
+    mode === "publish" &&
+    await inspectCommittedOutcomeInTransaction(tx, clock, command, options) !== null
+  ) {
+    await emitTransactionStep(options, command, "outcomeRechecked");
+    return Object.freeze({ kind: "existing" });
+  }
+  projectPointCommitTransactionResult(
+    requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
+  );
   const intrinsicBuilds = await lockPointCommitIntrinsicIndexBuilds(
     tx,
     clock,
@@ -4930,6 +4959,7 @@ async function lockPointCommitClock(
   tx: AppRowTransaction,
   command: PreparedPointCommitAuthorityCommandV1,
   options: PointCommitTransactionProofOptionsV1,
+  protection: "key share" | "no key update" = "no key update",
 ): Promise<LockedPointCommitClockV1> {
   const query = tx
     .select()
@@ -4939,7 +4969,7 @@ async function lockPointCommitClock(
       command.authorityPins.scopeId,
     ))
     .limit(2)
-    .for("no key update");
+    .for(protection);
   observeDrizzleQuery("lockScopeClock", query, options);
   const rows = await sqlCall("lockScopeClock", () => query);
   return projectPointCommitTransactionResult(

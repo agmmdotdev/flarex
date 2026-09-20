@@ -29,10 +29,11 @@ execution, materialization and final publication in the resulting claims.
 
 ### Current Constraints To Replace Together
 
-- `pointCommitTransaction.ts` holds the scope publication lock before active
-  schema, build, session, lease, journal, dependency and materialization work.
-  Its earlier native execution already has exact dependency evidence. Preserve
-  the existing OCC/retry owners and validate those earlier reads at settlement.
+- `pointCommitTransaction.ts` validates active schema, relation selection and
+  write ownership under lifecycle protection before publication exclusion.
+  Build/session/lease/journal locks, exact OCC and materialization remain under
+  a freshly captured publication clock. Earlier native execution already has
+  exact dependency evidence; the existing OCC/retry owners remain authoritative.
 - `cmsTransaction/host.ts` now admits concurrent command execution using exact
   request exclusion and lifecycle protection. Settlement takes the publication
   lock and validates complete point, absence, tombstone, scan and unique
@@ -134,6 +135,7 @@ replaces the write-only contribution and callback-side preference DML as the
 first connected prerequisite. The [CMS concurrency cutover](./64-cms-concurrent-command-settlement.md)
 moves bounded capture, request exclusion, dependency validation and materializer
 entry together. Independent CMS callbacks overlap; materialization and final
-publication still serialize. Next address native and existing commerce/composite
-preparation under the shared hierarchy, then protected readiness. These remaining
+publication still serialize. [Native admission](./65-native-admission-before-publication.md)
+also overlaps ordinary publication while retaining the shared lock hierarchy.
+Next address existing commerce/composite preparation, then protected readiness. These remaining
 gates are implementation work, not permission for unrelated measurement slices.

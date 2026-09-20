@@ -1198,7 +1198,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     );
     const unchanged = await runEffect(rollback.prove(command));
     expect(unchanged).toEqual({ kind: "wouldCommit" });
-    expect(transactionSteps[0]).toBe("clockLocked");
+    expect(transactionSteps[0]).toBe("lifecycleProtected");
     expect(transactionSteps[1]).toBe("activeRelationSelectionValidated");
     expect(transactionSteps).toContain("dependenciesValidated");
     expect(transactionSteps.at(-1)).toBe("beforeRollback");
@@ -1225,7 +1225,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     expect(staleSelection).toMatchObject({
       reason: "activeRelationSelectionChanged",
     });
-    expect(transactionSteps).toEqual(["clockLocked"]);
+    expect(transactionSteps).toEqual(["lifecycleProtected"]);
     expect(observedRelationQueries).toHaveLength(0);
 
     await setExactRelationAdjacencyVersion(
@@ -1429,7 +1429,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     expect(staleFinishB2).toMatchObject({
       reason: "activeRelationSelectionChanged",
     });
-    expect(transactionSteps).toEqual(["clockLocked"]);
+    expect(transactionSteps).toEqual(["lifecycleProtected"]);
     expect(relationQueries).toHaveLength(0);
 
     const relationA3 = await runEffect(ready.fixture.relationActivation.activate({
@@ -1486,7 +1486,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     expect(staleFinishA3).toMatchObject({
       reason: "activeRelationSelectionChanged",
     });
-    expect(transactionSteps).toEqual(["clockLocked"]);
+    expect(transactionSteps).toEqual(["lifecycleProtected"]);
     expect(relationQueries).toHaveLength(0);
 
     const activations = await ready.fixture.persistence.drizzle.select().from(

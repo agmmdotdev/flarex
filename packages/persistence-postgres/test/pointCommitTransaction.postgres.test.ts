@@ -263,6 +263,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       expect(result).toEqual({ kind: "wouldCommit" });
       expect(Object.isFrozen(result)).toBe(true);
       expect(steps).toEqual([
+        "lifecycleProtected",
         "clockLocked",
         "sessionLocked",
         "leaseLocked",

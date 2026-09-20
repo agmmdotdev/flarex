@@ -529,7 +529,8 @@ describe("C09 point-commit relation maintenance", () => {
     );
     expect(failure).toBeInstanceOf(PointCommitStaleAuthorityV1Error);
     expect(failure).toMatchObject({ reason: "activeSchemaChanged" });
-    expect(rejectedSteps).toContain("clockLocked");
+    expect(rejectedSteps).toContain("lifecycleProtected");
+    expect(rejectedSteps).not.toContain("clockLocked");
     expect(rejectedSteps).not.toContain("relationBindingValidated");
     expect(rejectedSteps).not.toContain("sessionLocked");
     expect(await durableRelationState(scope, persistence)).toEqual(before);

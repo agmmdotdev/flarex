@@ -1458,7 +1458,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         kind: "wouldCommit",
       });
       expect(finishSteps.slice(0, 2)).toEqual([
-        "clockLocked",
+        "lifecycleProtected",
         "activeRelationSelectionValidated",
       ]);
 
@@ -1481,7 +1481,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       expect(staleFinish).toMatchObject({
         reason: "activeRelationSelectionChanged",
       });
-      expect(finishSteps).toEqual(["clockLocked"]);
+      expect(finishSteps).toEqual(["lifecycleProtected"]);
 
       const finishClockLocked = deferredSignal();
       const releaseFinishClock = deferredSignal();
