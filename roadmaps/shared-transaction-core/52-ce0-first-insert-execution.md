@@ -6,8 +6,8 @@ core approval; complete-request CE0 acceptance remains open.
 ## Outcome And Ownership
 
 Replace the test reference's use of the production CMS document working set and
-closure with a private first-insert executor. It admits only generated scalar
-title documents in the already selected zero/one/eight/thirty-two command. Keep
+closure with a private first-insert executor. It admits scalar title documents
+through the selected generated input and bounded explicit title-list extension. Keep
 the same request identity, authority acceptance, physical transaction and result
 recovery. This advances the independent request comparison required by CE0;
 it does not authorize a second runtime or a generic CRUD reference.
@@ -51,10 +51,12 @@ Run affected types/lint and both reviews; reconcile common-component statements,
 remove displaced reference plumbing, stop owned resources and commit.
 
 The [standalone read reference](./53-ce0-standalone-read-reference.md) now covers
-empty and bounded point readback. Duplicate titles from a caller-selected list,
-broader schema/lifecycle refusal profiles, updates/swaps/relations, native OCC
-and timing acceptance remain subsequent work. The fixed measured command generates distinct
-titles; that is a stated profile boundary, not a general uniqueness proof.
+empty and bounded point readback. The
+[explicit title-list extension](./55-ce0-pending-unique-equivalence.md) covers
+early/late pending duplicates and their rollback through this same insertion
+owner. Broader schema/lifecycle refusal profiles, updates/swaps/relations, native
+OCC and timing acceptance remain subsequent work. Generated measurement inputs
+still produce distinct titles.
 
 ## Integrity Witness Boundary
 

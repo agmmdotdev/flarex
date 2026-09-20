@@ -65,10 +65,16 @@ import {
 } from "./ce0PublicationReference";
 
 const decodeInput = Schema.decodeUnknownEffect(
-  Schema.Struct({
-    count: Schema.Literals([0, 1, 8, 32]),
-    prefix: Schema.NonEmptyString,
-  }),
+  Schema.Union([
+    Schema.Struct({
+      count: Schema.Literals([0, 1, 8, 32]),
+      prefix: Schema.NonEmptyString,
+    }),
+    Schema.Struct({
+      titles: Schema.Array(Schema.String).check(Schema.isMaxLength(32)),
+    }),
+  ]),
+  { onExcessProperty: "error" },
 );
 const decodeRequestKey = Schema.decodeUnknownEffect(
   TransactionRequestKeyV1Schema,
@@ -142,6 +148,8 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
       const insertInput = yield* decodeInput(captured.value).pipe(
         Effect.mapError(() => cmsError("unsupportedProfile")),
       );
+      const insertCount =
+        "titles" in insertInput ? insertInput.titles.length : insertInput.count;
       const key = yield* decodeRequestKey(requestKey).pipe(
         Effect.mapError((cause) => cmsError("invalidInput", cause)),
       );
@@ -270,7 +278,7 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
                         ),
                       );
                       const entered =
-                        insertInput.count === 0
+                        insertCount === 0
                           ? yield* enterApplicationDocumentParticipant(
                               participant,
                               tx,
@@ -288,7 +296,7 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
                             )
                           : null;
                       const applyInserts =
-                        insertInput.count === 0
+                        insertCount === 0
                           ? null
                           : yield* prepareCe0FirstInsertMaterialization(
                               tx,
@@ -297,7 +305,7 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
                               clock,
                             );
                       const working =
-                        insertInput.count === 0
+                        insertCount === 0
                           ? null
                           : yield* makeCe0FirstInsertDocuments(
                               admission,
@@ -320,16 +328,14 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
                       executions++;
                       const documents: Json[] = [];
                       if (working !== null)
-                        for (
-                          let index = 0;
-                          index < insertInput.count;
-                          index++
-                        ) {
-                          documents.push(
-                            yield* working.insert(
-                              `${insertInput.prefix}-${index.toString().padStart(2, "0")}`,
-                            ),
-                          );
+                        for (let index = 0; index < insertCount; index++) {
+                          const title =
+                            "titles" in insertInput
+                              ? insertInput.titles[index]
+                              : `${insertInput.prefix}-${index.toString().padStart(2, "0")}`;
+                          if (title === undefined)
+                            return yield* Effect.fail(cmsError("invalidInput"));
+                          documents.push(yield* working.insert(title));
                         }
                       const output = yield* Effect.fromResult(
                         capturePrivateJsonData(

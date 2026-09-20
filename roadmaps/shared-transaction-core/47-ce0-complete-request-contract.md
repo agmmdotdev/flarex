@@ -14,8 +14,11 @@ The [standalone read reference](./53-ce0-standalone-read-reference.md) independe
 executes empty and bounded point readback with actual snapshot overlap and no
 publication. The [cumulative budget witnesses](./54-ce0-cumulative-request-budget.md)
 compare refusal from accumulated valid read/insert work, including cached output
-copies and unchanged durable state. Complete-request equivalence and timing
-acceptance remain open.
+copies and unchanged durable state. The
+[explicit title-list extension](./55-ce0-pending-unique-equivalence.md) exercises
+pending duplicates and committed conflicts after pending work, preserving eager
+first-failure order, complete rollback and input identity. Complete-request
+equivalence and timing acceptance remain open.
 
 ## Selected Boundary And Missing Evidence
 

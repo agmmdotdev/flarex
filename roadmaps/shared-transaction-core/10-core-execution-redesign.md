@@ -246,6 +246,9 @@ scoped absence/corruption and real snapshot overlap. The
 [cumulative request budget witnesses](./54-ce0-cumulative-request-budget.md)
 compare valid-document accumulation, distinct/cached read boundaries, refusal
 without publication and corrected explicit requests after confirmed rollback.
+The [explicit title-list extension](./55-ce0-pending-unique-equivalence.md) adds
+early/late pending unique conflicts, committed conflicts after pending work,
+first-failure ordering and request identity without a second mutation owner.
 Protected readiness-root work and complete reference acceptance remain open.
 
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the

@@ -73,6 +73,7 @@ Run affected types and lint, both read-only reviews, clean up owned resources an
 commit. The [nonempty settlement matrix](./51-ce0-nonempty-settlement.md) now
 extends uncertainty, cancellation, duplicate/disjoint/unique contention and
 cross-scope progress to eight-row requests. Broader stored-corruption, lifecycle
-and workload witnesses remain open. Same-request duplicate-title behavior
-requires a different command profile because the measured command generates
-distinct titles.
+and workload witnesses remain open. The
+[explicit title-list extension](./55-ce0-pending-unique-equivalence.md) exercises
+same-request duplicate titles through the same fixed insertion owner; generated
+measurement inputs continue to generate distinct titles.

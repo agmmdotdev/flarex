@@ -20,7 +20,10 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
 import { cmsHostFixture } from "./cmsHostFixture";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
-const decodeInput = Schema.decodeUnknownResult(Schema.Struct({ count: Schema.Literals([0, 1, 8, 32]), prefix: Schema.NonEmptyString }));
+const decodeInput = Schema.decodeUnknownResult(Schema.Union([
+  Schema.Struct({ count: Schema.Literals([0, 1, 8, 32]), prefix: Schema.NonEmptyString }),
+  Schema.Struct({ titles: Schema.Array(Schema.String).check(Schema.isMaxLength(32)) }),
+]), { onExcessProperty: "error" });
 const decodeDocuments = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ _id: Schema.String, title: Schema.String, _creationTime: Schema.Number })));
 const decodeIds = Schema.decodeUnknownResult(Schema.Array(Schema.String));
 const decodeMove = Schema.decodeUnknownResult(Schema.Struct({ firstId: Schema.String, secondId: Schema.String, firstTitle: Schema.String, temporaryTitle: Schema.String }));
@@ -37,8 +40,12 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     const input = yield* Effect.fromResult(decodeInput(args)).pipe(Effect.mapError(() => cmsError("invalidInput")));
     executions++;
     const documents: Json[] = [];
-    for (let index = 0; index < input.count; index++) {
-      documents.push(yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: `${input.prefix}-${index.toString().padStart(2, "0")}` }));
+    if ("titles" in input) {
+      for (const title of input.titles) documents.push(yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title }));
+    } else {
+      for (let index = 0; index < input.count; index++) {
+        documents.push(yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: `${input.prefix}-${index.toString().padStart(2, "0")}` }));
+      }
     }
     return documents;
   }) });
@@ -84,16 +91,21 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     facts: await persistence.drizzle.select().from(fxSystemCommitAppRowChanges).where(eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid)).orderBy(fxSystemCommitAppRowChanges.commitSeq, fxSystemCommitAppRowChanges.rowId),
     sessions: await persistence.drizzle.select().from(fxSystemTransactionSessions).where(eq(fxSystemTransactionSessions.scopeUuid, scope.scopeUuid)),
   });
-  const verifyInserts = async (before: Awaited<ReturnType<typeof inventory>>, inserts: readonly { readonly value: Json; readonly count: number; readonly prefix: string }[]) => {
+  const verifyInserts = async (before: Awaited<ReturnType<typeof inventory>>, inserts: readonly (
+    { readonly value: Json; readonly count: number; readonly prefix: string } |
+    { readonly value: Json; readonly titles: readonly string[] }
+  )[]) => {
     const allIds: string[] = [];
-    for (const { value, count, prefix } of inserts) {
+    for (const insertion of inserts) {
+      const { value } = insertion;
+      const titles = "titles" in insertion ? insertion.titles : Array.from({ length: insertion.count }, (_, index) => `${insertion.prefix}-${index.toString().padStart(2, "0")}`);
       const documents = decodeDocuments(value);
-      expect(documents.map(document => document.title)).toEqual(Array.from({ length: count }, (_, index) => `${prefix}-${index.toString().padStart(2, "0")}`));
-      expect(documents).toHaveLength(count);
+      expect(documents.map(document => document.title)).toEqual(titles);
+      expect(documents).toHaveLength(titles.length);
       allIds.push(...documents.map(document => document._id));
       expect(await runEffect(host.read(read, documents.map(document => document._id)))).toEqual(value);
     }
-    const count = inserts.reduce((sum, insert) => sum + insert.count, 0);
+    const count = inserts.reduce((sum, insert) => sum + ("titles" in insert ? insert.titles.length : insert.count), 0);
     expect(new Set(allIds).size).toBe(count);
     const after = await inventory();
     expect(after.rows.length - before.rows.length).toBe(count);
