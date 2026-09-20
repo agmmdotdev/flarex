@@ -10,7 +10,9 @@ also independently owns its fixed pending insert flow, while schema validation,
 bounded readers, lifetime and authority remain common. The
 [settlement matrix](./51-ce0-nonempty-settlement.md) extends the actual PostgreSQL
 uncertainty, cancellation and scoped contention witnesses to eight-row requests.
-Complete-request reference implementation and equivalence acceptance remain open.
+The [standalone read reference](./53-ce0-standalone-read-reference.md) independently
+executes empty and bounded point readback with actual snapshot overlap and no
+publication. Complete-request equivalence and timing acceptance remain open.
 
 ## Selected Boundary And Missing Evidence
 

@@ -50,9 +50,10 @@ requiring complete rollback. Restore all injected random and stored state.
 Run affected types/lint and both reviews; reconcile common-component statements,
 remove displaced reference plumbing, stop owned resources and commit.
 
-Standalone reads, duplicate titles from a caller-selected list, broader schema
-and lifecycle refusal profiles, updates/swaps/relations, native OCC and timing
-acceptance remain subsequent work. The fixed measured command generates distinct
+The [standalone read reference](./53-ce0-standalone-read-reference.md) now covers
+empty and bounded point readback. Duplicate titles from a caller-selected list,
+broader schema/lifecycle refusal profiles, updates/swaps/relations, native OCC
+and timing acceptance remain subsequent work. The fixed measured command generates distinct
 titles; that is a stated profile boundary, not a general uniqueness proof.
 
 ## Integrity Witness Boundary

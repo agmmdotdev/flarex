@@ -24,8 +24,9 @@ sorted changes. It preserves write ownership, eager uniqueness, collision
 refusal and successful-attempt accounting; the receipt budget remains charged
 after lowering. No caller-supplied receipts or nested commands enter this profile.
 The production delta planner and materialization writers do not implement its
-inserts. Standalone reads, broader document operations, updates, unique swaps,
-relations and native OCC remain complete-request acceptance work. Common-owner
+inserts. The [standalone read reference](./53-ce0-standalone-read-reference.md) now
+covers empty and bounded point readback. Broader document operations, updates,
+unique swaps, relations and native OCC remain acceptance work. Common-owner
 costs are not independently compared and no timing gate is relaxed.
 
 ## Design Challenge And Owners

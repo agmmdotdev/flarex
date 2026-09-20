@@ -17,7 +17,7 @@ import type { CmsHostInput } from "../src/cmsTransaction/host";
 import {
   cmsError,
   cmsLimits,
-  CmsTransactionError,
+  type CmsTransactionError,
 } from "../src/cmsTransaction/model";
 import {
   prepareCmsApplication,
@@ -39,15 +39,10 @@ import {
   hasRelationalSessionDatabase,
   runRelationalSession,
 } from "../src/relationalTransaction/session";
-import { RelationalSessionError } from "../src/relationalTransaction/model";
 import { runWithRequestRecovery } from "../src/relationalTransaction/requestRecovery";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
-import {
-  createCommittedPointOutcomeResolverV1,
-  CommittedPointOutcomeRequestKeyReuseErrorV1,
-  CommittedPointOutcomeCorruptionErrorV1,
-} from "../src/committedPointOutcome";
+import { createCommittedPointOutcomeResolverV1 } from "../src/committedPointOutcome";
 import {
   allocatePointCommitKernelResult,
   readPointCommitDatabaseTime,
@@ -56,7 +51,10 @@ import {
   type ScopePublicationContribution,
   type ScopePublicationKernel,
 } from "../src/commitPublication/scopePublicationModel";
-import { ce0PersistenceStep as persistenceStep } from "./ce0CmsReferencePersistence";
+import {
+  ce0PersistenceStep as persistenceStep,
+  projectCe0CmsRequestFailure as projectFailure,
+} from "./ce0CmsReferencePersistence";
 import { prepareCe0FirstInsertMaterialization } from "./ce0FirstInsertMaterialization";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { CmsFinalDocumentChange } from "../src/cmsTransaction/documents";
@@ -85,21 +83,6 @@ const digest = makeLivePrivateSha256V1({
 });
 const hash = (bytes: Uint8Array) =>
   digest(bytes, { maximumInputBytes: cmsLimits.commandBytes });
-const projectFailure = (cause: unknown): CmsTransactionError => {
-  if (cause instanceof CmsTransactionError) return cause;
-  if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1)
-    return cmsError("requestConflict", cause);
-  if (cause instanceof CommittedPointOutcomeCorruptionErrorV1)
-    return cmsError("storedCorruption", cause);
-  if (cause instanceof RelationalSessionError)
-    return cmsError(
-      cause.reason === "decisionUncertain"
-        ? "decisionUncertain"
-        : "resourceFailure",
-      cause,
-    );
-  return cmsError("invalidAuthority", cause);
-};
 
 /** Test-only scalar request. Admission, schema validation, readers, lifetime and
  * physical recovery are common. First-insert execution, writes and publication are independent.

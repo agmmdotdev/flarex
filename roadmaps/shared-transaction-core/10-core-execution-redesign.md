@@ -240,8 +240,10 @@ in another scope during a held publication. Same-scope serialization remains.
 The [first-insert executor](./52-ce0-first-insert-execution.md) independently owns
 pending inserts, collision/eager uniqueness decisions and accounting order. Schema
 validation, bounded readers, lifetime, admission and build/candidate authority
-remain common components. Protected readiness-root work and complete nonempty
-reference acceptance remain open.
+remain common components. The [standalone read reference](./53-ce0-standalone-read-reference.md)
+adds independent empty and bounded point readback, unchanged publication state,
+scoped absence/corruption and real snapshot overlap. Protected readiness-root
+work and complete reference acceptance remain open.
 
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its

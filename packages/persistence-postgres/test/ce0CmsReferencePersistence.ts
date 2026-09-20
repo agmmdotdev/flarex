@@ -1,3 +1,8 @@
+import { RelationalSessionError } from "../src/relationalTransaction/model";
+import {
+  CommittedPointOutcomeRequestKeyReuseErrorV1,
+  CommittedPointOutcomeCorruptionErrorV1,
+} from "../src/committedPointOutcome";
 import { Effect } from "effect";
 import { cmsError, CmsTransactionError } from "../src/cmsTransaction/model";
 import { rethrowPublicationFailure } from "../src/commitPublication/pointCommitProjection";
@@ -23,3 +28,21 @@ export const ce0PersistenceStep = <Value>(work: () => Promise<Value>) =>
     try: () => work().catch(rethrowPublicationFailure),
     catch: projectCe0KernelFailure,
   });
+
+export const projectCe0CmsRequestFailure = (
+  cause: unknown,
+): CmsTransactionError => {
+  if (cause instanceof CmsTransactionError) return cause;
+  if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1)
+    return cmsError("requestConflict", cause);
+  if (cause instanceof CommittedPointOutcomeCorruptionErrorV1)
+    return cmsError("storedCorruption", cause);
+  if (cause instanceof RelationalSessionError)
+    return cmsError(
+      cause.reason === "decisionUncertain"
+        ? "decisionUncertain"
+        : "resourceFailure",
+      cause,
+    );
+  return cmsError("invalidAuthority", cause);
+};

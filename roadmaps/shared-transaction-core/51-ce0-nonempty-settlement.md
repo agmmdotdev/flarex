@@ -18,8 +18,9 @@ The reference independently materializes nonempty rows, memberships and claims;
 its common schema validation, bounded readers and lifetime remain explicit. This proves
 the admitted first-insert profile, not complete CE0, capacity or a new concurrency
 protocol. The [first-insert executor](./52-ce0-first-insert-execution.md) now owns
-its fixed pending insert flow independently. Standalone reads, broader document
-operations, update/swap/relation profiles and lifecycle races remain open.
+its fixed pending insert flow independently. The [standalone read reference](./53-ce0-standalone-read-reference.md)
+adds bounded point snapshots across real publication. Broader document operations,
+update/swap/relation profiles and lifecycle races remain open.
 
 ## Design Challenge And Cutover
 
