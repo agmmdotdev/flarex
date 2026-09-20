@@ -1,4 +1,4 @@
-import { Effect, Option, Result } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result,
@@ -11,7 +11,7 @@ import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputErr
   type AppRowRevisionV1 } from "../appRows";
 import { deriveApplicationSyscallValidator, validateApplicationRevisionSyscallDocumentInTransactionV1 } from "../applicationRevisionSyscallValidatorV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
-import { lowerCanonicalAppUniqueConstraintV1Result } from "../appUniqueConstraintCommitV1";
+import { lowerCanonicalAppUniqueConstraintV1Result, type LoweredCanonicalAppUniqueConstraintV1 } from "../appUniqueConstraintCommitV1";
 import { readAppUniqueKeySlotInTransactionEffect, AppUniqueKeyPersistenceError, AppUniqueKeyHashError } from "../appUniqueKeys";
 import type { AppUniqueConstraintIdV1, AppUniqueKeyProjectionV1 } from "../appUniqueKeyContract";
 import { capturePrivateJsonData } from "../privateJsonData";
@@ -20,6 +20,17 @@ import type { ApplicationDocumentObservation } from "../applicationDocumentMater
 import { requireCmsAdmission, type CmsAdmission } from "./admission";
 import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 import type { CmsRequestLifetime } from "./lifetime";
+
+const CmsFindQuery = Schema.Struct({
+  where: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null])),
+  offset: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+  limit: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: cmsLimits.pageRows })),
+});
+const decodeFindQuery = Schema.decodeUnknownResult(CmsFindQuery, { onExcessProperty: "error" });
+const uniqueReadKey = (definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1) =>
+  projected.canonical.kind === "claim"
+    ? JSON.stringify([definition.uniqueConstraintDefinitionId, projected.canonical.localeKey, projected.canonical.encodedKey])
+    : null;
 
 interface PendingDocument {
   readonly tableId: CatalogTableId;
@@ -228,35 +239,42 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
     return { identity, pending: rows.get(identity.id) };
   });
+  const locateUnique = Effect.fn("CmsDocuments.locateUnique")(function* (
+    definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1,
+  ) {
+    const readKey = uniqueReadKey(definition, projected);
+    if (projected.canonical.kind !== "claim" || readKey === null) return null;
+    const cached = uniqueReads.get(readKey);
+    if (cached !== undefined) return cached.owner === null ? null : appDocumentIdV1FromRowIdentity(cached.owner);
+    const slot = yield* readAppUniqueKeySlotInTransactionEffect(state.tx, { scopeId: state.authority.scopeId,
+      constraintId: definition.uniqueConstraintDefinitionId, key: projected.projection }).pipe(Effect.mapError(cause =>
+      cmsError(cause instanceof AppUniqueKeyPersistenceError ? "statementFailure" : cause instanceof AppUniqueKeyHashError ? "resourceFailure" : "storedCorruption", cause)));
+    if (Option.isSome(slot)) {
+      const owner = slot.value;
+      if (owner.tableId !== definition.tableId) return yield* Effect.fail(cmsError("storedCorruption"));
+      const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(owner));
+      // Slot and owner revision were captured together. A cached or later row
+      // capture can differ legitimately under concurrent publication.
+      if (owned?.base?.commitSeq !== owner.ownerCommitSeq) return yield* Effect.fail(cmsError("writeConflict"));
+      if (owned.base.kind !== "live") return yield* Effect.fail(cmsError("storedCorruption"));
+      const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
+        .pipe(Result.mapError(cause => cmsError("storedCorruption", cause))));
+      if (base.canonical.kind !== "claim" || base.canonical.localeKey !== projected.canonical.localeKey ||
+        base.canonical.encodedKey !== projected.canonical.encodedKey) return yield* Effect.fail(cmsError("storedCorruption"));
+    }
+    const ownerId = Option.isNone(slot) ? null : appDocumentIdV1FromRowIdentity(slot.value);
+    yield* charge(128 + projected.canonical.canonicalKeyBytes.byteLength);
+    uniqueReads.set(readKey, Object.freeze({ constraintId: definition.uniqueConstraintDefinitionId,
+      key: projected.projection, owner: Option.isNone(slot) ? null : Object.freeze({ tableId: slot.value.tableId, rowId: slot.value.rowId }) }));
+    return ownerId;
+  });
   const ensureUnique = Effect.fn("CmsDocuments.validateUnique")(function* (pending: PendingDocument, document: CanonicalFlarexValueV1) {
-    const definitions = uniqueDefinitions.filter(definition => definition.tableId === pending.tableId);
-    if (definitions.length === 0) return;
-    for (const definition of definitions) {
+    for (const definition of uniqueDefinitions) {
+      if (definition.tableId !== pending.tableId) continue;
       const projected = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, document)
         .pipe(Result.mapError(cause => cmsError("documentInvalid", cause))));
       if (projected.canonical.kind !== "claim") continue;
-      const slot = yield* readAppUniqueKeySlotInTransactionEffect(state.tx, { scopeId: state.authority.scopeId,
-        constraintId: definition.uniqueConstraintDefinitionId, key: projected.projection }).pipe(Effect.mapError(cause =>
-        cmsError(cause instanceof AppUniqueKeyPersistenceError ? "statementFailure" : cause instanceof AppUniqueKeyHashError ? "resourceFailure" : "storedCorruption", cause)));
-      const readKey = JSON.stringify([definition.uniqueConstraintDefinitionId, projected.canonical.localeKey, projected.canonical.encodedKey]);
-      if (!uniqueReads.has(readKey)) {
-        yield* charge(128 + projected.canonical.canonicalKeyBytes.byteLength);
-        uniqueReads.set(readKey, Object.freeze({ constraintId: definition.uniqueConstraintDefinitionId,
-          key: projected.projection, owner: Option.isNone(slot) ? null : Object.freeze({ tableId: slot.value.tableId, rowId: slot.value.rowId }) }));
-      }
-      if (Option.isSome(slot)) {
-        const owner = slot.value;
-        if (owner.tableId !== pending.tableId) return yield* Effect.fail(cmsError("storedCorruption"));
-        const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(owner));
-        // Slot and owner revision were captured together. A cached or later row
-        // capture can differ legitimately under concurrent publication.
-        if (owned?.base?.commitSeq !== owner.ownerCommitSeq) return yield* Effect.fail(cmsError("writeConflict"));
-        if (owned.base.kind !== "live") return yield* Effect.fail(cmsError("storedCorruption"));
-        const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
-          .pipe(Result.mapError(cause => cmsError("storedCorruption", cause))));
-        if (base.canonical.kind !== "claim" || base.canonical.localeKey !== projected.canonical.localeKey ||
-          base.canonical.encodedKey !== projected.canonical.encodedKey) return yield* Effect.fail(cmsError("storedCorruption"));
-      }
+      yield* locateUnique(definition, projected);
       for (const other of rows.values()) {
         if (other.tableId !== pending.tableId || other.documentId === pending.documentId || other.current === null) continue;
         const existing = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, other.current)
@@ -349,31 +367,50 @@ export const makeCmsDocuments = Effect.fn("CmsDocuments.make")(function* (
     })));
   const find: CmsDocuments["find"] = Effect.fn("CmsDocuments.find")((context, id, tableName, input) =>
     lifetime.operation(context, id, "read", Effect.gen(function* () {
-      const query = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), cmsError));
-      yield* charge(query.bytes);
-      if (!isJsonObject(query.value) || query.value.where === undefined || !isJsonObject(query.value.where) || Object.keys(query.value).toSorted().join() !== "limit,offset,where" ||
-        typeof query.value.limit !== "number" || !Number.isSafeInteger(query.value.limit) || query.value.limit < 1 || query.value.limit > cmsLimits.pageRows ||
-        typeof query.value.offset !== "number" || !Number.isSafeInteger(query.value.offset) || query.value.offset < 0 ||
-        Object.values(query.value.where).some(value => value !== null && typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean")) {
-        return yield* Effect.fail(cmsError("invalidInput"));
-      }
+      const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), cmsError));
+      yield* charge(captured.bytes);
+      const query = yield* Effect.fromResult(decodeFindQuery(captured.value).pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
       const table = yield* Effect.fromResult(tableForName(tableName));
-      if (query.value.where._id !== undefined) {
-        const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(query.value.where._id).pipe(
+      let candidates: Iterable<PendingDocument> = rows.values();
+      if (query.where._id !== undefined) {
+        const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(query.where._id).pipe(
           Result.mapError(cause => cmsError("invalidInput", cause))));
         if (identity.tableId !== table.tableId) return yield* Effect.fail(cmsError("invalidInput"));
+        const { pending } = yield* locate(identity.id, tableName);
+        candidates = pending === undefined ? [] : [pending];
+      } else {
+        const where = query.where;
+        const definition = uniqueDefinitions.find(candidate => candidate.tableId === table.tableId &&
+          candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field)));
+        if (definition === undefined) {
+          if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
+          candidates = rows.values();
+        } else {
+          const document = yield* canonicalizeFlarexValueV1Effect(where, "appDocument")
+            .pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
+          const projected = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, document)
+            .pipe(Result.mapError(cause => cmsError("invalidInput", cause))));
+          const readKey = uniqueReadKey(definition, projected);
+          if (readKey === null) return yield* Effect.fail(cmsError("invalidInput"));
+          // An earlier key observation survives later scans. Otherwise a prior
+          // scan already owns this key's committed view. Local edits apply to both.
+          if (!scanned.has(table.tableId) || uniqueReads.has(readKey)) {
+            const ownerId = yield* locateUnique(definition, projected);
+            candidates = [...rows.values()].filter(row => row.tableId === table.tableId &&
+              (row.documentId === ownerId || row.attempts.length > 0));
+          }
+        }
       }
-      if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
-      const predicate = Object.entries(query.value.where);
+      const predicate = Object.entries(query.where);
       const matched: { id: AppDocumentIdV1; document: CanonicalFlarexValueV1 }[] = [];
-      for (const row of rows.values()) {
+      for (const row of candidates) {
         if (row.tableId !== table.tableId || row.current === null) continue;
         const document = row.current.value;
         if (!isNonArrayRecord(document)) return yield* Effect.fail(cmsError("storedCorruption"));
         if (predicate.every(([field, expected]) => Object.hasOwn(document, field) && document[field] === expected)) matched.push({ id: row.documentId, document: row.current });
       }
       matched.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
-      const docs = yield* Effect.forEach(matched.slice(query.value.offset, query.value.offset + query.value.limit), row => Effect.fromResult(output(row.document, true)));
+      const docs = yield* Effect.forEach(matched.slice(query.offset, query.offset + query.limit), row => Effect.fromResult(output(row.document, true)));
       return Object.freeze({ docs: Object.freeze(docs), total: matched.length });
     })));
   const close = Effect.fn("CmsDocuments.close")(function* (): Effect.fn.Return<CmsDocumentClosure, CmsTransactionError> {

@@ -6,6 +6,7 @@ import { payloadScalarContentIdentity } from "../../payload-adapter/src/conforma
 import { postgresUrl, useFileScopedPostgresPersistence } from "./postgresHelpers";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
 import { payloadScalarScenario } from "./payloadScalarScenario";
+import { payloadSelectiveLookupScenario } from "./payloadSelectiveLookupScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { fxSystemCommits } from "../src/schema";
 
@@ -79,5 +80,6 @@ describe.skipIf(postgresUrl === null)("pinned Payload scalar Local API (PostgreS
         expect(Exit.isFailure(await runEffect(Fiber.await(fiber)))).toBe(true);
       } finally { await runEffect(Fiber.interrupt(fiber)); }
       expect(await inventory()).toEqual(stable);
+      await payloadSelectiveLookupScenario({ conformance, host, hostInput, inventory });
     })), 180_000);
 });

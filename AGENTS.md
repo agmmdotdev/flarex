@@ -67,6 +67,14 @@ Use the finite remaining-work plan linked from the owning roadmap; measurements
 must answer a concrete implementation or acceptance question. Keep transaction
 cutovers coherent rather than increasing scope to meet an arbitrary file count.
 
+The owner also grants standing approval for the successor
+[shared-storage completion goal](roadmaps/shared-logical-storage/03-completion-plan.md).
+This covers generic-storage cutover of existing Medusa/Payload/Application
+consumers, required core corrections and structural migration consolidation and
+retirement. Apply the same preflight, review, cleanup and commit rules without
+repeat approval. Unrelated framework expansion, advanced evolution, developer
+APIs, hosted activation and silent durable-data deletion remain outside scope.
+
 Do not add compatibility wrappers, dual writes/readers, fallback engines or
 legacy APIs to avoid updating consumers. Migrate affected callers and remove
 displaced code within the coherent slice. Temporary retention requires a named

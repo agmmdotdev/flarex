@@ -297,10 +297,8 @@ export async function cmsCommandSettlementScenario(
   ).toEqual({ kind: "missing", basis: { kind: "noVisibleRevision" } });
   expect(closed.changes.map((row) => row.documentId)).toEqual([editedRow._id]);
   expect(closed.noFinalRows).toEqual([transientId]);
-  expect(closed.scans).toEqual([
-    { tableId: identity.tableId, frontier: before.clock[0]?.lastCommitSeq },
-  ]);
-  expect(closed.uniqueReads).toHaveLength(2);
+  expect(closed.scans).toEqual([]);
+  expect(closed.uniqueReads).toHaveLength(3);
   expect(closed.uniqueReads.every((read) => read.owner === null)).toBe(true);
   const after = await fixture.inventory();
   expect(after.rows).toHaveLength(before.rows.length);

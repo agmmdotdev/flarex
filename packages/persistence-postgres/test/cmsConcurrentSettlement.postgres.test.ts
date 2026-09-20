@@ -38,10 +38,18 @@ describe.skipIf(postgresUrl === null)(
       "unique",
       "scan",
       "fresh-read",
+      "key-present",
+      "key-absent",
+      "key-independent",
+      "key-absent-scan",
+      "key-turnover-scan",
+      "scan-first",
     ] as const)(
       "overlaps commands and validates %s decisions",
       (mode) =>
         withPersistence(async (persistence) => {
+          const absentKey = mode === "key-absent" || mode === "key-absent-scan";
+          const keyLookup = mode.startsWith("key-");
           const tested = await cmsExecutionMeasurementFixture(
             persistence,
             makePostgresRelationalSession(persistence),
@@ -89,15 +97,15 @@ describe.skipIf(postgresUrl === null)(
                     first._id,
                   ),
                 ).toMatchObject({ title: "first" });
-              } else if (mode === "scan") {
+              } else if (mode === "scan" || mode === "scan-first" || keyLookup) {
                 expect(
                   (yield* ctx.documents.find(
                     ctx.context,
                     ctx.transactionId,
                     "posts",
-                    { where: { title: "phantom" }, limit: 8, offset: 0 },
+                    { where: keyLookup ? { title: absentKey ? "phantom" : "first" } : {}, limit: 8, offset: 0 },
                   )).total,
-                ).toBe(0);
+                ).toBe(keyLookup ? absentKey ? 0 : 1 : 2);
               } else if (mode === "unique") {
                 yield* ctx.documents.insert(
                   ctx.context,
@@ -115,6 +123,15 @@ describe.skipIf(postgresUrl === null)(
               }
               yield* Deferred.succeed(entered, undefined);
               yield* Deferred.await(release);
+              if (mode === "key-absent-scan" || mode === "key-turnover-scan") {
+                yield* ctx.documents.find(ctx.context, ctx.transactionId, "posts", { where: {}, limit: 8, offset: 0 });
+              }
+              if (keyLookup || mode === "scan-first") {
+                const again = yield* ctx.documents.find(ctx.context, ctx.transactionId, "posts",
+                  { where: { title: absentKey || mode === "scan-first" ? "phantom" : "first" }, limit: 8, offset: 0 });
+                expect(again.total).toBe(absentKey || mode === "scan-first" ? 0 : 1);
+                if (!absentKey && mode !== "scan-first") expect(again.docs).toMatchObject([{ _id: first._id, title: "first" }]);
+              }
               if (mode === "read-decision") {
                 expect(
                   yield* ctx.documents.get(
@@ -143,10 +160,16 @@ describe.skipIf(postgresUrl === null)(
               return "held-result";
             }),
           });
+          const turnover = defineCmsCommand({ name: "turnoverKey", mode: "write", run: Effect.fn(function* (ctx) {
+            executions++;
+            yield* ctx.documents.patch(ctx.context, ctx.transactionId, first._id, { title: "moved-first" });
+            yield* ctx.documents.patch(ctx.context, ctx.transactionId, second._id, { title: "first" });
+            return null;
+          }) });
           const host = await runEffect(
             makeCmsHost({
               ...tested.input,
-              commands: [...tested.input.commands, patch, held],
+              commands: [...tested.input.commands, patch, held, turnover],
             }),
           );
           const key = host.newRequestKey();
@@ -160,14 +183,16 @@ describe.skipIf(postgresUrl === null)(
                 yield* Deferred.await(entered).pipe(
                   Effect.timeout("5 seconds"),
                 );
-                if (mode === "unique" || mode === "scan") {
+                if (mode === "key-turnover-scan") {
+                  yield* host.run(host.newRequestKey(), turnover, null);
+                } else if (mode === "unique" || mode === "scan" || absentKey || mode === "scan-first") {
                   yield* host.run(host.newRequestKey(), tested.insert, {
                     titles: [mode === "unique" ? "shared-unique" : "phantom"],
                   });
                 } else {
                   yield* host.run(host.newRequestKey(), patch, {
                     id:
-                      mode === "same-row" || mode === "read-decision"
+                      mode === "same-row" || mode === "read-decision" || mode === "key-present"
                         ? first._id
                         : second._id,
                     title: "other-second",
@@ -187,6 +212,7 @@ describe.skipIf(postgresUrl === null)(
                   mode === "same-row" ||
                   mode === "read-decision" ||
                   mode === "unique" ||
+                  (keyLookup && mode !== "key-independent") || mode === "scan-first" ||
                   mode === "scan"
                 ) {
                   expect(result).toMatchObject({
@@ -214,7 +240,7 @@ describe.skipIf(postgresUrl === null)(
                       seeded.map((row) => row._id),
                     ),
                   ).toMatchObject([
-                    { title: "held-first" },
+                    { title: mode === "key-independent" ? "first" : "held-first" },
                     { title: "other-second" },
                   ]);
                 }

@@ -2,6 +2,12 @@
 
 ## Status And Scope
 
+The active [completion plan](./03-completion-plan.md) owns the finite shared-storage
+cutover goal under standing approval, following the completed core execution work.
+It includes existing consumer migrations and structural-engine retirement; advanced
+evolution retains its separate boundary. [Selective CMS/Payload lookups](./04-selective-cms-lookups.md)
+is the first connected query slice.
+
 Sequencing warning: [advanced framework schema evolution](./deferred-framework-schema-evolution.md)
 is a separately approved follow-on after the core redesign. GLS work establishes
 shared foundations, existing safeguards and safe refusal, not a general upgrade
@@ -10,7 +16,8 @@ full migration/ownership transitions prerequisites for core completion.
 
 Status: accepted development-phase architecture replacement; the first
 [candidate-admission slice](./02-candidate-admission.md) is implemented as private metadata admission.
-Shared row execution and later gates remain pending. The owner chooses generic physical storage with logical Application,
+Selective CMS/Payload ID and unique-key reads are implemented; generic Medusa
+row execution and later gates remain pending. The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
 
@@ -63,7 +70,9 @@ into core. Runtime optimization follows this storage decision.
 Application/Payload data already uses fixed physical row, index, unique and
 edge families. Definitions and scoped keys identify logical data. Payload's
 collection compiler currently admits a narrow unique-field contract, emits no
-ordinary logical indexes, and CMS non-ID find uses bounded collection reads.
+ordinary logical indexes. CMS ID and complete flat unique-key equality reads use
+point/unique slots, including pending changes and exact conflict decisions;
+broad or unindexed find still uses bounded collection reads.
 Generic storage therefore exists without complete generic framework query support.
 
 Medusa currently compiles admitted models to physical module tables. Deployment

@@ -335,7 +335,8 @@ export const readApplicationBindingPreparationInputs = Effect.fn("ApplicationAct
   function* (input: ApplicationBindingInput, controlDb: FlarexMetadataDatabase) {
     const state = bindingPreparations.get(input);
     if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
-    return yield* readPreparedApplicationRelationInputs(state.readiness, controlDb);
+    const inputs = yield* readPreparedApplicationRelationInputs(state.readiness, controlDb);
+    return Object.freeze({ ...inputs, scopeId: state.authority.scopeId });
   },
 );
 

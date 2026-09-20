@@ -50,7 +50,7 @@ export const validateCmsDocumentContribution = Effect.fn(
   ) {
     return yield* Effect.fail(cmsError("invalidAuthority"));
   }
-  // Collection find currently reads the complete bounded table before filtering.
+  // Broad/unindexed collection find reads the complete bounded table before filtering.
   // Its frontier includes tombstones, so empty results cannot lose insertions.
   for (const scan of closed.scans) {
     if (!allowed.has(scan.tableId.toString()))
@@ -72,7 +72,7 @@ export const validateCmsDocumentContribution = Effect.fn(
     if (current !== scan.frontier)
       return yield* Effect.fail(cmsError("writeConflict"));
   }
-  // Retain eager uniqueness decisions even if a later operation removes the
+  // Retain unique lookup and eager uniqueness decisions even if a later operation removes the
   // final claim or coalesces the entire document away.
   for (const read of closed.uniqueReads) {
     const slot = yield* readAppUniqueKeySlotInTransactionEffect(state.tx, {

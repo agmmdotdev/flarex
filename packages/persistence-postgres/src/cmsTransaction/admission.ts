@@ -10,6 +10,11 @@ import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityReso
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
 import { Effect, Option, Schema } from "effect";
+import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
+import { MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
+import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { captureApplicationWritePolicyData, PayloadConfigurationSchema, type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 import type { ApplicationBindingInput, ApplicationBindingSelectionReader, AcceptedApplicationBinding } from "../applicationActivation";
 import { prepareApplicationBindingSelection, readApplicationBindingPreparationInputs, withAcceptedApplicationBinding, hasApplicationBindingComposition } from "../applicationActivation";
@@ -33,6 +38,7 @@ export interface PreparedCmsApplication {
   readonly configuration: PayloadConfiguration;
   readonly selection: ApplicationBindingInput;
   readonly schema: ApplicationRelationSchemaAuthority;
+  readonly uniqueDefinitions: readonly LocatedAppUniqueConstraintDefinitionV1[];
 }
 export interface CmsAdmissionState {
   readonly binding: AcceptedApplicationBinding;
@@ -52,6 +58,7 @@ export interface PreparedCmsPreferences {
 const admissions = new WeakMap<object, CmsAdmissionState>();
 const prepared = new WeakSet<object>();
 const isPayloadConfiguration = Schema.is(PayloadConfigurationSchema);
+const decodeDeploymentId = Schema.decodeUnknownEffect(TransactionGrantDeploymentIdV1Schema);
 
 function cmsClockMatches(authority: TrustedScopeAuthority, clock: ScopeClockRecord): boolean {
   return clock.scopeId === authority.scopeId && clock.storageGeneration === authority.storageGeneration &&
@@ -91,7 +98,7 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
 ) {
   if (!hasApplicationBindingComposition(application, authority)) return yield* Effect.fail(cmsError("invalidAuthority"));
   const selection = yield* prepareApplicationBindingSelection(application);
-  const { schema, manifest } = yield* readApplicationBindingPreparationInputs(selection, controlDb);
+  const { schema, manifest, scopeId } = yield* readApplicationBindingPreparationInputs(selection, controlDb);
   if (schema.deploymentId !== deploymentId || schema.writePolicy === null || schema.relations.length > 2) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }
@@ -102,7 +109,21 @@ export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function*
   const configuration = yield* Effect.fromResult(captureApplicationWritePolicyData(manifest.schema.writePolicies.configuration));
   if (!isPayloadConfiguration(configuration)) return yield* Effect.fail(cmsError("invalidAuthority"));
   yield* chargeHostPreparation(configuration).pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
-  const value: PreparedCmsApplication = Object.freeze({ selection, schema, configuration });
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId));
+  const deployment = yield* decodeDeploymentId(schema.deploymentId);
+  // Retained schema selection uses the closed-set bound. The separate command
+  // materializer applies its mutation budget to actual row/key transitions.
+  const uniqueDefinitions = yield* createAppUniqueConstraintDefinitionPortV1(controlDb).locate({
+    deploymentId: deployment, scopeId: scope.scopeId, schemaVersionId: schema.schemaVersionId,
+    tableIds: schema.writePolicy.writePolicies.filter(policy => policy.owner === "payload").map(policy => policy.tableId),
+    maximumDefinitions: MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
+  });
+  if (uniqueDefinitions === null) return yield* Effect.fail(cmsError("invalidAuthority"));
+  // Date is metadata here; account its value without admitting class instances
+  // into the prepared-host payload contract.
+  yield* chargeHostPreparation(uniqueDefinitions.map(definition => ({ ...definition, createdAt: definition.createdAt.getTime() })))
+    .pipe(Effect.mapError(cause => cmsError("resourceFailure", cause)));
+  const value: PreparedCmsApplication = Object.freeze({ selection, schema, configuration, uniqueDefinitions });
   prepared.add(value);
   return value;
 });

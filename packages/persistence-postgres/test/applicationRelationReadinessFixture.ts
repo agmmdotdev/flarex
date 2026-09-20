@@ -697,7 +697,8 @@ export async function prepareReadinessEvidence(
   if (closure !== null && closure.members.length !== 0) {
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput));
     let enabled = false;
-    for (let step = 0; step < 8; step += 1) {
+    // Each call advances one selected definition through its empty-table build.
+    for (let step = 0; step < 8 * closure.members.length; step += 1) {
       const advanced = await runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(uniquePorts, { ...uniqueInput, pageSize: 16 }));
       if (advanced.lifecycle === "enabled") { enabled = true; break; }
     }
