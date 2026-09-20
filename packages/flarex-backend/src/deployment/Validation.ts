@@ -1,6 +1,7 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
+import { SchemaManifestAppDeveloperOrderedIndexSpecV1Schema } from "flarex-protocol/schema-manifest";
 import { decodeAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
 import { decodeAuthConfigEffect } from "flarex-protocol/auth";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
@@ -35,6 +36,8 @@ import type {
 } from "../types";
 import { parseValidatorJson } from "../validation";
 import { DeploymentValidationError } from "./Errors";
+
+const decodeLogicalOrderedIndexSpec = Schema.decodeUnknownEffect(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema);
 
 export interface DeploymentPushStatusRow extends Record<string, string | number | null> {
   push_id: string;
@@ -484,11 +487,17 @@ export const decodeSchema = Effect.fn("DeploymentValidation.decodeSchema")(
         return yield* deploymentValidationFailureEffect(`Index ${indexName} has invalid fields.`);
       }
       const state = yield* decodeIndexState(index.state);
+      const projection = index.decimalFields === undefined ? undefined : yield* decodeLogicalOrderedIndexSpec(
+        { kind: "developerOrdered", specVersion: 1, fields: index.fields, decimalFields: index.decimalFields },
+      ).pipe(
+        Effect.mapError(() => new DeploymentValidationError({ message: `Index ${indexName} has invalid decimal projections.` })),
+      );
       normalizedIndexes.push({
         indexId,
         tableId,
         name: indexName,
         fields: [...index.fields],
+        ...(projection?.decimalFields === undefined ? {} : { decimalFields: [...projection.decimalFields] }),
         state,
       });
     }

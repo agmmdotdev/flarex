@@ -136,6 +136,30 @@ describe("FlarexDB semantic app index bindings", () => {
       .toThrow(defect);
   });
 
+  it("preflights direct and nested decimal field counts before element traversal", () => {
+    let traversals = 0;
+    const decimalFields = new Proxy(Array.from({ length: MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS + 1 }, () => "amount"), {
+      ownKeys(target) { traversals++; return Reflect.ownKeys(target); },
+      getOwnPropertyDescriptor(target, property) {
+        if (property === "0") traversals++;
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+      get(target, property, receiver) {
+        if (property === "0") traversals++;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(Result.isFailure(decodeSchemaManifestAppIndexDeclarationsV1Result([{
+      tableLogicalName: "prices", descriptor: "by_amount", fields: ["amount"], decimalFields,
+    }]))).toBe(true);
+    expect(traversals).toBe(0);
+    expect(Result.isFailure(decodeSchemaManifestIndexBindingsV1Result({ kind: "indexBindings", sectionVersion: 1, indexes: [{
+      logicalIndexId: 1, tableId: 1, namespace: "app", descriptor: "by_amount",
+      spec: { kind: "developerOrdered", specVersion: 1, fields: ["amount"], decimalFields },
+    }] }))).toBe(true);
+    expect(traversals).toBe(0);
+  });
+
   it("preserves preflight first-failure order before later property defects", () => {
     const laterDefect = new Error("later index field property defect");
     const declaration = new Proxy({

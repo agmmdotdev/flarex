@@ -74,6 +74,7 @@ export function makeSchemaComposer(configuration: {
       tableLogicalName: manifest.schema.tables.find(table => table.tableId === index.tableId)?.name,
       descriptor: index.name,
       fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: [...index.decimalFields] }),
     }))));
     const applicationSource = yield* captureLogicalSchemaSource({
       key: "application", owner: "application", writeProfile: "application.occ",

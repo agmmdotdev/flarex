@@ -50,6 +50,7 @@ export function analyzeCanonicalDeclarativeProgramV1(
         tableId,
         name: index.descriptor,
         fields: [...index.fields],
+        ...(index.decimalFields === undefined ? {} : { decimalFields: [...index.decimalFields] }),
       };
     },
   );

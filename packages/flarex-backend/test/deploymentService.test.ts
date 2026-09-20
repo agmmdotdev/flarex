@@ -58,6 +58,12 @@ import type {
 } from "../src/types";
 
 describe("DeploymentService", () => {
+  it("refuses decimal projections before planning writes to legacy deployment storage", async () => {
+    expect(await Effect.runPromise(Effect.flip(deploymentSchemaApplicationPlan({ version: 1, tables: [], indexes: [
+      { indexId: 1, tableId: 1, name: "by_amount", fields: ["amount"], decimalFields: ["amount"] },
+    ] })))).toBeInstanceOf(DeploymentValidationError);
+  });
+
   it("loads the active deployment through the store", async () => {
     const active = activeDeploymentStatus("push-active");
 

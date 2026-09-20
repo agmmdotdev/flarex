@@ -61,6 +61,21 @@ const LOCATOR = Object.freeze({
 } as const);
 
 describe("C08 developer ordered-index build", () => {
+  it("backfills exact decimal order and refuses an invalid page atomically", async () => {
+    const values = ["100", "20", "-1.2", "-1.21", "9007199254740993", "9007199254740992", "2e1", "0"];
+    const fixture = await makeFixture("decimal", values.map((name, index) => ({ rowByte: index + 1, name })), true);
+    await buildUntilEnabled(fixture, 16);
+    expect((await currentIndexRows(fixture)).map(row => Number.parseInt(row.row_id_hex.slice(0, 2), 16)))
+      .toEqual([4, 3, 8, 2, 7, 1, 6, 5]);
+    const invalid = await makeFixture("decimal-invalid", [{ rowByte: 1, name: "20" }, { rowByte: 2, name: "not-a-price" }], true);
+    await buildStep(invalid, 16);
+    await buildStep(invalid, 16);
+    expect(await runEffectFailure(buildAppDeveloperOrderedIndexV1Effect(invalid.ports, buildInput(invalid, 16))))
+      .toMatchObject({ reason: "storedDocumentInvalid" });
+    expect(await currentIndexRows(invalid)).toEqual([]);
+    expect(await buildState(invalid)).toMatchObject({ lifecycle: "backfilling", cursor: null });
+  });
+
   it("keeps the developer entry point exact instead of widening intrinsic acceptance", async () => {
     const fixture = await makeFixture("exact-kind", []);
     const failure = await runEffectFailure(buildAppDeveloperOrderedIndexV1Effect(
@@ -379,6 +394,7 @@ interface Fixture {
 async function makeFixture(
   suffix: string,
   rows: ReadonlyArray<Readonly<{ rowByte: number; name: string }>>,
+  decimalIndex = false,
 ): Promise<Fixture> {
   const persistence = await createMigratedPGlitePersistence();
   const deploymentId = `deployment_c08_dev_${suffix}`;
@@ -427,6 +443,7 @@ async function makeFixture(
       tableLogicalName: "users",
       descriptor: "by_name",
       fields: ["name"],
+      ...(decimalIndex ? { decimalFields: ["name"] } : {}),
     }],
   });
   for (const [index, row] of rows.entries()) {

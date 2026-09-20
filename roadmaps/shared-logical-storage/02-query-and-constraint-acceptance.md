@@ -33,11 +33,11 @@ below are behavioral inputs; their presence is not a fresh passing result.
 | --- | --- |
 | [Pinned Pricing repository](../../third_party/medusa/upstream/packages/modules/pricing/src/repositories/pricing.ts) | Calculated prices use currency/quantity filters, active and time-valid lists, rule aggregates, numeric comparisons, JSON containment and computed ordering. Its available-attribute cache is mutable. |
 | [Current Pricing adapter](../../packages/medusa-adapter/src/pricing-repository.ts) and [connected workflow](../../packages/medusa-adapter/src/product-variant-pricing-workflow.ts) | Selected creation/ID reads and a small native-step composition are implemented; they do not establish calculated Pricing or Inventory parity. |
-| [Exact numeric bridge](../../packages/medusa-adapter/src/exact-numeric.ts), [Price model](../../packages/medusa-pricing/src/models/price.ts) and [ordered-index codec](../../packages/flarex-protocol/src/ordered-index.ts) | Exact companions preserve native values; the current ordered-value union has no dedicated exact-decimal form. Storage fidelity and index ordering are different guarantees. |
+| [Exact numeric bridge](../../packages/medusa-adapter/src/exact-numeric.ts), [Price model](../../packages/medusa-pricing/src/models/price.ts) and [decimal index contract](./06-exact-decimal-indexes.md) | Exact companions preserve native values. Private logical indexes can project bounded decimal strings into exact ordered bytes without changing row presentation or native Application ordering. Calculated Pricing has not consumed this contract yet. |
 | [Product model](../../packages/medusa-product/src/models/product.ts) | Handle uniqueness is conditional on the native active-row predicate. |
 | [Link capture](../../packages/medusa-adapter/src/link-schema.ts) and [Link/workflow tests](../../packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts) | Captured Links have no endpoint FKs; cardinality/restore tests include pairs without created endpoint records. This is not a strong-reference existence proof. |
 | [Pinned variant workflow](../../third_party/medusa/upstream/packages/core/core-flows/src/product/workflows/create-product-variants.ts) | Inventory Links carry `required_quantity`; a universal bare pair or ID array cannot represent all rich Links. |
-| [Payload compiler](../../packages/payload-adapter/src/collections.ts) and [CMS documents](../../packages/persistence-postgres/src/cmsTransaction/documents.ts) | Ordinary index declarations are not currently admitted; non-ID find and early unique validation can read a bounded collection. Final core unique enforcement is a distinct boundary. |
+| [Payload compiler](../../packages/payload-adapter/src/collections.ts) and [CMS documents](../../packages/persistence-postgres/src/cmsTransaction/documents.ts) | Ordinary scalar/compound indexes, ID and complete flat unique-key selections execute through shared storage. Supported ranges preserve pending membership and exact settlement. Unindexed/residual selections and complete result counts retain explicit resource bounds. Final core unique enforcement is a distinct boundary. |
 | [Payload operation bridge](../../packages/payload-adapter/src/operations.ts) and [native create operation](https://github.com/payloadcms/payload/blob/v3.88.0/packages/payload/src/collections/operations/create.ts) | Actual Local API calls retain access checks; native afterChange processing precedes the operation's commit. The broad native pipeline also includes upload/email behavior outside the current narrow profile. |
 | [Atomic host](../../packages/persistence-postgres/src/atomicCommerce/host.ts), [commerce store](../../packages/persistence-postgres/src/commerceTransaction/store.ts) and [prepared admission](../../packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts) | Early scope locking, catalog-dependent work and selected installation-evidence checks remain current costs, not solved by a generic-storage design document. |
 
@@ -86,8 +86,9 @@ is an output bound, not a proof of bounded scanning, sorting or exact counting.
 The value contract separately declares storage representation, comparison,
 collation, null/missing behavior and uniqueness semantics. A decimal string is
 not a numeric ordered key, and binary64 is not an exact replacement for arbitrary
-admitted decimal values. Select a proven decimal encoding or generic typed access
-path; preserve native raw metadata and DTO presentation as separate concerns.
+admitted decimal values. The [private exact-decimal projection](./06-exact-decimal-indexes.md)
+supplies bounded finite-decimal ordering through existing shared index storage;
+preserve native raw metadata and DTO presentation as separate concerns.
 
 Differential/property tests against PostgreSQL numeric comparisons cover signs,
 equivalent scales, exponent forms, bounds, nullable quantity endpoints and values

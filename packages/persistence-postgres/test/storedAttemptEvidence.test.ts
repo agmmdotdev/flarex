@@ -4657,6 +4657,23 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
   });
 
+  it.each([false, true])("publishes decimal index values with atomic invalid-value refusal (%s)", async invalid => {
+    const prepared = await prepareO07BScenario(`decimal_publication_${invalid}`, async (current, table) => {
+      for (const [index, name] of ["100", invalid ? "NaN" : "20"].entries()) {
+        await runPointOperation(current.store, table, { kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(index + 1)), fields: { name } });
+      }
+    }, current => prepareDeveloperIndexForO06(current), false, "decimal");
+    const before = await o06DurableState(prepared.scopeUuid);
+    if (invalid) {
+      expect(await runFailure(prepared.authentication.publishPointCommit(prepared.plan))).toMatchObject({ reason: "entryValueInvalid" });
+      expect(await o06DurableState(prepared.scopeUuid)).toEqual(before);
+      expect(await developerIndexState(prepared.scopeUuid)).toMatchObject({ revisions: [], current: [] });
+    } else {
+      await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
+      expect(await developerIndexState(prepared.scopeUuid)).toMatchObject({ revisions: [{ isTombstone: false }, { isTombstone: false }], current: [{}, {}] });
+    }
+  });
+
   it("maintains developer-index insert, key move, delete, and atomic rollback", async () => {
     let insertedDocumentId: string | null = null;
     const inserted = await prepareO07BScenario(
@@ -7179,7 +7196,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ok: { optional: false, fieldType: { type: "boolean" } },
       },
     },
-    developerIndex: boolean | number = false,
+    developerIndex: boolean | number | "decimal" = false,
   ) {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       `deployment_stored_attempt_${label}`,
@@ -7201,7 +7218,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await setFlarexActivationClock(persistence, scopeId);
     const usersTable = appTable("users");
     const developerIndexCount =
-      developerIndex === true
+      (developerIndex === true || developerIndex === "decimal")
         ? 1
         : developerIndex === false
           ? 0
@@ -7220,6 +7237,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         tableLogicalName: "users",
         descriptor: `byDeveloperField${index}`,
         fields: developerIndexFields[index] ?? ["name"],
+        ...(developerIndex === "decimal" ? { decimalFields: ["name"] } : {}),
       })),
     });
     const seededDocumentId = seedRow
@@ -7272,6 +7290,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
               kind: "developerOrdered",
               specVersion: 1,
               fields: [...(developerIndexFields[index] ?? ["name"])],
+              ...(developerIndex === "decimal" ? { decimalFields: ["name"] } : {}),
             },
           })),
         },
@@ -7437,7 +7456,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ok: { optional: false, fieldType: { type: "boolean" } },
       },
     },
-    developerIndex: boolean | number = false,
+    developerIndex: boolean | number | "decimal" = false,
   ) {
     const current = await c04b2ActivatedInitialScenario(
       label,
@@ -8253,7 +8272,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           current: Awaited<ReturnType<typeof c04b2Scenario>>,
         ) => Promise<PointCommitTransactionProofOptionsV1>) = {},
     seedRow = false,
-    developerIndex: boolean | number = false,
+    developerIndex: boolean | number | "decimal" = false,
   ) {
     const running = await prepareO07BRunningScenario(
       label,
@@ -8340,7 +8359,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       persistence,
     ),
     seedRow = false,
-    developerIndex: boolean | number = false,
+    developerIndex: boolean | number | "decimal" = false,
   ) {
     const current = await c04b2Scenario(
       label,

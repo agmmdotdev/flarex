@@ -9,6 +9,18 @@ import {
 import { applicationObjectValidatorJson } from "../src/ValidatorJson";
 
 describe("application table and index authoring", () => {
+  it("owns decimal projection metadata through table and schema snapshots", () => {
+    const decimalFields = ["amount"];
+    const schema = applicationSchemaDefinition({ prices: {
+      documentType: applicationObjectValidatorJson({ amount: { fieldType: { type: "string" }, optional: false } }),
+      indexes: [{ descriptor: "by_amount", fields: ["amount"], decimalFields }],
+    } });
+    decimalFields[0] = "changed";
+    const snapshot = snapshotApplicationSchemaDefinition(schema);
+    expect(snapshot.indexes[0]).toMatchObject({ decimalFields: ["amount"] });
+    expect(Object.isFrozen(snapshot.indexes[0]?.decimalFields)).toBe(true);
+  });
+
   it("owns, validates, freezes, and deterministically orders a logical schema", () => {
     const fields = ["status"] as [string];
     const orders = applicationTableDefinitionWithIndex(

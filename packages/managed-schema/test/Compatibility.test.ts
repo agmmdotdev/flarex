@@ -172,6 +172,11 @@ describe("managed app-schema compatibility", () => {
       identity: "consistent",
       changes: [{ kind: "indexDefinitionChanged" }],
     });
+    const projected = index(1, 1, "by_name", ["name"]);
+    expect(classifyAppSchemaEvolution(active, manifest([recipeTable], [{
+      ...projected, spec: { kind: "developerOrdered", specVersion: 1, fields: ["name"], decimalFields: ["name"] },
+    }]))).toMatchObject({ disposition: "managedBuildAndValidation", physicalRequirements: "requiresBuildOrRetirement",
+      changes: [{ kind: "indexDefinitionChanged" }] });
 
     const tableIdentity = classifyAppSchemaEvolution(
       manifest([table(1, "recipes", objectValidator({ name: stringField }))]),

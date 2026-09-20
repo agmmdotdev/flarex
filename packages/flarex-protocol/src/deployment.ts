@@ -214,6 +214,7 @@ export class SchemaIndex extends Schema.Class<SchemaIndex>("SchemaIndex")({
   tableId: Schema.Number,
   name: Schema.String,
   fields: Schema.Array(Schema.String),
+  decimalFields: Schema.optionalKey(Schema.Array(Schema.String)),
   state: Schema.optional(IndexState),
 }) {}
 

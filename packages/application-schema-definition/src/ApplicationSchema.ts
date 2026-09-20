@@ -18,6 +18,7 @@ const DRAFT_TABLE_LOGICAL_NAME = "table";
 export interface ApplicationTableIndexDefinition {
   readonly descriptor: string;
   readonly fields: ReadonlyArray<string>;
+  readonly decimalFields?: ReadonlyArray<string>;
 }
 
 export interface ApplicationTableDefinition {
@@ -66,6 +67,7 @@ export function snapshotApplicationTableDefinition(
       tableLogicalName: DRAFT_TABLE_LOGICAL_NAME,
       descriptor: index.descriptor,
       fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
     })),
   );
   const documentType = snapshotObjectValidator(definition.documentType);
@@ -81,6 +83,7 @@ export function snapshotApplicationTableDefinition(
     indexes: Object.freeze(decodedIndexes.map(index => Object.freeze({
       descriptor: index.descriptor,
       fields: Object.freeze([...index.fields]),
+      ...(index.decimalFields === undefined ? {} : { decimalFields: Object.freeze([...index.decimalFields]) }),
     }))),
   });
 }
@@ -108,6 +111,7 @@ export function applicationSchemaDefinition(
         tableLogicalName: logicalName,
         descriptor: index.descriptor,
         fields: index.fields,
+        ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
       });
     }
   }
@@ -159,6 +163,7 @@ export function snapshotApplicationSchemaDefinition(
     tableLogicalName: index.tableLogicalName,
     descriptor: index.descriptor,
     fields: Object.freeze([...index.fields]),
+    ...(index.decimalFields === undefined ? {} : { decimalFields: Object.freeze([...index.decimalFields]) }),
   }));
   indexes.sort((left, right) => {
     const table = compareUtf16Strings(

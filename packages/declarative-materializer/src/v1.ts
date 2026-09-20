@@ -84,6 +84,7 @@ export type DeclarativeV2MaterializationV1ErrorReason =
   | "executionRoleRequired"
   | "multipleExecutionModules"
   | "schemaRoleUnsupported"
+  | "indexProjectionUnsupported"
   | "authRoleUnsupported";
 
 export class DeclarativeV2MaterializationV1Error extends Data.TaggedError(
@@ -1121,6 +1122,11 @@ export function materializeDeclarativeV2ArtifactsV1(
   return Result.gen(function* () {
     const budget =
       yield* admitDeclarativeV2MaterializationBudgetV1(rawBudget);
+    // The semantic verifier's native index record does not admit projections.
+    // Refuse before emission instead of stripping authenticated comparison rules.
+    if (program.schema.indexes.some(index => index.decimalFields !== undefined)) {
+      return yield* Result.fail(materializationError("materialize", "indexProjectionUnsupported"));
+    }
     const usage: MutableUsage = {
       modules: 0,
       entryBindings: 0,

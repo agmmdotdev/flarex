@@ -182,6 +182,7 @@ export class PointCommitDeveloperIndexMaintenanceUnavailableV1Error extends Data
   readonly reason:
     | "definitionSetUnavailable"
     | "entryRevisionLimitExceeded"
+    | "entryValueInvalid"
     | "entryKeyLimitExceeded";
   readonly observed?: number;
   readonly maximum?: number;

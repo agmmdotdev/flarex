@@ -1,4 +1,5 @@
 import { Effect, Result } from "effect";
+import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 
 import {
   type AppCreationTimeV1,
@@ -152,7 +153,7 @@ export function lowerAppDeveloperIndexKeyV1(
   definition: LocatedAppIndexDefinitionV1,
   document: CanonicalFlarexValueV1,
   creationTime: AppCreationTimeV1,
-): Result.Result<OrderedIndexKeyHexV1, OrderedIndexKeyTooLargeError> {
+): Result.Result<OrderedIndexKeyHexV1, OrderedIndexKeyTooLargeError | ExactDecimalError> {
   try {
     if (definition.access.kind !== "developer") {
       throw new TypeError("Expected a located developer index definition.");
@@ -183,7 +184,7 @@ export function lowerAppDeveloperIndexKeyV1(
       values: Object.freeze(values),
     }));
   } catch (cause) {
-    if (cause instanceof OrderedIndexKeyTooLargeError) {
+    if (cause instanceof OrderedIndexKeyTooLargeError || cause instanceof ExactDecimalError) {
       return Result.fail(cause);
     }
     throw cause;

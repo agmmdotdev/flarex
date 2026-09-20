@@ -249,6 +249,9 @@ export class PartitionDO extends DurableObject<Env> {
       tables: schemaCandidate.tables,
       indexes: schemaCandidate.indexes,
     };
+    if (schema.indexes.some(index => index.decimalFields !== undefined)) {
+      throw partitionDomainValidationError("Legacy partition schema caches do not admit decimal index projections.");
+    }
     return this.ctx.storage.transaction(async () => {
       this.sql.exec("DELETE FROM indexes");
       this.sql.exec("DELETE FROM tables");

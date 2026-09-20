@@ -1311,6 +1311,37 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
     });
   }, 60_000);
 
+  it("publishes exact decimal index changes, preserves equivalent keys and rolls invalid writes back", async () => {
+    await withPostgresPersistence(async persistence => {
+      const randomUuid = uuidFactory("96419000");
+      const scope = await createScope(persistence, randomUuid, "decimal_publication", true, ["users"], true);
+      const options = await prepareDeveloperIndexForPostgres(persistence, scope);
+      const publisher = createPublisher(persistence, options);
+      const inserted = await createAttempt(persistence, randomUuid, scope, "decimal_insert", { kind: "insert", name: "100" });
+      expect(await runEffect(publisher.publish(inserted.publicationCommand))).toMatchObject({ kind: "published" });
+      const intent = inserted.command.rowIntents[0];
+      if (intent?.kind !== "live") throw new Error("Missing decimal insert");
+      const second = await createAttempt(persistence, randomUuid, scope, "decimal_second", { kind: "insert", name: "20" });
+      await runEffect(publisher.publish(second.publicationCommand));
+      const reader = await createIndexedAttempt(persistence, randomUuid, scope, "decimal_read");
+      expect(reader.queryResult).toMatchObject({ outcome: { documents: [{ name: "20" }, { name: "100" }] } });
+      const before = await developerIndexState(persistence, inserted.command.sealIdentity.scopeUuid);
+      const equivalent = await createAttempt(persistence, randomUuid, scope, "decimal_equivalent", { kind: "patch", documentId: intent.documentId, name: "1e2" });
+      await runEffect(publisher.publish(equivalent.publicationCommand));
+      expect(await developerIndexState(persistence, inserted.command.sealIdentity.scopeUuid)).toEqual(before);
+      const invalid = await createAttempt(persistence, randomUuid, scope, "decimal_invalid", { kind: "patch", documentId: intent.documentId, name: "NaN" });
+      const durableBefore = await durableState(persistence, inserted.command.sealIdentity.scopeUuid);
+      expect(await runFailure(publisher.publish(invalid.publicationCommand))).toMatchObject({ reason: "entryValueInvalid" });
+      expect(await durableState(persistence, inserted.command.sealIdentity.scopeUuid)).toEqual(durableBefore);
+      expect(await developerIndexState(persistence, inserted.command.sealIdentity.scopeUuid)).toEqual(before);
+      const moved = await createAttempt(persistence, randomUuid, scope, "decimal_move", { kind: "patch", documentId: intent.documentId, name: "3" });
+      await runEffect(publisher.publish(moved.publicationCommand));
+      const after = await createIndexedAttempt(persistence, randomUuid, scope, "decimal_after");
+      expect(after.queryResult).toMatchObject({ outcome: { documents: [{ name: "3" }, { name: "20" }] } });
+      expect(await runEffect(publisher.publish(moved.publicationCommand))).toMatchObject({ kind: "replayed" });
+    });
+  }, 180_000);
+
   it("maintains developer-index key moves and rolls both entry changes back", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96418000");
@@ -4424,6 +4455,7 @@ async function createScope(
   label: string,
   developerIndex: boolean | number = false,
   logicalTables: readonly string[] = ["users"],
+  decimalIndex = false,
 ): Promise<ScopeScenario> {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     `deployment_o06_postgres_${label}`,
@@ -4455,6 +4487,7 @@ async function createScope(
     indexes: Array.from({ length: developerIndexCount }, (_, index) => ({
       tableLogicalName: "users",
       descriptor: `byName${index}`,
+      ...(decimalIndex ? { decimalFields: ["name"] } : {}),
       fields: [["name", "profile.alias"], ["alias"], ["category"]][index] ?? [
         "name",
       ],

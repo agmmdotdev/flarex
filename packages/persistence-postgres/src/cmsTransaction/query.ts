@@ -28,6 +28,8 @@ export function selectCmsIndex(definitions: readonly LocatedAppIndexDefinitionV1
     let selected = Option.none<{ definition: LocatedAppIndexDefinitionV1; expressions: OrderedIndexRangeExpressionV1[]; fields: number }>();
     for (const definition of definitions) {
       if (definition.access.kind !== "developer" || definition.access.tableId !== tableId) continue;
+      // CMS predicates currently describe native values, never decimal text.
+      if (definition.physicalSpec.orderedFields.some(field => field.kind === "documentPath" && field.valueFormat !== undefined)) continue;
       const expressions: OrderedIndexRangeExpressionV1[] = [];
       let fields = 0;
       for (const field of definition.physicalSpec.orderedFields) {

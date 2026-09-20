@@ -453,7 +453,8 @@ function indexBindingsEqual(
     && left.spec.kind === right.spec.kind
     && left.spec.specVersion === right.spec.specVersion
     && left.spec.fields.length === right.spec.fields.length
-    && left.spec.fields.every((field, index) => field === right.spec.fields[index]);
+    && left.spec.fields.every((field, index) => field === right.spec.fields[index])
+    && JSON.stringify(left.spec.decimalFields ?? []) === JSON.stringify(right.spec.decimalFields ?? []);
 }
 
 function indexPresenceChange(

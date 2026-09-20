@@ -28,6 +28,11 @@ remain distinct from logical schema evolution.
   and numeric ranges through shared indexes with pending membership and exact
   settlement validation. Complete page/count membership remains bounded. The
   selective-query package continues with representative Pricing and exact constraints.
+- Private logical indexes now carry an authenticated exact-decimal projection
+  through analysis, build, write maintenance and Application indexed pending reads.
+  [The decimal contract](./06-exact-decimal-indexes.md) preserves source text and
+  uses existing shared index bytes. This is an ordered-value prerequisite;
+  calculated Pricing, conditional unique constraints and commerce cutover remain.
 - Existing Medusa models still use physical relational artifacts and installation
   evidence. Exact numeric presentation, native Links and current workflow tests
   are replacement obligations, not generic query proofs.

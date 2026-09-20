@@ -195,6 +195,7 @@ interface ResolvedAppIndexDeclaration {
   readonly tableId: CatalogTableId;
   readonly descriptor: SchemaManifestAppIndexDescriptor;
   readonly fields: ReadonlyArray<SchemaManifestAppIndexFieldPath>;
+  readonly decimalFields?: ReadonlyArray<SchemaManifestAppIndexFieldPath>;
 }
 
 interface PlannedAppIndexBinding extends ResolvedAppIndexDeclaration {
@@ -474,6 +475,7 @@ function resolveAndSortIndexes(
       tableId,
       descriptor: index.descriptor,
       fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
     } satisfies ResolvedAppIndexDeclaration;
   });
   resolved.sort(compareResolvedIndexes);
@@ -681,6 +683,7 @@ function assembleManifestResult(
               kind: "developerOrdered",
               specVersion: 1,
               fields: index.fields,
+              ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
             },
           }))
           .toSorted((left, right) =>

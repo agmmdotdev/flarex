@@ -281,7 +281,8 @@ export const SchemaManifestAppDeveloperOrderedIndexSpecV1Schema =
     kind: Schema.Literal("developerOrdered"),
     specVersion: Schema.Literal(1),
     fields: SchemaManifestAppIndexDeclaredFieldsV1Schema,
-  }).annotate(StrictStructOptions);
+    decimalFields: Schema.optionalKey(SchemaManifestAppIndexDeclaredFieldsV1Schema),
+  }).check(Schema.makeFilter(validateDecimalIndexFields)).annotate(StrictStructOptions);
 export type SchemaManifestAppDeveloperOrderedIndexSpecV1 =
   typeof SchemaManifestAppDeveloperOrderedIndexSpecV1Schema.Type;
 export const decodeSchemaManifestAppDeveloperOrderedIndexSpecV1 =
@@ -294,7 +295,15 @@ export const SchemaManifestAppIndexDeclarationV1Schema = Schema.Struct({
   tableLogicalName: SchemaManifestAppTableNameSchema,
   descriptor: SchemaManifestAppIndexDescriptorSchema,
   fields: SchemaManifestAppIndexDeclaredFieldsV1Schema,
-}).annotate(StrictStructOptions);
+  decimalFields: Schema.optionalKey(SchemaManifestAppIndexDeclaredFieldsV1Schema),
+}).check(Schema.makeFilter(validateDecimalIndexFields)).annotate(StrictStructOptions);
+
+function validateDecimalIndexFields(index: { readonly fields: readonly string[]; readonly decimalFields?: readonly string[] }): string | undefined {
+  if (index.decimalFields === undefined) return undefined;
+  const selected = index.fields.filter(field => index.decimalFields?.includes(field));
+  return selected.length === index.decimalFields.length && selected.every((field, position) => field === index.decimalFields?.[position])
+    ? undefined : "Decimal fields must be a distinct subset in index field order";
+}
 export type SchemaManifestAppIndexDeclarationV1 =
   typeof SchemaManifestAppIndexDeclarationV1Schema.Type;
 export type SchemaManifestAppIndexDeclarationInputV1 =
@@ -620,11 +629,11 @@ function preflightSchemaManifestAppIndexFieldsResult(
 ): Result.Result<void, Schema.SchemaError> {
   if (!isNonArrayRecord(value)) return Result.succeed(undefined);
   return Result.gen(function* () {
-    const directFields = Object.getOwnPropertyDescriptor(value, "fields");
-    if (directFields !== undefined && "value" in directFields) {
-      yield* preflightSchemaManifestAppIndexFieldArrayResult(
-        directFields.value,
-      );
+    for (const key of ["fields", "decimalFields"]) {
+      const directFields = Object.getOwnPropertyDescriptor(value, key);
+      if (directFields !== undefined && "value" in directFields) {
+        yield* preflightSchemaManifestAppIndexFieldArrayResult(directFields.value);
+      }
     }
     const spec = Object.getOwnPropertyDescriptor(value, "spec");
     if (
@@ -632,11 +641,11 @@ function preflightSchemaManifestAppIndexFieldsResult(
       "value" in spec &&
       isNonArrayRecord(spec.value)
     ) {
-      const specFields = Object.getOwnPropertyDescriptor(spec.value, "fields");
-      if (specFields !== undefined && "value" in specFields) {
-        yield* preflightSchemaManifestAppIndexFieldArrayResult(
-          specFields.value,
-        );
+      for (const key of ["fields", "decimalFields"]) {
+        const specFields = Object.getOwnPropertyDescriptor(spec.value, key);
+        if (specFields !== undefined && "value" in specFields) {
+          yield* preflightSchemaManifestAppIndexFieldArrayResult(specFields.value);
+        }
       }
     }
   });
@@ -718,6 +727,7 @@ function validateSchemaManifestAppIndexDeclarations(
     const fieldList = JSON.stringify([
       index.tableLogicalName,
       index.fields,
+      index.decimalFields ?? [],
     ]);
     if (fieldLists.has(fieldList)) {
       return "Expected unique ordered app index field lists per table";
@@ -760,7 +770,7 @@ function validateSchemaManifestAppIndexBindings(
     }
     identities.add(identity);
 
-    const fieldList = JSON.stringify([index.tableId, index.spec.fields]);
+    const fieldList = JSON.stringify([index.tableId, index.spec.fields, index.spec.decimalFields ?? []]);
     if (fieldLists.has(fieldList)) {
       return "Expected unique ordered app index field bindings per table";
     }

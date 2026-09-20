@@ -525,6 +525,7 @@ function backendDeploymentAnalysisFromProtocol(
         tableId: index.tableId,
         name: index.name,
         fields: [...index.fields],
+        ...(index.decimalFields === undefined ? {} : { decimalFields: [...index.decimalFields] }),
         ...(index.state === undefined ? {} : { state: index.state }),
       })),
     },
@@ -569,6 +570,7 @@ function codegenDeploymentAnalysisFromProtocolEffect(
           tableId: index.tableId,
           name: index.name,
           fields: [...index.fields],
+          ...(index.decimalFields === undefined ? {} : { decimalFields: [...index.decimalFields] }),
         })),
       },
       functions: analysis.functions.map(module => ({

@@ -14,6 +14,7 @@ import {
 } from "flarex-protocol/json";
 import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
+import { SchemaManifestAppDeveloperOrderedIndexSpecV1Schema } from "flarex-protocol/schema-manifest";
 import {
   ValidatorJsonV1,
   validatorJsonAdmissionIssueV1,
@@ -146,12 +147,17 @@ const ApplicationManifestTableV1Schema = Schema.Struct({
   placement: ApplicationTablePlacementV1Schema,
 }).annotate(StrictStructOptions);
 
+const isLogicalOrderedIndexSpec = Schema.is(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema);
 const ApplicationManifestIndexV1Schema = Schema.Struct({
   indexId: PositiveSafeIntegerSchema,
   tableId: PositiveSafeIntegerSchema,
   name: NonemptyStringSchema,
   fields: Schema.Array(NonemptyStringSchema),
-}).annotate(StrictStructOptions);
+  decimalFields: Schema.optionalKey(Schema.Array(NonemptyStringSchema)),
+}).check(Schema.makeFilter(index => isLogicalOrderedIndexSpec({
+  kind: "developerOrdered", specVersion: 1, fields: index.fields,
+  ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
+}) ? undefined : "Invalid logical index fields or projections")).annotate(StrictStructOptions);
 
 const ApplicationManifestTablesV1Schema = Schema.Unknown.check(
   Schema.makeFilter(value =>
@@ -833,6 +839,7 @@ export const makeApplicationManifestV1 = Effect.fn(
         tableId: index.tableId,
         name: index.name,
         fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
       })),
     },
     functions,

@@ -14,7 +14,7 @@ export function validateApplicationWritePolicySchema(
   for (const configured of policies.configuration.tables) {
     const table = tables.find(candidate => candidate.name === configured.logicalTableName);
     if (configured.indexes?.some(expected => !indexes.some(actual => actual.tableId === table?.tableId &&
-      actual.name === expected.name && actual.fields.length === expected.fields.length && actual.fields.every((field, position) => field === expected.fields[position])))) {
+      actual.name === expected.name && actual.decimalFields === undefined && actual.fields.length === expected.fields.length && actual.fields.every((field, position) => field === expected.fields[position])))) {
       return Result.fail(new ApplicationWritePolicyError({ reason: "configurationMismatch", path: `configuration.tables.${configured.logicalTableName}.indexes` }));
     }
     const validator = tables.find(table => table.name === configured.logicalTableName)?.validator;

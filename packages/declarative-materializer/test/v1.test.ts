@@ -44,7 +44,7 @@ const MATERIALIZATION_BUDGET_INPUT = {
   maximumSemanticStreamBytes: 32_000,
 } satisfies DeclarativeV2MaterializationBudgetInputV1;
 
-function program(): CanonicalDeclarativeProgramV1 {
+function program(decimalIndex = false): CanonicalDeclarativeProgramV1 {
   const input = {
     format: CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
     version: CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
@@ -69,6 +69,7 @@ function program(): CanonicalDeclarativeProgramV1 {
         tableLogicalName: "orders",
         descriptor: "by_status",
         fields: ["status"],
+        ...(decimalIndex ? { decimalFields: ["status"] } : {}),
       }],
     },
     modules: [{
@@ -162,6 +163,12 @@ function success(): DeclarativeV2ArtifactIngressPlanV1 {
 }
 
 describe("@flarex/declarative-materializer/v1", () => {
+  test("refuses decimal projections that the semantic artifact cannot preserve", () => {
+    expect(materializeDeclarativeV2ArtifactsV1(program(true), graph().value, budget())).toMatchObject({
+      _tag: "Failure", failure: { reason: "indexProjectionUnsupported" },
+    });
+  });
+
   test("keeps the budget nominal and emits an inert deterministic ingress plan", () => {
     expectTypeOf<DeclarativeV2MaterializationBudgetInputV1>()
       .not.toMatchTypeOf<DeclarativeV2MaterializationBudgetV1>();

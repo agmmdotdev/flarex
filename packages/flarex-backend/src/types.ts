@@ -55,6 +55,7 @@ export type SchemaIndex = {
   tableId: number;
   name: string;
   fields: string[];
+  decimalFields?: string[];
   state?: "enabled" | "staged" | "disabled";
 };
 

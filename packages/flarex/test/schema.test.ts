@@ -8,6 +8,13 @@ import {
 } from "../src";
 
 describe("schema builders", () => {
+  it("refuses private decimal metadata instead of dropping it from public authoring", () => {
+    const table = defineGlobalTable({ amount: v.string() }).index("by_amount", ["amount"]);
+    const privateIndex = { name: "by_amount", fields: ["amount"], decimalFields: ["amount"] };
+    table.indexes[0] = privateIndex;
+    expect(() => defineSchema({ prices: table }).applicationSchemaDefinition).toThrow("does not admit decimal index projections");
+  });
+
   it("records partition placement and indexes", () => {
     const schema = defineSchema({
       users: definePartitionTable({ name: v.string() }),

@@ -219,6 +219,9 @@ function snapshotSdkTableDefinition(
   if (table.validator.json.type !== "object") {
     throw new TypeError("Flarex table definitions require an object validator.");
   }
+  if (table.indexes.some(index => Object.hasOwn(index, "decimalFields"))) {
+    throw new TypeError("The public schema authoring API does not admit decimal index projections.");
+  }
   return snapshotApplicationTableDefinition({
     documentType: table.validator.json,
     indexes: table.indexes.map(index => ({

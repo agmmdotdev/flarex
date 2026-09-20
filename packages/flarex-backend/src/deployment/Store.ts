@@ -214,7 +214,10 @@ export const deploymentSchemaApplicationPlan = Effect.fn(
   "DeploymentPushStore.deploymentSchemaApplicationPlan",
 )(function* (
   schema: DeploymentSchema,
-): Effect.fn.Return<DeploymentSchemaApplicationPlan> {
+): Effect.fn.Return<DeploymentSchemaApplicationPlan, DeploymentValidationError> {
+  if (schema.indexes.some(index => index.decimalFields !== undefined)) {
+    return yield* Effect.fail(new DeploymentValidationError({ message: "Legacy deployment storage does not admit decimal index projections." }));
+  }
   return {
     version: schema.version,
     tables: schema.tables.map(table => ({

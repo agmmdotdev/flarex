@@ -80,6 +80,7 @@ export function applicationSchemaPublicationInputResult(
     readonly tableLogicalName: string;
     readonly descriptor: string;
     readonly fields: ReadonlyArray<string>;
+    readonly decimalFields?: ReadonlyArray<string>;
   }> = [];
   for (const index of schema.indexes) {
     const tableLogicalName = tableNames.get(index.tableId);
@@ -92,6 +93,7 @@ export function applicationSchemaPublicationInputResult(
       tableLogicalName,
       descriptor: index.name,
       fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
     });
   }
   return Result.gen(function* () {
@@ -167,7 +169,8 @@ export function projectBoundApplicationSchemaResult(
     );
     if (
       bound === undefined ||
-      !stringArraysEqual(bound.spec.fields, index.fields)
+      !stringArraysEqual(bound.spec.fields, index.fields) ||
+      !stringArraysEqual(bound.spec.decimalFields ?? [], index.decimalFields ?? [])
     ) {
       return projectionFailure();
     }

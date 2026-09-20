@@ -110,6 +110,7 @@ export type AnalyzedSchema = {
     readonly tableId: number;
     readonly name: string;
     readonly fields: readonly string[];
+    readonly decimalFields?: readonly string[];
   }>;
 };
 
@@ -470,6 +471,7 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
     readonly tableLogicalName: string;
     readonly descriptor: string;
     readonly fields: ReadonlyArray<string>;
+    readonly decimalFields?: ReadonlyArray<string>;
   }> = [];
 
   for (const { name, table } of inspectedTables) {
@@ -504,6 +506,7 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
         tableLogicalName: name,
         descriptor: index.name,
         fields: index.fields,
+        ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
       });
     }
   }
@@ -527,6 +530,7 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
       tableId,
       name: index.descriptor,
       fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
     };
   });
 
@@ -805,7 +809,7 @@ const analyzeIndexesEffect = Effect.fn(function* (
   value: unknown,
   tableName: string,
 ): Effect.fn.Return<
-  ReadonlyArray<{ readonly name: string; readonly fields: readonly string[] }>,
+  ReadonlyArray<{ readonly name: string; readonly fields: readonly string[]; readonly decimalFields?: readonly string[] }>,
   AnalyzerSchemaError
 > {
   const rawIndexes = yield* Effect.try({
@@ -816,7 +820,7 @@ const analyzeIndexesEffect = Effect.fn(function* (
   if (rawIndexes === undefined) {
     return yield* schemaFailure(`Schema table "${tableName}" has invalid indexes.`);
   }
-  const indexes: Array<{ name: string; fields: string[] }> = [];
+  const indexes: Array<{ name: string; fields: string[]; decimalFields?: unknown }> = [];
   const indexCount = yield* Effect.try({
     try: () => rawIndexes.length,
     catch: (cause) =>
@@ -885,13 +889,15 @@ const analyzeIndexesEffect = Effect.fn(function* (
       }
       fields.push(field);
     }
-    indexes.push({ name, fields });
+    const decimalFields = yield* readSchemaPropertyEffect(index, "decimalFields", `schema.tables.${tableName}.indexes[${position}].decimalFields`);
+    indexes.push({ name, fields, ...(decimalFields === undefined ? {} : { decimalFields }) });
   }
   const decoded = yield* Effect.fromResult(
     decodeSchemaManifestAppIndexDeclarationsV1Result(indexes.map(index => ({
       tableLogicalName: tableName,
       descriptor: index.name,
       fields: index.fields,
+      ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
     }))),
   ).pipe(
     Effect.mapError(cause =>
@@ -901,6 +907,7 @@ const analyzeIndexesEffect = Effect.fn(function* (
   return decoded.map(index => ({
     name: index.descriptor,
     fields: index.fields,
+    ...(index.decimalFields === undefined ? {} : { decimalFields: index.decimalFields }),
   }));
 });
 
@@ -1333,6 +1340,7 @@ function backendSchemaFromAnalyzedSchemaEffect(
         tableId: index.tableId,
         name: index.name,
         fields: [...index.fields],
+        ...(index.decimalFields === undefined ? {} : { decimalFields: [...index.decimalFields] }),
       })),
     };
   });

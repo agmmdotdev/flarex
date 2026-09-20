@@ -1,4 +1,5 @@
 import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
+import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
@@ -1859,7 +1860,7 @@ function lowerDeveloperIndexKey(
     lowerAppDeveloperIndexKeyV1(definition, document, creationTime).pipe(
       Result.mapError(
         (cause) =>
-          new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
+          new PointCommitDeveloperIndexMaintenanceUnavailableV1Error(cause instanceof ExactDecimalError ? { reason: "entryValueInvalid" } : {
             reason: "entryKeyLimitExceeded",
             observed: cause.observedBytes,
             maximum: cause.maximumBytes,

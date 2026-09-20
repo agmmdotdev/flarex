@@ -1,3 +1,4 @@
+import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 import {
   isPhysicalIndexBuildActiveInTransactionEffect,
   PhysicalDefinitionLifecyclePersistenceError,
@@ -23,7 +24,6 @@ import { appIndexPhysicalSpecSha256HexV1ToBytes } from "flarex-protocol/index-de
 import type { IndexBuildStateRecord } from "./indexBuildStates";
 import {
   encodeAppOrderedIndexKeyV1,
-  OrderedIndexKeyTooLargeError,
   orderedIndexCreationTimeV1,
   orderedIndexKeyHexV1ToBytes,
   orderedIndexRowIdHexV1FromBytesResult,
@@ -1608,12 +1608,12 @@ function projectIndexKey(
     ),
   ).pipe(
     Effect.mapError(
-      (cause: OrderedIndexKeyTooLargeError) =>
+      (cause) =>
         new AppOrderedIndexBuildStateError({
           scopeId: state.scopeId,
           indexDefinitionId: state.indexDefinitionId,
-          reason: "indexKeyLimitExceeded",
-          detail: `ordered key uses ${cause.observedBytes} bytes; maximum is ${cause.maximumBytes}`,
+          reason: cause instanceof ExactDecimalError ? "storedDocumentInvalid" : "indexKeyLimitExceeded",
+          detail: cause instanceof ExactDecimalError ? `decimal projection refused: ${cause.reason}` : `ordered key uses ${cause.observedBytes} bytes; maximum is ${cause.maximumBytes}`,
         }),
     ),
   );

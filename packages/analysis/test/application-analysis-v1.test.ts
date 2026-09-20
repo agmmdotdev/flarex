@@ -22,6 +22,25 @@ import {
 const digest = (digit: string) => digit.repeat(64);
 
 describe("Application Analysis V1 contracts", () => {
+  it("preserves authenticated decimal projections and rejects contradictory field selections", async () => {
+    const analysis = applicationAnalysis();
+    const projected = { ...analysis, schema: { ...analysis.schema!, indexes: [
+      { indexId: 1, tableId: 1, name: "by_amount", fields: ["amount"], decimalFields: ["amount"] },
+    ] } };
+    const source = { rootSha256: digest("1"), executionModulePath: "_flarex/execution.js", schemaModulePath: "_flarex/schema.js",
+      modules: [moduleIdentity("_flarex/execution.js", "2"), { ...moduleIdentity("_flarex/schema.js", "3"), roles: 2 }] };
+    const result = await Effect.runPromise(makeApplicationManifestV1(projected, source));
+    expect(result.manifest.schema.indexes[0]).toMatchObject({ decimalFields: ["amount"] });
+    const index = result.manifest.schema.indexes[0]!;
+    expect(Result.isFailure(canonicalizeApplicationManifestV1({ ...result.manifest, schema: {
+      ...result.manifest.schema, indexes: [{ ...index, decimalFields: ["other"] }],
+    } }))).toBe(true);
+    const native = Result.getOrThrow(canonicalizeApplicationManifestV1({ ...result.manifest, schema: {
+      ...result.manifest.schema, indexes: [{ indexId: index.indexId, tableId: index.tableId, name: index.name, fields: index.fields }],
+    } }));
+    expect(native.canonicalBytes).not.toEqual(result.canonicalBytes);
+  });
+
   it("lowers loaded registration analysis to one deterministic manifest", async () => {
     const analysis = applicationAnalysis();
     const source = {

@@ -4,6 +4,7 @@ import {
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Result, Schema } from "effect";
+import { decodeExactDecimalOrderBytes, encodeExactDecimalOrderBytes, ExactDecimalError } from "./exact-decimal";
 
 import {
   APP_ROW_ID_BYTES_V1,
@@ -63,6 +64,7 @@ export const ORDERED_INDEX_KEY_CODEC_VERSION_V1 =
 export const AppOrderedIndexDocumentPathV1Schema = Schema.Struct({
   kind: Schema.Literal("documentPath"),
   path: SchemaManifestAppIndexFieldPathSchema,
+  valueFormat: Schema.optionalKey(Schema.Literal("exactDecimal")),
 }).annotate(StrictStructOptions);
 export type AppOrderedIndexDocumentPathV1 =
   typeof AppOrderedIndexDocumentPathV1Schema.Type;
@@ -390,6 +392,7 @@ export function lowerAppDeveloperOrderedIndexPhysicalSpecV1(
       ...decodedLogicalSpec.fields.map((path) => ({
         kind: "documentPath" as const,
         path,
+        ...(decodedLogicalSpec.decimalFields?.includes(path) ? { valueFormat: "exactDecimal" as const } : {}),
       })),
       APP_ORDERED_INDEX_SYSTEM_CREATION_TIME_V1,
     ],
@@ -481,6 +484,20 @@ export function orderedIndexValueFromFlarexValueV1(
   // Keep S05-A as the sole size, canonical-shape, and byte authority.
   encodeOrderedIndexComponentsV1([ordered]);
   return ordered;
+}
+
+/** The authenticated field owns projection; a query operand supplies only a value. */
+function projectOrderedIndexFieldValue(field: AppOrderedIndexPhysicalFieldV1, value: OrderedIndexComponentV1): OrderedIndexComponentV1 {
+  if (field.kind !== "documentPath" || field.valueFormat !== "exactDecimal") return value;
+  // Validate the tagged input before inspecting its properties.
+  encodeOrderedIndexComponentsV1([value]);
+  if (value.kind === "null" || value.kind === "missing") return value;
+  if (value.kind !== "string") throw new ExactDecimalError({ reason: "invalidInput" });
+  // This existing codec API is throwing; retain its exact typed input failure.
+  return Result.match(encodeExactDecimalOrderBytes(value.value), {
+    onFailure: cause => { throw cause; },
+    onSuccess: bytes => orderedIndexBytesV1FromBytes(bytes),
+  });
 }
 
 export function orderedIndexRowIdHexV1FromBytesResult(
@@ -635,7 +652,8 @@ export function encodeAppOrderedIndexKeyV1(input: {
     });
   }
   validateCreationTimeComponents(spec, input.values);
-  return encodeOrderedIndexComponentsV1(input.values);
+  return encodeOrderedIndexComponentsV1(input.values.map((value, index) =>
+    projectOrderedIndexFieldValue(spec.orderedFields[index]!, value)));
 }
 
 export function decodeOrderedIndexComponentsV1(
@@ -702,7 +720,15 @@ export function decodeAppOrderedIndexKeyV1(input: {
     spec.orderedFields.length,
   );
   validateCreationTimeComponents(spec, values);
-  return values;
+  return Object.freeze(values.map((value, index) => {
+    const field = spec.orderedFields[index]!;
+    if (field.kind !== "documentPath" || field.valueFormat !== "exactDecimal" || value.kind === "null" || value.kind === "missing") return value;
+    if (value.kind !== "bytes") throw invalidValue("$key", "decimal index component must contain projected bytes");
+    return Result.match(decodeExactDecimalOrderBytes(orderedIndexBytesV1ToBytes(value)), {
+      onFailure: cause => { throw cause; },
+      onSuccess: canonical => Object.freeze({ kind: "string" as const, value: canonical }),
+    });
+  }));
 }
 
 export function compareOrderedIndexKeysV1(
@@ -778,13 +804,14 @@ export function compileAppOrderedIndexBoundsV1(input: {
       });
     }
     validateRangeValue(expectedField, expression.value, equalities.length);
+    const projectedValue = projectOrderedIndexFieldValue(expectedField, expression.value);
     if (expression.op === "eq") {
       if (lower !== undefined || upper !== undefined) {
         throw new InvalidOrderedIndexRangeV1Error({
           issue: { reason: "equalityAfterInequality", expressionIndex: index },
         });
       }
-      equalities.push(expression.value);
+      equalities.push(projectedValue);
       continue;
     }
     if (expression.op === "gt" || expression.op === "gte") {
@@ -793,14 +820,14 @@ export function compileAppOrderedIndexBoundsV1(input: {
           issue: { reason: "duplicateLowerBound", expressionIndex: index },
         });
       }
-      lower = expression;
+      lower = { ...expression, value: projectedValue };
     } else {
       if (upper !== undefined) {
         throw new InvalidOrderedIndexRangeV1Error({
           issue: { reason: "duplicateUpperBound", expressionIndex: index },
         });
       }
-      upper = expression;
+      upper = { ...expression, value: projectedValue };
     }
   }
 
@@ -961,7 +988,8 @@ function samePhysicalField(
 ): boolean {
   if (right === undefined || left.kind !== right.kind) return false;
   return left.kind === "systemCreationTime" ||
-    (right.kind === "documentPath" && left.path === right.path);
+    (right.kind === "documentPath" && left.path === right.path &&
+      (left.valueFormat === undefined || left.valueFormat === right.valueFormat));
 }
 
 function decodeOrderedIndexRangeFieldV1(
@@ -984,7 +1012,7 @@ function decodeOrderedIndexRangeFieldV1(
       value,
       "$field",
       kindDescriptor.value === "documentPath"
-        ? ["kind", "path"]
+        ? Object.hasOwn(value, "valueFormat") ? ["kind", "path", "valueFormat"] : ["kind", "path"]
         : ["kind"],
     );
     return decodeAppOrderedIndexPhysicalFieldV1Shape(value);

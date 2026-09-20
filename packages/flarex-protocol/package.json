@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./app-document": "./src/app-document.ts",
+    "./internal/exact-decimal": "./src/exact-decimal.ts",
     "./app-document-id": "./src/app-document-id.ts",
     "./app-unique-constraint-definition": "./src/app-unique-constraint-definition.ts",
     "./internal/app-unique-constraint-set-v1": "./src/app-unique-constraint-set-v1.ts",

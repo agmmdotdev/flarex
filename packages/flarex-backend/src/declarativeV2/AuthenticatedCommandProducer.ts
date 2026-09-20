@@ -1547,6 +1547,7 @@ function deploymentAnalysisJson(
         tableLogicalName: index.tableLogicalName,
         descriptor: index.descriptor,
         fields: Object.freeze([...index.fields]),
+        ...(index.decimalFields === undefined ? {} : { decimalFields: Object.freeze([...index.decimalFields]) }),
       })),
     }),
     functions: definition.program.modules.flatMap(module =>

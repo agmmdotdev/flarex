@@ -1,3 +1,4 @@
+import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 import {
   bytesEqualFullScan as bytesEqual,
   encodeBytesToLowercaseHex,
@@ -879,7 +880,8 @@ export type SessionJournalRunIndexedQueryV1Error =
   | ReadFencedIndexBuildStateError
   | ReadAppIndexRangeV1Error
   | ReadAppRowError
-  | OrderedIndexKeyTooLargeError;
+  | OrderedIndexKeyTooLargeError
+  | ExactDecimalError;
 
 export type SessionJournalResolveApplicationRelationReadError =
   | InvalidSessionJournalCapabilityV1Error
@@ -2704,7 +2706,7 @@ function mapRunIndexedQueryFailure(
     cause instanceof SessionJournalPersistenceV1Error ||
     cause instanceof SessionJournalStorageCorruptionV1Error ||
     cause instanceof SessionJournalTargetUnavailableV1Error ||
-    cause instanceof OrderedIndexKeyTooLargeError
+    cause instanceof OrderedIndexKeyTooLargeError || cause instanceof ExactDecimalError
   ) return cause;
   return new SessionJournalPersistenceV1Error({
     operation: "runIndexedQuery",

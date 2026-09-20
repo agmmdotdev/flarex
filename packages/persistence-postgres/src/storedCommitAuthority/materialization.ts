@@ -1849,7 +1849,8 @@ function projectApplicationSchemaBindingResult(
       );
     if (bound === undefined || bound.spec.fields.length !== index.fields.length ||
       !bound.spec.fields.every((field, position) =>
-        field === index.fields[position])) {
+        field === index.fields[position]) ||
+      JSON.stringify(bound.spec.decimalFields ?? []) !== JSON.stringify(index.decimalFields ?? [])) {
       return Result.fail("applicationGraphInvalid");
     }
     if (tableId === undefined) return Result.fail("applicationGraphInvalid");

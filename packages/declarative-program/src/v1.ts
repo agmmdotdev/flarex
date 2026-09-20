@@ -842,7 +842,7 @@ function decodeIndex(
       "tableLogicalName",
       "descriptor",
       "fields",
-    ]);
+    ]) ?? captureExactRecord(value, ["tableLogicalName", "descriptor", "fields", "decimalFields"]);
     if (
       record === undefined ||
       typeof record.tableLogicalName !== "string" ||
@@ -892,10 +892,23 @@ function decodeIndex(
       );
       fields.push(field);
     }
+    let decimalFields: string[] | undefined;
+    if (Object.hasOwn(record, "decimalFields")) {
+      const selected = yield* captureDenseArray(record.decimalFields, MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS).pipe(
+        Result.mapError(() => programError("decodeProgram", "invalidSchema", { path: `${path}.decimalFields` })),
+      );
+      decimalFields = [];
+      for (const [position, field] of selected.entries()) {
+        if (typeof field !== "string") return yield* Result.fail(programError("decodeProgram", "invalidSchema", { path: `${path}.decimalFields[${position}]` }));
+        yield* chargeUtf8(context, "identifierUtf8Bytes", field, `${path}.decimalFields[${position}]`);
+        decimalFields.push(field);
+      }
+    }
     const decoded = yield* decodeSchemaManifestAppIndexDeclarationsV1Result([{
       tableLogicalName: record.tableLogicalName,
       descriptor: record.descriptor,
       fields,
+      ...(decimalFields === undefined ? {} : { decimalFields }),
     }]).pipe(
       Result.mapError((cause) =>
         programError("decodeProgram", "invalidSchema", { path, cause })
@@ -911,6 +924,7 @@ function decodeIndex(
       tableLogicalName: declaration.tableLogicalName,
       descriptor: declaration.descriptor,
       fields: Object.freeze([...declaration.fields]),
+      ...(declaration.decimalFields === undefined ? {} : { decimalFields: Object.freeze([...declaration.decimalFields]) }),
     });
   });
 }
@@ -1271,7 +1285,7 @@ export function decodeCanonicalDeclarativeProgramV1(
       const fieldLists = indexFieldListsByTable.get(
         declaration.tableLogicalName,
       ) ?? new Set<string>();
-      const fieldListIdentity = JSON.stringify(declaration.fields);
+      const fieldListIdentity = JSON.stringify([declaration.fields, declaration.decimalFields ?? []]);
       if (fieldLists.has(fieldListIdentity)) {
         return yield* Result.fail(
           programError("decodeProgram", "invalidSchema", {

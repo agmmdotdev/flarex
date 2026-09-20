@@ -197,6 +197,7 @@ interface ScenarioOptions {
   }>>;
   readonly targetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
   readonly developerIndex?: boolean;
+  readonly decimalIndex?: boolean;
   readonly developerIndexDescriptor?: unknown;
   readonly indexedQueryComposition?:
     | "exact"
@@ -343,6 +344,7 @@ describe("C03 Postgres SessionJournalStore", () => {
             tableLogicalName: "users",
             descriptor: "by_name",
             fields: ["name"],
+            ...(options.decimalIndex ? { decimalFields: ["name"] } : {}),
           }]
         : [],
     });
@@ -593,6 +595,30 @@ describe("C03 Postgres SessionJournalStore", () => {
     expect(await journalRoot(current.anchor.sessionId)).toMatchObject({ indexed_query_syscalls: 0, index_range_dependency_count: 0 });
     await persistence.drizzle.update(fxSystemIndexBuildStates).set({ firstReadableCommitSeq: CommitSeqSchema.make(1n) }).where(selected);
     await expect(invoke()).resolves.toMatchObject({ kind: "completed", delivery: "executed" });
+  });
+
+  it("orders exact decimals across snapshot and pending rows and refuses invalid staged values", async () => {
+    const current = await scenario("decimal_pending", { developerIndex: true, decimalIndex: true,
+      seedFields: { name: "100" }, additionalSeedFields: { name: "20" } });
+    if (current.developerIndex === null) throw new Error("Missing decimal index");
+    const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: current.anchor.scopeId,
+      schemaVersionId: current.schemaVersionId, schemaManifest: current.schemaManifest });
+    await runEffect(current.store.runPointOperationEffect(current.table, {
+      kind: "patch", syscallSequence: syscallSequence(1n), documentId: requireSeededDocumentId(current), patch: { name: "2e1" },
+    }, validator));
+    await runEffect(current.store.runPointOperationEffect(current.table, {
+      kind: "insert", syscallSequence: syscallSequence(2n), fields: { name: "3" },
+    }, validator));
+    const operation = { kind: "indexRange" as const, syscallSequence: syscallSequence(3n), bounds: {}, limit: 3 };
+    expect(await runEffect(current.store.runIndexedQueryEffect(current.developerIndex, operation))).toMatchObject({
+      kind: "completed", delivery: "executed", outcome: { documents: [{ name: "3" }, { name: "2e1" }, { name: "20" }], isDone: true },
+    });
+    expect(await runEffect(current.store.runIndexedQueryEffect(current.developerIndex, operation))).toMatchObject({ delivery: "replayed" });
+    await runEffect(current.store.runPointOperationEffect(current.table, {
+      kind: "patch", syscallSequence: syscallSequence(4n), documentId: requireSeededDocumentId(current), patch: { name: "invalid" },
+    }, validator));
+    expect(await runFailure(current.store.runIndexedQueryEffect(current.developerIndex, { ...operation, syscallSequence: syscallSequence(5n) })))
+      .toMatchObject({ _tag: "ExactDecimalError", reason: "invalidInput" });
   });
 
   it("captures and replays one exact indexed snapshot page", async () => {

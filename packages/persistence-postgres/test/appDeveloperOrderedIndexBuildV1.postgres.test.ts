@@ -1,4 +1,6 @@
 import { eq } from "drizzle-orm";
+import { compileAppOrderedIndexBoundsV1, appOrderedIndexDocumentPathV1, orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
+import { scanCurrentAppIndexInTransactionEffect } from "../src/appIndexEntries";
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeAppDocumentV1,
@@ -9,6 +11,7 @@ import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
+  decodeSchemaManifestAppIndexFieldPath,
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
@@ -54,6 +57,49 @@ describe("C08 developer ordered-index PostgreSQL environment", () => {
 });
 
 describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
+  it("matches PostgreSQL numeric order and ranges through the shared decimal index", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const values = ["100", "20", "-1.2", "-1.21", "9007199254740993", "9007199254740992", "2e1", "0", "-0.00", "20.00",
+        "1e-16383", "-1e-16383", "1e131071", "-1e131071", ...Array.from({ length: 65 }, (_, i) => `${BigInt(i - 32) * 123456789012345678901n}e-25`), "987654321"];
+      const fixture = await makeFixture(persistence, values);
+      let enabled = false;
+      for (let i = 0; i < 16; i++) {
+        if ((await buildStep(fixture)).lifecycle === "enabled") { enabled = true; break; }
+      }
+      expect(enabled).toBe(true);
+      const definition = await runEffect(locateAppIndexDefinitionByIdEffect(persistence.drizzle, fixture.scopeId, fixture.indexDefinitionId));
+      if (definition === null) throw new Error("Missing decimal definition");
+      const all = await persistence.drizzle.transaction(tx => runEffect(scanCurrentAppIndexInTransactionEffect(tx, { scopeId: fixture.scopeId, definition, bounds: {}, limit: 200 })));
+      const expected = await persistence.query<{ ordinal: number }>("select ordinal::int from unnest($1::text[]) with ordinality as v(amount, ordinal) order by amount::numeric, ordinal", [values]);
+      expect(all.entries.map(entry => Number.parseInt(entry.rowId.slice(0, 2), 16))).toEqual(expected.rows.map(row => row.ordinal));
+      const bounds = compileAppOrderedIndexBoundsV1({ spec: definition.physicalSpec, expressions: [
+        { op: "gte", field: appOrderedIndexDocumentPathV1(decodeSchemaManifestAppIndexFieldPath("name")), value: orderedIndexValueFromFlarexValueV1("2e1") },
+        { op: "lt", field: appOrderedIndexDocumentPathV1(decodeSchemaManifestAppIndexFieldPath("name")), value: orderedIndexValueFromFlarexValueV1("100") },
+      ] });
+      const range = await persistence.drizzle.transaction(tx => runEffect(scanCurrentAppIndexInTransactionEffect(tx, { scopeId: fixture.scopeId, definition, bounds, limit: 200 })));
+      expect(range.entries.map(entry => Number.parseInt(entry.rowId.slice(0, 2), 16))).toEqual([2, 7, 10]);
+      const foreign = await persistence.drizzle.transaction(tx => runEffectFailure(scanCurrentAppIndexInTransactionEffect(tx, {
+        scopeId: ScopeIdSchema.make("scope_c08e0000-0000-0000-0000-000000000002"), definition, bounds: {}, limit: 200,
+      })));
+      expect(foreign).toMatchObject({ issue: "invalidLocatedDefinition" });
+      await seedPlannerRows(persistence, fixture.indexDefinitionId, 20_000);
+      const observations: { sql: string; params: readonly unknown[] }[] = [];
+      const selective = await persistence.drizzle.transaction(tx => runEffect(scanCurrentAppIndexInTransactionEffect(tx, {
+        scopeId: fixture.scopeId, definition, bounds: compileAppOrderedIndexBoundsV1({ spec: definition.physicalSpec, expressions: [
+          { op: "eq", field: appOrderedIndexDocumentPathV1(decodeSchemaManifestAppIndexFieldPath("name")), value: orderedIndexValueFromFlarexValueV1("987654321.0") },
+        ] }), limit: 2,
+      }, observation => observations.push(observation))));
+      expect(selective.entries).toHaveLength(1);
+      const query = observations[0]!;
+      const plan = await persistence.query<{ "QUERY PLAN": string }>(`explain (analyze, buffers, costs off) ${query.sql}`, [...query.params]);
+      const explained = plan.rows.map(row => row["QUERY PLAN"]).join("\n");
+      expect(explained).toMatch(/Index (?:Only )?Scan.*on fx_app_index_entry_current/);
+      expect(explained).toMatch(/Index Cond:.*scope_uuid.*index_definition_id.*encoded_key >=.*encoded_key </);
+      expect(explained).not.toMatch(/Seq Scan on fx_app_index_entry_current/);
+      expect((await persistence.query<{ superuser: boolean }>("select rolsuper as superuser from pg_roles where rolname=current_user")).rows[0]?.superuser).toBe(false);
+    });
+  }, 180_000);
+
   it("proves rollback, scope-clock serialization, replay, and the validation access path", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const fixture = await makeFixture(persistence);
@@ -139,7 +185,7 @@ describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
   }, 180_000);
 });
 
-async function makeFixture(persistence: PostgresFlarexPersistence) {
+async function makeFixture(persistence: PostgresFlarexPersistence, decimals?: readonly string[]) {
   const deploymentId = "deployment_c08_dev_postgres";
   const scopeId = ScopeIdSchema.make(
     "scope_c08e0000-0000-0000-0000-000000000001",
@@ -189,16 +235,18 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
         tableLogicalName: "users",
         descriptor: "by_name",
         fields: ["name"],
+        ...(decimals === undefined ? {} : { decimalFields: ["name"] }),
       },
     ],
   });
-  for (let value = 1; value <= 18; value += 1) {
+  for (let value = 1; value <= (decimals?.length ?? 18); value += 1) {
     await insertRow(
       persistence,
       scopeId,
       schemaVersionId,
       value,
       BigInt(value),
+      decimals?.[value - 1],
     );
   }
   const target = createPostgresLocatedIndexBuildReconciliationTargetV1(
@@ -247,6 +295,7 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
   }
   return Object.freeze({
     ports,
+    scopeId,
     indexDefinitionId,
     input: Object.freeze({
       deploymentId,
@@ -295,6 +344,7 @@ async function insertRow(
   schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>,
   rowByte: number,
   commitSeqValue: bigint,
+  name = `user-${String(19 - rowByte).padStart(2, "0")}`,
 ) {
   const rowId = decodeAppRowIdHexV1(
     rowByte.toString(16).padStart(2, "0").repeat(16),
@@ -305,7 +355,7 @@ async function insertRow(
     tableId,
     rowId,
     creationTime,
-    fields: { name: `user-${String(19 - rowByte).padStart(2, "0")}` },
+    fields: { name },
   });
   const clock = await persistence.getScopeClock(scopeId);
   if (clock === null) throw new Error("Developer PostgreSQL clock missing.");
