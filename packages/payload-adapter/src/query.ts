@@ -6,7 +6,7 @@ import { UnsupportedPayloadCapability } from "./errors";
 import { canonicalPayloadNumber } from "./contract";
 import type { PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 
-const Predicate = Schema.Struct({ equals: Schema.optionalKey(Schema.Union([Schema.String, Schema.Finite, Schema.Boolean])),
+const Predicate = Schema.Struct({ equals: Schema.optionalKey(Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Null])),
   greater_than: Schema.optionalKey(Schema.Finite), greater_than_equal: Schema.optionalKey(Schema.Finite),
   less_than: Schema.optionalKey(Schema.Finite), less_than_equal: Schema.optionalKey(Schema.Finite),
 }).annotate({ parseOptions: { onExcessProperty: "error" } }).check(Schema.makeFilter(value =>
@@ -24,7 +24,9 @@ export function makePayloadQuery(collection: PayloadCollection) {
       if (!allowed.has(name)) return "Unsupported query field";
       const field = collection.fields.find(candidate => candidate.name === name);
       const kind = name === "id" ? "text" : field?.kind;
-      if (predicate.equals === undefined) {
+      if (predicate.equals === null) {
+        if (field === undefined || field.kind === "relationship" || !field.nullable) return "Only nullable scalar fields accept null equality";
+      } else if (predicate.equals === undefined) {
         if (kind !== "number") return "Only numeric range predicates are admitted";
       } else if (typeof predicate.equals !== (kind === "number" ? "number" : kind === "boolean" ? "boolean" : "string") ||
         (kind === "date" && (typeof predicate.equals !== "string" || !isCanonicalIsoTimestamp(predicate.equals)))) return "Query value does not match the field";
@@ -45,6 +47,10 @@ export function makePayloadQuery(collection: PayloadCollection) {
     for (const [name, predicate] of Object.entries(where)) {
       const field = name === "id" ? "_id" : name;
       translated[field] = predicate.equals !== undefined ? typeof predicate.equals === "number" ? canonicalPayloadNumber(predicate.equals) : predicate.equals : {
+        // Payload comparisons select finite numbers. The shared ordered domain
+        // also contains null/missing below numbers, so upper-only ranges need
+        // the domain's lower bound in both indexed and residual evaluation.
+        ...(predicate.greater_than === undefined && predicate.greater_than_equal === undefined ? { gte: -Number.MAX_VALUE } : {}),
         ...(predicate.greater_than === undefined ? {} : { gt: canonicalPayloadNumber(predicate.greater_than) }),
         ...(predicate.greater_than_equal === undefined ? {} : { gte: canonicalPayloadNumber(predicate.greater_than_equal) }),
         ...(predicate.less_than === undefined ? {} : { lt: canonicalPayloadNumber(predicate.less_than) }),

@@ -86,15 +86,20 @@ const payloadFields = (profile: PayloadContentProfile, collection: PayloadCollec
       normalized[key] = Result.getOrThrow(payloadManyIds(value));
       continue;
     }
-    const scalar = collection.fields.find(field => field.name === key && field.kind !== "relationship");
-    if (scalar === undefined) throw new UnsupportedPayloadCapability(`document field: ${key} (${typeof value})`);
+    const scalar = collection.fields.find(field => field.name === key);
+    if (scalar === undefined || scalar.kind === "relationship") throw new UnsupportedPayloadCapability(`document field: ${key} (${typeof value})`);
     if (value === undefined && payloadIsManagedField(key)) continue;
+    if (scalar.nullable && value === undefined) continue;
+    if (scalar.nullable && value === null) { normalized[key] = null; continue; }
     if (scalar.kind === "date") {
       if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new UnsupportedPayloadCapability("date");
       normalized[key] = new Date(value).toISOString();
     } else normalized[key] = scalar.kind === "number" && typeof value === "number" ? canonicalPayloadNumber(value) : value;
   }
   if (creationTimestamp !== undefined) {
+    // Native defaults have already run. SQL INSERT would fill remaining nullable
+    // columns with null; patches keep undefined members absent instead.
+    for (const scalar of collection.fields) if (scalar.kind !== "relationship" && scalar.nullable) normalized[scalar.name] ??= null;
     if (payloadHasMany(profile)) normalized.relatedPosts ??= [];
     normalized.createdAt ??= creationTimestamp;
     normalized.updatedAt ??= creationTimestamp;

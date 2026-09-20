@@ -40,10 +40,11 @@ const ScalarField = Schema.Struct({
   name: Identity,
   kind: Schema.Literals(["text", "number", "boolean", "date"]),
   unique: Schema.optionalKey(Schema.Literal(true)),
+  nullable: Schema.optionalKey(Schema.Literal(true)),
   defaultValue: Schema.optionalKey(Schema.Union([Schema.String,
     Schema.Finite.check(Schema.makeFilter(value => Object.is(value, -0) ? "Negative zero is not canonical" : undefined)), Schema.Boolean])),
 }).annotate(StrictStructOptions).check(Schema.makeFilter(field => {
-  if (field.unique !== undefined && field.kind !== "text") return "Only required text fields support uniqueness";
+  if (field.unique !== undefined && field.kind !== "text") return "Only text fields support field-level uniqueness";
   const defaultType = field.kind === "text" || field.kind === "date" ? "string" : field.kind;
   return field.defaultValue === undefined || typeof field.defaultValue === defaultType ? undefined : "Default must match the scalar kind";
 }));
@@ -103,7 +104,7 @@ export const PayloadConfigurationSchema = Schema.Union([
       return "Indexes require distinct declared scalar fields and names";
     }
     const managed = table.fields.filter(field => field.name === "createdAt" || field.name === "updatedAt");
-    if (table.timestamps ? managed.length !== 2 || managed.some(field => field.kind !== "date" || field.defaultValue !== undefined || field.unique !== undefined) : managed.length !== 0) {
+    if (table.timestamps ? managed.length !== 2 || managed.some(field => field.kind !== "date" || field.defaultValue !== undefined || field.unique !== undefined || field.nullable !== undefined) : managed.length !== 0) {
       return "Managed timestamps must agree with the declared date fields";
     }
   }

@@ -49,6 +49,8 @@ const declarations = Effect.fn("ApplicationUniqueDeclarations.lower")(function* 
       const descriptor = SchemaManifestAppIndexDescriptorSchema.make(`u_${digest.slice(0, 60)}`);
       const physicalSpec = yield* Effect.fromResult(decodeAppUniqueConstraintPhysicalSpecV1Result({
         kind: "appUniqueConstraint", specVersion: 1, orderedFields: fields, sparse: false,
+        ...(fields.some(name => configured.fields.some(field => field.name === name && field.kind !== "relationship" && field.nullable))
+          ? { nullsDistinct: true } : {}),
         localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
         keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
       }).pipe(Result.mapError(cause => new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause }))));

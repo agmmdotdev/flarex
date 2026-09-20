@@ -1,7 +1,7 @@
 import { BasePayload, createLocalReq, validations, type CollectionConfig, type PayloadRequest } from "payload";
 import { Effect, Schema } from "effect";
 import { applicationSchemaDefinition, applicationTableDefinition, snapshotApplicationTableDefinition } from "@flarex/application-schema-definition/application-schema";
-import { applicationIdValidatorJson, applicationObjectValidatorJson, applicationScalarValidatorJson } from "@flarex/application-schema-definition/validator-json";
+import { applicationIdValidatorJson, applicationObjectValidatorJson, applicationScalarValidatorJson, applicationUnionValidatorJson } from "@flarex/application-schema-definition/validator-json";
 import { decodeRelationDeclarationsV1Result } from "flarex-protocol/internal/relation-declaration-v1";
 import { captureApplicationWritePolicyData, digestApplicationWritePolicyFrame, verifyApplicationWritePolicies,
   PayloadCollectionSlugSchema, payloadCollectionLogicalName,
@@ -16,7 +16,7 @@ import { payloadScalarProvenance } from "./contract";
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
 const FieldName = SchemaManifestAppTableNameSchema.check(Schema.makeFilter(name =>
   ["id", "createdAt", "updatedAt", "constructor", "prototype"].includes(name) ? "Reserved field name" : undefined));
-const common = { name: FieldName, required: Schema.Literal(true), index: Schema.optionalKey(Schema.Literal(true)) };
+const common = { name: FieldName, required: Schema.optionalKey(Schema.Boolean), index: Schema.optionalKey(Schema.Literal(true)) };
 const NumberDefault = Schema.Finite.check(Schema.makeFilter(value => Object.is(value, -0) ? "Negative zero is not canonical" : undefined));
 const NativeField = Schema.Union([
   Schema.Struct({ ...common, type: Schema.Literal("text"), unique: Schema.optionalKey(Schema.Literal(true)), defaultValue: Schema.optionalKey(Schema.String) }).annotate(strict),
@@ -121,19 +121,21 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
           cardinality: "one", required: false, localized: false, onTargetDelete: "restrict" });
         continue;
       }
-      const native = yield* decodeField({ name: field.name, type: field.type, required: "required" in field ? field.required : undefined,
+      const native = yield* decodeField({ name: field.name, type: field.type,
+        ...("required" in field && field.required !== undefined ? { required: field.required } : {}),
         ...("index" in field && field.index === true ? { index: true } : {}),
         ...("unique" in field && field.unique === true ? { unique: true } : {}),
         ...("defaultValue" in field && field.defaultValue !== undefined ? { defaultValue: field.defaultValue } : {}),
       }).pipe(Effect.mapError(cause => cmsError("unsupportedProfile", cause)));
       if (source === undefined || source.type === "relationship" || native.type === "relationship" || native.type !== source.type ||
         (native.type === "text" && native.unique) !== (source.type === "text" && source.unique) ||
-        native.index !== source.index ||
-        native.defaultValue !== (source.defaultValue === undefined && source.type === "checkbox" ? false : source.defaultValue)) {
+        native.index !== source.index || (native.required === true) !== (source.required === true) ||
+        native.defaultValue !== (source.defaultValue === undefined && source.type === "checkbox" && source.required === true ? false : source.defaultValue)) {
         return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized field semantics"));
       }
       yield* validateDefault(native, req, definition.slug);
       fields.push({ name: native.name, kind: native.type === "checkbox" ? "boolean" : native.type,
+        ...(native.required === true ? {} : { nullable: true as const }),
         ...(native.type === "text" && native.unique ? { unique: true as const } : {}),
         ...(native.defaultValue === undefined ? {} : { defaultValue: native.defaultValue }) });
     }
@@ -143,7 +145,8 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
       return yield* Effect.fail(cmsError("unsupportedProfile", "sanitized compound index semantics"));
     }
     const indexes: NonNullable<PayloadConfiguration["tables"][number]["indexes"]>[number][] = [];
-    const selections = [...definition.fields.flatMap(field => field.type !== "relationship" && field.index ? [{ fields: [field.name], unique: false }] : []),
+    const selections = [...definition.fields.flatMap(field => field.type !== "relationship" &&
+      (field.index || (field.type === "text" && field.unique && field.required !== true)) ? [{ fields: [field.name], unique: false }] : []),
       ...(definition.indexes ?? [])];
     for (const selection of selections) {
       const digest = yield* digestApplicationWritePolicyFrame(selection.fields);
@@ -171,8 +174,9 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
   // All inputs below are compiler-owned; a failure here is an invariant defect.
   const schema = applicationSchemaDefinition(Object.fromEntries(tables.map(table => [table.logicalTableName,
     snapshotApplicationTableDefinition({ ...applicationTableDefinition(applicationObjectValidatorJson(Object.fromEntries(table.fields.map(field => [field.name, {
-      fieldType: field.kind === "relationship" ? applicationIdValidatorJson(field.target) :
-        applicationScalarValidatorJson(field.kind === "number" ? "number" : field.kind === "boolean" ? "boolean" : "string"),
+      fieldType: field.kind === "relationship" ? applicationIdValidatorJson(field.target) : field.nullable
+        ? applicationUnionValidatorJson([applicationScalarValidatorJson(field.kind === "number" ? "number" : field.kind === "boolean" ? "boolean" : "string"), applicationScalarValidatorJson("null")])
+        : applicationScalarValidatorJson(field.kind === "number" ? "number" : field.kind === "boolean" ? "boolean" : "string"),
       optional: field.kind === "relationship",
     }])))), indexes: table.indexes?.map(index => ({ descriptor: index.name, fields: index.fields })) ?? [] }),
   ])));

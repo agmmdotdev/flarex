@@ -138,9 +138,10 @@ implementation.
   [implemented](./08-conditional-unique-constraints.md). Native Medusa predicate
   translation, end-to-end decimal/null semantics and rich Link constraints remain.
 - Payload indexed queries retain bounded complete membership, numeric-only ranges,
-  native ID ordering and required scalar fields. Multiple text-field and compound
-  scalar uniqueness use the shared claim owner; see [the constraint contract](./07-payload-compound-uniqueness.md).
-  General Boolean queries, custom sorting and Payload nullable/conditional unique
+  native ID ordering and flat scalar fields. Multiple text-field and compound
+  scalar uniqueness use the shared claim owner; [nullable keys](./09-payload-nullable-keys.md)
+  add explicit-null storage, null-distinct claims and ordinary null membership indexes.
+  General Boolean queries, custom sorting and Payload conditional unique
   declarations remain unsupported by its admitted configuration profile.
 - Generic families do not remove catalog-dependent guards, early scope locks,
   request evidence cost, build cost, tenant skew or shared-database contention.

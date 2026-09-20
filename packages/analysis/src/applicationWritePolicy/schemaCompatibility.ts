@@ -30,7 +30,10 @@ export function validateApplicationWritePolicySchema(
             declared.fieldType.value.type !== "id" || declared.fieldType.value.tableName !== field.target;
         }
         const expected = field.kind === "text" || field.kind === "date" ? "string" : field.kind;
-        return declared === undefined || declared.optional || declared.fieldType.type !== expected;
+        if (declared === undefined || declared.optional) return true;
+        if (field.nullable !== true) return declared.fieldType.type !== expected;
+        return declared.fieldType.type !== "union" || declared.fieldType.value.length !== 2 ||
+          declared.fieldType.value[0]?.type !== expected || declared.fieldType.value[1]?.type !== "null";
       })) {
       return Result.fail(new ApplicationWritePolicyError({
         reason: "configurationMismatch", path: `configuration.tables.${configured.logicalTableName}`,

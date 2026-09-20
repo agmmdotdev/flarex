@@ -36,6 +36,10 @@ remain distinct from logical schema evolution.
   authenticate an actual-null predicate and null-distinct tuple participation.
   Builds, write maintenance and validation share claim/exclusion lowering.
   Native Medusa declaration translation and generic execution remain required.
+- [Nullable Payload keys](./09-payload-nullable-keys.md) now execute through real
+  Local API defaults, null equality indexes and shared null-distinct claims.
+  Fresh nullable scalar configurations retain exact schema/readiness checks;
+  populated requiredness changes remain under the deferred evolution contract.
 - Private logical indexes now carry an authenticated exact-decimal projection
   through analysis, build, write maintenance and Application indexed pending reads.
   [The decimal contract](./06-exact-decimal-indexes.md) preserves source text and

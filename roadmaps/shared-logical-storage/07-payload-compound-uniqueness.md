@@ -18,12 +18,13 @@ so prefix/range queries continue to work. Canonical duplicate declarations merge
 with uniqueness winning over an ordinary declaration of the same selection.
 
 Pinned Payload 3.88.0 `sanitizeCompoundIndexes` retains the declared field order
-and defaults `unique` to false. Accept only current flat required scalar fields;
-individual uniqueness remains required text. Missing, nullable, localized,
-conditional and decimal-projected uniqueness are outside this slice. In
+and defaults `unique` to false. This baseline covers flat required scalar fields;
+individual uniqueness is text. The subsequent [nullable-key contract](./09-payload-nullable-keys.md)
+adds optional scalar storage and null-distinct claims through the same owners.
+Localized, conditional and decimal-projected Payload uniqueness remain outside this slice. In
 particular Medusa's soft-delete predicate now has a subsequent explicit
 [core physical-spec contract](./08-conditional-unique-constraints.md); neither
-slice claims generic Medusa execution or expanded native Payload configuration.
+slice claims generic Medusa execution.
 
 ## Cutover And Cleanup
 

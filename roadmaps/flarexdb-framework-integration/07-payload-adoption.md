@@ -201,7 +201,9 @@ in trusted schema publication, and refuses mismatched
 sets during readiness and activation revalidation. Existing scalar conformance
 now shares multiple required-text and compound scalar constraint lowering with
 configured collections; [shared uniqueness](../shared-logical-storage/07-payload-compound-uniqueness.md)
-owns this extension and its remaining nullable/conditional gates. Scalar conformance
+owns the baseline and [nullable keys](../shared-logical-storage/09-payload-nullable-keys.md)
+adds fresh optional scalar configurations, null-distinct claims and null equality
+indexes. Conditional Payload declarations remain unadmitted. Scalar conformance
 no longer seeds its own unique definition. The private collection compiler now
 captures the admitted native definition set, sanitizes owned copies, and
 lowers through shared schema authoring into the existing loaded-source analysis

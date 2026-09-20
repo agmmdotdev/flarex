@@ -21,6 +21,42 @@ const refusal = (input: unknown) => Effect.runPromise(Effect.result(compilePaylo
 const decodeConfiguration = Schema.decodeUnknownResult(PayloadConfigurationSchema);
 
 describe("Payload collection compiler", () => {
+  it("authenticates nullable scalar storage and indexes optional unique values", async () => {
+    const input = [{ slug: "items", fields: [
+      { name: "alias", type: "text", unique: true },
+      { name: "amount", type: "number", required: false },
+      { name: "category", type: "text", required: true },
+    ], indexes: [{ fields: ["category", "amount"], unique: true }] }];
+    const compiled = await compile(input);
+    expect(compiled.configuration.tables[0]?.fields.slice(0, 3)).toMatchObject([
+      { name: "alias", nullable: true, unique: true }, { name: "amount", nullable: true }, { name: "category", kind: "text" },
+    ]);
+    expect(compiled.configuration.tables[0]?.indexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fields: ["alias"] }), expect.objectContaining({ fields: ["category", "amount"], unique: true }),
+    ]));
+    expect(compiled.schemaDefinition.tables.items?.validator.json).toMatchObject({ type: "object", value: {
+      alias: { optional: false, fieldType: { type: "union", value: [{ type: "string" }, { type: "null" }] } },
+      amount: { optional: false, fieldType: { type: "union", value: [{ type: "number" }, { type: "null" }] } },
+    } });
+    await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: compiled.schemaDefinition }));
+    const explicit = await compile([{ ...input[0], fields: input[0]!.fields.map(field => ({ ...field, required: field.required ?? false })) }]);
+    expect(explicit.contentIdentity).toEqual(compiled.contentIdentity);
+    const changed = structuredClone(compiled.configuration);
+    const optional = changed.tables[0]?.fields[0];
+    if (optional === undefined) throw new Error("Missing optional field");
+    Reflect.deleteProperty(optional, "nullable");
+    expect(Result.isSuccess(decodeConfiguration(changed))).toBe(true);
+    for (const tamper of ["missingNull", "missingValue", "optional"]) {
+      const altered = structuredClone(compiled.schemaDefinition);
+      const validator = altered.tables.items?.validator.json;
+      if (validator?.type !== "object" || validator.value.alias === undefined) throw new Error("Missing nullable validator");
+      const field = validator.value.alias;
+      if (tamper === "optional") Reflect.set(field, "optional", true);
+      else Reflect.set(field, "fieldType", { type: tamper === "missingNull" ? "string" : "null" });
+      expect(await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: altered }).pipe(Effect.result)))
+        .toMatchObject({ _tag: "Failure" });
+    }
+  });
   it("authenticates multiple unique fields and canonical compound unique intent", async () => {
     const fields = [{ name: "title", type: "text", required: true, unique: true },
       { name: "alias", type: "text", required: true, unique: true },
@@ -220,7 +256,7 @@ describe("Payload collection compiler", () => {
       { name: "value", type: "number", required: true, defaultValue: Infinity },
       { name: "value", type: "number", required: true, defaultValue: -0 },
       { name: "value", type: "text", required: true, defaultValue: null },
-      { name: "value", type: "text", required: false },
+      { name: "value", type: "text", required: "false" },
       { name: "value", type: "text", required: true, unique: undefined },
       { name: "value", type: "number", required: true, unique: true },
       { name: "value", type: "relationship", relationTo: "catalog" },
