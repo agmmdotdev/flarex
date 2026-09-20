@@ -18,6 +18,7 @@ import {
   RelationalTransactionError,
 } from "../src/relationalTransaction/model";
 import { makeCmsHost } from "../src/cmsTransaction/host";
+import { fxSystemDataBindingHeads } from "../src/frameworkSchema/binding/schema";
 import { listAppSchemaVersionIndexBindingsEffect } from "../src/appIndexDefinitions";
 import {
   fxControlIndexDefinitions,
@@ -30,21 +31,21 @@ import {
 } from "../src/schema";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { makeCe0CmsMutationReference } from "./ce0CmsMutationReference";
+import { makeCe0CmsReadReference } from "./ce0CmsReadReference";
+import { decodeReadDocuments } from "./ce0CmsReadReferenceScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 type Fixture = Awaited<ReturnType<typeof cmsExecutionMeasurementFixture>>;
 
 /** Real fixture metadata changes between preparation and accepting entry.
  * The decorator always delegates settlement to the existing physical session. */
-export async function ce0EmptyMutationBoundaryScenario(
+export async function ce0CmsAuthorityBoundaryScenario(
   tested: Fixture,
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   session: RelationalSession,
 ) {
   const other = await cmsExecutionMeasurementFixture(persistence, session);
-  const reference = await runEffect(
-    makeCe0CmsMutationReference(tested.input),
-  );
+  const reference = await runEffect(makeCe0CmsMutationReference(tested.input));
   const otherReference = await runEffect(
     makeCe0CmsMutationReference(other.input),
   );
@@ -107,16 +108,35 @@ export async function ce0EmptyMutationBoundaryScenario(
       .where(slot);
   }
 
-  const clock = after.clock[0];
+  const insertArgs = { count: 8, prefix: "authority-eight" };
+  const insertKey = tested.host.newRequestKey();
+  const beforeInsert = await tested.inventory();
+  const inserted = await runEffect(
+    tested.host.run(insertKey, tested.insert, insertArgs),
+  );
+  const afterInsert = await tested.verifyInsert(
+    beforeInsert,
+    inserted,
+    8,
+    insertArgs.prefix,
+  );
+  const ids = decodeReadDocuments(inserted).map((document) => document._id);
+  const readReference = await runEffect(makeCe0CmsReadReference(tested.input));
+  expect(await runEffect(readReference.read(ids))).toEqual(inserted);
+  expect(await tested.inventory()).toEqual(afterInsert);
+
+  const clock = afterInsert.clock[0];
   if (clock === undefined) throw new Error("Expected scope clock");
   const clockSlot = eq(fxSystemScopeClocks.scopeId, clock.scopeId);
   const changes: {
     name: string;
+    reason: "invalidAuthority" | "bindingChanged";
     apply: () => Promise<unknown>;
     restore: () => Promise<unknown>;
   }[] = [
     {
       name: "generation",
+      reason: "invalidAuthority",
       apply: () =>
         persistence.drizzle
           .update(fxSystemScopeClocks)
@@ -133,6 +153,7 @@ export async function ce0EmptyMutationBoundaryScenario(
     },
     {
       name: "fence",
+      reason: "invalidAuthority",
       apply: () =>
         persistence.drizzle
           .update(fxSystemScopeClocks)
@@ -150,6 +171,7 @@ export async function ce0EmptyMutationBoundaryScenario(
     },
     {
       name: "epoch",
+      reason: "invalidAuthority",
       apply: () =>
         persistence.drizzle
           .update(fxSystemScopeClocks)
@@ -162,6 +184,50 @@ export async function ce0EmptyMutationBoundaryScenario(
           .where(clockSlot),
     },
   ];
+  const headSlot = eq(
+    fxSystemDataBindingHeads.scopeId,
+    tested.fixture.authority.scopeId,
+  );
+  const heads = await persistence.drizzle
+    .select()
+    .from(fxSystemDataBindingHeads)
+    .where(headSlot);
+  const head = heads[0];
+  if (head === undefined || heads.length !== 1)
+    throw new Error("Expected one active binding head");
+  const damagedHead = new Uint8Array(head.canonicalBytes);
+  damagedHead[0] = (damagedHead[0] ?? 0) ^ 1;
+  changes.push(
+    {
+      name: "missing-active-binding",
+      reason: "bindingChanged",
+      apply: () =>
+        persistence.drizzle.delete(fxSystemDataBindingHeads).where(headSlot),
+      restore: () =>
+        persistence.drizzle.insert(fxSystemDataBindingHeads).values(head),
+    },
+    {
+      name: "damaged-active-binding",
+      reason: "invalidAuthority",
+      apply: () =>
+        persistence.drizzle
+          .update(fxSystemDataBindingHeads)
+          .set({ canonicalBytes: damagedHead })
+          .where(headSlot),
+      restore: () =>
+        persistence.drizzle
+          .update(fxSystemDataBindingHeads)
+          .set({ canonicalBytes: head.canonicalBytes })
+          .where(headSlot),
+    },
+  );
+  const inspect = async () => ({
+    data: await tested.inventory(),
+    heads: await persistence.drizzle
+      .select()
+      .from(fxSystemDataBindingHeads)
+      .where(headSlot),
+  });
   const catalog = tested.fixture.control.drizzle;
   const bindingSlot = and(
     eq(
@@ -194,6 +260,7 @@ export async function ce0EmptyMutationBoundaryScenario(
   });
   changes.push({
     name: "missing-ordered-bindings",
+    reason: "invalidAuthority",
     apply: () =>
       catalog.delete(fxControlSchemaVersionIndexBindings).where(bindingSlot),
     restore: () =>
@@ -215,6 +282,7 @@ export async function ce0EmptyMutationBoundaryScenario(
     corrupt[0] = (corrupt[0] ?? 0) ^ 1;
     changes.push({
       name: `ordered-definition-${index.indexDefinitionId}`,
+      reason: "invalidAuthority",
       apply: () =>
         catalog
           .update(fxControlIndexDefinitions)
@@ -252,6 +320,7 @@ export async function ce0EmptyMutationBoundaryScenario(
     corrupt[0] = (corrupt[0] ?? 0) ^ 1;
     changes.push({
       name: `unique-definition-${definition.uniqueConstraintDefinitionId}`,
+      reason: "invalidAuthority",
       apply: () =>
         catalog
           .update(fxControlUniqueConstraintDefinitions)
@@ -264,13 +333,14 @@ export async function ce0EmptyMutationBoundaryScenario(
           .where(selected),
     });
   }
-  for (const build of after.builds) {
+  for (const build of afterInsert.builds) {
     const selected = and(
       eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
       eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
     );
     changes.push({
       name: `retiring-ordered-build-${build.indexDefinitionId}`,
+      reason: "invalidAuthority",
       apply: () =>
         persistence.drizzle
           .update(fxSystemIndexBuildStates)
@@ -293,7 +363,7 @@ export async function ce0EmptyMutationBoundaryScenario(
           .where(selected),
     });
   }
-  for (const build of after.uniqueBuilds) {
+  for (const build of afterInsert.uniqueBuilds) {
     const selected = and(
       eq(fxSystemUniqueConstraintBuilds.scopeId, build.scopeId),
       eq(
@@ -303,6 +373,7 @@ export async function ce0EmptyMutationBoundaryScenario(
     );
     changes.push({
       name: `uncertified-unique-build-${build.uniqueConstraintDefinitionId}`,
+      reason: "invalidAuthority",
       apply: () =>
         persistence.drizzle
           .update(fxSystemUniqueConstraintBuilds)
@@ -326,17 +397,24 @@ export async function ce0EmptyMutationBoundaryScenario(
 
   for (const change of changes)
     for (const implementation of ["core", "reference"] as const)
-      for (const request of ["fresh", "replay"] as const) {
-        const stable = await tested.inventory();
+      for (const request of [
+        "fresh-empty",
+        "replay-empty",
+        "fresh-insert",
+        "replay-insert",
+        "empty-read",
+        "point-read",
+      ] as const) {
+        const stable = await inspect();
         let injected = 0;
-        let changed: Awaited<ReturnType<typeof tested.inventory>> | undefined;
+        let changed: Awaited<ReturnType<typeof inspect>> | undefined;
         const staleSession = issueRelationalSession(
           persistence.drizzle,
           (profile, work) =>
             Effect.gen(function* () {
               yield* Effect.promise(async () => {
                 await change.apply();
-                changed = await tested.inventory();
+                changed = await inspect();
                 injected++;
               });
               return yield* runRelationalSession(session, profile, work).pipe(
@@ -360,17 +438,33 @@ export async function ce0EmptyMutationBoundaryScenario(
             session: staleSession,
           }),
         );
+        const readRef = await runEffect(
+          makeCe0CmsReadReference({ ...tested.input, session: staleSession }),
+        );
         const callbacks = tested.executionCount();
+        const readCallbacks = tested.readExecutionCount();
         try {
-          const requestKey =
-            request === "fresh" ? tested.host.newRequestKey() : key;
-          const result = await runEffect(
-            Effect.exit(
-              implementation === "core"
-                ? core.run(requestKey, tested.insert, args)
-                : ref.run(requestKey, args),
-            ),
-          );
+          const execute = () => {
+            if (request === "empty-read" || request === "point-read") {
+              const readIds = request === "empty-read" ? [] : ids;
+              return implementation === "core"
+                ? core.read(tested.read, readIds)
+                : readRef.read(readIds);
+            }
+            const nonempty =
+              request === "fresh-insert" || request === "replay-insert";
+            const requestArgs = nonempty ? insertArgs : args;
+            const requestKey =
+              request === "replay-insert"
+                ? insertKey
+                : request === "replay-empty"
+                  ? key
+                  : tested.host.newRequestKey();
+            return implementation === "core"
+              ? core.run(requestKey, tested.insert, requestArgs)
+              : ref.run(requestKey, requestArgs);
+          };
+          const result = await runEffect(Effect.exit(execute()));
           const label = `${change.name}/${implementation}/${request}${Exit.isFailure(result) ? `: ${Cause.pretty(result.cause)}` : ""}`;
           expect(Exit.isFailure(result), label).toBe(true);
           if (Exit.isFailure(result)) {
@@ -380,18 +474,20 @@ export async function ce0EmptyMutationBoundaryScenario(
                 .filter(Cause.isFailReason)
                 .map((reason) => reason.error),
               label,
-            ).toMatchObject([{ reason: "invalidAuthority" }]);
+            ).toMatchObject([{ reason: change.reason }]);
           }
           expect(injected).toBe(1);
           expect(changed).toBeDefined();
-          expect(await tested.inventory()).toEqual(changed);
+          expect(await inspect()).toEqual(changed);
           expect(await other.inventory()).toEqual(otherAfter);
           expect(tested.executionCount()).toBe(callbacks);
+          expect(tested.readExecutionCount()).toBe(readCallbacks);
           expect(ref.executionCount()).toBe(0);
+          expect(readRef.executionCount()).toBe(0);
         } finally {
           await change.restore();
         }
-        expect(await tested.inventory()).toEqual(stable);
+        expect(await inspect()).toEqual(stable);
       }
   return { other, otherReference };
 }

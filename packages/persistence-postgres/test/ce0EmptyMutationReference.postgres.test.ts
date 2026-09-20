@@ -1,4 +1,4 @@
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   postgresUrl,
   useFileScopedPostgresPersistence,
@@ -14,10 +14,19 @@ describe.skipIf(postgresUrl === null)(
       "cross-replays and refuses invalid authority and outcome evidence",
       () =>
         withPersistence(async (persistence) => {
+          expect(
+            (
+              await persistence.query<{ superuser: boolean }>(
+                "select rolsuper as superuser from pg_roles where rolname=current_user",
+              )
+            ).rows[0]?.superuser,
+          ).toBe(false);
           await ce0EmptyMutationReferenceScenario(
             persistence,
             makePostgresRelationalSession(persistence),
           );
+          expect(persistence.pool.waitingCount).toBe(0);
+          expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
         }),
       180_000,
     );

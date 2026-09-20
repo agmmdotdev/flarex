@@ -249,6 +249,9 @@ without publication and corrected explicit requests after confirmed rollback.
 The [explicit title-list extension](./55-ce0-pending-unique-equivalence.md) adds
 early/late pending unique conflicts, committed conflicts after pending work,
 first-failure ordering and request identity without a second mutation owner.
+The [request authority matrix](./56-ce0-request-authority-matrix.md) compares
+stale-preparation refusal across zero/eight-row fresh/replayed mutations and
+standalone reads, preserving active-binding absence versus corruption errors.
 Protected readiness-root work and complete reference acceptance remain open.
 
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the

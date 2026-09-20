@@ -72,7 +72,10 @@ native accepting-transaction witness additionally damages an ordered definition
 inside that same transaction, proving the check uses its own catalog view.
 Current mutable build refusal uses SQL-valid fixture states: retiring ordered
 builds lose their enabled maintenance certificate; unique builds lose the
-complete certificate tuple. Both are restored afterward.
+complete certificate tuple. Both are restored afterward. The
+[shared request authority matrix](./56-ce0-request-authority-matrix.md) extends
+these changes to fresh/replayed eight-row mutations and standalone reads, and
+adds missing/damaged active-binding-head cases after preparation.
 
 The current correction adds at most one bounded schema-version binding query and one
 bounded definition query per accepting catalog validation; an empty definition

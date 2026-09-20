@@ -9,7 +9,7 @@ import { fxSystemIdempotency } from "../src/schema";
 import { fxSystemDataBindingCandidates } from "../src/frameworkSchema/binding/schema";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { makeCe0CmsMutationReference } from "./ce0CmsMutationReference";
-import { ce0EmptyMutationBoundaryScenario } from "./ce0EmptyMutationBoundaryScenario";
+import { ce0CmsAuthorityBoundaryScenario } from "./ce0CmsAuthorityBoundaryScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 export async function ce0EmptyMutationReferenceScenario(
@@ -25,9 +25,7 @@ export async function ce0EmptyMutationReferenceScenario(
   >;
 }> {
   const tested = await cmsExecutionMeasurementFixture(persistence, session);
-  const reference = await runEffect(
-    makeCe0CmsMutationReference(tested.input),
-  );
+  const reference = await runEffect(makeCe0CmsMutationReference(tested.input));
   const core = (key: string, args: { count: number; prefix: string }) =>
     tested.host.run(key, tested.insert, args);
   const counts = () => [tested.executionCount(), reference.executionCount()];
@@ -56,9 +54,7 @@ export async function ce0EmptyMutationReferenceScenario(
       identityAndAccessPolicy: { subject: "other-subject" },
     };
     const otherCore = await runEffect(makeCmsHost(policy));
-    const otherReference = await runEffect(
-      makeCe0CmsMutationReference(policy),
-    );
+    const otherReference = await runEffect(makeCe0CmsMutationReference(policy));
     expect(
       await runEffectFailure(otherCore.run(key, tested.insert, args)),
     ).toMatchObject({ reason: "requestConflict" });
@@ -249,7 +245,7 @@ export async function ce0EmptyMutationReferenceScenario(
       expect(await tested.inventory()).toEqual(after);
     }
   }
-  const boundaries = await ce0EmptyMutationBoundaryScenario(
+  const boundaries = await ce0CmsAuthorityBoundaryScenario(
     tested,
     persistence,
     session,

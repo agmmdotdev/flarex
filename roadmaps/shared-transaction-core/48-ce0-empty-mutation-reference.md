@@ -53,8 +53,10 @@ complete publication prefix versus after actual COMMIT, and mixed core/reference
 duplicate-key contention. Pre-commit cancellation rolls back the prefix; after
 COMMIT the interrupted caller can replay the authoritative outcome. Those
 settlement cases now live in the shared zero/eight-row
-[settlement matrix](./51-ce0-nonempty-settlement.md); the zero-row authority and
-outcome-refusal scenario remains separate.
+[settlement matrix](./51-ce0-nonempty-settlement.md); the outcome-refusal scenario
+and [shared request authority matrix](./56-ce0-request-authority-matrix.md) remain
+separate from settlement coverage. Authority changes now exercise nonempty
+mutations and standalone reads as well as zero-row mutation/replay.
 
 The tests preserve current refusal classification: damaged binding evidence is
 projected as `invalidAuthority`, damaged result evidence as `storedCorruption`,
