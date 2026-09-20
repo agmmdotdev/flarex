@@ -1,5 +1,6 @@
 import { afterAll, expect, it } from "vitest";
 import { Deferred, Effect, Exit, Fiber, Tracer } from "effect";
+import { fxSystemApplicationActiveHeads } from "../../persistence-postgres/src/applicationActivationSchema";
 import { currencyAnnouncementWrite } from "../src/currency-service";
 import { prepareCurrencyProfile } from "../src/currency-contract";
 import { commerceHostFixture } from "../../persistence-postgres/test/commerceHostFixture";
@@ -51,11 +52,21 @@ it("settles real Currency, Payload and Application participants once, with compl
       commerce: { target: fixture.hostInput.target, profile: fixture.hostInput.profile, installation: fixture.installation },
       currencyCommand: currencyAnnouncementWrite, cmsCommand: conformance.runtime.commands.create, applicationTable: "audit" };
     const host = yield* makeCurrencyAnnouncementHost(input);
+    // This fixture owns an isolated database schema; restore its exact inventory.
+    const activeHeads = yield* Effect.promise(() => db.select().from(fxSystemApplicationActiveHeads));
+    yield* Effect.gen(function* () {
+      yield* Effect.promise(async () => { await db.delete(fxSystemApplicationActiveHeads); });
+      expect(yield* Effect.flip(makeCurrencyAnnouncementHost(input))).toMatchObject({
+        _tag: "CompositeCommandError", reason: "invalidAuthority",
+        cause: { _tag: "ApplicationActivationError", reason: "activeMissing" },
+      });
+    }).pipe(Effect.ensuring(Effect.promise(async () => { await db.insert(fxSystemApplicationActiveHeads).values(activeHeads); })));
     const runAcceptedOnce = <Value, Failure, Requirements>(effect: Effect.Effect<Value, Failure, Requirements>) => Effect.gen(function* () {
       const spans: string[] = [];
       const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
       const value = yield* effect.pipe(Effect.provideService(Tracer.Tracer, tracer));
       expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
+      expect(spans).not.toContain("CmsAdmission.prepare");
       return value;
     });
     const args = (title: string, applicationTitle: string | number = title) => ({ currency: { code: "zzz", name: title, symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0 },

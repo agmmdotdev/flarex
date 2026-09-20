@@ -102,6 +102,12 @@ moved. Native journal coalescing remains conditional on an attributed material
 cost; explicitly conclude whether it is required instead of inventing more
 evidence formats by default.
 
+[Host-owned CMS preparation](./67-host-owned-cms-preparation.md) selects one
+revision per constructed CMS/composite host while retaining full fresh admission.
+Rebuilding a host is required after revision change; it cannot update bindings
+or authorize stale replay. Root-only admission, aggregate retained-memory policy
+and the journal-cost disposition remain separate completion gates.
+
 ## 3. Connected Acceptance And Retirement
 
 Outcome: evaluate the implemented contracts through existing native and CMS

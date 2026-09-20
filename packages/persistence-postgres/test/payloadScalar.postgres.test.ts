@@ -1,10 +1,12 @@
 import { ValidationError } from "payload";
 import { describe, expect, it } from "vitest";
-import { Effect, Exit, Fiber } from "effect";
+import { Deferred, Effect, Exit, Fiber, Result } from "effect";
+import { makeCmsHost } from "../src/cmsTransaction/host";
+import { payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { postgresUrl, useFileScopedPostgresPersistence } from "./postgresHelpers";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
 import { payloadScalarScenario } from "./payloadScalarScenario";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { fxSystemCommits } from "../src/schema";
 
 describe.skipIf(postgresUrl === null)("pinned Payload scalar Local API (PostgreSQL)", () => {
@@ -22,10 +24,32 @@ describe.skipIf(postgresUrl === null)("pinned Payload scalar Local API (PostgreS
       expect(conformance.observations.executions()).toBe(calls + 1);
       expect(await persistence.drizzle.select().from(fxSystemCommits)).toHaveLength(before.length + 1);
       const race = { collection: "posts", data: { title: "native-unique", publishedAt: "2026-01-01" } };
-      const raced = await Promise.allSettled([runEffect(host.run(host.newRequestKey(), conformance.runtime.commands.create, race)), runEffect(host.run(host.newRequestKey(), conformance.runtime.commands.create, race))]);
-      expect(raced.filter(result => result.status === "fulfilled")).toHaveLength(1);
-      expect(raced.filter(result => result.status === "rejected")).toHaveLength(1);
-      for (const result of raced) if (result.status === "rejected") expect(result.reason.cause).toBeInstanceOf(ValidationError);
+      const closed = await runEffect(Deferred.make<void>());
+      let closedCount = 0;
+      const concurrent = await runEffect(makeCmsHost({ ...hostInput, commands: Object.values(conformance.runtime.commands),
+        expectedContentIdentity: payloadScalarContentIdentity }, { afterDocumentClosure: () => Effect.gen(function* () {
+          closedCount++;
+          if (closedCount === 2) yield* Deferred.succeed(closed, undefined);
+          yield* Deferred.await(closed).pipe(Effect.timeout(5_000));
+        }).pipe(Effect.orDie) }));
+      const raceKeys = [host.newRequestKey(), host.newRequestKey()];
+      const raceCalls = conformance.observations.executions();
+      const raceBefore = await persistence.drizzle.select().from(fxSystemCommits);
+      const raced = await runEffect(Effect.all(raceKeys.map(key => concurrent.run(key, conformance.runtime.commands.create, race).pipe(Effect.result)),
+        { concurrency: "unbounded" }).pipe(Effect.timeout(10_000)));
+      expect(closedCount).toBe(2);
+      expect(conformance.observations.executions()).toBe(raceCalls + 2);
+      expect(raced.filter(Result.isSuccess)).toHaveLength(1);
+      expect(raced.filter(Result.isFailure)).toHaveLength(1);
+      for (const result of raced) if (Result.isFailure(result)) expect(result.failure).toMatchObject({ reason: "writeConflict" });
+      expect(await persistence.drizzle.select().from(fxSystemCommits)).toHaveLength(raceBefore.length + 1);
+      const lostKey = raceKeys[raced.findIndex(Result.isFailure)];
+      if (lostKey === undefined) throw new Error("Missing losing request key");
+      const raceStable = await inventory();
+      const duplicate = await runEffectFailure(concurrent.run(lostKey, conformance.runtime.commands.create, race));
+      expect(duplicate).toMatchObject({ reason: "documentInvalid" });
+      expect(duplicate.cause).toBeInstanceOf(ValidationError);
+      expect(await inventory()).toEqual(raceStable);
       let failedPid = 0;
       const pids: number[] = [];
       const recovering = await runEffect(conformance.runtime.bind({ ...hostInput, session: makePostgresRelationalSession(persistence, { lifecycleFault: event => {

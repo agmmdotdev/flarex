@@ -80,7 +80,8 @@ export const prepareCmsPreferences = Effect.fn("CmsAdmission.preparePreferences"
   return Object.freeze({ target, installation }) satisfies PreparedCmsPreferences;
 });
 
-/** Control evidence is captured before opening the target data transaction. */
+/** Host-owned revision preparation, never a live admission verdict. Control
+ * evidence is captured before opening any request's target data transaction. */
 export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function* <Failure>(
   application: ApplicationBindingSelectionReader<Failure>,
   authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,

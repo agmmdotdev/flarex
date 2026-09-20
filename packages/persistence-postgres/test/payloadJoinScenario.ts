@@ -251,7 +251,7 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
       const beforeHead = await runEffect(fixture.relationActivation.readActive());
       await runEffect(fixture.relationActivation.activate({ revisionId: revision.publication.revisionId, expectedActiveHead: beforeHead.expectedActiveHead }));
       const callsBeforeGap = conformance.observations.executions();
-      expect(await runEffectFailure(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: target, depth: 1 }))).toMatchObject({ reason: "bindingChanged" });
+      expect(await runEffectFailure(host.read(conformance.runtime.commands.findByID, { collection: "posts", id: target, depth: 1 }))).toMatchObject({ reason: "invalidAuthority", cause: { reason: "concurrentHead" } });
       expect(conformance.observations.executions()).toBe(callsBeforeGap);
       const applicationReference = await runEffect(input.bindings.readApplicationReference());
       const candidate = await runEffect(input.bindings.prepare({ ...beforeBinding.frame, application: applicationReference,

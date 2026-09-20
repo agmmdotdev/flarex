@@ -138,10 +138,10 @@ protection; actual scope transitions retain their strong locks.
 [Commerce snapshots and publication](./61-ce3-commerce-publication-snapshots.md)
 extend these profiles to existing commerce reads and ordinary standalone/atomic
 writes. Fresh binding-head protection rejects revoked membership after snapshot
-formation. Bootstrap and cross-domain hosts retain strong protection; standalone
+formation. Bootstrap retains strong protection; standalone
 CMS still refuses commerce-bearing bindings outside its admitted composite gate.
-Concurrent same-scope writers and the coordinated publication-last protocol
-remain open.
+The CMS/native/commerce admission and execution cutovers below supersede the
+earlier writer exclusion; sequence-consuming materialization remains serialized.
 The [active readiness lock correction](./37-ce3-active-readiness-locks.md) replaces
 exclusive stored-active validation locks with shared protection at the existing
 fold owner. Same-scope CMS reads can admit concurrently; lifecycle updates remain
@@ -324,6 +324,12 @@ materialization still serialize. [Commerce/composite admission](./66-commerce-ad
 also precedes publication exclusion; direct-SQL callbacks and finalizers require
 explicit protected entry and share its fresh clock. Protected readiness and
 final connected acceptance remain open.
+
+[CMS preparation lifetime](./67-host-owned-cms-preparation.md) binds immutable
+Application preparation to the private CMS and existing composite host. Every
+request and recovery attempt still resolves current placement and validates
+live catalog, readiness and binding evidence before execution or replay. This
+does not replace integrity verification with a readiness-root cache.
 
 The [concurrent CMS load baseline](./43-ce0-concurrent-cms-load.md) extends these
 barriers to finite complete-request bursts on one and four scopes sharing a

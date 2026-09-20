@@ -19,6 +19,7 @@ import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selectio
 import { preparePayloadRelationSuccessor, preparePayloadRelationRevision } from "./payloadRelationFixture";
 import { barrier, withDeadline, heldNativeRace, overlappingSnapshotRace, type payloadRelationScenario } from "./payloadRelationScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { postgresFailureCode } from "./postgresFailureCode";
 
 const object = (value: Json): JsonObject => {
   if (!isJsonObject(value)) throw new Error("Expected Payload document");
@@ -80,7 +81,7 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
         observeQuery: observation => queries.push(observation),
         beforeRead: selection => selection === "batch" && failBatch ? Effect.fail(cmsError("statementFailure")) : Effect.void,
       } };
-      const host = await runEffect(makeCmsHost(composition, hooks));
+      let host = await runEffect(makeCmsHost(composition, hooks));
       const write = (command: typeof relation.runtime.commands.create, args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
       const read = (documentId: string, depth = 1) => runEffect(host.read(relation.runtime.commands.findByID, { collection: "posts", id: documentId, depth }));
       const create = (title: string, relatedPost?: string) => write(relation.runtime.commands.create,
@@ -228,10 +229,19 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
               .toMatchObject({ relatedPost: { id: target } });
           }
           if (change === "activation") {
-            if (first === "change") expect(results[1]).toMatchObject({ value: { failure: { reason: "bindingChanged" } } });
+            if (first === "change") {
+              const refused = results[1];
+              if (refused?.status !== "fulfilled" || !Result.isFailure(refused.value)) throw new Error("Expected stale snapshot refusal");
+              // Construction no longer delays this request until activation finishes:
+              // its already-open repeatable-read snapshot cannot lock the changed head.
+              expect(refused.value.failure).toMatchObject({ reason: "invalidAuthority" });
+              expect(postgresFailureCode(refused.value.failure)).toBe("40001");
+            }
             const application = await runEffect(bindings.readApplicationReference());
             const rebound = await runEffect(bindings.prepare({ ...beforeBinding.frame, application, payloadContent: { ...beforeBinding.frame.payloadContent, application } }));
             await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `population-rebind-${first}`, rebound.sha256, beforeBinding.head)));
+            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: second, depth: 1 }))).toMatchObject({ reason: "invalidAuthority", cause: { reason: "concurrentHead" } });
+            host = await runEffect(makeCmsHost(composition, hooks));
           }
         }
       }

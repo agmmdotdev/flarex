@@ -376,7 +376,8 @@ export function hasPreparedApplicationRelationReadRepository(input: PreparedAppl
   return state !== undefined && state.repository === repositoryStates.get(repository);
 }
 
-/** Request-owned inputs only; this does not issue a ready result or active selection. */
+/** Immutable planning inputs may be retained by a host. Each acceptance still
+ * validates live evidence; preparation issues no ready result or active selection. */
 export const prepareApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.prepareActiveRead")(
   (repository: ApplicationRelationReadinessFoldRepository, input: { readonly deploymentId: string; readonly revisionId: string }) => {
     const state = repositoryStates.get(repository);

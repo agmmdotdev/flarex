@@ -97,7 +97,7 @@ export async function payloadRelationScenario(input: {
         commands: [...Object.values(relation.runtime.commands), pair],
         materialization: { ...hostInput.materialization, applicationRelations: fixture.relationCommit,
           afterTransactionStep: async (event: { step: string }) => { if (event.step === failureStep) throw new Error(`Injected relation ${event.step}`); } } };
-      const host = await runEffect(makeCmsHost(composition));
+      let host = await runEffect(makeCmsHost(composition));
       const write = (command: typeof relation.runtime.commands.update, args: Json) => runEffect(host.run(host.newRequestKey(), command, args));
       const read = (id: string) => runEffect(host.read(relation.runtime.commands.findByID, { collection: "posts", id }));
       const inventory = async () => ({ base: await input.inventory(), edges: await db.select().from(fxAppEdgeCurrent),
@@ -328,11 +328,14 @@ export async function payloadRelationScenario(input: {
           expect(results[1]).toMatchObject({ status: "fulfilled", value: { _tag: change === "activation" ? "Failure" : "Success" } });
           if (change === "activation") {
             const count = relation.observations.executions();
-            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({ reason: "bindingChanged" });
+            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({ reason: "invalidAuthority", cause: { reason: "concurrentHead" } });
             expect(relation.observations.executions()).toBe(count);
             const application = await runEffect(bindings.readApplicationReference());
             const rebound = await runEffect(bindings.prepare({ ...beforeBinding.frame, application, payloadContent: { ...beforeBinding.frame.payloadContent, application } }));
             await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `race-rebind-${first}`, rebound.sha256, beforeBinding.head)));
+            // Revision-pinned hosts are reconstructed after the explicit cutover.
+            expect(await runEffectFailure(host.read(relation.runtime.commands.findByID, { collection: "posts", id: source }))).toMatchObject({ reason: "invalidAuthority", cause: { reason: "concurrentHead" } });
+            host = await runEffect(makeCmsHost(composition));
           }
           if (first === "writer") {
             const count = relation.observations.executions();

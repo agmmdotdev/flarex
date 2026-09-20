@@ -144,6 +144,10 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha256(canonicalIdentity.canonicalBytes));
   const preparedPreferences = preferenceTarget === undefined ? undefined : yield* prepareCmsPreferences(database, session, authority,
     deploymentId, preferenceTarget).pipe(Effect.mapError(projectFailure));
+  // A host owns one revision's immutable preparation. Every attempt still accepts
+  // its live evidence below; a different revision requires a new host.
+  const prepared = yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId)
+    .pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("cms.host") });
   const materialization = Object.freeze({ ...input.materialization });
   const testHooks = hooks === undefined ? undefined : Object.freeze({ ...hooks });
@@ -160,7 +164,6 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
       // Both first entry and uncertain-decision recovery re-authenticate the target.
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
-      const prepared = yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId);
       const commit = requestKey === null ? null : yield* prepareCmsApplicationCommit(prepared, controlDatabase, located.authority, pointCommitAuthority, materialization);
       return yield* runRelationalSession(session, requestKey === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`),

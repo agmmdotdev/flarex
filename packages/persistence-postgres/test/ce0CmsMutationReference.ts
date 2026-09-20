@@ -136,6 +136,9 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
       yield* hash(canonicalIdentity.canonicalBytes),
     );
     const owner = Object.freeze({ hostId: Symbol("ce0.cms.reference") });
+    const prepared = yield* prepareCmsApplication(
+      application, compositionAuthority, controlDatabase, deploymentId,
+    ).pipe(Effect.mapError(projectFailure));
     let executions = 0;
     const run = Effect.fn("Ce0CmsReference.run")(function* (
       requestKey: string,
@@ -168,12 +171,6 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
         );
         if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
           return yield* Effect.fail(cmsError("invalidAuthority"));
-        const prepared = yield* prepareCmsApplication(
-          application,
-          compositionAuthority,
-          controlDatabase,
-          deploymentId,
-        );
         if (prepared.schema.relations.length !== 0)
           return yield* Effect.fail(cmsError("unsupportedProfile"));
         const participant = yield* prepareApplicationDocumentParticipant(

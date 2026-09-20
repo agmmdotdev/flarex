@@ -182,6 +182,9 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
     yield* hashCurrencyAnnouncement(identity.canonicalBytes),
   );
   const owner = Object.freeze({});
+  const prepared = yield* prepareCmsApplication(
+    application, compositionAuthority, controlDatabase, deploymentId,
+  ).pipe(Effect.mapError(projectCompositeFailure));
 
   const run = Effect.fn("CurrencyAnnouncement.run")(function* (
     requestKey: string,
@@ -197,12 +200,6 @@ export const makeCurrencyAnnouncementHost = Effect.fn(
       );
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
         return yield* Effect.fail(compositeError("invalidAuthority"));
-      const prepared = yield* prepareCmsApplication(
-        application,
-        compositionAuthority,
-        controlDatabase,
-        deploymentId,
-      );
       if (prepared.schema.relations.length !== 0)
         return yield* Effect.fail(compositeError("unsupportedProfile"));
       const appTable = prepared.schema.tables.find(

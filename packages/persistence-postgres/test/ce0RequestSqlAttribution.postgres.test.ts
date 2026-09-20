@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
+import { makeCmsHost } from "../src/cmsTransaction/host";
 import {
   postgresUrl,
   useFileScopedPostgresPersistence,
@@ -27,6 +28,7 @@ describe.skipIf(postgresUrl === null)(
         operation: "emptyRead" | "mutation" | "replay";
         observation: Observation;
       }[] = [];
+      const constructions: { count: number; candidate: string; observation: Observation }[] = [];
       const environments: Awaited<ReturnType<typeof readCe0Environment>>[] = [];
       for (const count of [0, 1, 8, 32]) {
         await withPersistence(async (persistence) => {
@@ -71,11 +73,25 @@ describe.skipIf(postgresUrl === null)(
               persistence,
               makePostgresRelationalSession(persistence),
             );
-            const mutation = await runEffect(
-              makeCe0CmsMutationReference(fixture.input),
+            const constructed = await withPostgresExecutionObservation(
+              persistence.pool, () => runEffect(makeCmsHost(fixture.input)),
+              { attributeStatements: true },
             );
-            const read = await runEffect(
-              makeCe0CmsReadReference(fixture.input),
+            const mutationConstruction = await withPostgresExecutionObservation(
+              persistence.pool, () => runEffect(makeCe0CmsMutationReference(fixture.input)),
+              { attributeStatements: true },
+            );
+            const readConstruction = await withPostgresExecutionObservation(
+              persistence.pool, () => runEffect(makeCe0CmsReadReference(fixture.input)),
+              { attributeStatements: true },
+            );
+            const host = constructed.value;
+            const mutation = mutationConstruction.value;
+            const read = readConstruction.value;
+            if (candidate === "core") constructions.push({ count, candidate, observation: constructed.observation });
+            else constructions.push(
+              { count, candidate: "mutation-reference", observation: mutationConstruction.observation },
+              { count, candidate: "read-reference", observation: readConstruction.observation },
             );
             const before = await fixture.inventory();
             if (count === 0) {
@@ -84,7 +100,7 @@ describe.skipIf(postgresUrl === null)(
                 () =>
                   runEffect(
                     candidate === "core"
-                      ? fixture.host.read(fixture.read, [])
+                      ? host.read(fixture.read, [])
                       : read.read([]),
                   ),
                 { attributeStatements: true },
@@ -98,7 +114,7 @@ describe.skipIf(postgresUrl === null)(
             const execute = () =>
               runEffect(
                 candidate === "core"
-                  ? fixture.host.run(key, fixture.insert, args)
+                  ? host.run(key, fixture.insert, args)
                   : mutation.run(key, args),
               );
             const observed = await withPostgresExecutionObservation(
@@ -138,6 +154,7 @@ describe.skipIf(postgresUrl === null)(
         interpretation:
           "digests group exact SQL text; family mentions are not a SQL parser or affected-row counts; ordinals are invocation order, not server execution duration",
         environments,
+        constructions,
         workloads,
       };
       if (process.env.FLAREX_CE0_SQL_ATTRIBUTION_REPORT_PATH !== undefined)

@@ -55,15 +55,17 @@ numerical run receipts belong in the report and commit rather than a roadmap log
 
 ## Current Owner Attribution
 
-After [combined membership application](./59-ce1-combined-membership-application.md),
-the nonempty scalar difference is thirteen calls at one/eight rows and seventeen
-at thirty-two rows. Exact statement hashes differ for some equivalent writes, so the
+After the CMS concurrency and [host preparation](./67-host-owned-cms-preparation.md)
+cutovers, the nonempty scalar difference is sixteen calls at one row, twenty-three
+at eight rows and fifty-one at thirty-two rows. Exact statement hashes differ for some equivalent writes, so the
 net call attribution uses top-level command and mentioned-family sets, followed
 by source inspection; hashes alone are not semantic equivalence evidence.
 
 | Additional core calls | Owner and retained purpose |
 | --- | --- |
-| Five scope-clock reads | Two membership-head readers, row append authority, combined index append authority, and unique mutation authority |
+| Six scope-clock reads | Two membership-head readers, row append authority, combined index append authority, unique mutation authority, and the separate fresh settlement lock |
+| One advisory-lock statement | Exact request exclusion before concurrent callback execution |
+| One coherent unique observation per inserted row | Callback-side absence/owner evidence with its capture clock, validated at settlement; the serialized reference does not require this earlier-read protocol |
 | Three/four membership-head reads | Intrinsic/developer action preparation and combined index append's bounded predecessor validation |
 | Two/three current-row/revision checks | Live-parent validation for one/two index chunks and unique ownership |
 | Two unique-key reads | Action preparation reads current owners; mutation application locks and validates current owners and key slots before writing |
@@ -86,6 +88,14 @@ does not imply it is safe to reuse stale authority. The responsible owners are
 `applicationBindingProjection.ts` and `cmsTransaction/admission.ts`.
 Protected metadata/readiness-root gates remain required before replacing deep
 integrity verification with a cached commitment.
+
+Application schema preparation now belongs to host construction in both core
+and references. The harness observes construction separately from warm requests;
+moving work to construction does not eliminate startup cost. Full live admission
+remains significant. The references serialize callback-equivalent decisions,
+whereas CMS validates earlier callback observations at final settlement; that
+execution difference explains additional request work and limits conclusions
+about wrapper overhead. Exact observable constraints and outcomes still apply.
 
 ## Correction Boundary And Remaining Work
 

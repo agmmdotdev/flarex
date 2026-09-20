@@ -88,6 +88,9 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
     ).pipe(Effect.mapError(projectCe0CmsRequestFailure));
     yield* digest(canonicalIdentity.canonicalBytes);
     const owner = Object.freeze({ hostId: Symbol("ce0.read.reference") });
+    const prepared = yield* prepareCmsApplication(
+      application, compositionAuthority, controlDatabase, deploymentId,
+    ).pipe(Effect.mapError(projectCe0CmsRequestFailure));
     let executions = 0;
     const read = Effect.fn("Ce0ReadReference.read")(function* (args: Json) {
       const captured = yield* Effect.fromResult(
@@ -104,12 +107,6 @@ export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(
         );
         if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
           return yield* Effect.fail(cmsError("invalidAuthority"));
-        const prepared = yield* prepareCmsApplication(
-          application,
-          compositionAuthority,
-          controlDatabase,
-          deploymentId,
-        );
         if (prepared.schema.relations.length !== 0)
           return yield* Effect.fail(cmsError("unsupportedProfile"));
         return yield* runRelationalSession(session, "snapshotRead", (tx) =>
