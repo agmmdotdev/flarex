@@ -16,19 +16,17 @@ compare exact stored canonical evidence and replay in both directions. Preserve
 dense publication, immutable enabled-build evidence and complete rollback.
 
 Common components remain inside the request: trusted admission and preparation,
-canonical codecs, document validation and pending-state semantics, bounded
-lifetime, candidate-schema validation, build/coverage authority and physical
-settlement/recovery. Reuse the real document owner for this incremental profile;
-do not present it as independently validated document-API cost. The production
-delta planner and materialization writers must not implement reference inserts.
-Independent document execution, standalone reads, updates, unique swaps,
-relations and native OCC remain complete-request acceptance work. No timing gate
-is relaxed and this slice cannot close CE0.
-
-The shared document closure and contribution validator also remain authoritative
-for write ownership and attempt accounting. The reference charges the same
-successful-attempt receipt budget after lowering, while its fixed operation
-does not expose caller-supplied receipts or nested commands.
+canonical codecs, schema validation, bounded row/unique-slot readers, lifetime,
+candidate-schema validation, build/coverage authority and physical settlement.
+The [first-insert executor](./52-ce0-first-insert-execution.md) replaces the shared
+document working set and closure with internally derived pending inserts and
+sorted changes. It preserves write ownership, eager uniqueness, collision
+refusal and successful-attempt accounting; the receipt budget remains charged
+after lowering. No caller-supplied receipts or nested commands enter this profile.
+The production delta planner and materialization writers do not implement its
+inserts. Standalone reads, broader document operations, updates, unique swaps,
+relations and native OCC remain complete-request acceptance work. Common-owner
+costs are not independently compared and no timing gate is relaxed.
 
 ## Design Challenge And Owners
 

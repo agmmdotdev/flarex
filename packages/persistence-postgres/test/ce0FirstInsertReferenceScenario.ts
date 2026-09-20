@@ -19,6 +19,7 @@ import { makeCmsHost } from "../src/cmsTransaction/host";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
 import { makeCe0CmsMutationReference } from "./ce0CmsMutationReference";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { ce0FirstInsertExecutionScenario } from "./ce0FirstInsertExecutionScenario";
 
 const decodeDocuments = Schema.decodeUnknownSync(
   Schema.Array(
@@ -180,7 +181,10 @@ export async function ce0FirstInsertReferenceScenario(
       for (const duplicate of [core, reference.run]) {
         expect(
           await runEffectFailure(duplicate(tested.host.newRequestKey(), args)),
-        ).toMatchObject({ reason: "uniqueConflict" });
+        ).toMatchObject({
+          reason: "uniqueConflict",
+          uniqueConstraint: { tableName: "posts", orderedFields: ["title"] },
+        });
         expect(await tested.inventory()).toEqual(after);
       }
     }
@@ -251,6 +255,7 @@ export async function ce0FirstInsertReferenceScenario(
         expect(await runEffect(core(key, args))).toEqual(value);
         expect(await tested.inventory()).toEqual(after);
       }
+  await ce0FirstInsertExecutionScenario(persistence, tested);
   // Actual storage-return corruption must not be mistaken for a business
   // uniqueness conflict, nor accepted just because identity and digest match.
   for (const mode of ["alter", "suppress"] as const) {

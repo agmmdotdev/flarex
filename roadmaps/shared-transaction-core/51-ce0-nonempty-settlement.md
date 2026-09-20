@@ -15,10 +15,11 @@ another scope while the first scope is held.
 
 The physical session and request-recovery owners remain shared and unchanged.
 The reference independently materializes nonempty rows, memberships and claims;
-its common document semantics and authority readers remain explicit. This proves
+its common schema validation, bounded readers and lifetime remain explicit. This proves
 the admitted first-insert profile, not complete CE0, capacity or a new concurrency
-protocol. Standalone reads, independent document execution, update/swap/relation
-profiles and broader lifecycle races remain open.
+protocol. The [first-insert executor](./52-ce0-first-insert-execution.md) now owns
+its fixed pending insert flow independently. Standalone reads, broader document
+operations, update/swap/relation profiles and lifecycle races remain open.
 
 ## Design Challenge And Cutover
 

@@ -237,9 +237,11 @@ stored evidence, cross replay and late-write rollback. The
 [nonempty settlement matrix](./51-ce0-nonempty-settlement.md) adds eight-row
 uncertainty and cancellation, duplicate/disjoint/unique contention and progress
 in another scope during a held publication. Same-scope serialization remains.
-Document semantics, admission and build/candidate authority remain common
-components. Protected readiness-root work and complete nonempty reference
-acceptance remain open.
+The [first-insert executor](./52-ce0-first-insert-execution.md) independently owns
+pending inserts, collision/eager uniqueness decisions and accounting order. Schema
+validation, bounded readers, lifetime, admission and build/candidate authority
+remain common components. Protected readiness-root work and complete nonempty
+reference acceptance remain open.
 
 [Bounded current-row capture](./45-ce1-bounded-current-capture.md) combines the
 current reader's size probe and document fetch in one statement snapshot. Its

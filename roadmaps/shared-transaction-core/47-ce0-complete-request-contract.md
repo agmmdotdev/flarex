@@ -5,7 +5,9 @@ implemented under standing core approval. The first
 [zero-row request reference](./48-ce0-empty-mutation-reference.md) supplies bounded
 cross-host publication/replay and settlement witnesses. The
 [first-insert profile](./50-ce0-first-insert-reference.md) adds independent
-nonempty persistence while sharing document semantics and authority owners. The
+nonempty persistence. The [first-insert executor](./52-ce0-first-insert-execution.md)
+also independently owns its fixed pending insert flow, while schema validation,
+bounded readers, lifetime and authority remain common. The
 [settlement matrix](./51-ce0-nonempty-settlement.md) extends the actual PostgreSQL
 uncertainty, cancellation and scoped contention witnesses to eight-row requests.
 Complete-request reference implementation and equivalence acceptance remain open.

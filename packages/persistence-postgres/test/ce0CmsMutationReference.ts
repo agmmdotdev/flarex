@@ -59,12 +59,8 @@ import {
 import { ce0PersistenceStep as persistenceStep } from "./ce0CmsReferencePersistence";
 import { prepareCe0FirstInsertMaterialization } from "./ce0FirstInsertMaterialization";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
-import {
-  makeCmsDocuments,
-  consumeCmsDocumentClosure,
-  type CmsFinalDocumentChange,
-} from "../src/cmsTransaction/documents";
-import { validateCmsDocumentContribution } from "../src/cmsTransaction/contribution";
+import type { CmsFinalDocumentChange } from "../src/cmsTransaction/documents";
+import { makeCe0FirstInsertDocuments } from "./ce0FirstInsertDocuments";
 import {
   writeCe0PublicationReference,
   advanceCe0PublicationReference,
@@ -105,8 +101,8 @@ const projectFailure = (cause: unknown): CmsTransactionError => {
   return cmsError("invalidAuthority", cause);
 };
 
-/** Test-only scalar request. Admission, document semantics, lifetime and physical
- * recovery are common. Nonempty storage writes and publication are independent.
+/** Test-only scalar request. Admission, schema validation, readers, lifetime and
+ * physical recovery are common. First-insert execution, writes and publication are independent.
  * This incremental reference supplies no complete CE0 timing claim. */
 export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
   function* <Failure>(
@@ -320,9 +316,10 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
                       const working =
                         insertInput.count === 0
                           ? null
-                          : yield* makeCmsDocuments(
+                          : yield* makeCe0FirstInsertDocuments(
                               admission,
                               lifetime,
+                              transactionId,
                               AppCreationTimeV1Schema.make(
                                 yield* Clock.currentTimeMillis,
                               ),
@@ -346,13 +343,8 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
                           index++
                         ) {
                           documents.push(
-                            yield* working.documents.insert(
-                              lifetime.context,
-                              transactionId,
-                              "posts",
-                              {
-                                title: `${insertInput.prefix}-${index.toString().padStart(2, "0")}`,
-                              },
+                            yield* working.insert(
+                              `${insertInput.prefix}-${index.toString().padStart(2, "0")}`,
                             ),
                           );
                         }
@@ -376,17 +368,9 @@ export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(
                       let changes: readonly CmsFinalDocumentChange[] = [];
                       let receiptCount = 0;
                       if (working !== null) {
-                        const closed = yield* consumeCmsDocumentClosure(
-                          yield* working.close(),
-                          admission,
-                          lifetime,
-                        );
-                        yield* validateCmsDocumentContribution(
-                          admission,
-                          closed,
-                        );
+                        const closed = yield* working.close();
                         changes = closed.changes;
-                        receiptCount = closed.attempts.length;
+                        receiptCount = closed.receiptCount;
                       }
                       const delta =
                         entered === null
