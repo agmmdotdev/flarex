@@ -29,7 +29,7 @@ import {
   fxSystemIdempotency,
 } from "../src/schema";
 import { cmsExecutionMeasurementFixture } from "./cmsExecutionMeasurementFixture";
-import { makeCe0EmptyMutationReference } from "./ce0EmptyMutationReference";
+import { makeCe0CmsMutationReference } from "./ce0CmsMutationReference";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 type Fixture = Awaited<ReturnType<typeof cmsExecutionMeasurementFixture>>;
@@ -43,10 +43,10 @@ export async function ce0EmptyMutationBoundaryScenario(
 ) {
   const other = await cmsExecutionMeasurementFixture(persistence, session);
   const reference = await runEffect(
-    makeCe0EmptyMutationReference(tested.input),
+    makeCe0CmsMutationReference(tested.input),
   );
   const otherReference = await runEffect(
-    makeCe0EmptyMutationReference(other.input),
+    makeCe0CmsMutationReference(other.input),
   );
   const args = { count: 0, prefix: "same-input-in-distinct-scopes" };
   const key = tested.host.newRequestKey();
@@ -355,7 +355,7 @@ export async function ce0EmptyMutationBoundaryScenario(
           makeCmsHost({ ...tested.input, session: staleSession }),
         );
         const ref = await runEffect(
-          makeCe0EmptyMutationReference({
+          makeCe0CmsMutationReference({
             ...tested.input,
             session: staleSession,
           }),

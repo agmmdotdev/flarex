@@ -1,6 +1,8 @@
 # Zero-Row Request Reference
 
-Status: bounded zero-row reference implemented under standing core approval.
+Status: bounded zero-row reference implemented under standing core approval;
+retained as the empty profile of `test/ce0CmsMutationReference.ts` alongside the
+[first-insert profile](./50-ce0-first-insert-reference.md).
 Complete-request CE0 acceptance remains open.
 
 ## Outcome And Boundaries

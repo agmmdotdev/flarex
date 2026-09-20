@@ -7,7 +7,7 @@ import {
 } from "./postgresHelpers";
 import { makePostgresRelationalSession } from "../src/relationalTransaction/session";
 import { makeCmsHost } from "../src/cmsTransaction/host";
-import { makeCe0EmptyMutationReference } from "./ce0EmptyMutationReference";
+import { makeCe0CmsMutationReference } from "./ce0CmsMutationReference";
 import { ce0EmptyMutationReferenceScenario } from "./ce0EmptyMutationReferenceScenario";
 import { runEffect } from "./effectTestRuntime";
 
@@ -86,7 +86,7 @@ describe.skipIf(postgresUrl === null)(
               makeCmsHost({ ...tested.input, session }),
             );
             const ref = await runEffect(
-              makeCe0EmptyMutationReference({ ...tested.input, session }),
+              makeCe0CmsMutationReference({ ...tested.input, session }),
             );
             const before = await tested.inventory();
             const executions = tested.executionCount();
@@ -144,7 +144,7 @@ describe.skipIf(postgresUrl === null)(
               makeCmsHost({ ...tested.input, session }),
             );
             const ref = await runEffect(
-              makeCe0EmptyMutationReference({ ...tested.input, session }),
+              makeCe0CmsMutationReference({ ...tested.input, session }),
             );
             const before = await tested.inventory();
             const callbacks = tested.executionCount();
@@ -211,7 +211,7 @@ describe.skipIf(postgresUrl === null)(
               makeCmsHost({ ...tested.input, session }),
             );
             const ref = await runEffect(
-              makeCe0EmptyMutationReference({ ...tested.input, session }),
+              makeCe0CmsMutationReference({ ...tested.input, session }),
             );
             const before = await tested.inventory();
             const executions = tested.executionCount();
@@ -257,7 +257,7 @@ describe.skipIf(postgresUrl === null)(
               },
             };
             const core = await runEffect(makeCmsHost(input));
-            const ref = await runEffect(makeCe0EmptyMutationReference(input));
+            const ref = await runEffect(makeCe0CmsMutationReference(input));
             const before = await tested.inventory();
             const executions = tested.executionCount();
             const key = tested.host.newRequestKey();
