@@ -24,6 +24,8 @@ const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" 
 interface Filter {
   /** null denotes an unbounded key domain, not an unknown or failed parse. */
   readonly keys: ReadonlySet<string> | null;
+  /** Every matching row has these null fields, including across OR branches. */
+  readonly requiredNulls: ReadonlySet<string>;
   readonly matches: (row: JsonObject) => boolean;
 }
 
@@ -51,25 +53,32 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         if (node.column !== key || node.values.some(value => !isRelationalColumnValue("text", false, value)))
           return yield* Result.fail(error("invalidInput"));
         const keys = new Set(node.values);
-        return { keys, matches: row => typeof row[key] === "string" && keys.has(row[key]) };
+        return { keys, requiredNulls: new Set<string>(), matches: row => typeof row[key] === "string" && keys.has(row[key]) };
       }
       if (node.kind === "isNull") {
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
         if (column === undefined) return yield* Result.fail(error("invalidInput"));
-        return { keys: column.nullable ? null : new Set<string>(), matches: row => row[node.column] === null };
+        return { keys: column.nullable ? null : new Set<string>(),
+          requiredNulls: column.nullable ? new Set([node.column]) : new Set<string>(),
+          matches: row => row[node.column] === null };
       }
       const children: Filter[] = [];
       for (const child of node.children) children.push(yield* visit(child, depth + 1));
       let keys: ReadonlySet<string> | null = node.kind === "and" ? null : new Set<string>();
+      const requiredNulls = new Set<string>(node.kind === "or" ? children[0]?.requiredNulls ?? [] : []);
       for (const child of children) {
         if (node.kind === "and") {
           if (child.keys !== null) keys = keys === null ? child.keys : new Set([...keys].filter(value => child.keys?.has(value)));
+          for (const field of child.requiredNulls) requiredNulls.add(field);
         } else keys = keys === null || child.keys === null ? null : new Set([...keys, ...child.keys]);
+        if (node.kind === "or") for (const field of requiredNulls) if (!child.requiredNulls.has(field)) requiredNulls.delete(field);
       }
-      return { keys, matches: row => node.kind === "and" ? children.every(child => child.matches(row)) : children.some(child => child.matches(row)) };
+      return { keys, requiredNulls,
+        matches: row => node.kind === "and" ? children.every(child => child.matches(row)) : children.some(child => child.matches(row)) };
     });
     const filter = yield* visit(query.predicate ?? { kind: "and", children: [] }, 0);
     return Object.freeze({ key, keys: filter.keys === null ? null : Object.freeze([...filter.keys]),
+      requiredNulls: Object.freeze([...filter.requiredNulls]),
       offset: query.skip ?? 0, limit: take, direction: query.order.direction, fields: Object.freeze([...fields]),
       inspect: (row: JsonObject) => Result.gen(function* () {
         // Read the complete native row before projecting, including exact numeric

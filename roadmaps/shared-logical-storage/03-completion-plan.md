@@ -59,6 +59,10 @@ remain distinct from logical schema evolution.
   must change before physical Product consumers can move. All 56 native Product
   ordered and 24 unique requirements now install as shared definitions without
   generated Product DDL; this does not grant Product serving readiness.
+  [Relational active-row reads](./12-relational-null-index-reads.md) select a
+  shared index when every Boolean branch requires the null predicate, exercising
+  native Currency list/count without decoding inactive rows from the primary
+  range. Complete-set limits and with-deleted reads remain bounded.
 - Core execution, materialization, admission integrity and scoped host lifetime
   are implemented. Reuse these owners; do not reopen completed work without a
   connected defect or changed replacement contract.

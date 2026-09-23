@@ -225,7 +225,10 @@ refused by the scalar profile.
   slot and ordered-index owners as document reads. The shared relational profile
   admits key membership, AND/OR, null checks, primary-key ordering, projection
   and pre-pagination counts. Finite key domains use unique/index selections;
-  unrestricted domains require a declared ordered key index. It never substitutes
+  unrestricted domains use a declared active-row index when the complete Boolean
+  predicate requires `deleted_at IS NULL`; otherwise they use the declared
+  ordered primary-key range. The [null-index read contract](./12-relational-null-index-reads.md)
+  keeps with-deleted reads on that complete range. It never substitutes
   a catalog scan when the declared access path is unavailable. Pending updates
   participate before filtering, ordering and counting, and projection cannot hide
   an invalid complete native row. Native Currency's existing read-plan compiler

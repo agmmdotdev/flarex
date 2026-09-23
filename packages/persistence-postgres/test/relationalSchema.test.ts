@@ -27,6 +27,7 @@ import {
 } from "flarex-protocol/internal/relational-schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { prepareLogicalRelationalRows } from "../src/logicalDocuments/relationalRows";
+import { compileLogicalRelationalRead } from "../src/logicalDocuments/relationalQuery";
 import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
 import { encodeOrderedIndexComponentsV1, orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
 
@@ -311,6 +312,28 @@ describe("private relational schema values", () => {
       rangeViolation,
       "$.tables[child].constraints[child.ordinal-range].column",
     );
+  });
+
+  it("selects only null predicates required by every Boolean branch", () => {
+    const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
+    const table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing Currency table");
+    const compile = (predicate: unknown) => Result.getOrThrow(compileLogicalRelationalRead(table, schema.capabilities,
+      { order: { column: "code", direction: "asc" }, predicate }, 10, reason => new Error(reason)));
+    expect(compile({ kind: "and", children: [
+      { kind: "isNull", column: "deleted_at" },
+      { kind: "or", children: [{ kind: "in", column: "code", values: ["USD"] },
+        { kind: "in", column: "code", values: ["EUR"] }] },
+    ] }).requiredNulls).toEqual(["deleted_at"]);
+    expect(compile({ kind: "or", children: [
+      { kind: "and", children: [{ kind: "isNull", column: "deleted_at" },
+        { kind: "in", column: "code", values: ["USD"] }] },
+      { kind: "and", children: [{ kind: "isNull", column: "deleted_at" },
+        { kind: "in", column: "code", values: ["EUR"] }] },
+    ] }).requiredNulls).toEqual(["deleted_at"]);
+    expect(compile({ kind: "or", children: [{ kind: "isNull", column: "deleted_at" },
+      { kind: "and", children: [] }] }).requiredNulls).toEqual([]);
+    expect(compile({ kind: "isNull", column: "code" }).requiredNulls).toEqual([]);
   });
 
   it("gives relational integer signed zero one stored, ordered and unique value", () => {

@@ -430,9 +430,16 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     yield* charge(captured.bytes);
     const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error));
     const selected = new Map<AppDocumentIdV1, PendingDocument>();
-    // The empty text prefix selects the declared primary-key index. Unindexed
-    // ranges already fail closed rather than falling back to a catalog scan.
-    const selections: LogicalWhere[] = query.keys === null ? [{ [query.key]: { gte: "" } }] :
+    // A null predicate required by every Boolean branch may use an admitted
+    // active-row index. Otherwise the text primary-key range remains the
+    // bounded complete-set path; a page limit never turns into a table scan.
+    let completeSelection: LogicalWhere = { [query.key]: { gte: "" } };
+    if (query.keys === null) for (const field of query.requiredNulls) {
+      const candidate: LogicalWhere = { [field]: null };
+      const index = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, candidate, error));
+      if (Option.isSome(index)) { completeSelection = candidate; break; }
+    }
+    const selections: LogicalWhere[] = query.keys === null ? [completeSelection] :
       query.keys.map(key => ({ [query.key]: key }));
     for (const where of selections) for (const row of yield* selectCandidates(tableName, where, true)) {
       if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);

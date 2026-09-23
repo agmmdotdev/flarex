@@ -128,6 +128,11 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
         yield* lifetime.seal;
         const closed = yield* working.close();
         expect(closed.changes).toHaveLength(3);
+        expect(closed.indexReads.some(read => read.definition.physicalSpec.predicate?.field === "deleted_at"))
+          .toBe(true);
+        expect(closed.indexReads.some(read => read.definition.physicalSpec.predicate === undefined &&
+          read.definition.physicalSpec.orderedFields[0]?.kind === "documentPath" &&
+          read.definition.physicalSpec.orderedFields[0]?.path === "code")).toBe(true);
         const live = closed.changes[0];
         if (live?.kind !== "live") throw new Error("Missing pending native row");
         const alien = snapshot.definitions.find(definition => definition.access.tableId !== table.tableId);
