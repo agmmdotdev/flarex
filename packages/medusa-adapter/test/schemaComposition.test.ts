@@ -52,7 +52,7 @@ const sourceArtifact = {
 };
 
 describe("shared schema composition and catalog admission", () => {
-  it("persists native outputs, shared views and refusal evidence on PGlite", async () => {
+  it("persists native outputs, shared views and Product definitions on PGlite", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence);
     await witness(persistence, fixture.controlSessionStarter, false);
@@ -231,14 +231,6 @@ async function witness(
   if (historyLimits === null) {
     const currencyTable = stored.tableBindings.find(binding => binding.table.logicalName === "commerce.currency/currency");
     if (currencyTable === undefined) throw new Error("Missing native Currency binding");
-    // Product's still-unsupported requirements cannot silently disappear from
-    // the complete-candidate contract. No definitions are installed on failure.
-    expect(await Effect.runPromise(Effect.result(runEffectTransaction(callback => persistence.drizzle.transaction(callback),
-      "Refuse unsupported candidate", (tx: FlarexMetadataTransaction) => ensureLogicalStorageDefinitions(tx, deploymentId, identity.schemaVersionId),
-      cause => new Error("Candidate definition transaction failed", { cause })))))
-      .toMatchObject({ _tag: "Failure", failure: { _tag: "LogicalStorageRequirementError", sourceKey: "medusa.product" } });
-    expect(await persistence.drizzle.select().from(fxControlIndexDefinitions)).toHaveLength(0);
-    expect(await persistence.drizzle.select().from(fxControlUniqueConstraintDefinitions)).toHaveLength(0);
     // A separately configured Currency candidate has its own complete artifact.
     // This does not activate or partially reinterpret the Product candidate.
     const currencyComposer = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses, medusaModules: ["currency"] });
@@ -251,6 +243,23 @@ async function witness(
       currencyIdentity.schemaVersionId, activeIndex, seed.rows));
     await Effect.runPromise(relationalValueAdmissionScenario(persistence.drizzle, deploymentId, currencyIdentity.schemaVersionId));
     expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows).toEqual(before.rows);
+    // The Currency-only fixture has now exercised first installation. The
+    // complete Product/Currency candidate can reuse that shared Currency
+    // identity and install all 13 Product tables' definitions without DDL.
+    const definitions = await Effect.runPromise(runEffectTransaction(callback => persistence.drizzle.transaction(callback),
+      "Install shared candidate definitions", (tx: FlarexMetadataTransaction) =>
+        ensureLogicalStorageDefinitions(tx, deploymentId, identity.schemaVersionId),
+      cause => new Error("Candidate definition transaction failed", { cause })));
+    const productTableIds = new Set(stored.tableBindings.filter(binding =>
+      binding.table.namespace === "medusa" && binding.table.logicalName.startsWith("commerce.product/"))
+      .map(binding => binding.tableId));
+    expect(productTableIds.size).toBe(13);
+    expect(definitions.requirements.ordered.filter(index => productTableIds.has(index.tableId))).toHaveLength(56);
+    expect(definitions.requirements.unique.filter(unique => productTableIds.has(unique.tableId))).toHaveLength(24);
+    expect((await persistence.drizzle.select().from(fxControlIndexDefinitions)).length).toBeGreaterThan(56);
+    expect((await persistence.drizzle.select().from(fxControlUniqueConstraintDefinitions)).length).toBeGreaterThanOrEqual(24);
+    expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+      .toEqual(before.rows);
     const forgedSource = { ...stored.artifact.manifestJson, candidate: { ...candidate,
       sources: candidate.sources.map(source => source.key === "medusa.currency" ? { ...source, sourceSha256: "0".repeat(64) } : source) } };
     expect(await Effect.runPromise(Effect.result(readSchemaVersionTableBindings(forgedSource, deploymentId)))).toMatchObject({

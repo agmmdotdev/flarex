@@ -26,6 +26,9 @@ import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { prepareLogicalRelationalRows } from "../src/logicalDocuments/relationalRows";
+import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
+import { encodeOrderedIndexComponentsV1, orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
 
 type PublicRelationalSchemaExport = Extract<
   keyof typeof import("../src"),
@@ -308,6 +311,27 @@ describe("private relational schema values", () => {
       rangeViolation,
       "$.tables[child].constraints[child.ordinal-range].column",
     );
+  });
+
+  it("gives relational integer signed zero one stored, ordered and unique value", () => {
+    const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
+    const table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing Currency table");
+    const policy = Result.getOrThrow(prepareLogicalRelationalRows(table, schema.capabilities, () => new Error("Invalid relational row")));
+    const timestamp = "2026-09-23T00:00:00.000Z";
+    const row = (value: number) => Result.getOrThrow(policy.normalize({ code: "USD", symbol: "$", symbol_native: "$", name: "US Dollar", decimal_digits: value }, null, timestamp));
+    const negative = row(-0);
+    const positive = row(0);
+    expect(Object.is(negative.decimal_digits, -0)).toBe(false);
+    expect(negative.decimal_digits).toBe(positive.decimal_digits);
+    const component = (value: typeof negative) => orderedIndexValueFromFlarexValueV1(value.decimal_digits);
+    expect(encodeOrderedIndexComponentsV1([component(negative)])).toBe(encodeOrderedIndexComponentsV1([component(positive)]));
+    const claim = (value: typeof negative) => Result.getOrThrow(canonicalizeAppUniqueKeyV1Result({ sparse: false, localeKey: null, values: [component(value)] }));
+    const negativeClaim = claim(negative);
+    const positiveClaim = claim(positive);
+    if (negativeClaim.kind !== "claim" || positiveClaim.kind !== "claim") throw new Error("Expected unique claims");
+    expect(negativeClaim.encodedKey).toBe(positiveClaim.encodedKey);
+    expect(policy.validate({ ...negative, decimal_digits: -0 }, "storedCorruption")).toMatchObject({ _tag: "Failure" });
   });
 
   it("enforces the aggregate decode budget at its exact boundary", () => {

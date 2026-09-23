@@ -114,8 +114,10 @@ refused by the scalar profile.
   This breaks older candidate artifacts: regenerate them through their producers;
   do not default missing requirements to empty or silently rewrite durable data.
 - Readiness must cover the complete configured candidate, including declared
-  absence and native dependencies. Never discard unsupported Product requirements
-  to serve Currency under the same candidate. Deployment composition may select
+  absence and native dependencies. Never discard a Product requirement that
+  remains unsupported to serve Currency under the same candidate. Product's
+  ordered and unique definitions now prepare, but its relationship/row/query
+  execution still has a separate cutover gate. Deployment composition may select
   an actually configured independent module set; it may not drop requirements
   inside an authenticated source. Existing physical Product consumers remain
   under their named cutover gate, not a generic-storage fallback.
@@ -123,7 +125,8 @@ refused by the scalar profile.
   Currency-only and Product-containing candidates are distinct artifacts, even
   when their stable Currency table identity is shared. Unsupported requirements
   in any included source refuse preparation before catalog mutation. Completing
-  index preparation does not close the unique set or grant serving authority.
+  Product index/unique preparation does not establish relationship or serving
+  authority.
 - Unique-set closure preparation verifies the complete logical source set,
   including stable descriptor identity and exact physical requirements. Missing,
   extra or contradictory bindings cannot be sealed as a complete set. Closure,

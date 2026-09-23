@@ -51,12 +51,15 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
       ];
       for (const declaration of declarations) {
         const predicate = declaration.predicate;
-        // Generic scalar ordering does not normalize integer signed zero or
-        // timestamp offsets. Null-only membership has no such representation ambiguity.
+        // Relational integers are bounded to int32, stored with canonical zero,
+        // and use exact float64 ordered components. Timestamps are canonical UTC millisecond
+        // instants, whose fixed-width ISO text has the same chronological order.
+        // Null-only membership has no representation ambiguity.
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
           const nullOnly = predicate?.kind === "isNull" && predicate.column.columnId === column.columnId;
-          return column.columnId.includes(".") || (!nullOnly && type !== "text" && type !== "boolean" && type !== "numeric");
+          return column.columnId.includes(".") || (!nullOnly && type !== "text" && type !== "boolean" &&
+            type !== "integer" && type !== "timestamptz" && type !== "numeric");
         }) || (predicate !== null && (predicate.kind !== "isNull" || predicate.column.columnId.includes(".")))) {
           return yield* Result.fail(failure(source));
         }
@@ -95,11 +98,13 @@ export function compileLogicalSourceUniqueConstraints(source: LogicalSchemaSourc
       ];
       for (const declaration of declarations) {
         const predicate = declaration.predicate;
-        // Native decimal/temporal/integer equality needs a canonical value
-        // contract; ordinary document-key encoding must not silently stand in.
+        // Native decimal equality still needs a canonical value contract.
+        // Bounded int32 values are stored with canonical zero; canonical UTC
+        // instants have unambiguous equality in the shared key codec.
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
-          return column.columnId.includes(".") || (type !== "text" && type !== "boolean");
+          return column.columnId.includes(".") || (type !== "text" && type !== "boolean" &&
+            type !== "integer" && type !== "timestamptz");
         }) || (predicate !== null && (predicate.kind !== "isNull" || predicate.column.columnId.includes(".")))) {
           return yield* Result.fail(failure(source));
         }

@@ -51,7 +51,10 @@ export function validateRelationalRowValues(table: RelationalTableDefinition, ro
     const name = column.identity.columnId;
     if (!Object.hasOwn(row, name)) return Result.fail(new RelationalRowValueError({ reason: "missingColumn", column: name }));
     const value = row[name];
-    if (value === undefined || !isRelationalColumnValue(column.type, column.nullable, value))
+    // PostgreSQL integer input folds signed zero. Stored rows must have that
+    // canonical value before shared ordered and unique keys are derived.
+    if (value === undefined || !isRelationalColumnValue(column.type, column.nullable, value) ||
+        (column.type === "integer" && Object.is(value, -0)))
       return Result.fail(new RelationalRowValueError({ reason: "invalidValue", column: name }));
   }
   for (const constraint of table.constraints) {

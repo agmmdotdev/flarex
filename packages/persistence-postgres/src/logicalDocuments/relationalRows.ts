@@ -77,6 +77,10 @@ export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefi
         }
       }
       else for (const column of managed) row[column] = timestamp;
+      for (const column of table.columns) {
+        if (column.type === "integer" && Object.is(row[column.identity.columnId], -0))
+          row[column.identity.columnId] = 0;
+      }
       yield* validate(row, "documentInvalid");
       return row;
     });

@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import { Effect, Result } from "effect";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { captureProductSchema } from "../src/product-schema";
-import { productSchemaInput, productModels } from "../src/product-definition";
+import { compileProductDefinition, productSchemaInput, productModels } from "../src/product-definition";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { compileLogicalSourceIndexes, compileLogicalSourceUniqueConstraints } from
+  "flarex-protocol/internal/logical-storage-requirements";
 import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
@@ -13,6 +16,30 @@ const compiled = () =>
   JSON.parse(JSON.stringify(compileDmlSchema([...productModels]))) as unknown;
 
 describe("actual Product schema", () => {
+  it("lowers every pinned Product key and index into shared logical definitions", async () => {
+    const { indexes, unique } = await Effect.runPromise(Effect.gen(function* () {
+      const product = yield* compileProductDefinition();
+      const source = yield* captureLogicalSchemaSource({
+        key: "medusa.product", owner: "medusa", writeProfile: "medusa.product",
+        evidence: product.provenance, definition: { kind: "relational", schema: product.schema },
+        bindings: product.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${product.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      });
+      return { indexes: yield* Effect.fromResult(compileLogicalSourceIndexes(source)),
+        unique: yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source)) };
+    }));
+    expect(indexes).toHaveLength(56);
+    expect(unique).toHaveLength(24);
+    const rank = indexes.find(index => index.localName === "image" &&
+      index.descriptor === "index/IDX_product_image_rank");
+    expect(rank?.physicalSpec.orderedFields[0]).toMatchObject({ kind: "documentPath", path: "rank" });
+    expect(indexes.some(index => index.localName === "product" && index.descriptor === "index/product.active"))
+      .toBe(true);
+    expect(unique.find(constraint => constraint.localName === "product" &&
+      constraint.descriptor === "index/IDX_product_handle_unique"))
+      .toMatchObject({ physicalSpec: { predicate: { kind: "fieldIsNull", field: "deleted_at" } } });
+  });
+
   it("captures all ten entities and three physical pivots without inventing pivot identities", async () => {
     const captured = await Effect.runPromise(
       captureProductSchema("product-schema-test"),

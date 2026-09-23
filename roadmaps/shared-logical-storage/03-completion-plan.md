@@ -54,6 +54,11 @@ remain distinct from logical schema evolution.
   one generic delta and one publication. The displaced private physical host and
   Currency profile entry point are retired; remaining physical consumers and
   data disposition are tracked in the [Currency cutover](./10-currency-storage-cutover.md).
+  The [Product cutover preflight](./11-product-storage-cutover.md) inventories the
+  complete native graph and the relational row/query/relationship contracts that
+  must change before physical Product consumers can move. All 56 native Product
+  ordered and 24 unique requirements now install as shared definitions without
+  generated Product DDL; this does not grant Product serving readiness.
 - Core execution, materialization, admission integrity and scoped host lifetime
   are implemented. Reuse these owners; do not reopen completed work without a
   connected defect or changed replacement contract.
