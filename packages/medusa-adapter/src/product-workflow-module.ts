@@ -21,10 +21,12 @@ export const decodeProductTagWorkflowResult = commerceDecoder(ProductTagWorkflow
 export const SimpleProductInput = Schema.Struct({
   id: Schema.optionalKey(Schema.String.check(Schema.isLengthBetween(1, 256))), title: Schema.String,
 });
-/** The admitted owned graph extends the scalar native step without claiming
- * external tag/category links or every Medusa Product DTO field. */
-export const ProductOwnedGraphInput = Schema.Struct({
+/** The admitted native create shape includes owned rows and existing
+ * module-local tag/category memberships, not every Medusa Product DTO field. */
+export const ProductCreateGraphInput = Schema.Struct({
   ...SimpleProductInput.fields,
+  tag_ids: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256))),
+  category_ids: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256))),
   images: Schema.optionalKey(Schema.Array(Schema.Struct({
     id: Schema.optionalKey(Schema.String), url: Schema.String,
   })).check(Schema.isMaxLength(256))),
@@ -37,7 +39,7 @@ export const ProductOwnedGraphInput = Schema.Struct({
   })).check(Schema.isMaxLength(256))),
 });
 const decodeCreateProductsArguments = commerceDecoder(Schema.Tuple([
-  Schema.Array(ProductOwnedGraphInput).check(Schema.isMaxLength(256)),
+  Schema.Array(ProductCreateGraphInput).check(Schema.isMaxLength(256)),
 ]), "invalidInput");
 const decodeCreatedProducts = commerceDecoder(Schema.Array(Schema.StructWithRest(
   Schema.Struct({ id: Schema.String, title: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],

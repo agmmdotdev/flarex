@@ -351,6 +351,37 @@ deletion test stays the source behavior witness; the selected graph proof does
 not claim Product-to-tag/category pivots, external Links or general runtime
 serving readiness.
 
+## Product Tag And Category Membership Slice
+
+The pinned Product service normalizes `tag_ids` and `category_ids` to
+references to existing ProductTag and ProductCategory rows. The checked Product
+schema declares separate join tables with cascading Product foreign keys. The
+selected logical create workflow now admits those references beside the owned
+image/option/value/variant graph. Its pending graph read and public native
+Product read return both memberships. A selected native Category root-creation
+command supplies a real target beside the existing logical ProductTag workflow;
+broader Category commands remain unadmitted.
+
+The Product event policy authenticates both join-table inserts against the
+inserted Product roots and declared join columns. Native graph admission refuses
+duplicate references; shared FK and unique constraints enforce target existence
+and persisted pair identity. Hard deletion authenticates both cascading pivot
+removals without deleting the referenced tag/category rows or emitting extra
+module messages. The Product adapter owns native reference interpretation and
+event correlation. Generic storage owns row/index/FK/constraint maintenance,
+bounds, settlement and recovery. No Product-only SQL, adapter-side existence
+cache or second relationship engine is introduced.
+
+This extends the private selected workflow input/output and logical event
+policy, not the durable schema or public Product service. The connected proof
+covers native existing-target creation, pending and committed relationship
+reads, root-only hard deletion with retained targets, missing-target/duplicate
+refusal, replay and forged-pivot rollback on PGlite and ordinary-role
+PostgreSQL. The physical profile remains for named unmigrated Product commands
+and relationship consumers; its removal gate remains their cutover and approved
+data disposition. Cross-module rich Links and advanced evolution stay outside
+this slice.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

@@ -158,13 +158,50 @@ const logicalSingleWriteEvents = Effect.fn("ProductEvents.singleLogicalWrite")(f
   return emitted;
 });
 
+/** Read only the two module-local Product memberships declared by pinned DML. */
+const productMembershipPivots = Effect.fn("ProductEvents.membershipPivots")(function* (catalog: ProductRuntimeMetadata) {
+  const pivots: Array<{ readonly table: string; readonly productColumn: string; readonly targetColumn: string }> = [];
+  for (const name of ["tags", "categories"] as const) {
+    const relation = catalog.queryRelations.get(catalog.product.table.name)?.get(name);
+    const join = relation?.join;
+    if (join?.type !== "manyToMany") return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const table = join.pivotTable;
+    if (join.sourceColumns.length !== 1 || join.targetColumns.length !== 1 ||
+      !catalog.writablePivots.some(pivot => pivot.name === table) || table === catalog.pivot.table.name)
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const productColumn = join.sourceColumns[0];
+    const targetColumn = join.targetColumns[0];
+    if (productColumn === undefined || targetColumn === undefined || pivots.some(pivot => pivot.table === table))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
+    pivots.push({ table, productColumn, targetColumn });
+  }
+  return pivots;
+});
+
+const validateProductMembershipRows = Effect.fn("ProductEvents.validateMembershipRows")(function* (
+  pivots: Effect.Success<ReturnType<typeof productMembershipPivots>>,
+  rows: ReadonlyMap<string, readonly JsonObject[]>, products: ReadonlyMap<string, JsonObject>,
+) {
+  for (const pivot of pivots) {
+    const identities = new Set<string>();
+    for (const row of rows.get(pivot.table) ?? []) {
+      const product = row[pivot.productColumn], target = row[pivot.targetColumn];
+      const identity = JSON.stringify([product, target]);
+      if (typeof product !== "string" || !products.has(product) || typeof target !== "string" ||
+        identities.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      identities.add(identity);
+    }
+  }
+});
+
 /** One native entity command owns its row transitions and matching messages. */
 function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity: ProductEntityMetadata,
   commandName: string, action: "created" | "updated" | "deleted") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const eventName = action === "created" ? entity.createdEvent : action === "updated" ? entity.updatedEvent : entity.deletedEvent;
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalEntity")(function* (calls, mutations) {
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalEntity")(function* (calls, mutations, lifecycle) {
     const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+    if (action === "created" && lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     const expected = new Set<string>();
     for (const mutation of mutations) {
       const id = mutation.after?.id;
@@ -193,14 +230,22 @@ function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity
   return { capture, validateLogical };
 }
 
+/** A selected native root Category create, before sibling or path maintenance. */
+export function productLogicalCategoryCreateEventPolicy(catalog: ProductRuntimeMetadata) {
+  return productLogicalEntityEventPolicy(catalog, catalog.category, "productCreatecategory", "created");
+}
+
 /** The native Product create command owns every inserted entity and its
  * variant/value pivot. No other command or Product table is admitted here. */
 export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
   const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCreate")(function* (calls, mutations) {
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCreate")(function* (calls, mutations, lifecycle) {
     const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productCreate");
+    if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    const memberships = yield* productMembershipPivots(catalog);
+    const membershipRows = new Map(memberships.map(pivot => [pivot.table, [] as JsonObject[]]));
     const expected = new Set<string>();
     const inserted = new Map(entities.map(entity => [entity.table.name, new Map<string, JsonObject>()]));
     const pivots: JsonObject[] = [];
@@ -208,6 +253,8 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
       if (mutation.operation !== "insert" || mutation.before !== null || mutation.after === null)
         return yield* Effect.fail(commerceError("receiptMismatch"));
       if (mutation.table === catalog.pivot.table.name) { pivots.push(mutation.after); continue; }
+      const members = membershipRows.get(mutation.table);
+      if (members !== undefined) { members.push(mutation.after); continue; }
       const entity = byTable.get(mutation.table);
       const id = mutation.after.id;
       if (entity === undefined || mutation.after.deleted_at !== null || typeof id !== "string" || inserted.get(entity.table.name)?.has(id))
@@ -221,6 +268,7 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
     const variants = inserted.get(catalog.variant.table.name);
     if (products === undefined || products.size === 0 || options === undefined || values === undefined || variants === undefined)
       return yield* Effect.fail(commerceError("receiptMismatch"));
+    yield* validateProductMembershipRows(memberships, membershipRows, products);
     for (const [table, foreignKey, parents] of [
       [catalog.option.table.name, catalog.foreignKeys.option, products],
       [catalog.image.table.name, catalog.foreignKeys.image, products],
@@ -312,12 +360,16 @@ export function productLogicalDeleteEventPolicy(catalog: ProductRuntimeMetadata)
   const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalDelete")(function* (calls, mutations, lifecycle) {
     const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productDeleteproduct");
     if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    const memberships = yield* productMembershipPivots(catalog);
+    const membershipRows = new Map(memberships.map(pivot => [pivot.table, [] as JsonObject[]]));
     const removed = new Map(entities.map(entity => [entity.table.name, new Map<string, JsonObject>()]));
     const pivots: JsonObject[] = [];
     for (const mutation of mutations) {
       if (mutation.operation !== "delete" || mutation.before === null || mutation.after !== null)
         return yield* Effect.fail(commerceError("receiptMismatch"));
       if (mutation.table === catalog.pivot.table.name) { pivots.push(mutation.before); continue; }
+      const members = membershipRows.get(mutation.table);
+      if (members !== undefined) { members.push(mutation.before); continue; }
       const entity = byTable.get(mutation.table);
       const id = mutation.before.id;
       if (entity === undefined || typeof id !== "string" || removed.get(entity.table.name)?.has(id))
@@ -330,6 +382,7 @@ export function productLogicalDeleteEventPolicy(catalog: ProductRuntimeMetadata)
     const variants = removed.get(catalog.variant.table.name);
     if (products === undefined || options === undefined || values === undefined || variants === undefined)
       return yield* Effect.fail(commerceError("receiptMismatch"));
+    yield* validateProductMembershipRows(memberships, membershipRows, products);
     for (const [table, foreignKey, parents] of [
       [catalog.option.table.name, catalog.foreignKeys.option, products],
       [catalog.image.table.name, catalog.foreignKeys.image, products],

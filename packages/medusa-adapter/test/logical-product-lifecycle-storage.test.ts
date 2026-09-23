@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
-import { productLogicalCreateEventPolicy, productLogicalDeleteEventPolicy,
+import { productLogicalCategoryCreateEventPolicy, productLogicalCreateEventPolicy,
+  productLogicalDeleteEventPolicy, productLogicalTagEventPolicy,
   productLogicalLifecycleEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
+import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
+import { currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
@@ -41,13 +44,49 @@ async function createHost() {
   }));
 }
 
+async function categoryHost() {
+  const policy = productLogicalCategoryCreateEventPolicy(catalog);
+  const participant = defineAtomicCommerceParticipant("product");
+  const root = defineAtomicCommerceCommand("productCategoryCreateRoot", (ctx, input) =>
+    ctx.call(participant, product.runtime.commands.createCategories, input));
+  const revision = createHash("sha256").update("logical-product-category-create").digest("hex");
+  const contract = defineCommerceEventContract({ name: catalog.category.createdEvent, revision,
+    internal: true, decode: policy.capture });
+  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+    identityAndAccessPolicy: { profile: "logical-product-category-create" },
+    participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+      commands: [product.runtime.commands.createCategories], validateLogical: policy.validateLogical,
+      events: { contracts: [contract], select: (message: Json) => isJsonObject(message) &&
+        message.name === catalog.category.createdEvent ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }],
+    commands: [root], events: { producerRevision: revision, contracts: [contract],
+      subscribers: [{ id: "logical-product-membership", revision: "a".repeat(64) }],
+      validate: events => events.some(event => !event.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
+  }));
+  return { host, root };
+}
+
 async function lifecycleHost(operation: "softDelete" | "restore" | "delete",
-  forged: "event" | "unowned" | false = false, lateRefuse = false) {
+  forged: "event" | "unowned" | "membership" | false = false, lateRefuse = false) {
   const policy = operation === "delete" ? productLogicalDeleteEventPolicy(catalog)
     : productLogicalLifecycleEventPolicy(catalog, operation);
   const participant = defineAtomicCommerceParticipant("product");
   const commandName = operation === "delete" ? "productDeleteproduct" : operation === "restore" ? "productRestore" : "productSoftDelete";
-  const command = forged === "unowned" ? defineCommerceCommand(commandName, "write", Effect.fn("ProductTest.unownedDelete")(function* (ctx) {
+  const membership = catalog.queryRelations.get(catalog.product.table.name)?.get("tags");
+  const join = membership?.join;
+  if (forged === "membership" && (join?.type !== "manyToMany" ||
+    join.sourceColumns.length !== 1 || join.targetColumns.length !== 1))
+    throw new Error("Missing Product tag membership declaration");
+  const command = forged === "membership" && join?.type === "manyToMany"
+    ? defineCommerceCommand(commandName, "write", Effect.fn("ProductTest.unownedMembershipDelete")(function* (ctx) {
+      const source = join.sourceColumns[0], target = join.targetColumns[0];
+      if (source === undefined || target === undefined) return yield* ctx.refuse(commerceError("unsupportedProfile"));
+      yield* (yield* ctx.table(join.pivotTable)).delete(ctx.manager,
+        [{ [source]: "prod_logical_membership", [target]: "ptag_logical_membership" }]);
+      yield* ctx.captureLocalEvent({ name: catalog.product.deletedEvent,
+        metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject, action: CommonEvents.DELETED },
+        data: { id: "prod_logical_membership" } });
+      return null;
+    })) : forged === "unowned" ? defineCommerceCommand(commandName, "write", Effect.fn("ProductTest.unownedDelete")(function* (ctx) {
     yield* (yield* ctx.table(catalog.image.table.name)).delete(ctx.manager, [{ id: "img_logical_delete_rollback" }]);
     yield* ctx.captureLocalEvent({ name: catalog.product.deletedEvent,
       metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject, action: CommonEvents.DELETED },
@@ -244,6 +283,103 @@ describe("native Product lifecycle on shared logical storage", () => {
       await Effect.runPromise(late.host.close);
       await Effect.runPromise(forged.host.close);
       await Effect.runPromise(unowned.host.close);
+      await Effect.runPromise(read.close);
+    }
+  }, 120_000);
+
+  it("creates existing tag/category memberships and deletes only their Product pivots", async () => {
+    const tags = await Effect.runPromise(prepareProductTagWorkflow({
+      execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+        prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+        moduleEvents: productLogicalTagEventPolicy(catalog, "created") },
+      currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
+      revision: createHash("sha256").update("logical-product-membership-tag").digest("hex"),
+      subscribers: [{ id: "logical-product-membership", revision: "a".repeat(64) }],
+    }));
+    const categories = await categoryHost();
+    const create = await createHost();
+    const remove = await lifecycleHost("delete");
+    const forged = await lifecycleHost("delete", "membership");
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [...product.hostInput.commands, product.runtime.commands.list,
+        product.runtime.commands.listTags, product.runtime.commands.listCategories],
+    }));
+    try {
+      await Effect.runPromise(tags.run(tags.newRequestKey(), {
+        product_tags: [{ id: "ptag_logical_membership", value: "Logical Membership" }],
+      }));
+      await Effect.runPromise(categories.host.run(categories.host.newRequestKey(), categories.root,
+        [{ id: "pcat_logical_membership", name: "Logical Membership" }]));
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await committedEvents();
+      const refusalReasons: string[] = [];
+      for (const [id, tagIds, categoryIds] of [
+        ["prod_missing_tag_membership", ["ptag_missing_membership"], ["pcat_logical_membership"]],
+        ["prod_missing_category_membership", ["ptag_logical_membership"], ["pcat_missing_membership"]],
+        ["prod_duplicate_tag_membership", ["ptag_logical_membership", "ptag_logical_membership"], ["pcat_logical_membership"]],
+      ] as const) {
+        const outcome = await Effect.runPromise(Effect.result(create.run(create.newRequestKey(), { products: [{
+          id, title: id, tag_ids: [...tagIds], category_ids: [...categoryIds],
+        }] })));
+        if (Result.isSuccess(outcome)) throw new Error("Accepted an invalid Product membership: " + id);
+        refusalReasons.push(outcome.failure.reason);
+      }
+      expect(refusalReasons).toEqual(["rollbackOnly", "invalidInput", "rollbackOnly"]);
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await committedEvents()).toEqual(beforeEvents);
+      const input = { products: [{ id: "prod_logical_membership", title: "Membership Product",
+        tag_ids: ["ptag_logical_membership"], category_ids: ["pcat_logical_membership"] }] };
+      const createKey = create.newRequestKey();
+      const created = await Effect.runPromise(create.run(createKey, input));
+      expect(created).toMatchObject({ products: [{ id: "prod_logical_membership",
+        tags: [{ id: "ptag_logical_membership" }], categories: [{ id: "pcat_logical_membership" }] }] });
+      const afterCreate = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      expect(afterCreate).toHaveLength(beforeRows.length + 3);
+      const createdEvents = await committedEvents();
+      expect(createdEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
+        .toEqual([catalog.product.createdEvent]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: "prod_logical_membership" }, config: { relations: ["tags", "categories"] },
+      }))).toMatchObject([{ tags: [{ id: "ptag_logical_membership" }],
+        categories: [{ id: "pcat_logical_membership" }] }]);
+      expect(await Effect.runPromise(create.run(createKey, input))).toEqual(created);
+      await expect(Effect.runPromise(forged.host.run(forged.host.newRequestKey(), forged.root,
+        ["prod_logical_membership"]))).rejects.toMatchObject({ reason: "receiptMismatch" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterCreate);
+      expect(await committedEvents()).toEqual(createdEvents);
+      const deleteKey = remove.host.newRequestKey();
+      await Effect.runPromise(remove.host.run(deleteKey, remove.root, ["prod_logical_membership"]));
+      const afterDelete = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      expect(afterDelete).toHaveLength(afterCreate.length);
+      const prior = new Map(afterCreate.map(row => [rowIdentity(row), row.commitSeq]));
+      const changed = afterDelete.filter(row => prior.get(rowIdentity(row)) !== row.commitSeq);
+      expect(changed).toHaveLength(3);
+      const revisions = await currency.persistence.drizzle.select().from(fxAppRowRevisions);
+      for (const pointer of changed) expect(revisions.find(row => rowIdentity(row) === rowIdentity(pointer) &&
+        row.commitSeq === pointer.commitSeq)?.isTombstone).toBe(true);
+      expect((await committedEvents()).slice(beforeEvents.length).map(event => event.envelope.contract))
+        .toEqual([catalog.product.createdEvent, catalog.product.deletedEvent]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: "prod_logical_membership" }, config: { withDeleted: true },
+      }))).toEqual([]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.listTags, {
+        filters: { id: "ptag_logical_membership" },
+      }))).toMatchObject([{ id: "ptag_logical_membership" }]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.listCategories, {
+        filters: { id: "pcat_logical_membership" },
+      }))).toMatchObject({ payload: [{ id: "pcat_logical_membership" }] });
+      await Effect.runPromise(remove.host.run(deleteKey, remove.root, ["prod_logical_membership"]));
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterDelete);
+      expect((await currency.persistence.query<{ name: string }>(
+        "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+        .toEqual(currency.physicalTablesBeforeCandidate);
+    } finally {
+      await Effect.runPromise(tags.close);
+      await Effect.runPromise(categories.host.close);
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(remove.host.close);
+      await Effect.runPromise(forged.host.close);
       await Effect.runPromise(read.close);
     }
   }, 120_000);

@@ -82,8 +82,10 @@ remain distinct from logical schema evolution.
   owned logical cascade and match module events to core lifecycle observations,
   including active restore without a fabricated row update. Public native
   Product hard deletion of the admitted owned graph now publishes only the
-  root event and retains generic tombstone history; Product-to-tag/category
-  pivots, general bounded population/overflow, broader Product commands and
+  root event and retains generic tombstone history. The same native create,
+  read and delete path now includes existing tag/category memberships through
+  shared join rows, with a selected native Category root-creation source.
+  General bounded population/overflow, broader Product commands and
   relationship queries, and rich Links still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key
