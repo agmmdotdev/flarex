@@ -25,8 +25,8 @@ source-local single-text Product foreign keys through shared indexed row
 observations and final working-set validation. `compileLogicalRelationalRead`
 admits the first text identity member for
 bounded indexed selection, not Product's complete graph query contract.
-Product graph, population, lifecycle and native service queries cannot be
-routed through those contracts unchanged.
+Complete public Product graph, population, lifecycle and service queries cannot
+be routed through those contracts unchanged.
 
 The first connected definition step now compiles all 56 native Product ordered
 requirements, three implicit FK reverse access paths and 24 unique requirements
@@ -40,7 +40,7 @@ millisecond timestamps are also admissible to that compiler,
 while numeric uniqueness and JSON key ordering remain refused. The complete
 Product/Currency candidate installs these definitions without Product DDL on
 PGlite and ordinary-role PostgreSQL. Complete shared builds and readiness now
-pass on both drivers; native Product command selection remains pending.
+pass on both drivers; public Product command selection remains pending.
 
 The row-identity slice recognizes a table's declared primary text key or,
 when no primary exists, its sole nonnullable composite text unique key. This
@@ -55,7 +55,7 @@ ties. A neutral logical commerce host exercises empty initialization, two rows
 with the same first member, duplicate rejection, upsert and exact-pair deletion
 on PGlite and ordinary-role PostgreSQL. The pinned Product schema proves all
 three pivot declarations match this identity rule. Product's module-local FK
-kernel is now implemented, while native command selection, remaining query
+kernel is now implemented, while public command selection, remaining query
 shapes and rich Links are the next connected gates. A new pivot-specific ID,
 partial Product activation or a scan
 fallback would obscure that missing core obligation.
@@ -82,7 +82,8 @@ native-key, reverse-index, cascade and contention gates. Product's three
 undeclared child-side reverse paths now install through shared definitions;
 the shared working set enforces their admitted single-text FK profile. A
 complete Product build/readiness and committed Variant cascade kernel witness
-passes on both database drivers; no native Product service has selected it yet.
+passes on both database drivers; the native internal service selection below
+does not yet exercise that FK graph through public Product methods.
 
 The conditional-index read cutover admits a text index conditional on a null field
 only when the query branch itself requires that field to be null. This is needed
@@ -95,6 +96,40 @@ of handle lookup without the active condition. The core reader and its existing
 index/revision settlement own this behavior; the Medusa adapter gains no query
 fallback. This changes no public API or durable format and leaves Product's FK
 and graph serving refusal intact.
+
+The first native selection witness now composes Product and Currency with
+Application and Payload, builds the full Product candidate, and selects
+`medusa.product` in a logical commerce host. The pinned internal Product
+service creates, retrieves, updates, lists, soft-deletes and restores a row
+through shared storage. A duplicate active handle rolls back, a replay returns
+the committed outcome, and no physical Product table is created. Multi-table
+initialization now probes live current rows across every selected source table
+before seeding, so a second step cannot treat a populated Product source as
+empty merely because its first `image` table has no rows. The probe uses shared
+scope/table row identity and exact revision tombstone state in the same
+transaction, avoiding full catalog counts. This is a
+bounded service-path proof on PGlite and ordinary-role PostgreSQL, not public
+Product or workflow activation. The test's optional Product source in the
+Currency fixture exists only to compose the full candidate; Currency retains
+its own source and initialization.
+
+The existing initialization input has no table discriminator. A source with
+multiple tables therefore admits only an empty seed; a nonempty multi-table
+seed refuses before writing to the first table. Future nonempty multi-table
+initialization needs its own explicit source/table contract rather than
+inferring a target from table order.
+
+This selected slice reuses the native internal service and shared commerce
+settlement because they already own the needed semantics. A Product-only DAL,
+adapter SQL path, partial graph installation or compatibility writer would
+duplicate authority. It changes no durable format or public contract and
+removes no physical Product consumer. The next connected cutover must make
+logical Product's mutation-event validation use shared row identities and
+facts, then select public Product and Product-tag workflow operations. Until
+that validation and the remaining graph paths are proven, the physical Product
+profile remains the named owner of those tests and runtime calls. That retained
+path is removed with the complete Product cutover and an explicit data
+disposition; no production switch is implied by this witness.
 
 The physical profile is constructed in `product-schema.ts` and
 `product-profile.ts`. Its active test consumers include the Product runner and
@@ -151,7 +186,7 @@ No dual writer, compatibility fallback or silent durable reset is authorized.
    Preserve exact values, conditional indexes, defaults, pending reads,
    confinement and resource accounting. Refuse unsupported semantics at
    readiness or operation admission, never after partial mutation.
-3. Select logical Product for connected native Product service and Product-tag
+3. Select logical Product for connected public native Product service and Product-tag
    workflow paths. Prove create/update/delete/restore, graph population,
    filtered page/count, events, replay, rollback, two-scope isolation and
    ordinary-role PostgreSQL contention. Prove the active-handle reuse/restore

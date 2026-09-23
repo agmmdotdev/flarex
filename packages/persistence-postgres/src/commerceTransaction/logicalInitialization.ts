@@ -1,13 +1,34 @@
 import { Effect } from "effect";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { fxSystemLogicalSourceInitializations } from "../logicalStorageInitialization";
+import { fxAppRowCurrent, fxAppRowRevisions } from "../schema";
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { commerceError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
 import type { CommerceInitialization } from "./initializationContract";
+
+/** One indexed existence probe across every table in the selected source.
+ * Tombstones do not make a new seed conflict with existing live data. */
+export const hasLiveLogicalCommerceRows = Effect.fn("LogicalCommerce.hasLiveRows")(function* (
+  admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
+) {
+  const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+  if (state.tables.length === 0) return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const rows = yield* runDrizzleStatementEffect(tx.select({ tableId: fxAppRowCurrent.tableId }).from(fxAppRowCurrent)
+    .innerJoin(fxAppRowRevisions, and(eq(fxAppRowCurrent.scopeUuid, fxAppRowRevisions.scopeUuid),
+      eq(fxAppRowCurrent.tableId, fxAppRowRevisions.tableId),
+      eq(fxAppRowCurrent.rowId, fxAppRowRevisions.rowId),
+      eq(fxAppRowCurrent.commitSeq, fxAppRowRevisions.commitSeq)))
+    .where(and(eq(fxAppRowCurrent.scopeUuid, scope.scopeUuid),
+      inArray(fxAppRowCurrent.tableId, state.tables.map(table => table.tableId)),
+      eq(fxAppRowRevisions.isTombstone, false))).limit(1),
+  cause => commerceError("statementFailure", cause));
+  return rows.length !== 0;
+});
 
 /** Fresh first-data evidence for an authenticated logical participant. The
  * receipt is read inside its borrowed request transaction before any callback. */

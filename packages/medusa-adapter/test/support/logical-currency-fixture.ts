@@ -47,6 +47,7 @@ import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { compileCurrencyDefinition } from "../../src/currency-schema";
 import { currencyInitialization } from "../../src/currency-contract";
+import { compileProductDefinition } from "../../src/product-definition";
 import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from "../../src/currency-service";
 
 export interface LogicalCurrencyFixture {
@@ -62,6 +63,8 @@ export interface LogicalCurrencyFixture {
   readonly host: CommerceHost;
   readonly service: ReturnType<typeof makeCurrencyService>;
   readonly initialization: Effect.Success<ReturnType<typeof currencyInitialization>>;
+  readonly productDefinition: Effect.Success<ReturnType<typeof compileProductDefinition>> | undefined;
+  readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
   readonly observeSql?: (observer: ((text: string) => Promise<void> | void) | undefined) => void;
 }
 
@@ -69,7 +72,7 @@ export interface LogicalCurrencyFixture {
 export async function logicalCurrencyFixture(
   driver: "pglite" | "postgres",
   registerCleanup: (cleanup: () => Promise<void>) => void,
-  options?: Readonly<{ includeUserNameIndex?: boolean; payloadCollections?: unknown }>,
+  options?: Readonly<{ includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean }>,
 ): Promise<LogicalCurrencyFixture> {
   let observer: ((text: string) => Promise<void> | void) | undefined;
   const pair = driver === "pglite" ? await (async () => {
@@ -92,10 +95,12 @@ export async function logicalCurrencyFixture(
   const application = pair.kind === "postgres"
     ? await createApplicationNativeMutationPostgresFixture(applicationOptions, { control: pair.control, target: pair.target })
     : await createApplicationNativeMutationPGliteFixtureWithPersistence(applicationOptions, { control: pair.control, target: pair.target });
+  const physicalTablesBeforeCandidate = (await target.query<{ name: string }>(
+    "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows;
   return Effect.runPromise(Effect.fn("LogicalCurrencyFixture.prepare")(function* () {
     const prepared = yield* makeSchemaComposer({ deploymentId: application.deploymentId,
       authority: application.authority, applicationAnalyses: makeApplicationAnalysisRepository(target.drizzle),
-      medusaModules: ["currency"] })({ applicationCandidateId: application.active.basis.candidateId,
+      medusaModules: options?.includeProduct === true ? ["currency", "product"] : ["currency"] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
         payloadViews: [], extensions: [] });
@@ -105,6 +110,7 @@ export async function logicalCurrencyFixture(
     const applicationSource = Object.freeze({ sourceKey: nativeApplication.key, writeProfile: nativeApplication.writeProfile,
       definition: nativeApplication.definition, evidence: nativeApplication.evidence });
     const definition = yield* compileCurrencyDefinition();
+    const productDefinition = options?.includeProduct === true ? yield* compileProductDefinition() : undefined;
     const initialization = yield* currencyInitialization();
     const schemaVersionId = decodeCatalogSchemaVersionId("live-logical-currency");
     const controlSession = pair.kind === "postgres"
@@ -147,7 +153,7 @@ export async function logicalCurrencyFixture(
     yield* reconcileAppUniqueConstraintSetBuildV1Effect(ports,
       { deploymentId: application.deploymentId, schemaVersionId });
     let uniqueEnabled = false;
-    for (let step = 0; step < 20; step++) {
+    for (let step = 0; step < 128; step++) {
       const build = yield* advanceAppUniqueConstraintSetBackfillV1Effect(ports,
         { deploymentId: application.deploymentId, schemaVersionId, pageSize: 10 });
       if (build.lifecycle === "enabled" && build.uniqueConstraintDefinitionId === null) { uniqueEnabled = true; break; }
@@ -184,6 +190,7 @@ export async function logicalCurrencyFixture(
     yield* host.initialize(initialization.rows);
     return { application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource,
+      productDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: (next: typeof observer) => { observer = next; } } : {}) };
   })());
 }

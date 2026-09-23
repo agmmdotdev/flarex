@@ -28,9 +28,8 @@ import { withCommerceAdmission, requireCommerceAdmission, enterCommercePublicati
 import { prepareInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation, type CommerceRowObservation } from "./store";
 import { makeLogicalCommerceParticipant } from "./logicalParticipant";
-import { requireLogicalCommerceInitialization } from "./logicalInitialization";
+import { hasLiveLogicalCommerceRows, requireLogicalCommerceInitialization } from "./logicalInitialization";
 import { prepareLogicalRelationalAdmission, requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
-import { relationalTextIdentity } from "../logicalDocuments/relationalRows";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { defaultCommerceResources } from "./resources";
 import { captureLogicalCommerceSelection, prepareLogicalCommerceContract, type LogicalCommerceSelectionInput } from "./logicalSelection";
@@ -155,6 +154,9 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           const admitted = member.kind === "physical"
             ? { kind: "physical" as const, state: yield* requireCommerceAdmission(member.admission) }
             : { kind: "logical" as const, state: yield* requireLogicalRelationalAdmission(member.admission, tx).pipe(Effect.mapError(projectFailure)) };
+          if (bootstrap && admitted.kind === "logical" && admitted.state.tables.length > 1 &&
+            descriptor.initialization !== null && descriptor.initialization.expectedRowCount > 0)
+            return yield* Effect.fail(commerceError("unsupportedProfile"));
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(projectFailure));
           if (member.kind === "logical" && !bootstrap) {
             const initialization = descriptor.initialization;
@@ -210,17 +212,15 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
             let value: Json;
             if (bootstrap) {
               if (descriptor.initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
-              const logicalTable = admitted.kind === "logical" ? admitted.state.schema.tables[0] : undefined;
-              if (admitted.kind === "logical" && logicalTable === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-              const logicalIdentity = logicalTable === undefined ? null :
-                yield* Effect.fromResult(relationalTextIdentity(logicalTable, () => commerceError("unsupportedProfile")));
-              const keyColumnId = selected.kind === "physical"
-                ? physicalDescriptor?.layout.frame.tables[0]?.columns.find(column => column.name ===
-                  physicalDescriptor.layout.frame.tables[0]?.keys.find(candidate => candidate.kind === "primary")?.columns.find(name => name !== "scope_uuid"))?.identity.columnId
-                : logicalIdentity?.[0];
-              if (keyColumnId === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-              const existing = yield* working.store.count(lifetime.context, { order: { column: keyColumnId, direction: "asc" } });
-              if (existing !== 0) return yield* Effect.fail(commerceError("seedMismatch"));
+              if (member.kind === "logical") {
+                if (yield* hasLiveLogicalCommerceRows(member.admission, tx)) return yield* Effect.fail(commerceError("seedMismatch"));
+              } else {
+                const keyColumnId = physicalDescriptor?.layout.frame.tables[0]?.columns.find(column => column.name ===
+                  physicalDescriptor.layout.frame.tables[0]?.keys.find(candidate => candidate.kind === "primary")?.columns.find(name => name !== "scope_uuid"))?.identity.columnId;
+                if (keyColumnId === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+                if ((yield* working.store.count(lifetime.context, { order: { column: keyColumnId, direction: "asc" } })) !== 0)
+                  return yield* Effect.fail(commerceError("seedMismatch"));
+              }
               const rows = yield* working.store.write(lifetime.context, "insert", captured.value);
               value = { rowCount: rows.length };
             } else {
