@@ -231,6 +231,27 @@ the selected relationship. The existing physical native lifecycle suite
 remains the behavior witness for graph facts, events, rollback and deletion.
 Review and both database-driver runs are required before this slice closes.
 
+## Native Simple Product Creation Slice
+
+The next public Product boundary is Medusa's `createProductsStep` with its
+already-admitted scalar `{ id?, title }` input. The private Product workflow
+binds that native step to the selected Product source and reads the resulting
+IDs through the pending graph before the atomic root settles. The Product
+event policy validates the sole `productCreate` write call, its exact inserted
+Product rows and matching native `product.product.created` messages against
+the same logical attempt transcript. It reuses the tag policy's single-entity
+mechanics without granting a graph-wide or multi-command event contract.
+
+This is a connected public service and workflow cutover, not a new storage
+owner. It changes no durable format or supported Product API. The physical
+Product profile remains for the named graph, lifecycle, Link and other
+unmigrated consumers; no dual writer is introduced. The logical witness
+requires pending Product graph reads, one publication with native module
+events, replay without duplicate writes, active-handle conflict rollback and
+no generated Product table. Rich nested Product creation still requires
+complete per-entity event/fact correlation and relationship queries before
+its public method can admit those inputs.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

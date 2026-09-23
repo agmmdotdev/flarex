@@ -5,7 +5,7 @@ import { defaultCommerceResources, type CommerceResources } from "@flarex/persis
 import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "./commerce-input";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
-import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
+import type { ProductEntityMetadata, ProductRuntimeMetadata } from "./product-runtime-metadata";
 
 
 const EventId = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -137,14 +137,13 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
   };
 }
 
-/** The first logical Product event profile admits one native tag write. Every
- * emitted ID must be backed by its source-local row transition. */
-export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
-  action: "created" | "updated" | "deleted") {
+/** One native entity command owns its row transitions and matching messages;
+ * graph or multi-command policies require their own complete transcript. */
+function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity: ProductEntityMetadata,
+  commandName: string, action: "created" | "updated" | "deleted") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const commandName = action === "created" ? "productCreatetag" : action === "updated" ? "productUpdateTagsBySelector" : "productSoftDeleteTag";
-  const eventName = action === "created" ? catalog.tag.createdEvent : action === "updated" ? catalog.tag.updatedEvent : catalog.tag.deletedEvent;
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalTag")(function* (calls, mutations) {
+  const eventName = action === "created" ? entity.createdEvent : action === "updated" ? entity.updatedEvent : entity.deletedEvent;
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalEntity")(function* (calls, mutations) {
     let cursor = 0;
     let writes = 0;
     let emitted: readonly Json[] = [];
@@ -170,14 +169,14 @@ export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
         : (mutation.operation === "patch" || mutation.operation === "replace") &&
           before !== null && before.id === id && before.deleted_at === null &&
           (action === "updated" ? after?.deleted_at === null : typeof after?.deleted_at === "string");
-      if (mutation.table !== catalog.tag.table.name || !transition ||
+      if (mutation.table !== entity.table.name || !transition ||
         typeof id !== "string" || expected.has(id))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       expected.add(id);
     }
     for (const event of emitted) {
       const message = yield* capture(event);
-      if (message.name !== eventName || message.metadata.object !== catalog.tag.eventObject ||
+      if (message.name !== eventName || message.metadata.object !== entity.eventObject ||
         message.metadata.action !== action) return yield* Effect.fail(commerceError("receiptMismatch"));
       for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
         if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -186,6 +185,18 @@ export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
   return { capture, validateLogical };
+}
+
+/** The selected native Product creation step admits only scalar roots. */
+export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata) {
+  return productLogicalEntityEventPolicy(catalog, catalog.product, "productCreate", "created");
+}
+
+/** Selected tag create, selector update and soft-delete retain distinct native commands. */
+export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
+  action: "created" | "updated" | "deleted") {
+  return productLogicalEntityEventPolicy(catalog, catalog.tag,
+    action === "created" ? "productCreatetag" : action === "updated" ? "productUpdateTagsBySelector" : "productSoftDeleteTag", action);
 }
 
 /** Existing standalone local delivery profile. */

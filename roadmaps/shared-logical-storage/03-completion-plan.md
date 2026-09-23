@@ -71,8 +71,11 @@ remain distinct from logical schema evolution.
   indexed ID even beyond the logical request's catalog-wide row bound. The
   lifecycle planner now selects declared child and nullable-reference rows by
   indexed reverse keys, including a selected-image regression beyond the
-  unrelated-row bound. Broader Product command selection, graph queries and
-  rich Links still block its runtime cutover.
+  unrelated-row bound. The native simple Product creation step now writes
+  logical rows, reads the pending Product graph and correlates created module
+  events before one publication. Nested graph creation, broader Product
+  commands and relationship queries, and rich Links still block its runtime
+  cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key
   selection alone does not enforce or activate Product relationships.
