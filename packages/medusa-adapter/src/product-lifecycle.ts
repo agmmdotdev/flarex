@@ -35,16 +35,22 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
   });
   const keys = (table: Table) => table.columns.some(column => column.primaryKey) ? table.columns.filter(column => column.primaryKey).map(column => column.name)
     : table.foreignKeys.flatMap(key => key.columns);
-  const load = Effect.fn("ProductLifecycle.load")(function* (table: Table) {
-    const prior = state.get(table.name);
+  const load = Effect.fn("ProductLifecycle.load")(function* (table: Table,
+    selection?: Readonly<{ column: string; values: readonly string[] }>) {
+    const cacheKey = selection === undefined ? table.name : JSON.stringify([table.name, selection.column, selection.values]);
+    const prior = state.get(cacheKey);
     if (prior !== undefined) return prior;
     const order = keys(table)[0];
     if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const store = yield* getStore(table);
-    const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" } });
-    state.set(table.name, rows); return rows;
+    const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" },
+      ...(selection === undefined ? {} : { predicate: { kind: "in", column: selection.column, values: selection.values } }) });
+    state.set(cacheKey, rows); return rows;
   });
-  const roots = (yield* load(entity.table)).filter(row => typeof row.id === "string" && ids.includes(row.id) && (operation !== "softDelete" || row.deleted_at === null));
+  // Requested root IDs are admitted by the shared indexed row reader. A
+  // one-ID lifecycle call must not depend on the size of the whole catalog.
+  const roots = (ids.length === 0 ? [] : yield* load(entity.table, { column: "id", values: ids }))
+    .filter(row => typeof row.id === "string" && ids.includes(row.id) && (operation !== "softDelete" || row.deleted_at === null));
   if (entity === catalog.category) {
     const categories = yield* load(entity.table);
     if (roots.length !== ids.length || roots.some(row => categories.some(child => child.parent_category_id === row.id && child.deleted_at === null)))

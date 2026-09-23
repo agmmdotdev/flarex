@@ -42,7 +42,7 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
         product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalTagEventPolicy(metadata) },
+          moduleEvents: productLogicalTagEventPolicy(metadata, "created") },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow").digest("hex"),
@@ -87,7 +87,7 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
         product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalTagEventPolicy(metadata) },
+          moduleEvents: productLogicalTagEventPolicy(metadata, "created") },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-no-hook").digest("hex"),
@@ -107,7 +107,7 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
   it("refuses a module event ID without a matching logical Product insert", async () => {
     const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const policy = productLogicalTagEventPolicy(metadata);
+    const policy = productLogicalTagEventPolicy(metadata, "created");
     const host = await Effect.runPromise(prepareProductTagWorkflow({
       execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },

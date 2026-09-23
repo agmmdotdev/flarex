@@ -65,8 +65,12 @@ remain distinct from logical schema evolution.
   implicit pivot identity declarations. Product's source-local single-text FK
   profile now executes through shared indexed observations. Complete candidate
   builds/readiness and a committed Product/Variant cascade kernel witness pass
-  on both drivers. Native Product command selection, broader graph queries and
-  rich Links still block its runtime cutover.
+  on both drivers. Selected native Product-tag create, update and delete
+  workflows now execute through logical Product rows with module-event/row
+  correlation and atomic publication. Tag deletion selects requested roots by
+  indexed ID even beyond the logical request's catalog-wide row bound. Other
+  lifecycle relation traversals, broader Product command selection, graph
+  queries and rich Links still block its runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key
   selection alone does not enforce or activate Product relationships.

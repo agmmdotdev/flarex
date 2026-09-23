@@ -175,6 +175,37 @@ storage proof. Its fully admitted PostgreSQL overlap passes; the earlier
 tracer-at-entry timeout during unfinished admission remains unexplained and is a
 separate concurrency gate before any broad throughput claim.
 
+## Product-Tag Update And Delete Slice
+
+The pinned `updateProductTagsWorkflow` and `deleteProductTagsWorkflow` now run
+through the same selected logical Product source as tag creation. Their native
+selector update and soft-delete methods use the existing shared before/after
+attempt and trusted call-mode observations. The Product-owned logical event
+policy admits exactly one tag write, correlates its module messages with the
+actual inserted, updated or active-to-deleted row transitions, and permits
+read-only hook calls with no mutations or module events. The native workflow's
+deletion event for a requested missing ID remains distinct from module events
+for actual row transitions.
+
+The first review exposed an unrelated-row dependency in the existing Product
+lifecycle reader: it scanned every tag before filtering a requested ID. The
+Product lifecycle owner now selects root IDs through the shared indexed row
+reader, so deleting one tag still works when the logical tag catalog exceeds
+the 128-identity request bound. The bounded refusal remains for a genuinely
+overlarge selected set. Other Product lifecycle branches still traverse
+related rows using their physical-era table loads; their reverse-index
+selection must replace those loads before those branches move to logical
+Product storage. This slice does not claim general Product lifecycle scale.
+
+The private workflow registration types now admit a selected logical Product
+source. Native no-match updates, pending hook reads, multi-row deletion,
+replay, conflicting multi-row updates and forged module-event rollback are
+covered on PGlite and ordinary-role PostgreSQL, alongside the existing
+physical workflow regressions. The physical Product policy and fixtures remain
+for named unmigrated consumers. No second writer, storage fallback, Product-
+specific row query or production activation was added. Broader Product,
+relationship, Link and migration retirement remain at their existing gates.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

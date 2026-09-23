@@ -137,30 +137,51 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
   };
 }
 
-/** The first logical Product event profile admits exactly native tag creation.
- * Every emitted ID must be backed by one source-local insert observation. */
-export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata) {
+/** The first logical Product event profile admits one native tag write. Every
+ * emitted ID must be backed by its source-local row transition. */
+export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
+  action: "created" | "updated" | "deleted") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const commandName = action === "created" ? "productCreatetag" : action === "updated" ? "productUpdateTagsBySelector" : "productSoftDeleteTag";
+  const eventName = action === "created" ? catalog.tag.createdEvent : action === "updated" ? catalog.tag.updatedEvent : catalog.tag.deletedEvent;
   const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalTag")(function* (calls, mutations) {
-    if (calls[0]?.commandName !== "productCreatetag" || calls[0].mode !== "write" ||
-      calls[0].fromAttempt !== 0 || calls[0].toAttempt !== mutations.length ||
-      calls.slice(1).some(call => call.mode !== "read" || call.events.length !== 0 ||
-        call.fromAttempt !== mutations.length ||
-        call.toAttempt !== mutations.length))
-      return yield* Effect.fail(commerceError("receiptMismatch"));
+    let cursor = 0;
+    let writes = 0;
+    let emitted: readonly Json[] = [];
+    for (const call of calls) {
+      if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (call.mode === "read") {
+        if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+        continue;
+      }
+      if (++writes !== 1 || call.commandName !== commandName || call.toAttempt !== mutations.length)
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      cursor = call.toAttempt;
+      emitted = call.events;
+    }
+    if (writes !== 1 || cursor !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
     const expected = new Set<string>();
     for (const mutation of mutations) {
       const id = mutation.after?.id;
-      if (mutation.table !== catalog.tag.table.name || mutation.operation !== "insert" ||
-        mutation.before !== null || typeof id !== "string" || expected.has(id))
+      const before = mutation.before;
+      const after = mutation.after;
+      const transition = action === "created"
+        ? mutation.operation === "insert" && before === null && after?.deleted_at === null
+        : (mutation.operation === "patch" || mutation.operation === "replace") &&
+          before !== null && before.id === id && before.deleted_at === null &&
+          (action === "updated" ? after?.deleted_at === null : typeof after?.deleted_at === "string");
+      if (mutation.table !== catalog.tag.table.name || !transition ||
+        typeof id !== "string" || expected.has(id))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       expected.add(id);
     }
-    for (const event of calls[0].events) {
+    for (const event of emitted) {
       const message = yield* capture(event);
-      if (message.name !== catalog.tag.createdEvent || message.metadata.object !== catalog.tag.eventObject ||
-        message.metadata.action !== CommonEvents.CREATED || typeof message.data.id !== "string" ||
-        !expected.delete(message.data.id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (message.name !== eventName || message.metadata.object !== catalog.tag.eventObject ||
+        message.metadata.action !== action) return yield* Effect.fail(commerceError("receiptMismatch"));
+      for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+        if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
     }
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
