@@ -47,7 +47,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
     const orderColumn = table.columns.find(column => column.identity.columnId === query.order.column);
     if (fields.length === 0 || fields.length > table.columns.length || new Set(fields).size !== fields.length ||
         fields.some(field => !table.columns.some(column => column.identity.columnId === field)) ||
-        orderColumn?.type !== "text" || orderColumn.nullable)
+        (orderColumn?.type !== "text" && orderColumn?.type !== "integer") || orderColumn.nullable)
       return yield* Result.fail(error("invalidInput"));
     const take = query.take ?? pageRows;
     if (take > pageRows) return yield* Result.fail(error("limitExceeded"));
@@ -117,7 +117,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         const { _id: _internalId, _creationTime: _internalTime, ...native } = row;
         yield* validate(native, "storedCorruption");
         const value = row[query.order.column];
-        if (typeof value !== "string") return yield* Result.fail(error("storedCorruption"));
+        if (!isRelationalColumnValue(orderColumn.type, false, value ?? null)) return yield* Result.fail(error("storedCorruption"));
         const order = yield* Result.try({ try: () => encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(value)]),
           catch: cause => { if (cause instanceof OrderedIndexKeyTooLargeError) return error("limitExceeded", cause); throw cause; } });
         return { matches: filter.matches(row), order };

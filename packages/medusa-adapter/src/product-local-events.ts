@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
-import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defaultCommerceResources, type CommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "./commerce-input";
@@ -137,28 +137,34 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
   };
 }
 
-/** One native entity command owns its row transitions and matching messages;
- * graph or multi-command policies require their own complete transcript. */
+const logicalSingleWriteEvents = Effect.fn("ProductEvents.singleLogicalWrite")(function* (
+  calls: Parameters<LogicalCommerceEventValidation>[0], mutationCount: number, commandName: string,
+) {
+  let cursor = 0;
+  let writes = 0;
+  let emitted: readonly Json[] = [];
+  for (const call of calls) {
+    if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
+    if (call.mode === "read") {
+      if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      continue;
+    }
+    if (++writes !== 1 || call.commandName !== commandName || call.toAttempt !== mutationCount)
+      return yield* Effect.fail(commerceError("receiptMismatch"));
+    cursor = call.toAttempt;
+    emitted = call.events;
+  }
+  if (writes !== 1 || cursor !== mutationCount) return yield* Effect.fail(commerceError("receiptMismatch"));
+  return emitted;
+});
+
+/** One native entity command owns its row transitions and matching messages. */
 function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity: ProductEntityMetadata,
   commandName: string, action: "created" | "updated" | "deleted") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const eventName = action === "created" ? entity.createdEvent : action === "updated" ? entity.updatedEvent : entity.deletedEvent;
   const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalEntity")(function* (calls, mutations) {
-    let cursor = 0;
-    let writes = 0;
-    let emitted: readonly Json[] = [];
-    for (const call of calls) {
-      if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
-      if (call.mode === "read") {
-        if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-        continue;
-      }
-      if (++writes !== 1 || call.commandName !== commandName || call.toAttempt !== mutations.length)
-        return yield* Effect.fail(commerceError("receiptMismatch"));
-      cursor = call.toAttempt;
-      emitted = call.events;
-    }
-    if (writes !== 1 || cursor !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
     const expected = new Set<string>();
     for (const mutation of mutations) {
       const id = mutation.after?.id;
@@ -187,9 +193,63 @@ function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity
   return { capture, validateLogical };
 }
 
-/** The selected native Product creation step admits only scalar roots. */
+/** The native Product create command owns every inserted entity and its
+ * variant/value pivot. No other command or Product table is admitted here. */
 export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata) {
-  return productLogicalEntityEventPolicy(catalog, catalog.product, "productCreate", "created");
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
+  const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCreate")(function* (calls, mutations) {
+    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productCreate");
+    const expected = new Set<string>();
+    const inserted = new Map(entities.map(entity => [entity.table.name, new Map<string, JsonObject>()]));
+    const pivots: JsonObject[] = [];
+    for (const mutation of mutations) {
+      if (mutation.operation !== "insert" || mutation.before !== null || mutation.after === null)
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (mutation.table === catalog.pivot.table.name) { pivots.push(mutation.after); continue; }
+      const entity = byTable.get(mutation.table);
+      const id = mutation.after.id;
+      if (entity === undefined || mutation.after.deleted_at !== null || typeof id !== "string" || inserted.get(entity.table.name)?.has(id))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      inserted.get(entity.table.name)?.set(id, mutation.after);
+      expected.add(entity.createdEvent + ":" + id);
+    }
+    const products = inserted.get(catalog.product.table.name);
+    const options = inserted.get(catalog.option.table.name);
+    const values = inserted.get(catalog.value.table.name);
+    const variants = inserted.get(catalog.variant.table.name);
+    if (products === undefined || products.size === 0 || options === undefined || values === undefined || variants === undefined)
+      return yield* Effect.fail(commerceError("receiptMismatch"));
+    for (const [table, foreignKey, parents] of [
+      [catalog.option.table.name, catalog.foreignKeys.option, products],
+      [catalog.image.table.name, catalog.foreignKeys.image, products],
+      [catalog.variant.table.name, catalog.foreignKeys.variant, products],
+      [catalog.value.table.name, catalog.foreignKeys.value, options],
+    ] as const) for (const row of inserted.get(table)?.values() ?? []) {
+      const parent = row[foreignKey];
+      if (typeof parent !== "string" || !parents.has(parent)) return yield* Effect.fail(commerceError("receiptMismatch"));
+    }
+    for (const pivot of pivots) {
+      const variant = pivot[catalog.pivot.variantColumn], value = pivot[catalog.pivot.valueColumn];
+      const variantRow = typeof variant === "string" ? variants.get(variant) : undefined;
+      const valueRow = typeof value === "string" ? values.get(value) : undefined;
+      const optionId = valueRow?.[catalog.foreignKeys.value];
+      const optionRow = typeof optionId === "string" ? options.get(optionId) : undefined;
+      if (variantRow === undefined || optionRow === undefined ||
+        variantRow[catalog.foreignKeys.variant] !== optionRow[catalog.foreignKeys.option])
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+    }
+    for (const event of emitted) {
+      const message = yield* capture(event);
+      if (message.metadata.action !== CommonEvents.CREATED) return yield* Effect.fail(commerceError("receiptMismatch"));
+      for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+        if (!expected.delete(message.name + ":" + id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+    }
+    if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+  });
+  return { capture, validateLogical };
 }
 
 /** Selected tag create, selector update and soft-delete retain distinct native commands. */

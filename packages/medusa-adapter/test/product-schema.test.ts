@@ -46,6 +46,11 @@ describe("actual Product schema", () => {
     const rank = indexes.find(index => index.localName === "image" &&
       index.descriptor === "index/IDX_product_image_rank");
     expect(rank?.physicalSpec.orderedFields[0]).toMatchObject({ kind: "documentPath", path: "rank" });
+    const imageTable = schema.tables.find(table => table.identity.tableId === "image");
+    if (imageTable === undefined) throw new Error("Missing Product image table");
+    expect(Result.isSuccess(compileLogicalRelationalRead(imageTable, schema.capabilities,
+      { order: { column: "rank", direction: "asc" }, predicate: { kind: "in", column: "product_id", values: ["product"] } },
+      256, reason => new Error(reason)))).toBe(true);
     expect(indexes.some(index => index.localName === "product" && index.descriptor === "index/product.active"))
       .toBe(true);
     expect(unique.find(constraint => constraint.localName === "product" &&

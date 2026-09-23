@@ -347,6 +347,10 @@ describe("private relational schema values", () => {
     const positive = row(0);
     expect(Object.is(negative.decimal_digits, -0)).toBe(false);
     expect(negative.decimal_digits).toBe(positive.decimal_digits);
+    const read = Result.getOrThrow(compileLogicalRelationalRead(table, schema.capabilities,
+      { order: { column: "decimal_digits", direction: "asc" }, predicate: { kind: "in", column: "code", values: ["USD"] } },
+      10, reason => new Error(reason)));
+    expect(Result.getOrThrow(read.inspect(row(2))).order < Result.getOrThrow(read.inspect(row(10))).order).toBe(true);
     const component = (value: typeof negative) => orderedIndexValueFromFlarexValueV1(value.decimal_digits);
     expect(encodeOrderedIndexComponentsV1([component(negative)])).toBe(encodeOrderedIndexComponentsV1([component(positive)]));
     const claim = (value: typeof negative) => Result.getOrThrow(canonicalizeAppUniqueKeyV1Result({ sparse: false, localeKey: null, values: [component(value)] }));

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
@@ -36,6 +36,7 @@ import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persi
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid workflow test driver");
 const cleanup: Array<() => Promise<void>> = [];
+const hostCleanup: Array<() => Promise<void>> = [];
 let fixture: CommerceHostTestFixture;
 let product: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
 let sales: Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>;
@@ -47,6 +48,11 @@ const execution = (session = fixture.session) => ({ identityAndAccessPolicy: fix
 });
 const options = () => ({ execution: execution(),
   modules: installed, revision, subscribers: [{ id: "product-sales-channel", revision: "a".repeat(64) }] });
+const prepare = async (configuration = options()) => {
+  const host = await runEffect(prepareProductSalesChannelWorkflow(configuration));
+  hostCleanup.push(() => runEffect(host.close));
+  return host;
+};
 const inventory = async () => ({ data: await commerceInventory(fixture),
   events: await fixture.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
   deliveries: await fixture.persistence.drizzle.select().from(fxSystemCommitEventDeliveries).orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal),
@@ -67,9 +73,11 @@ const observe = async (after: (value: unknown, context: StepExecutionContext) =>
     const callback = createStep("after-native-creation", resources.callback(async (value: unknown, context) => { await after(value, context); return value; }));
     return new WorkflowResponse(callback(result));
   });
-  return runEffect(prepareAtomicWorkflowHost({ ...configuration, workflow: { name: "observeProductSalesChannel", resources,
+  const host = await runEffect(prepareAtomicWorkflowHost({ ...configuration, workflow: { name: "observeProductSalesChannel", resources,
     prepared: Result.getOrThrow(flow.prepare()), input: ProductSalesChannelInput, output, events: internalModuleWorkflowEvents,
   } }));
+  hostCleanup.push(() => runEffect(host.close));
+  return host;
 };
 const Pairs = Schema.Struct({ links: Schema.Array(Schema.Struct({ product_id: Schema.String, sales_channel_id: Schema.String })).check(Schema.isMaxLength(256)).pipe(Schema.mutable) });
 const associate = async (after: (context: StepExecutionContext) => void | Promise<void> = () => undefined) => {
@@ -79,10 +87,16 @@ const associate = async (after: (context: StepExecutionContext) => void | Promis
     const callback = createStep("after-native-association", resources.callback(async (value: unknown, context) => { await after(context); return value; }));
     return new WorkflowResponse(callback(result));
   });
-  return runEffect(prepareAtomicWorkflowHost({ ...options(), modules: { link: installed.link }, workflow: { name: "associateExistingProducts", resources,
+  const host = await runEffect(prepareAtomicWorkflowHost({ ...options(), modules: { link: installed.link }, workflow: { name: "associateExistingProducts", resources,
     prepared: Result.getOrThrow(flow.prepare()), input: Pairs, output: Schema.Array(Schema.JsonObject), events: internalModuleWorkflowEvents,
   } }));
+  hostCleanup.push(() => runEffect(host.close));
+  return host;
 };
+
+afterEach(async () => {
+  for (const close of hostCleanup.splice(0).reverse()) await close();
+});
 
 beforeAll(async () => {
   const hash = createHash("sha256");
@@ -142,7 +156,7 @@ afterAll(async () => {
 
 describe("native Product Sales Channel workflow", () => {
   it("fits the complete four-Product envelope without raising the existing request limit", async () => {
-    const host = await runEffect(prepareProductSalesChannelWorkflow(options()));
+    const host = await prepare();
     const result = await runEffect(host.run(host.newRequestKey(), input("maximum", 4)));
     expect(result.products).toHaveLength(4); expect(result.links).toHaveLength(4);
     const before = await inventory();
@@ -152,7 +166,7 @@ describe("native Product Sales Channel workflow", () => {
     expect(await inventory()).toEqual(before);
   });
   it("creates endpoints and links in one root, reads pending state, and replays", async () => {
-    const host = await runEffect(prepareProductSalesChannelWorkflow(options()));
+    const host = await prepare();
     const before = await inventory();
     const key = host.newRequestKey();
     const result = await runEffect(host.run(key, input("connected")));
@@ -171,7 +185,7 @@ describe("native Product Sales Channel workflow", () => {
   });
 
   it("associates IDs returned by native creation when callers provide no IDs", async () => {
-    const host = await runEffect(prepareProductSalesChannelWorkflow(options()));
+    const host = await prepare();
     const result = await runEffect(host.run(host.newRequestKey(), {
       salesChannel: { name: "Generated channel" }, products: [{ title: "Generated first" }, { title: "Generated second" }],
     }));
@@ -189,8 +203,8 @@ describe("native Product Sales Channel workflow", () => {
     const committed = await inventory();
     expect(await runEffect(host.run(key, input("observer")))).toEqual(result);
     expect(callback).toHaveBeenCalledTimes(1); expect(await inventory()).toEqual(committed);
-    const changed = await runEffect(prepareProductSalesChannelWorkflow({ ...options(), revision: "b".repeat(64) }));
-    const ordinary = await runEffect(prepareProductSalesChannelWorkflow(options()));
+    const changed = await prepare({ ...options(), revision: "b".repeat(64) });
+    const ordinary = await prepare();
     const retained = ordinary.newRequestKey();
     await runEffect(ordinary.run(retained, input("revision")));
     const before = await inventory();
@@ -279,12 +293,12 @@ describe("native Product Sales Channel workflow", () => {
   it("rejects a Link event naming a different identity and rolls back all participants", async () => {
     const policy = installed.link.moduleEvents;
     if (policy === undefined) throw new Error("Missing Link event policy");
-    const host = await runEffect(prepareProductSalesChannelWorkflow({ ...options(), modules: { ...installed,
+    const host = await prepare({ ...options(), modules: { ...installed,
       link: { ...installed.link, moduleEvents: { ...policy, capture: input => policy.capture(input).pipe(Effect.map(value => {
         if (!isJsonObject(value)) throw new Error("Expected native event");
         return { ...value, data: { id: "not-the-created-link" } };
       })) } },
-    } }));
+    } });
     const before = await inventory();
     const error = await runEffectFailure(host.run(host.newRequestKey(), input("wrong-event")));
     // The participant latches receiptMismatch; the native Promise boundary
@@ -339,7 +353,7 @@ describe("native Product Sales Channel workflow", () => {
   });
 
   it("does not undo committed Products, channels or links when a subscriber fails", async () => {
-    const host = await runEffect(prepareProductSalesChannelWorkflow(options()));
+    const host = await prepare();
     const key = host.newRequestKey(), result = await runEffect(host.run(key, input("subscriber")));
     const before = await inventory(), commit = before.data.commits.at(-1);
     if (commit === undefined) throw new Error("Missing workflow commit");

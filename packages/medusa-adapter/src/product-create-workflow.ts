@@ -4,31 +4,41 @@ import { createProductsStep } from "@medusajs/core-flows/product/create-products
 import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { SimpleProductInput, type ProductWorkflowModule } from "./product-workflow-module";
+import { ProductOwnedGraphInput, type ProductWorkflowModule } from "./product-workflow-module";
 import { captureWorkflowRecord } from "./workflow/configuration";
 import { prepareWorkflowResources } from "./workflow/resources";
 import { internalModuleWorkflowEvents } from "./workflow/events";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "./workflow/host";
 
 export const ProductCreateInput = Schema.Struct({
-  products: Schema.Array(SimpleProductInput).check(Schema.isLengthBetween(1, 4)),
+  products: Schema.Array(ProductOwnedGraphInput).check(Schema.isLengthBetween(1, 4)),
 });
 export const ProductCreateOutput = Schema.Struct({
-  products: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String })).check(Schema.isLengthBetween(1, 4)),
+  products: Schema.Array(Schema.Struct({ id: Schema.String, title: Schema.String,
+    images: Schema.Array(Schema.JsonObject), options: Schema.Array(Schema.JsonObject), variants: Schema.Array(Schema.JsonObject),
+  })).check(Schema.isLengthBetween(1, 4)),
 });
 
-/** Native creation and pending graph read for the admitted scalar Product
- * contract. Nested graph creation requires its own event and query cutover. */
-const productCreateWorkflow = createWorkflow("create-products-simple", (input: WorkflowData<typeof ProductCreateInput.Type>) => {
-  const products = createProductsStep(transform(input.products, values => [...values]));
+/** Native creation and pending graph read for the admitted owned Product graph. */
+const productCreateWorkflow = createWorkflow("create-products-owned-graph", (input: WorkflowData<typeof ProductCreateInput.Type>) => {
+  const products = createProductsStep(transform(input.products, values => values.map(value => {
+    const { images, options, variants, ...scalar } = value;
+    return { ...scalar,
+      ...(images === undefined ? {} : { images: images.map(image => ({ ...image })) }),
+      ...(options === undefined ? {} : { options: options.map(option => ({ ...option, values: [...option.values] })) }),
+      ...(variants === undefined ? {} : { variants: variants.map(variant => ({ ...variant, options: { ...variant.options } })) }),
+    };
+  })));
   const ids = transform(products, values => values.map(value => value.id));
-  const pending = useQueryGraphStep({ entity: "product", fields: ["id", "title"],
+  const pending = useQueryGraphStep({ entity: "product", fields: ["id", "title", "images.id", "images.url",
+    "options.id", "options.title", "options.values.id", "options.values.value",
+    "variants.id", "variants.title", "variants.options.id", "variants.options.value"],
     filters: { id: ids }, pagination: { take: 4 },
   });
   const selected = transform({ created: products, observed: pending.data }, ({ created, observed }) => created.map(product => {
     const row = observed.find(candidate => candidate.id === product.id);
     if (row?.title !== product.title) throw commerceError("receiptMismatch");
-    return { id: product.id, title: product.title };
+    return { id: product.id, title: product.title, images: row.images, options: row.options, variants: row.variants };
   }));
   return new WorkflowResponse({ products: selected });
 });

@@ -248,9 +248,35 @@ Product profile remains for the named graph, lifecycle, Link and other
 unmigrated consumers; no dual writer is introduced. The logical witness
 requires pending Product graph reads, one publication with native module
 events, replay without duplicate writes, active-handle conflict rollback and
-no generated Product table. Rich nested Product creation still requires
-complete per-entity event/fact correlation and relationship queries before
-its public method can admit those inputs.
+no generated Product table. The owned graph admission below extends this
+same selected workflow and event policy.
+
+## Native Owned Product Graph Creation Slice
+
+The next connected Product step extends that same native `createProductsStep`
+selection to owned images, options and values, variants, and variant/value
+pivots. The checked workflow input follows the pinned service's actual create
+normalization: it admits optional image and variant IDs, but not an option ID
+that the native service discards. External tags, categories, collection/type
+links, and other Product commands remain outside this admission.
+
+One `productCreate` call must account for every inserted entity and pivot in
+the logical attempt. The Product event policy matches native created messages
+to the entity facts and requires each child to trace back through declared
+foreign keys to an inserted Product root; each pivot's variant and value must
+belong to the same root. The workflow reads images, option values and variant
+options from the pending graph before the atomic owner settles. Shared logical
+relational reads admit non-null integer ordering so the native image `rank`
+order can be read without a Product-only storage path.
+
+This changes the private workflow input, output and event admission, plus the
+shared relational read grammar. Existing scalar creation remains admitted.
+The physical Product profile remains for named unmigrated lifecycle, broader
+graph, Link and relationship consumers. Completion requires PGlite and
+ordinary-role PostgreSQL graph/replay/rollback evidence, Product regressions,
+type and lint checks, review and removal of displaced scalar-only descriptions.
+Bounded complete population and overflow behavior, broader Product commands,
+and general Product serving readiness remain later gates.
 
 ## Replacement Contract And Breaking Changes
 

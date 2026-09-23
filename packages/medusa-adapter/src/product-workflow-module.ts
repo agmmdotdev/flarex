@@ -21,8 +21,23 @@ export const decodeProductTagWorkflowResult = commerceDecoder(ProductTagWorkflow
 export const SimpleProductInput = Schema.Struct({
   id: Schema.optionalKey(Schema.String.check(Schema.isLengthBetween(1, 256))), title: Schema.String,
 });
+/** The admitted owned graph extends the scalar native step without claiming
+ * external tag/category links or every Medusa Product DTO field. */
+export const ProductOwnedGraphInput = Schema.Struct({
+  ...SimpleProductInput.fields,
+  images: Schema.optionalKey(Schema.Array(Schema.Struct({
+    id: Schema.optionalKey(Schema.String), url: Schema.String,
+  })).check(Schema.isMaxLength(256))),
+  options: Schema.optionalKey(Schema.Array(Schema.Struct({
+    title: Schema.String, values: Schema.Array(Schema.String).check(Schema.isMaxLength(256)),
+  })).check(Schema.isMaxLength(256))),
+  variants: Schema.optionalKey(Schema.Array(Schema.Struct({
+    id: Schema.optionalKey(Schema.String), title: Schema.String,
+    sku: Schema.optionalKey(Schema.String), options: Schema.Record(Schema.String, Schema.String),
+  })).check(Schema.isMaxLength(256))),
+});
 const decodeCreateProductsArguments = commerceDecoder(Schema.Tuple([
-  Schema.Array(SimpleProductInput).check(Schema.isMaxLength(256)),
+  Schema.Array(ProductOwnedGraphInput).check(Schema.isMaxLength(256)),
 ]), "invalidInput");
 const decodeCreatedProducts = commerceDecoder(Schema.Array(Schema.StructWithRest(
   Schema.Struct({ id: Schema.String, title: Schema.String }), [Schema.Record(Schema.String, Schema.Json)],
@@ -47,10 +62,12 @@ const decodeCreateVariantsArguments = commerceDecoder(Schema.Tuple([Schema.Array
 export function productWorkflowModule(source: CommerceModuleDescription,
   commands: { readonly create: CommerceCommand; readonly list: CommerceCommand; readonly retrieveCollection: CommerceCommand; readonly upsert: CommerceCommand; readonly updateCollections: CommerceCommand; readonly createTags: CommerceCommand; readonly listTags: CommerceCommand; readonly updateTagsBySelector: CommerceCommand; readonly softDeleteTags: CommerceCommand;
     readonly createVariants: CommerceCommand; readonly listVariants: CommerceCommand; readonly updateVariantsBySelector: CommerceCommand; readonly addImageToVariant: CommerceCommand; readonly removeImageFromVariant: CommerceCommand },
-  graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string; readonly productCreated: string; readonly productUpdated: string; readonly collectionUpdated: string; readonly variantUpdated: string; readonly variantCreated: string }) {
+  graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string; readonly productCreated: string; readonly productUpdated: string; readonly collectionUpdated: string; readonly variantUpdated: string; readonly variantCreated: string;
+    readonly optionCreated: string; readonly valueCreated: string; readonly imageCreated: string }) {
   return Result.gen(function* () {
     const createProducts = yield* defineWorkflowMethod({ command: commands.create, arguments: decodeCreateProductsArguments,
-      encode: ([products]) => products, output: decodeCreatedProducts, moduleEvents: [events.productCreated] });
+      encode: ([products]) => products, output: decodeCreatedProducts,
+      moduleEvents: [events.productCreated, events.optionCreated, events.valueCreated, events.variantCreated, events.imageCreated] });
     const createProductVariants = yield* defineWorkflowMethod({ command: commands.createVariants, arguments: decodeCreateVariantsArguments,
       encode: ([variants]) => variants, output: decodeCreatedProducts, moduleEvents: [events.variantCreated] });
     const createProductTags = yield* defineWorkflowMethod({ command: commands.createTags, arguments: decodeArguments,
