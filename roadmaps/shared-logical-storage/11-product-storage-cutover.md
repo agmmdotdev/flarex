@@ -326,6 +326,31 @@ profile stays for the named
 unmigrated Product commands, Link, and relationship consumers; retirement
 still requires their cutovers and approved data disposition.
 
+## Native Product Hard-Delete Slice
+
+The pinned public `deleteProducts` service removes an owned Product graph and
+its variant/value pivot but emits only the original Product root's deleted
+message. The existing physical profile proves that behavior. The selected
+logical source now runs the same native command; the shared working set records
+each deletion as an authoritative tombstone revision before publication.
+
+The Product-owned logical event policy matches root messages to deleted
+Product attempts, proves each option, value, variant, image and variant/value
+pivot belongs to a deleted root through declared keys, and refuses unrelated
+mutations or invented events. The native service and shared FK, unique,
+resource, recovery and settlement owners remain in place; this adds no Product
+SQL or second delete path. This selected logical policy breaks no durable format
+or public contract. Other Product links and command families retain the
+physical profile until their own cutovers and approved data disposition.
+
+The selected witness covers a native owned-graph delete, root-only event
+publication, replay without duplicate effects, owned current pointers advancing
+to tombstone revisions, late-refusal rollback, absence through public
+with-deleted reads, and forged-event refusal. The retained physical Product
+deletion test stays the source behavior witness; the selected graph proof does
+not claim Product-to-tag/category pivots, external Links or general runtime
+serving readiness.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

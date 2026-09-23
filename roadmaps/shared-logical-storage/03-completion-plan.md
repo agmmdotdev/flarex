@@ -80,8 +80,10 @@ remain distinct from logical schema evolution.
   of unrelated Product and Image rows, including page/count and deleted
   visibility. Public native Product soft-delete and restore now preserve the
   owned logical cascade and match module events to core lifecycle observations,
-  including active restore without a fabricated row update. Hard deletion,
-  general bounded population/overflow, broader Product commands and
+  including active restore without a fabricated row update. Public native
+  Product hard deletion of the admitted owned graph now publishes only the
+  root event and retains generic tombstone history; Product-to-tag/category
+  pivots, general bounded population/overflow, broader Product commands and
   relationship queries, and rich Links still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key

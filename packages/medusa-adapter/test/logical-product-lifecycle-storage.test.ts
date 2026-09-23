@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
-import { productLogicalCreateEventPolicy, productLogicalLifecycleEventPolicy } from "../src/product-local-events";
+import { productLogicalCreateEventPolicy, productLogicalDeleteEventPolicy,
+  productLogicalLifecycleEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
@@ -13,7 +14,7 @@ import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "..
 import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxAppRowRevisions } from "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
@@ -26,6 +27,8 @@ let product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
 let catalog: Effect.Success<ReturnType<typeof productRuntimeMetadata>>;
 const committedEvents = () => currency.persistence.drizzle.select().from(fxSystemCommitEvents)
   .orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal);
+const rowIdentity = (row: { scopeUuid: string; tableId: number; rowId: Uint8Array }) =>
+  `${row.scopeUuid}:${row.tableId}:${Buffer.from(row.rowId).toString("hex")}`;
 
 async function createHost() {
   return Effect.runPromise(prepareProductCreateWorkflow({
@@ -38,17 +41,31 @@ async function createHost() {
   }));
 }
 
-async function lifecycleHost(operation: "softDelete" | "restore", forged = false) {
-  const policy = productLogicalLifecycleEventPolicy(catalog, operation);
+async function lifecycleHost(operation: "softDelete" | "restore" | "delete",
+  forged: "event" | "unowned" | false = false, lateRefuse = false) {
+  const policy = operation === "delete" ? productLogicalDeleteEventPolicy(catalog)
+    : productLogicalLifecycleEventPolicy(catalog, operation);
   const participant = defineAtomicCommerceParticipant("product");
-  const command = forged ? defineCommerceCommand("productRestore", "write", ctx =>
-    ctx.captureLocalEvent({ name: catalog.product.restoredEvent,
-      metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject, action: CommonEvents.RESTORED },
+  const commandName = operation === "delete" ? "productDeleteproduct" : operation === "restore" ? "productRestore" : "productSoftDelete";
+  const command = forged === "unowned" ? defineCommerceCommand(commandName, "write", Effect.fn("ProductTest.unownedDelete")(function* (ctx) {
+    yield* (yield* ctx.table(catalog.image.table.name)).delete(ctx.manager, [{ id: "img_logical_delete_rollback" }]);
+    yield* ctx.captureLocalEvent({ name: catalog.product.deletedEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject, action: CommonEvents.DELETED },
+      data: { id: "prod_logical_delete_rollback" } });
+    return null;
+  })) : forged === "event" ? defineCommerceCommand(commandName, "write", ctx =>
+    ctx.captureLocalEvent({ name: operation === "restore" ? catalog.product.restoredEvent : catalog.product.deletedEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject,
+        action: operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED },
       data: { id: "prod_logical_lifecycle" } }).pipe(Effect.as(null)))
-    : operation === "restore" ? product.runtime.commands.restore : product.runtime.commands.softDelete;
-  const root = defineAtomicCommerceCommand(forged ? "productLifecycleForgery" : operation === "restore" ? "productRestoreRoot" : "productSoftDeleteRoot",
-    (ctx, ids) => ctx.call(participant, command, ids));
-  const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
+    : operation === "delete" ? product.runtime.commands.delete : operation === "restore"
+      ? product.runtime.commands.restore : product.runtime.commands.softDelete;
+  const root = defineAtomicCommerceCommand(forged ? "productLifecycleForgery" : lateRefuse ? "productDeleteLateRefusal"
+    : operation === "restore" ? "productRestoreRoot" : operation === "delete" ? "productDeleteRoot" : "productSoftDeleteRoot",
+  (ctx, ids) => ctx.call(participant, command, ids).pipe(Effect.flatMap(result =>
+    lateRefuse ? ctx.refuse(commerceError("invalidInput")) : Effect.succeed(result))));
+  const entities = operation === "delete" ? [catalog.product]
+    : [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
   const revision = createHash("sha256").update("logical-product-lifecycle-" + operation).digest("hex");
   const contracts = new Map(entities.map(entity => {
     const name = operation === "restore" ? entity.restoredEvent : entity.deletedEvent;
@@ -59,7 +76,7 @@ async function lifecycleHost(operation: "softDelete" | "restore", forged = false
     return contract === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(contract);
   } };
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
-    identityAndAccessPolicy: { profile: "logical-product-lifecycle", operation, forged },
+    identityAndAccessPolicy: { profile: "logical-product-lifecycle", operation, forged, lateRefuse },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
       commands: [command], validateLogical: policy.validateLogical, events: selected }],
     commands: [root], events: { producerRevision: revision, contracts: [...contracts.values()],
@@ -154,7 +171,7 @@ describe("native Product lifecycle on shared logical storage", () => {
   }, 120_000);
 
   it("refuses a restored module event without a storage-owned observation", async () => {
-    const forged = await lifecycleHost("restore", true);
+    const forged = await lifecycleHost("restore", "event");
     try {
       const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
       const beforeEvents = await committedEvents();
@@ -163,5 +180,71 @@ describe("native Product lifecycle on shared logical storage", () => {
       expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
       expect(await committedEvents()).toEqual(beforeEvents);
     } finally { await Effect.runPromise(forged.host.close); }
+  }, 120_000);
+
+  it("removes the native owned graph and pivot with one root event, replay, and rollback", async () => {
+    const create = await createHost();
+    const remove = await lifecycleHost("delete");
+    const late = await lifecycleHost("delete", false, true);
+    const forged = await lifecycleHost("delete", "event");
+    const unowned = await lifecycleHost("delete", "unowned");
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [...product.hostInput.commands, product.runtime.commands.list],
+    }));
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_hard_delete", title: "Hard Delete Graph",
+        images: [{ id: "img_logical_hard_delete", url: "hard-delete.png" }],
+        options: [{ title: "Size", values: ["Small"] }],
+        variants: [{ id: "pvar_logical_hard_delete", title: "Small", options: { Size: "Small" } }],
+      }] }));
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await committedEvents();
+      const key = remove.host.newRequestKey();
+      const result = await Effect.runPromise(remove.host.run(key, remove.root, ["prod_logical_hard_delete"]));
+      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const afterEvents = await committedEvents();
+      expect(afterRows).toHaveLength(beforeRows.length);
+      const beforeVersions = new Map(beforeRows.map(row => [rowIdentity(row), row.commitSeq]));
+      const deletedPointers = afterRows.filter(row => beforeVersions.get(rowIdentity(row)) !== row.commitSeq);
+      expect(deletedPointers).toHaveLength(6);
+      const revisions = await currency.persistence.drizzle.select().from(fxAppRowRevisions);
+      for (const pointer of deletedPointers) expect(revisions.find(row => rowIdentity(row) === rowIdentity(pointer) &&
+        row.commitSeq === pointer.commitSeq)?.isTombstone).toBe(true);
+      expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
+        .toEqual([catalog.product.deletedEvent]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: "prod_logical_hard_delete" }, config: { withDeleted: true },
+      }))).toEqual([]);
+      expect(await Effect.runPromise(remove.host.run(key, remove.root, ["prod_logical_hard_delete"]))).toEqual(result);
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+      expect(await committedEvents()).toEqual(afterEvents);
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_delete_rollback", title: "Hard Delete Rollback",
+        images: [{ id: "img_logical_delete_rollback", url: "rollback.png" }],
+      }] }));
+      const rollbackRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const rollbackEvents = await committedEvents();
+      await expect(Effect.runPromise(late.host.run(late.host.newRequestKey(), late.root,
+        ["prod_logical_delete_rollback"]))).rejects.toMatchObject({ reason: "invalidInput" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(rollbackRows);
+      expect(await committedEvents()).toEqual(rollbackEvents);
+      await expect(Effect.runPromise(forged.host.run(forged.host.newRequestKey(), forged.root,
+        ["prod_logical_delete_rollback"]))).rejects.toMatchObject({ reason: "receiptMismatch" });
+      await expect(Effect.runPromise(unowned.host.run(unowned.host.newRequestKey(), unowned.root,
+        ["prod_logical_delete_rollback"]))).rejects.toMatchObject({ reason: "receiptMismatch" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(rollbackRows);
+      expect(await committedEvents()).toEqual(rollbackEvents);
+      expect((await currency.persistence.query<{ name: string }>(
+        "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+        .toEqual(currency.physicalTablesBeforeCandidate);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(remove.host.close);
+      await Effect.runPromise(late.host.close);
+      await Effect.runPromise(forged.host.close);
+      await Effect.runPromise(unowned.host.close);
+      await Effect.runPromise(read.close);
+    }
   }, 120_000);
 });

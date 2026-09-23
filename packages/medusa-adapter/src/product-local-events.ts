@@ -303,6 +303,68 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
   return { capture, validateLogical };
 }
 
+/** The native public delete emits a Product root message while storage removes
+ * its owned graph. Every silent child and pivot must trace to a deleted root. */
+export function productLogicalDeleteEventPolicy(catalog: ProductRuntimeMetadata) {
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
+  const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalDelete")(function* (calls, mutations, lifecycle) {
+    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productDeleteproduct");
+    if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    const removed = new Map(entities.map(entity => [entity.table.name, new Map<string, JsonObject>()]));
+    const pivots: JsonObject[] = [];
+    for (const mutation of mutations) {
+      if (mutation.operation !== "delete" || mutation.before === null || mutation.after !== null)
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (mutation.table === catalog.pivot.table.name) { pivots.push(mutation.before); continue; }
+      const entity = byTable.get(mutation.table);
+      const id = mutation.before.id;
+      if (entity === undefined || typeof id !== "string" || removed.get(entity.table.name)?.has(id))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      removed.get(entity.table.name)?.set(id, mutation.before);
+    }
+    const products = removed.get(catalog.product.table.name);
+    const options = removed.get(catalog.option.table.name);
+    const values = removed.get(catalog.value.table.name);
+    const variants = removed.get(catalog.variant.table.name);
+    if (products === undefined || options === undefined || values === undefined || variants === undefined)
+      return yield* Effect.fail(commerceError("receiptMismatch"));
+    for (const [table, foreignKey, parents] of [
+      [catalog.option.table.name, catalog.foreignKeys.option, products],
+      [catalog.image.table.name, catalog.foreignKeys.image, products],
+      [catalog.variant.table.name, catalog.foreignKeys.variant, products],
+      [catalog.value.table.name, catalog.foreignKeys.value, options],
+    ] as const) for (const row of removed.get(table)?.values() ?? []) {
+      const parent = row[foreignKey];
+      if (typeof parent !== "string" || !parents.has(parent)) return yield* Effect.fail(commerceError("receiptMismatch"));
+    }
+    const pivotKeys = new Set<string>();
+    for (const pivot of pivots) {
+      const variant = pivot[catalog.pivot.variantColumn], value = pivot[catalog.pivot.valueColumn];
+      const variantRow = typeof variant === "string" ? variants.get(variant) : undefined;
+      const valueRow = typeof value === "string" ? values.get(value) : undefined;
+      const optionId = valueRow?.[catalog.foreignKeys.value];
+      const optionRow = typeof optionId === "string" ? options.get(optionId) : undefined;
+      const identity = JSON.stringify([variant, value]);
+      if (pivotKeys.has(identity) || variantRow === undefined || optionRow === undefined ||
+        variantRow[catalog.foreignKeys.variant] !== optionRow[catalog.foreignKeys.option])
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      pivotKeys.add(identity);
+    }
+    const expected = new Set(products.keys());
+    for (const event of emitted) {
+      const message = yield* capture(event);
+      if (message.name !== catalog.product.deletedEvent || message.metadata.object !== catalog.product.eventObject ||
+        message.metadata.action !== CommonEvents.DELETED) return yield* Effect.fail(commerceError("receiptMismatch"));
+      for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+        if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+    }
+    if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+  });
+  return { capture, validateLogical };
+}
+
 /** Selected tag create, selector update and soft-delete retain distinct native commands. */
 export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
   action: "created" | "updated" | "deleted") {
