@@ -1,5 +1,6 @@
 import { Result, Schema } from "effect";
-import { isRelationalColumnValue, type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import { isRelationalColumnValue, relationalHasIndexedTextPrefix,
+  type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { encodeOrderedIndexComponentsV1, orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
 import type { JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure } from "./model";
@@ -64,8 +65,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           return yield* Result.fail(error("invalidInput"));
         const keys = new Set(node.values);
         return { select: (requiredNulls: ReadonlySet<string>) => Result.gen(function* () {
-          const unconditional = table.keys.some(candidate => candidate.columns[0]?.columnId === node.column) ||
-            table.indexes.some(candidate => candidate.predicate === null && candidate.columns[0]?.columnId === node.column);
+          const unconditional = relationalHasIndexedTextPrefix(table, node.column);
           const conditional = unconditional ? undefined : table.indexes.find(candidate => candidate.columns[0]?.columnId === node.column &&
             candidate.predicate?.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId));
           if (!unconditional && conditional === undefined) return yield* Result.fail(error("invalidInput"));

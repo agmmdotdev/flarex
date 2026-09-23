@@ -254,9 +254,9 @@ async function witness(
       binding.table.namespace === "medusa" && binding.table.logicalName.startsWith("commerce.product/"))
       .map(binding => binding.tableId));
     expect(productTableIds.size).toBe(13);
-    expect(definitions.requirements.ordered.filter(index => productTableIds.has(index.tableId))).toHaveLength(56);
+    expect(definitions.requirements.ordered.filter(index => productTableIds.has(index.tableId))).toHaveLength(59);
     expect(definitions.requirements.unique.filter(unique => productTableIds.has(unique.tableId))).toHaveLength(24);
-    expect((await persistence.drizzle.select().from(fxControlIndexDefinitions)).length).toBeGreaterThan(56);
+    expect((await persistence.drizzle.select().from(fxControlIndexDefinitions)).length).toBeGreaterThan(59);
     expect((await persistence.drizzle.select().from(fxControlUniqueConstraintDefinitions)).length).toBeGreaterThanOrEqual(24);
     expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
       .toEqual(before.rows);

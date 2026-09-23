@@ -12,13 +12,14 @@ import {
 } from "flarex-protocol/internal/relational-schema";
 import { authenticateStoredRelationalSchemaArtifactEffect } from "../../persistence-postgres/src/relationalSchema/artifact";
 import { prepareLogicalRelationalRows, relationalTextIdentity } from "../../persistence-postgres/src/logicalDocuments/relationalRows";
+import { compileLogicalRelationalRead } from "../../persistence-postgres/src/logicalDocuments/relationalQuery";
 
 const compiled = () =>
   JSON.parse(JSON.stringify(compileDmlSchema([...productModels]))) as unknown;
 
 describe("actual Product schema", () => {
   it("lowers every pinned Product key and index into shared logical definitions", async () => {
-    const { indexes, unique } = await Effect.runPromise(Effect.gen(function* () {
+    const { indexes, unique, schema } = await Effect.runPromise(Effect.gen(function* () {
       const product = yield* compileProductDefinition();
       const source = yield* captureLogicalSchemaSource({
         key: "medusa.product", owner: "medusa", writeProfile: "medusa.product",
@@ -27,10 +28,19 @@ describe("actual Product schema", () => {
           table: { namespace: "medusa", logicalName: `${product.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
       });
       return { indexes: yield* Effect.fromResult(compileLogicalSourceIndexes(source)),
-        unique: yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source)) };
+        unique: yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source)), schema: product.schema };
     }));
-    expect(indexes).toHaveLength(56);
+    expect(indexes).toHaveLength(59);
     expect(unique).toHaveLength(24);
+    expect(indexes.filter(index => index.descriptor.startsWith("fk-reverse/"))
+      .map(index => `${index.localName}/${index.descriptor}`).sort()).toEqual([
+        "product/fk-reverse/collection_id", "product/fk-reverse/type_id", "product_variant/fk-reverse/product_id",
+      ]);
+    const productTable = schema.tables.find(table => table.identity.tableId === "product");
+    if (productTable === undefined) throw new Error("Missing Product table");
+    expect(Result.getOrThrow(compileLogicalRelationalRead(productTable, schema.capabilities,
+      { order: { column: "id", direction: "asc" }, predicate: { kind: "in", column: "collection_id", values: ["collection"] } },
+      256, reason => new Error(reason))).selections).toEqual([{ column: "collection_id", value: "collection" }]);
     const rank = indexes.find(index => index.localName === "image" &&
       index.descriptor === "index/IDX_product_image_rank");
     expect(rank?.physicalSpec.orderedFields[0]).toMatchObject({ kind: "documentPath", path: "rank" });

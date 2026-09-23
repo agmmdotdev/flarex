@@ -57,7 +57,8 @@ remain distinct from logical schema evolution.
   The [Product cutover preflight](./11-product-storage-cutover.md) inventories the
   complete native graph and the relational row/query/relationship contracts that
   must change before physical Product consumers can move. All 56 native Product
-  ordered and 24 unique requirements now install as shared definitions without
+  ordered requirements, three implicit FK reverse access paths and 24 unique
+  requirements now install as shared definitions without
   generated Product DDL; this does not grant Product serving readiness.
   A neutral composite-key commerce source now executes through generic rows,
   indexes and unique claims on both database drivers, matching Product's three

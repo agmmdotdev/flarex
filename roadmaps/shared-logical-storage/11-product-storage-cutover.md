@@ -28,7 +28,8 @@ Product graph, population, lifecycle and native service queries cannot be
 routed through those contracts unchanged.
 
 The first connected definition step now compiles all 56 native Product ordered
-requirements and 24 unique requirements through the shared catalog. Its
+requirements, three implicit FK reverse access paths and 24 unique requirements
+through the shared catalog. Its
 bounded 32-bit `rank` values lower through the existing exact float64 order;
 the relational row owner canonicalizes signed zero before storage and key
 derivation, and rejects noncanonical stored integer rows. Integer query
@@ -76,6 +77,11 @@ FK values into enforced relationships: endpoint resolution, reverse adjacency,
 deletion policy and cross-framework authorization still need one shared relation
 owner before Product admission. The physical Product query host remains its
 named consumer until that cutover.
+
+The [module-local FK preflight](./13-module-local-foreign-keys.md) owns the
+native-key, reverse-index, cascade and contention gates. Product's three
+undeclared child-side reverse paths now install through shared definitions;
+they do not make an unchecked FK an admitted relation.
 
 The conditional-index read cutover admits a text index conditional on a null field
 only when the query branch itself requires that field to be null. This is needed
