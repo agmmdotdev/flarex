@@ -20,9 +20,10 @@ assignment and their pivots (13 tables). `makeSchemaComposer` can authenticate
 that graph as `medusa.product`, but this is candidate preparation, not executable
 Product storage. The running `productRepository` obtains table operations through
 the physical commerce profile. The shared relational participant executes
-Currency's scalar table and a neutral composite-key source, but
-`prepareLogicalRelationalRows` still refuses native relationships and foreign
-keys. `compileLogicalRelationalRead` admits the first text identity member for
+Currency's scalar table and a neutral composite-key source. It now admits
+source-local single-text Product foreign keys through shared indexed row
+observations and final working-set validation. `compileLogicalRelationalRead`
+admits the first text identity member for
 bounded indexed selection, not Product's complete graph query contract.
 Product graph, population, lifecycle and native service queries cannot be
 routed through those contracts unchanged.
@@ -38,9 +39,8 @@ same canonicalization before that profile is expanded. Canonical UTC
 millisecond timestamps are also admissible to that compiler,
 while numeric uniqueness and JSON key ordering remain refused. The complete
 Product/Currency candidate installs these definitions without Product DDL on
-PGlite and ordinary-role PostgreSQL. This is structural preparation only:
-the native Product runtime still refuses its unsupported relation and query
-operations.
+PGlite and ordinary-role PostgreSQL. Complete shared builds and readiness now
+pass on both drivers; native Product command selection remains pending.
 
 The row-identity slice recognizes a table's declared primary text key or,
 when no primary exists, its sole nonnullable composite text unique key. This
@@ -54,10 +54,10 @@ the key's generated ordered prefix, with internal row identity breaking
 ties. A neutral logical commerce host exercises empty initialization, two rows
 with the same first member, duplicate rejection, upsert and exact-pair deletion
 on PGlite and ordinary-role PostgreSQL. The pinned Product schema proves all
-three pivot declarations match this identity rule. Product still refuses runtime
-admission because its foreign keys and relationships lack the shared execution
-contract; relation enforcement and remaining native query shapes are the next
-connected gate. A new pivot-specific ID, partial Product activation or a scan
+three pivot declarations match this identity rule. Product's module-local FK
+kernel is now implemented, while native command selection, remaining query
+shapes and rich Links are the next connected gates. A new pivot-specific ID,
+partial Product activation or a scan
 fallback would obscure that missing core obligation.
 
 The indexed relation-lookup slice extends the same bounded reader to any
@@ -72,16 +72,17 @@ host exercises reverse pivot lookup, mixed-index Boolean selection and a
 secondary-index read after an upsert in the same request on PGlite and
 ordinary-role PostgreSQL. The pinned Product pivots declare indexed access to
 both endpoint columns. This changes the shared query contract used by Currency,
-whose native list/count regression remains required. It does not turn scalar
-FK values into enforced relationships: endpoint resolution, reverse adjacency,
-deletion policy and cross-framework authorization still need one shared relation
-owner before Product admission. The physical Product query host remains its
+whose native list/count regression remains required. Scalar FK values now have
+an admitted source-local execution profile; cross-framework authorization and
+rich Links still need their distinct shared relation contracts. The physical Product query host remains its
 named consumer until that cutover.
 
 The [module-local FK preflight](./13-module-local-foreign-keys.md) owns the
 native-key, reverse-index, cascade and contention gates. Product's three
 undeclared child-side reverse paths now install through shared definitions;
-they do not make an unchecked FK an admitted relation.
+the shared working set enforces their admitted single-text FK profile. A
+complete Product build/readiness and committed Variant cascade kernel witness
+passes on both database drivers; no native Product service has selected it yet.
 
 The conditional-index read cutover admits a text index conditional on a null field
 only when the query branch itself requires that field to be null. This is needed

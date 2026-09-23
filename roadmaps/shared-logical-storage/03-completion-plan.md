@@ -62,15 +62,18 @@ remain distinct from logical schema evolution.
   generated Product DDL; this does not grant Product serving readiness.
   A neutral composite-key commerce source now executes through generic rows,
   indexes and unique claims on both database drivers, matching Product's three
-  implicit pivot identity declarations. Product FK/relation enforcement and
-  broader indexed graph queries still block its runtime selection.
+  implicit pivot identity declarations. Product's source-local single-text FK
+  profile now executes through shared indexed observations. Complete candidate
+  builds/readiness and a committed Product/Variant cascade kernel witness pass
+  on both drivers. Native Product command selection, broader graph queries and
+  rich Links still block its runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key
   selection alone does not enforce or activate Product relationships.
   Conditional text prefixes now require the query branch to imply their null
   membership, including nested Boolean branches. Neutral active-handle reads
   exercise pending deactivation and restoration while unqualified handle reads
-  refuse; Product FK enforcement and native graph admission remain pending.
+  refuse; native Product graph command admission remains pending.
   [Relational active-row reads](./12-relational-null-index-reads.md) select a
   shared index when every Boolean branch requires the null predicate, exercising
   native Currency list/count without decoding inactive rows from the primary

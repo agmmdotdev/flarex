@@ -51,8 +51,6 @@ export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefi
   capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
   return Result.gen(function* () {
     const keyColumns = yield* relationalTextIdentity(table, error);
-    if (table.relationships.length !== 0 || table.constraints.some(constraint => constraint.kind === "foreignKey"))
-      return yield* Result.fail(error("invalidInput"));
     const managed = capabilities.flatMap(capability => capability.kind === "managedTimestamps" && belongsTo(table, capability.createdAtColumn)
       ? [capability.updatedAtColumn.columnId] : []);
     const deletions = capabilities.flatMap(capability => capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn)

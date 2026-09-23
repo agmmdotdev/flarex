@@ -32,6 +32,7 @@ import { relationalPartialIndexScenario } from "../../persistence-postgres/test/
 import { currencyInitialization } from "../../medusa-adapter/src/currency-contract";
 import { relationalValueAdmissionScenario } from "../../persistence-postgres/test/relationalValueAdmissionScenario";
 import { ensureLogicalStorageDefinitions } from "../../persistence-postgres/src/logicalStorageDefinitions";
+import { productForeignKeyScenario } from "../../persistence-postgres/test/productForeignKeyScenario";
 
 const deploymentId = "shared-candidate";
 const authority = {
@@ -55,7 +56,7 @@ describe("shared schema composition and catalog admission", () => {
   it("persists native outputs, shared views and Product definitions on PGlite", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const fixture = makePGliteFrameworkSchemaArtifactAdmissionFixture(persistence);
-    await witness(persistence, fixture.controlSessionStarter, false);
+    await witness(persistence, fixture.controlSessionStarter, false, "created", null, true);
     expect(fixture.isTransactionActive()).toBe(false);
   });
 
@@ -78,7 +79,7 @@ describe("shared schema composition and catalog admission", () => {
       expect(role.rows).toEqual([{ rolsuper: false, rolcreatedb: false, rolcreaterole: false }]);
       const session = makeCatalogControlSessionStarter({ controlDb: persistence.drizzle,
         driver: makePostgresCatalogControlSessionDriver(persistence.pool) });
-      await witness(persistence, session, true);
+      await witness(persistence, session, true, "created", null, true);
     });
   });
 
@@ -122,6 +123,7 @@ async function witness(
   concurrent: boolean,
   initialStatus: "created" | "existing" = "created",
   historyLimits: "records" | "bytes" | null = null,
+  proveForeignKeys = false,
 ) {
   await persistence.drizzle.insert(deployments).values({ deploymentId, projectId: "project" });
   await persistence.drizzle.insert(fxControlScopes).values({ scopeId: authority.scopeId, deploymentId,
@@ -256,6 +258,12 @@ async function witness(
     expect(productTableIds.size).toBe(13);
     expect(definitions.requirements.ordered.filter(index => productTableIds.has(index.tableId))).toHaveLength(59);
     expect(definitions.requirements.unique.filter(unique => productTableIds.has(unique.tableId))).toHaveLength(24);
+    if (proveForeignKeys) await Effect.runPromise(productForeignKeyScenario(persistence.drizzle, deploymentId,
+      authority.scopeId, identity.schemaVersionId, productDefinition.schema,
+      stored.tableBindings.filter(binding => binding.table.namespace === "medusa" &&
+        binding.table.logicalName.startsWith("commerce.product/")).map(binding => ({
+        localName: binding.table.logicalName.slice("commerce.product/".length), tableId: binding.tableId,
+      }))));
     expect((await persistence.drizzle.select().from(fxControlIndexDefinitions)).length).toBeGreaterThan(59);
     expect((await persistence.drizzle.select().from(fxControlUniqueConstraintDefinitions)).length).toBeGreaterThanOrEqual(24);
     expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)

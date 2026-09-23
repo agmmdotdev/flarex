@@ -23,6 +23,7 @@ import { readLogicalIndexRange, type LogicalIndexRead } from "./indexReads";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, logicalQueryMatches, type LogicalWhere } from "./query";
 import { compileLogicalRelationalRead } from "./relationalQuery";
 import { prepareLogicalRelationalRows } from "./relationalRows";
+import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
 import { fxSystemScopeClocks } from "../schema";
@@ -42,6 +43,7 @@ interface PendingDocument {
   readonly base: AppRowRevisionV1 | null;
   readonly creationTime: AppCreationTimeV1;
   current: CanonicalFlarexValueV1 | null;
+  deletedValue?: CanonicalFlarexValueV1;
   readonly attempts: number[];
 }
 export type LogicalDocumentChange = ApplicationDocumentObservation & (
@@ -101,6 +103,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const uniqueDefinitions = Object.freeze([...uniqueInput]);
   const indexDefinitions = Object.freeze([...indexInput]);
   yield* state.requireAdmission;
+  const foreignKeys = yield* Effect.fromResult(prepareLogicalRelationalForeignKeys(state.tables, state.error));
+  for (const foreignKey of foreignKeys) {
+    const reverse = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, foreignKey.source.tableId,
+      { [foreignKey.source.column]: "" }, state.error));
+    const target = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, foreignKey.target.tableId,
+      { [foreignKey.target.column]: "" }, state.error));
+    if (Option.isNone(reverse) || Option.isNone(target)) return yield* Effect.fail(state.error("invalidInput"));
+  }
   const { lifetime, tables, limits, error } = state;
   const transactionTime = yield* Effect.cached(Effect.gen(function* () {
     const result = yield* runDrizzleStatementEffect(state.tx.select({ timestamp: sql<unknown>`current_timestamp` })
@@ -338,6 +348,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       const { pending } = yield* locate(documentId, tableName);
       if (pending?.current == null) return yield* Effect.fail(error("documentMissing"));
       yield* Effect.fromResult(recordAttempt(pending, "delete"));
+      pending.deletedValue = pending.current;
       pending.current = null;
     })));
   const selectCandidates = Effect.fn("LogicalDocuments.selectCandidates")(function* (tableName: string, where: LogicalWhere, indexedOnly = false) {
@@ -517,8 +528,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         const previous = prior === null ? null : Object.fromEntries(Object.entries(prior).filter(([name]) => name !== "_id" && name !== "_creationTime"));
         if (previous !== null) yield* Effect.fromResult(policy.validate(previous, "storedCorruption"));
         if (operation === "delete") {
-          if (pending === undefined || previous === null) return yield* Effect.fail(error("storedCorruption"));
+          if (pending === undefined || previous === null || pending.current === null) return yield* Effect.fail(error("storedCorruption"));
           yield* Effect.fromResult(recordAttempt(pending, "delete"));
+          pending.deletedValue = pending.current;
           pending.current = null;
           result.push(previous);
           continue;
@@ -538,9 +550,105 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       yield* charge(returned.bytes);
       return Object.freeze(result);
     })));
+  const validateRelationalReferences = Effect.fn("LogicalDocuments.validateRelationalReferences")(function* () {
+    if (foreignKeys.length === 0) return;
+    // A deleted or rekeyed parent may expose untouched children. A replacement
+    // parent with the same key satisfies the final reference and must not
+    // cascade those children. Every reverse observation is indexed and bounded.
+    const removed: { tableId: CatalogTableId; column: string; key: string }[] = [];
+    const appendKeys = (row: PendingDocument, value: unknown) => Result.gen(function* () {
+      if (!isNonArrayRecord(value)) return yield* Result.fail(error("storedCorruption"));
+      for (const foreignKey of foreignKeys) {
+        if (foreignKey.target.tableId !== row.tableId) continue;
+        const key = value[foreignKey.target.column];
+        if (typeof key !== "string") return yield* Result.fail(error("storedCorruption"));
+        removed.push({ tableId: row.tableId, column: foreignKey.target.column, key });
+      }
+    });
+    for (const row of rows.values()) {
+      if (row.attempts.length === 0 || row.current !== null) continue;
+      if (row.base?.kind === "live") yield* Effect.fromResult(appendKeys(row, row.base.document.value));
+      if (row.deletedValue !== undefined) yield* Effect.fromResult(appendKeys(row, row.deletedValue.value));
+    }
+    const checkRemoved = Effect.fn("LogicalDocuments.checkRemovedRelationalKeys")(function* (cascade: boolean) {
+      const checked = new Set<string>();
+      for (let position = 0; position < removed.length; position++) {
+        const entry = removed[position];
+        if (entry === undefined) continue;
+        const key = JSON.stringify([entry.tableId, entry.column, entry.key]);
+        if (checked.has(key)) continue;
+        checked.add(key);
+        for (const foreignKey of foreignKeys) {
+          if (foreignKey.target.tableId !== entry.tableId || foreignKey.target.column !== entry.column) continue;
+          let replacement = false;
+          for (const target of yield* selectCandidates(foreignKey.target.name,
+            { [foreignKey.target.column]: entry.key }, true)) {
+            if (target.tableId !== foreignKey.target.tableId || target.current === null) continue;
+            const value = target.current.value;
+            if (!isNonArrayRecord(value)) return yield* Effect.fail(error("storedCorruption"));
+            if (value[foreignKey.target.column] === entry.key) replacement = true;
+          }
+          if (replacement) continue;
+          for (const child of yield* selectCandidates(foreignKey.source.name,
+            { [foreignKey.source.column]: entry.key }, true)) {
+            if (child.tableId !== foreignKey.source.tableId || child.current === null) continue;
+            const value = child.current.value;
+            if (!isNonArrayRecord(value)) return yield* Effect.fail(error("storedCorruption"));
+            if (value[foreignKey.source.column] !== entry.key) continue;
+            if (!cascade || foreignKey.onDelete !== "cascade") return yield* Effect.fail(error("documentInvalid"));
+            yield* Effect.fromResult(recordAttempt(child, "delete"));
+            child.deletedValue = child.current;
+            child.current = null;
+            if (child.base?.kind === "live") yield* Effect.fromResult(appendKeys(child, child.base.document.value));
+            yield* Effect.fromResult(appendKeys(child, value));
+          }
+        }
+      }
+    });
+    yield* checkRemoved(true);
+    // Native onUpdate is restrict/noAction: only surviving rekeys are checked.
+    // A row deleted by a cascade above has already followed onDelete policy.
+    removed.length = 0;
+    for (const row of rows.values()) {
+      if (row.attempts.length === 0 || row.base?.kind !== "live" || row.current === null) continue;
+      const before = row.base.document.value;
+      const after = row.current.value;
+      if (!isNonArrayRecord(before) || !isNonArrayRecord(after)) return yield* Effect.fail(error("storedCorruption"));
+      for (const foreignKey of foreignKeys) {
+        if (foreignKey.target.tableId !== row.tableId || before[foreignKey.target.column] === after[foreignKey.target.column]) continue;
+        const key = before[foreignKey.target.column];
+        if (typeof key !== "string") return yield* Effect.fail(error("storedCorruption"));
+        removed.push({ tableId: row.tableId, column: foreignKey.target.column, key });
+      }
+    }
+    yield* checkRemoved(false);
+    // Resolve against final pending rows, so parent and child inserts may be
+    // issued in either order. A unique-slot or indexed observation is retained
+    // for revalidation under the publication exclusion.
+    for (const child of rows.values()) {
+      if (child.attempts.length === 0 || child.current === null) continue;
+      const value = child.current.value;
+      if (!isNonArrayRecord(value)) return yield* Effect.fail(error("storedCorruption"));
+      for (const foreignKey of foreignKeys) {
+        if (foreignKey.source.tableId !== child.tableId) continue;
+        const reference = value[foreignKey.source.column];
+        if (reference === null) continue;
+        if (typeof reference !== "string") return yield* Effect.fail(error("storedCorruption"));
+        let found = false;
+        for (const target of yield* selectCandidates(foreignKey.target.name, { [foreignKey.target.column]: reference }, true)) {
+          if (target.tableId !== foreignKey.target.tableId || target.current === null) continue;
+          const targetValue = target.current.value;
+          if (!isNonArrayRecord(targetValue)) return yield* Effect.fail(error("storedCorruption"));
+          if (targetValue[foreignKey.target.column] === reference) found = true;
+        }
+        if (!found) return yield* Effect.fail(error("documentInvalid"));
+      }
+    }
+  });
   const close = Effect.fn("LogicalDocuments.close")(function* (): Effect.fn.Return<LogicalDocumentChanges, Failure> {
     if (closed || !lifetime.isClosing()) return yield* Effect.fail(error("invalidAuthority"));
     yield* state.requireAdmission;
+    yield* validateRelationalReferences();
     closed = true;
     const changes: LogicalDocumentChange[] = [];
     const noFinalRows: AppDocumentIdV1[] = [];

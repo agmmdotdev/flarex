@@ -13,6 +13,8 @@ import {
 import { authenticateStoredRelationalSchemaArtifactEffect } from "../../persistence-postgres/src/relationalSchema/artifact";
 import { prepareLogicalRelationalRows, relationalTextIdentity } from "../../persistence-postgres/src/logicalDocuments/relationalRows";
 import { compileLogicalRelationalRead } from "../../persistence-postgres/src/logicalDocuments/relationalQuery";
+import { prepareLogicalRelationalForeignKeys } from "../../persistence-postgres/src/logicalDocuments/relationalForeignKeys";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
 
 const compiled = () =>
   JSON.parse(JSON.stringify(compileDmlSchema([...productModels]))) as unknown;
@@ -61,6 +63,17 @@ describe("actual Product schema", () => {
     expect(createHash("sha256").update(captured.artifact.canonicalJson).digest("hex"))
       .toBe("cfbe80cbf3c487dcb18b6af7019c7ffb8b9adc23d1b2984bd1fd7e6eaabf8d86");
     expect(captured.schema.tables).toHaveLength(13);
+    const boundTables = captured.schema.tables.map((table, position) => ({
+      tableId: decodeCatalogTableId(position + 1), logicalName: `commerce.product/${table.identity.tableId}`, relational: table,
+    }));
+    const foreignKeys = Result.getOrThrow(prepareLogicalRelationalForeignKeys(boundTables, reason => new Error(reason)));
+    expect(foreignKeys).toHaveLength(15);
+    expect(foreignKeys.filter(binding => binding.onDelete === "cascade")).toHaveLength(11);
+    const restricted = boundTables.map(table => table.relational.identity.tableId !== "product_variant" ? table : {
+      ...table, relational: { ...table.relational, constraints: table.relational.constraints.map(constraint =>
+        constraint.kind === "foreignKey" ? { ...constraint, onDelete: "restrict" as const } : constraint) },
+    });
+    expect(Result.isFailure(prepareLogicalRelationalForeignKeys(restricted, reason => new Error(reason)))).toBe(true);
     const restored = await Effect.runPromise(
       authenticateStoredRelationalSchemaArtifactEffect(captured.artifact),
     );
@@ -85,9 +98,7 @@ describe("actual Product schema", () => {
         .toEqual(pivot.keys[0]?.columns.map(column => column.columnId));
       for (const column of pivot.keys[0]?.columns ?? []) expect(pivot.keys.some(key => key.columns[0]?.columnId === column.columnId) ||
         pivot.indexes.some(index => index.predicate === null && index.columns[0]?.columnId === column.columnId)).toBe(true);
-      // Identity selection is ready, but its declared FKs still keep Product
-      // serving closed until shared relation enforcement is admitted.
-      expect(Result.isFailure(prepareLogicalRelationalRows(pivot, captured.schema.capabilities,
+      expect(Result.isSuccess(prepareLogicalRelationalRows(pivot, captured.schema.capabilities,
         reason => new Error(reason)))).toBe(true);
       expect(pivot.constraints).toHaveLength(2);
       expect(

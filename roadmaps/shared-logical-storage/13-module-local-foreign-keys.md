@@ -1,7 +1,8 @@
 # Module-local foreign keys through shared logical storage
 
 Status: focused execution preflight under the shared-storage standing approval;
-reverse-index definitions implemented, completed builds and FK execution pending.
+source-local FK execution and Product build/readiness kernel witnesses implemented.
+Native Product command selection, two-scope and publication-race proofs remain.
 
 ## Connected outcome and evidence
 
@@ -36,13 +37,16 @@ No framework callback, separate transaction, physical Product SQL or scan
 fallback belongs in this core policy. The final row and derived index delta
 remains the single source of committed facts.
 
-The index prerequisite is now implemented for single-text-column FKs: Product
-adds exactly three reverse access paths to its 56 native ordered declarations.
-The shared reader recognizes those prefixes, and whole-candidate installation
-records their definitions without Product DDL. Completed Product index builds
-and serving coverage have not been proved. This does not grant FK serving
-authority; source-local existence, deletion and cascade execution remain the
-next gate.
+The single-text FK profile now binds all 15 pinned Product constraints to
+source-local table identities before exposing a working set, and refuses an
+unindexed reverse or target path. Product adds exactly three reverse paths to
+its 56 native ordered declarations. A complete Product/Currency candidate
+installs, builds and authenticates its shared indexes and unique claims on
+PGlite and ordinary-role PostgreSQL without Product DDL. The working set checks
+final target existence, noAction removal, multi-level cascade and key
+reuse using bounded indexed observations. A committed Product/Variant kernel
+witness then deletes the parent and materializes the indexed child cascade.
+This is a storage-kernel proof, not native Product serving or workflow cutover.
 
 This deliberately moves FK refusal out of row-local value normalization and
 into whole-source relation admission. The internal row-policy call contract and
@@ -55,15 +59,17 @@ and no populated physical Product data is removed in this slice.
 
 ## Gates
 
-Use a neutral source with nullable and required references, same-request
-parent/child writes, missing target, parent restriction, cascade chain and
-self-reference cases. Prove pending reads, rollback, replay, two scopes and a
-parent-delete/child-insert race on ordinary-role PostgreSQL; run the same
-functional path on PGlite. Check all pinned Product FK shapes and implicit
-reverse indexes, then exercise a real native Product command before selecting
-the complete Product profile. Retain an explicit bounded-overflow refusal and
-measure fanout separately from correctness. Both required reviews, typechecks,
-focused regressions, staged lint and cleanup precede each commit.
+The Product-backed kernel witness covers nullable and required references,
+same-request child-before-parent writes, missing targets, noAction refusal,
+self-referential cascade, key reuse and committed parent/child deletion on both
+drivers. `restrict` deletion/update policies remain refused at construction;
+their immediate semantics need a separate core proof. Remaining gates are
+explicit bounded-overflow refusal, rollback and
+replay of a published Product command, two scopes, an ordinary-role PostgreSQL
+parent-delete/child-insert race, and a real native Product command before
+selecting the complete Product profile. Measure fanout separately from
+correctness. Both required reviews, typechecks, focused regressions, staged
+lint and cleanup precede each commit.
 
 Advanced populated-data conversion, cross-framework endpoint authorization,
 rich Link semantics and general upgrade orchestration retain their separate
