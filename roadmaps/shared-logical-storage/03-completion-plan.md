@@ -63,6 +63,9 @@ remain distinct from logical schema evolution.
   indexes and unique claims on both database drivers, matching Product's three
   implicit pivot identity declarations. Product FK/relation enforcement and
   broader indexed graph queries still block its runtime selection.
+  Neutral reverse-pivot reads now select unconditional secondary text indexes,
+  including mixed-index Boolean branches and pending updates; scalar foreign-key
+  selection alone does not enforce or activate Product relationships.
   [Relational active-row reads](./12-relational-null-index-reads.md) select a
   shared index when every Boolean branch requires the null predicate, exercising
   native Currency list/count without decoding inactive rows from the primary

@@ -30,12 +30,11 @@ export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppInde
       if (definition.access.kind !== "developer" || definition.access.tableId !== tableId) continue;
       const membership = definition.physicalSpec.predicate;
       if (membership !== undefined && where[membership.field] !== null) continue;
-      // This scalar query contract describes native values, never decimal text.
-      if (definition.physicalSpec.orderedFields.some(field => field.kind === "documentPath" && field.valueFormat !== undefined)) continue;
       const expressions: OrderedIndexRangeExpressionV1[] = [];
       let fields = 0;
       for (const field of definition.physicalSpec.orderedFields) {
-        if (field.kind !== "documentPath" || field.path.includes(".")) break;
+        // A decimal suffix does not invalidate an earlier native scalar prefix.
+        if (field.kind !== "documentPath" || field.path.includes(".") || field.valueFormat !== undefined) break;
         const predicate = where[field.path];
         if (predicate === undefined) break;
         fields++;

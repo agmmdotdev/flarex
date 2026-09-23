@@ -33,11 +33,15 @@ const origin = (sourceId: string) => ({ kind: "synthetic", sourceId });
 const schema = Result.getOrThrow(normalizeRelationalSchema({
   owner: "medusa", lineageId: "commerce.pair-fixture", capabilities: [], tables: [{
     tableId: "pair", origin: origin("pair.table"),
-    columns: ["left_id", "right_id", "label"].map(columnId => ({ columnId, type: "text", nullable: false,
-      default: { kind: "none" }, origin: origin(`pair.${columnId}`) })),
+    columns: [
+      ...["left_id", "right_id", "label"].map(columnId => ({ columnId, type: "text" as const, nullable: false,
+        default: { kind: "none" as const }, origin: origin(`pair.${columnId}`) })),
+      { columnId: "amount", type: "numeric", nullable: true, default: { kind: "none" }, origin: origin("pair.amount") },
+    ],
     keys: [{ keyId: "pair.identity", kind: "unique", columns: ["left_id", "right_id"], origin: origin("pair.identity") }],
     // The composite key itself must supply the ordered first-member prefix.
-    indexes: [{ indexId: "pair.by-right", kind: "btree", columns: ["right_id"], predicate: null, origin: origin("pair.by-right") }],
+    // A decimal suffix must not block a text-only prefix lookup.
+    indexes: [{ indexId: "pair.by-right", kind: "btree", columns: ["right_id", "amount"], predicate: null, origin: origin("pair.by-right") }],
     constraints: [], relationships: [],
   }],
 }));
@@ -49,14 +53,32 @@ const ordered = { column: "left_id", direction: "asc" } as const;
 const list = defineCommerceCommand("pairList", "read", ctx => Effect.gen(function* () {
   return yield* (yield* ctx.table("pair")).find(ctx.manager, { order: ordered });
 }));
+const listByRight = defineCommerceCommand("pairListByRight", "read", ctx => Effect.gen(function* () {
+  return yield* (yield* ctx.table("pair")).find(ctx.manager, { order: { column: "right_id", direction: "asc" },
+    predicate: { kind: "in", column: "right_id", values: ["2"] } });
+}));
+const listByEither = defineCommerceCommand("pairListByEither", "read", ctx => Effect.gen(function* () {
+  return yield* (yield* ctx.table("pair")).find(ctx.manager, { order: { column: "right_id", direction: "asc" },
+    predicate: { kind: "or", children: [
+      { kind: "in", column: "left_id", values: ["a"] },
+      { kind: "in", column: "right_id", values: ["2"] },
+    ] } });
+}));
 const insertFirst = defineCommerceCommand("pairInsertFirst", "write", ctx => Effect.gen(function* () {
-  return yield* (yield* ctx.table("pair")).write(ctx.manager, "insert", [{ left_id: "a", right_id: "1", label: "first" }]);
+  return yield* (yield* ctx.table("pair")).write(ctx.manager, "insert", [{ left_id: "a", right_id: "1", label: "first", amount: null }]);
 }));
 const insertSecond = defineCommerceCommand("pairInsertSecond", "write", ctx => Effect.gen(function* () {
-  return yield* (yield* ctx.table("pair")).write(ctx.manager, "insert", [{ left_id: "a", right_id: "2", label: "second" }]);
+  return yield* (yield* ctx.table("pair")).write(ctx.manager, "insert", [{ left_id: "a", right_id: "2", label: "second", amount: null }]);
 }));
 const upsertFirst = defineCommerceCommand("pairUpsertFirst", "write", ctx => Effect.gen(function* () {
-  return yield* (yield* ctx.table("pair")).write(ctx.manager, "upsert", [{ left_id: "a", right_id: "1", label: "updated" }]);
+  const store = yield* ctx.table("pair");
+  const written = yield* store.write(ctx.manager, "upsert", [{ left_id: "a", right_id: "1", label: "updated", amount: null }]);
+  const selected = yield* store.find(ctx.manager, { order: { column: "right_id", direction: "asc" },
+    predicate: { kind: "and", children: [
+      { kind: "in", column: "right_id", values: ["1"] },
+      { kind: "in", column: "left_id", values: ["a"] },
+    ] } });
+  return { written, selected };
 }));
 const deleteFirst = defineCommerceCommand("pairDeleteFirst", "write", ctx => Effect.gen(function* () {
   return yield* (yield* ctx.table("pair")).delete(ctx.manager, [{ left_id: "a", right_id: "1" }]);
@@ -121,7 +143,7 @@ const witness = Effect.fn("CompositeIdentity.witness")(function* <Persistence ex
         logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts },
           unique: fixture.uniqueConstraintEligibility, schemaVersionId, source: sourceInput,
           initialization: { stepId: "pair.empty", datasetSha256: dataset.sha256Hex, expectedRowCount: 0 } },
-        commands: [list, insertFirst, insertSecond, upsertFirst, deleteFirst],
+        commands: [list, listByRight, listByEither, insertFirst, insertSecond, upsertFirst, deleteFirst],
       }), host => Effect.gen(function* () {
         expect(yield* host.initialize([])).toEqual({ rowCount: 0 });
         expect(yield* host.run(host.newRequestKey(), insertFirst, {})).toMatchObject([{ left_id: "a", right_id: "1" }]);
@@ -132,9 +154,13 @@ const witness = Effect.fn("CompositeIdentity.witness")(function* <Persistence ex
           expect.objectContaining({ right_id: "1", label: "first" }),
           expect.objectContaining({ right_id: "2", label: "second" }),
         ]));
+        expect(yield* host.read(listByRight, {})).toMatchObject([{ right_id: "2", label: "second" }]);
+        expect(yield* host.read(listByEither, {})).toMatchObject([{ right_id: "1" }, { right_id: "2" }]);
         expect(yield* Effect.result(host.run(host.newRequestKey(), insertFirst, {})))
           .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
-        expect(yield* host.run(host.newRequestKey(), upsertFirst, {})).toMatchObject([{ label: "updated" }]);
+        expect(yield* host.run(host.newRequestKey(), upsertFirst, {})).toMatchObject({
+          written: [{ label: "updated" }], selected: [{ right_id: "1", label: "updated" }],
+        });
         expect(yield* host.run(host.newRequestKey(), deleteFirst, {})).toMatchObject([{ label: "updated" }]);
         expect(yield* host.read(list, {})).toMatchObject([{ left_id: "a", right_id: "2", label: "second" }]);
       }), host => host.close);

@@ -73,6 +73,8 @@ describe("actual Product schema", () => {
       expect(pivot.keys[0]).toMatchObject({ kind: "unique" });
       expect(Result.getOrThrow(relationalTextIdentity(pivot, reason => new Error(reason))))
         .toEqual(pivot.keys[0]?.columns.map(column => column.columnId));
+      for (const column of pivot.keys[0]?.columns ?? []) expect(pivot.keys.some(key => key.columns[0]?.columnId === column.columnId) ||
+        pivot.indexes.some(index => index.predicate === null && index.columns[0]?.columnId === column.columnId)).toBe(true);
       // Identity selection is ready, but its declared FKs still keep Product
       // serving closed until shared relation enforcement is admitted.
       expect(Result.isFailure(prepareLogicalRelationalRows(pivot, captured.schema.capabilities,

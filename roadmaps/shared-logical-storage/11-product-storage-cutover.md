@@ -55,9 +55,27 @@ with the same first member, duplicate rejection, upsert and exact-pair deletion
 on PGlite and ordinary-role PostgreSQL. The pinned Product schema proves all
 three pivot declarations match this identity rule. Product still refuses runtime
 admission because its foreign keys and relationships lack the shared execution
-contract; relation enforcement and queries by other indexed members are the next
+contract; relation enforcement and remaining native query shapes are the next
 connected gate. A new pivot-specific ID, partial Product activation or a scan
 fallback would obscure that missing core obligation.
+
+The indexed relation-lookup slice extends the same bounded reader to any
+declared unconditional text-index prefix. Native Product population selects
+child and pivot rows by foreign-key columns, which may not be the row identity's
+first member; the previous key-only compiler refused those lookups. Boolean
+`and` chooses one bounded indexed candidate set and checks the full predicate;
+`or` unions each branch's indexed candidates and deduplicates row identities.
+Non-indexed text membership still refuses. Bounded results can order by a
+nonnullable text column independently of the selecting index. A neutral commerce
+host exercises reverse pivot lookup, mixed-index Boolean selection and a
+secondary-index read after an upsert in the same request on PGlite and
+ordinary-role PostgreSQL. The pinned Product pivots declare indexed access to
+both endpoint columns. This changes the shared query contract used by Currency,
+whose native list/count regression remains required. It does not turn scalar
+FK values into enforced relationships: endpoint resolution, reverse adjacency,
+deletion policy and cross-framework authorization still need one shared relation
+owner before Product admission. The physical Product query host remains its
+named consumer until that cutover.
 
 The physical profile is constructed in `product-schema.ts` and
 `product-profile.ts`. Its active test consumers include the Product runner and

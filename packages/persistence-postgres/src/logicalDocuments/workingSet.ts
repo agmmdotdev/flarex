@@ -431,16 +431,16 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error));
     const selected = new Map<AppDocumentIdV1, PendingDocument>();
     // A null predicate required by every Boolean branch may use an admitted
-    // active-row index. Otherwise the text primary-key range remains the
+    // active-row index. Otherwise the first text identity member's range is the
     // bounded complete-set path; a page limit never turns into a table scan.
     let completeSelection: LogicalWhere = { [query.key]: { gte: "" } };
-    if (query.keys === null) for (const field of query.requiredNulls) {
+    if (query.selections === null) for (const field of query.requiredNulls) {
       const candidate: LogicalWhere = { [field]: null };
       const index = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, candidate, error));
       if (Option.isSome(index)) { completeSelection = candidate; break; }
     }
-    const selections: LogicalWhere[] = query.keys === null ? [completeSelection] :
-      query.keys.map(key => ({ [query.key]: key }));
+    const selections: LogicalWhere[] = query.selections === null ? [completeSelection] :
+      query.selections.map(selection => ({ [selection.column]: selection.value }));
     for (const where of selections) for (const row of yield* selectCandidates(tableName, where, true)) {
       if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
     }
