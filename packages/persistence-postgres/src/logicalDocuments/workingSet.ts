@@ -444,14 +444,17 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     for (const where of selections) for (const row of yield* selectCandidates(tableName, where, true)) {
       if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
     }
-    const matched: { document: JsonObject; order: string }[] = [];
+    const matched: { document: JsonObject; order: string; documentId: AppDocumentIdV1 }[] = [];
     for (const row of selected.values()) {
       if (row.current === null) continue;
       const document = yield* Effect.fromResult(output(row.current, true));
       const inspected = yield* Effect.fromResult(query.inspect(document));
-      if (inspected.matches) matched.push({ document, order: inspected.order });
+      if (inspected.matches) matched.push({ document, order: inspected.order, documentId: row.documentId });
     }
-    matched.sort((left, right) => (left.order < right.order ? -1 : left.order > right.order ? 1 : 0) * (query.direction === "asc" ? 1 : -1));
+    matched.sort((left, right) => {
+      const ordered = (left.order < right.order ? -1 : left.order > right.order ? 1 : 0) * (query.direction === "asc" ? 1 : -1);
+      return ordered || left.documentId.localeCompare(right.documentId);
+    });
     const docs: JsonObject[] = [];
     for (const row of matched.slice(query.offset, query.offset + query.limit)) {
       const projected: Record<string, Json> = {};
@@ -477,21 +480,33 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       yield* charge(captured.bytes);
       if (!Array.isArray(captured.value)) return yield* Effect.fail(error("invalidInput"));
       if (captured.value.length > limits.identities) return yield* Effect.fail(error("limitExceeded"));
-      const rowsByKey = new Map<string, JsonObject>();
+      const rowsByKey = new Map<string, Readonly<{ identity: Record<string, string>; row: JsonObject }>>();
       for (const item of captured.value) {
+        const singleKey = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
         const row = operation === "delete" || operation === "softDelete" || operation === "restore" ?
-          typeof item === "string" ? { [policy.key]: item } : null : item;
+          typeof item === "string" && singleKey !== undefined ? { [singleKey]: item } : item : item;
         if (!isJsonObject(row)) return yield* Effect.fail(error("invalidInput"));
         yield* Effect.fromResult(policy.validateInput(row));
-        const key = row[policy.key];
-        if (typeof key !== "string" || key.length === 0 || rowsByKey.has(key)) return yield* Effect.fail(error("invalidInput"));
-        rowsByKey.set(key, row);
+        if ((operation === "delete" || operation === "softDelete" || operation === "restore") &&
+          (Object.keys(row).length !== policy.keyColumns.length || Object.keys(row).some(name => !policy.keyColumns.some(column => column === name))))
+          return yield* Effect.fail(error("invalidInput"));
+        const identity: Record<string, string> = {};
+        for (const column of policy.keyColumns) {
+          const value = row[column];
+          if (typeof value !== "string" || value.length === 0) return yield* Effect.fail(error("invalidInput"));
+          identity[column] = value;
+        }
+        const key = JSON.stringify(policy.keyColumns.map(column => identity[column]));
+        if (rowsByKey.has(key)) return yield* Effect.fail(error("invalidInput"));
+        rowsByKey.set(key, { identity, row });
       }
       const result: JsonObject[] = [];
-      for (const [key, inputRow] of rowsByKey) {
+      for (const { identity, row: inputRow } of rowsByKey.values()) {
         let pending: PendingDocument | undefined;
-        for (const candidate of yield* selectCandidates(tableName, { [policy.key]: key }, true)) {
-          if (candidate.tableId !== table.tableId || candidate.current === null || !isNonArrayRecord(candidate.current.value) || candidate.current.value[policy.key] !== key) continue;
+        for (const candidate of yield* selectCandidates(tableName, identity, true)) {
+          const current = candidate.current?.value;
+          if (candidate.tableId !== table.tableId || !isNonArrayRecord(current) ||
+            !policy.keyColumns.every(column => current[column] === identity[column])) continue;
           if (pending !== undefined) return yield* Effect.fail(error("storedCorruption"));
           pending = candidate;
         }

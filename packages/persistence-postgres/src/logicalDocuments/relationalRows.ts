@@ -4,13 +4,18 @@ import { isRelationalColumnValue, validateRelationalRowValues, type RelationalCo
 import type { JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure } from "./model";
 
-export function relationalTextPrimaryKey<Failure>(table: RelationalTableDefinition, error: LogicalDocumentFailure<Failure>) {
+export function relationalTextIdentity<Failure>(table: RelationalTableDefinition, error: LogicalDocumentFailure<Failure>) {
   const primary = table.keys.find(key => key.kind === "primary");
-  const key = primary?.columns[0]?.columnId;
-  const column = table.columns.find(candidate => candidate.identity.columnId === key);
-  return primary?.columns.length !== 1 || key === undefined || column?.type !== "text" || column.nullable
-    ? Result.fail(error("invalidInput")) : Result.succeed(key);
+  const unique = table.keys.filter(key => key.kind === "unique");
+  const selected = primary ?? (unique.length === 1 ? unique[0] : undefined);
+  const columns = selected?.columns.map(column => column.columnId);
+  return columns === undefined || columns.length === 0 ||
+    columns.some(key => {
+      const column = table.columns.find(candidate => candidate.identity.columnId === key);
+      return column?.type !== "text" || column.nullable;
+    }) ? Result.fail(error("invalidInput")) : Result.succeed(Object.freeze(columns));
 }
+
 const Raw = Schema.Struct({ value: Schema.String,
   precision: Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 1000 })),
 }).annotate({ parseOptions: { onExcessProperty: "ignore" } });
@@ -45,7 +50,7 @@ export function prepareLogicalRelationalRowValues<Failure>(table: RelationalTabl
 export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
   capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
   return Result.gen(function* () {
-    const key = yield* relationalTextPrimaryKey(table, error);
+    const keyColumns = yield* relationalTextIdentity(table, error);
     if (table.relationships.length !== 0 || table.constraints.some(constraint => constraint.kind === "foreignKey"))
       return yield* Result.fail(error("invalidInput"));
     const managed = capabilities.flatMap(capability => capability.kind === "managedTimestamps" && belongsTo(table, capability.createdAtColumn)
@@ -84,6 +89,6 @@ export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefi
       yield* validate(row, "documentInvalid");
       return row;
     });
-    return Object.freeze({ key, normalize, validate, validateInput, deletedAt: deletions.length === 1 ? deletions[0] : undefined });
+    return Object.freeze({ keyColumns, normalize, validate, validateInput, deletedAt: deletions.length === 1 ? deletions[0] : undefined });
   });
 }

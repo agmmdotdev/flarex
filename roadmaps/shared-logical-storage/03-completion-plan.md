@@ -59,6 +59,10 @@ remain distinct from logical schema evolution.
   must change before physical Product consumers can move. All 56 native Product
   ordered and 24 unique requirements now install as shared definitions without
   generated Product DDL; this does not grant Product serving readiness.
+  A neutral composite-key commerce source now executes through generic rows,
+  indexes and unique claims on both database drivers, matching Product's three
+  implicit pivot identity declarations. Product FK/relation enforcement and
+  broader indexed graph queries still block its runtime selection.
   [Relational active-row reads](./12-relational-null-index-reads.md) select a
   shared index when every Boolean branch requires the null predicate, exercising
   native Currency list/count without decoding inactive rows from the primary

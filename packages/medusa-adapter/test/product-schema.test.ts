@@ -11,6 +11,7 @@ import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
 import { authenticateStoredRelationalSchemaArtifactEffect } from "../../persistence-postgres/src/relationalSchema/artifact";
+import { prepareLogicalRelationalRows, relationalTextIdentity } from "../../persistence-postgres/src/logicalDocuments/relationalRows";
 
 const compiled = () =>
   JSON.parse(JSON.stringify(compileDmlSchema([...productModels]))) as unknown;
@@ -70,6 +71,12 @@ describe("actual Product schema", () => {
       expect(pivot.columns).toHaveLength(2);
       expect(pivot.keys).toHaveLength(1);
       expect(pivot.keys[0]).toMatchObject({ kind: "unique" });
+      expect(Result.getOrThrow(relationalTextIdentity(pivot, reason => new Error(reason))))
+        .toEqual(pivot.keys[0]?.columns.map(column => column.columnId));
+      // Identity selection is ready, but its declared FKs still keep Product
+      // serving closed until shared relation enforcement is admitted.
+      expect(Result.isFailure(prepareLogicalRelationalRows(pivot, captured.schema.capabilities,
+        reason => new Error(reason)))).toBe(true);
       expect(pivot.constraints).toHaveLength(2);
       expect(
         pivot.constraints.every(

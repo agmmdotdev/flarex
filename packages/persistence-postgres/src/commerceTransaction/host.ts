@@ -30,6 +30,7 @@ import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObserv
 import { makeLogicalCommerceParticipant } from "./logicalParticipant";
 import { requireLogicalCommerceInitialization } from "./logicalInitialization";
 import { prepareLogicalRelationalAdmission, requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
+import { relationalTextIdentity } from "../logicalDocuments/relationalRows";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
 import { defaultCommerceResources } from "./resources";
 import { captureLogicalCommerceSelection, prepareLogicalCommerceContract, type LogicalCommerceSelectionInput } from "./logicalSelection";
@@ -209,13 +210,14 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
             let value: Json;
             if (bootstrap) {
               if (descriptor.initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
+              const logicalTable = admitted.kind === "logical" ? admitted.state.schema.tables[0] : undefined;
+              if (admitted.kind === "logical" && logicalTable === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+              const logicalIdentity = logicalTable === undefined ? null :
+                yield* Effect.fromResult(relationalTextIdentity(logicalTable, () => commerceError("unsupportedProfile")));
               const keyColumnId = selected.kind === "physical"
                 ? physicalDescriptor?.layout.frame.tables[0]?.columns.find(column => column.name ===
                   physicalDescriptor.layout.frame.tables[0]?.keys.find(candidate => candidate.kind === "primary")?.columns.find(name => name !== "scope_uuid"))?.identity.columnId
-                : admitted.kind === "logical"
-                  ? admitted.state.schema.tables[0]?.keys.find(candidate => candidate.kind === "primary")?.columns
-                    .find(column => column.columnId !== "scope_uuid")?.columnId
-                  : undefined;
+                : logicalIdentity?.[0];
               if (keyColumnId === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
               const existing = yield* working.store.count(lifetime.context, { order: { column: keyColumnId, direction: "asc" } });
               if (existing !== 0) return yield* Effect.fail(commerceError("seedMismatch"));

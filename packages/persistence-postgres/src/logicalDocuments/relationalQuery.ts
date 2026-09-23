@@ -3,7 +3,7 @@ import { isRelationalColumnValue, type RelationalPersistenceCapability, type Rel
 import { encodeOrderedIndexComponentsV1, orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
 import type { JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure } from "./model";
-import { prepareLogicalRelationalRowValues, relationalTextPrimaryKey } from "./relationalRows";
+import { prepareLogicalRelationalRowValues, relationalTextIdentity } from "./relationalRows";
 
 /** The admitted text-key relational profile. Other predicate families require
  * their own indexed execution contract before they can be enabled here. */
@@ -32,7 +32,9 @@ interface Filter {
 export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefinition, capabilities: readonly RelationalPersistenceCapability[], input: unknown,
   pageRows: number, error: LogicalDocumentFailure<Failure>) {
   return Result.gen(function* () {
-    const key = yield* relationalTextPrimaryKey(table, error);
+    const identity = yield* relationalTextIdentity(table, error);
+    const key = identity[0];
+    if (key === undefined) return yield* Result.fail(error("invalidInput"));
     const validate = prepareLogicalRelationalRowValues(table, capabilities, error);
     const query = yield* decodeEnvelope(input).pipe(Result.mapError(cause => error("invalidInput", cause)));
     const fields = query.fields ?? table.columns.map(column => column.identity.columnId);

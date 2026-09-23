@@ -19,14 +19,13 @@ Variant, Option, OptionValue, Type, Tag, Collection, Category, Image, image
 assignment and their pivots (13 tables). `makeSchemaComposer` can authenticate
 that graph as `medusa.product`, but this is candidate preparation, not executable
 Product storage. The running `productRepository` obtains table operations through
-the physical commerce profile. The current shared relational participant can
-execute Currency's scalar table, but `prepareLogicalRelationalRows` explicitly
-refuses native relationships and foreign keys, while
-`compileLogicalRelationalRead` admits only text-primary-key predicates and
-primary-key ordering. Product graph, population, lifecycle and native service
-queries cannot be routed through those contracts unchanged. Some native pivot
-tables also use composite keys, so the current mandatory single text primary
-key is insufficient even before relation execution.
+the physical commerce profile. The shared relational participant executes
+Currency's scalar table and a neutral composite-key source, but
+`prepareLogicalRelationalRows` still refuses native relationships and foreign
+keys. `compileLogicalRelationalRead` admits the first text identity member for
+bounded indexed selection, not Product's complete graph query contract.
+Product graph, population, lifecycle and native service queries cannot be
+routed through those contracts unchanged.
 
 The first connected definition step now compiles all 56 native Product ordered
 requirements and 24 unique requirements through the shared catalog. Its
@@ -39,8 +38,26 @@ millisecond timestamps are also admissible to that compiler,
 while numeric uniqueness and JSON key ordering remain refused. The complete
 Product/Currency candidate installs these definitions without Product DDL on
 PGlite and ordinary-role PostgreSQL. This is structural preparation only:
-the native Product runtime still refuses the unsupported relation, pivot and
-query operations described above.
+the native Product runtime still refuses its unsupported relation and query
+operations.
+
+The row-identity slice recognizes a table's declared primary text key or,
+when no primary exists, its sole nonnullable composite text unique key. This
+is the actual shape of Product's three implicit pivots. The shared working set
+uses the whole tuple for exact lookup, duplicate admission, update and deletion;
+the existing generic unique claim settles conflicts. It does not invent a
+synthetic pivot ID or a Product-only storage path. Native deletes of composite
+rows pass a complete key object; the single-key string form remains for scalar
+tables. A bounded read may order and filter on the first tuple member through
+the key's generated ordered prefix, with internal row identity breaking
+ties. A neutral logical commerce host exercises empty initialization, two rows
+with the same first member, duplicate rejection, upsert and exact-pair deletion
+on PGlite and ordinary-role PostgreSQL. The pinned Product schema proves all
+three pivot declarations match this identity rule. Product still refuses runtime
+admission because its foreign keys and relationships lack the shared execution
+contract; relation enforcement and queries by other indexed members are the next
+connected gate. A new pivot-specific ID, partial Product activation or a scan
+fallback would obscure that missing core obligation.
 
 The physical profile is constructed in `product-schema.ts` and
 `product-profile.ts`. Its active test consumers include the Product runner and
