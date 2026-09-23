@@ -12,7 +12,7 @@ import { projectCommerceRequestFailure } from "../commerceTransaction/request";
 import type { CommerceAdmission } from "../commerceTransaction/admission";
 import { requireCommerceAdmission } from "../commerceTransaction/admission";
 import { makeCommerceStore, type CommerceRowClosure } from "../commerceTransaction/store";
-import { inspectLogicalCommerceMutations, makeLogicalCommerceParticipant,
+import { inspectLogicalCommerceActivity, makeLogicalCommerceParticipant,
   type LogicalCommerceClosure } from "../commerceTransaction/logicalParticipant";
 import { requireLogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -252,9 +252,11 @@ function makeAtomicCommerceExecution(
         const closure = yield* contribution.working.close();
         const member = members[admissions.indexOf(contribution.token)];
         if (member === undefined || member.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
-        if (member.validateLogical !== undefined) yield* member.validateLogical(
-          Object.freeze([...(logicalCalls.get(contribution.token) ?? [])]),
-          yield* inspectLogicalCommerceMutations(closure, lifetime));
+        if (member.validateLogical !== undefined) {
+          const activity = yield* inspectLogicalCommerceActivity(closure, lifetime);
+          yield* member.validateLogical(Object.freeze([...(logicalCalls.get(contribution.token) ?? [])]),
+            activity.mutations, activity.lifecycle);
+        }
         closed.push({ kind: "logical", closure });
       }
     }

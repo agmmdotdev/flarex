@@ -59,9 +59,19 @@ export interface LogicalDocumentAttempt {
   readonly before: CanonicalFlarexValueV1 | null;
   readonly after: CanonicalFlarexValueV1 | null;
 }
+export interface LogicalRelationalLifecycleObservation {
+  readonly tableId: CatalogTableId;
+  readonly tableName: string;
+  readonly key: Readonly<Record<string, string>>;
+  readonly operation: "softDelete" | "restore";
+  readonly beforeDeletedAt: string | null;
+  readonly afterDeletedAt: string | null;
+  readonly attemptOrdinal: number | null;
+}
 export interface LogicalDocumentChanges {
   readonly changes: readonly LogicalDocumentChange[];
   readonly attempts: readonly LogicalDocumentAttempt[];
+  readonly lifecycle: readonly LogicalRelationalLifecycleObservation[];
   readonly noFinalRows: readonly AppDocumentIdV1[];
   readonly dependencies: readonly ApplicationDocumentObservation[];
   readonly scans: readonly Readonly<{ tableId: CatalogTableId; frontier: CommitSeq | null }>[];
@@ -140,6 +150,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const uniqueReads = new Map<string, LogicalUniqueRead>();
   const indexReads = new Map<string, LogicalIndexRead>();
   const attempts: LogicalDocumentAttempt[] = [];
+  const lifecycle: LogicalRelationalLifecycleObservation[] = [];
   let inserted = 0;
   let closed = false;
   const tableForName = (name: string) => {
@@ -519,6 +530,19 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         rowsByKey.set(key, { identity, row });
       }
       const result: JsonObject[] = [];
+      const observeLifecycle = Effect.fn("LogicalDocuments.observeLifecycle")(function* (
+        key: Record<string, string>, lifecycleOperation: "softDelete" | "restore", before: JsonObject, after: JsonObject,
+        attemptOrdinal: number | null,
+      ) {
+        const deletedAt = policy.deletedAt;
+        if (deletedAt === undefined) return yield* Effect.fail(error("invalidAuthority"));
+        const previous = before[deletedAt], next = after[deletedAt];
+        if ((previous !== null && typeof previous !== "string") || (next !== null && typeof next !== "string") ||
+          (lifecycleOperation === "restore" ? next !== null : next === null)) return yield* Effect.fail(error("storedCorruption"));
+        yield* charge(128 + tableName.length + JSON.stringify(key).length + (previous?.length ?? 0) + (next?.length ?? 0));
+        lifecycle.push(Object.freeze({ tableId: table.tableId, tableName, key: Object.freeze({ ...key }), operation: lifecycleOperation,
+          beforeDeletedAt: previous, afterDeletedAt: next, attemptOrdinal }));
+      });
       for (const { identity, row: inputRow } of rowsByKey.values()) {
         let pending: PendingDocument | undefined;
         for (const candidate of yield* selectCandidates(tableName, identity, true)) {
@@ -545,11 +569,16 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         if (operation === "softDelete" || operation === "restore") {
           if (policy.deletedAt === undefined || previous === null) return yield* Effect.fail(error("invalidInput"));
           supplied = { ...inputRow, [policy.deletedAt]: operation === "restore" ? null : yield* transactionTime };
-          if (operation === "restore" && previous[policy.deletedAt] === null) { result.push(previous); continue; }
+          if (operation === "restore" && previous[policy.deletedAt] === null) {
+            yield* observeLifecycle(identity, operation, previous, previous, null);
+            result.push(previous); continue;
+          }
         }
         const fields = yield* Effect.fromResult(policy.normalize(supplied, previous, yield* transactionTime));
         const written = pending === undefined ? yield* insertRecord(tableName, fields) : yield* write(pending, fields, "patch");
         const { _id: _internalId, _creationTime: _internalTime, ...native } = written;
+        if ((operation === "softDelete" || operation === "restore") && previous !== null)
+          yield* observeLifecycle(identity, operation, previous, native, attempts.length - 1);
         result.push(native);
       }
       const returned = yield* Effect.fromResult(capturePrivateJsonData(result, lifetime.remainingBytes(), error));
@@ -669,7 +698,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     changes.sort((left, right) => left.tableId - right.tableId || left.rowId.localeCompare(right.rowId));
     noFinalRows.sort();
     return Object.freeze({ changes: Object.freeze(changes),
-      attempts: Object.freeze([...attempts]), noFinalRows: Object.freeze(noFinalRows),
+      attempts: Object.freeze([...attempts]), lifecycle: Object.freeze([...lifecycle]), noFinalRows: Object.freeze(noFinalRows),
       dependencies: Object.freeze([...dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
       scans: Object.freeze([...scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
       uniqueReads: Object.freeze([...uniqueReads.values()]), indexReads: Object.freeze([...indexReads.values()]) });

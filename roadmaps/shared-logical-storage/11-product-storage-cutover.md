@@ -299,6 +299,33 @@ shape, not general large-catalog serving. The physical Product profile remains
 for lifecycle, broader commands, Link and relationship consumers, with retirement gated on
 their cutovers. No durable format or public contract changes.
 
+## Native Product Lifecycle Observation Slice
+
+The public Product soft-delete and restore commands now run through their
+native service, owned cascade, and module events on the selected logical
+source. The physical store already gave its event policy a storage-owned
+lifecycle observation when restore selected an active row and made no update;
+the shared logical closure now records that distinction too.
+
+The trusted logical working-set closure retains charged, immutable
+before/after lifecycle observations. The atomic owner passes them alongside
+the attempt transcript to the logical event validator. The Product validator
+admits only the public `productSoftDelete` and `productRestore` commands,
+correlates every owned entity event to its observation and changed attempt
+when present, and rejects unrelated writes or invented messages.
+The native Product service, cascade planner, generic relational storage,
+single settlement owner and physical behavior witness remain authoritative.
+This breaks only the internal logical validator signature and closure shape;
+its callers migrate in the same slice. No durable format or public API changes.
+
+The selected native-service proof covers owned Product graph soft-delete and
+restore, module events, repeated-request replay, active restore with events
+but no row update, active-handle conflict rollback, and forged-event refusal.
+It does not complete hard deletion or general Product serving. The physical
+profile stays for the named
+unmigrated Product commands, Link, and relationship consumers; retirement
+still requires their cutovers and approved data disposition.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

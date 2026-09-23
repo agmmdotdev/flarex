@@ -252,6 +252,57 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
   return { capture, validateLogical };
 }
 
+/** Public native Product lifecycle admits the owned cascade and authenticates
+ * an already-active restore without pretending that storage changed a row. */
+export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetadata,
+  operation: "softDelete" | "restore") {
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
+  const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
+  const action = operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED;
+  const commandName = operation === "restore" ? "productRestore" : "productSoftDelete";
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalLifecycle")(function* (calls, mutations, lifecycle) {
+    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+    const expected = new Set<string>();
+    const matchedAttempts = new Set<number>();
+    for (const observation of lifecycle) {
+      const entity = byTable.get(observation.table);
+      const id = observation.key.id;
+      if (entity === undefined || observation.operation !== operation || Object.keys(observation.key).length !== 1 ||
+        typeof id !== "string" || id.length === 0 ||
+        (operation === "restore" ? observation.afterDeletedAt !== null : typeof observation.afterDeletedAt !== "string"))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      const identity = entity.eventObject + ":" + id;
+      if (expected.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      expected.add(identity);
+      if (observation.attemptOrdinal === null) {
+        if (operation !== "restore" || observation.beforeDeletedAt !== null || observation.afterDeletedAt !== null)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        continue;
+      }
+      const mutation = mutations[observation.attemptOrdinal];
+      if (mutation === undefined || matchedAttempts.has(observation.attemptOrdinal) || mutation.ordinal !== observation.attemptOrdinal ||
+        mutation.table !== observation.table || mutation.operation !== "patch" || mutation.before?.id !== id || mutation.after?.id !== id ||
+        mutation.before.deleted_at !== observation.beforeDeletedAt || mutation.after.deleted_at !== observation.afterDeletedAt ||
+        (operation === "restore" && observation.beforeDeletedAt === null)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      matchedAttempts.add(observation.attemptOrdinal);
+    }
+    if (matchedAttempts.size !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+    for (const event of emitted) {
+      const message = yield* capture(event);
+      if (message.metadata.action !== action) return yield* Effect.fail(commerceError("receiptMismatch"));
+      for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+        if (!expected.delete(message.metadata.object + ":" + id) ||
+          !entities.some(entity => entity.eventObject === message.metadata.object &&
+            (operation === "restore" ? entity.restoredEvent : entity.deletedEvent) === message.name))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+    }
+    if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+  });
+  return { capture, validateLogical };
+}
+
 /** Selected tag create, selector update and soft-delete retain distinct native commands. */
 export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
   action: "created" | "updated" | "deleted") {

@@ -24,6 +24,14 @@ export interface LogicalCommerceMutation {
   readonly before: JsonObject | null;
   readonly after: JsonObject | null;
 }
+export interface LogicalCommerceLifecycleObservation {
+  readonly table: string;
+  readonly key: Readonly<Record<string, string>>;
+  readonly operation: "softDelete" | "restore";
+  readonly beforeDeletedAt: string | null;
+  readonly afterDeletedAt: string | null;
+  readonly attemptOrdinal: number | null;
+}
 interface ClosureState {
   readonly admission: LogicalRelationalAdmission;
   readonly tx: FlarexMetadataTransaction;
@@ -65,9 +73,9 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     table: (context: Parameters<typeof working.relationalTable>[0], table: string) => working.relationalTable(context, id, table) });
 });
 
-/** The atomic root may inspect authenticated in-memory mutations before it
+/** The atomic root inspects authenticated in-memory activity before it
  * consumes the same closure for publication. This grants no storage handle. */
-export const inspectLogicalCommerceMutations = Effect.fn("LogicalCommerce.inspectMutations")(function* (
+export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspectActivity")(function* (
   closure: LogicalCommerceClosure, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
 ) {
   const closed = closures.get(closure);
@@ -85,7 +93,15 @@ export const inspectLogicalCommerceMutations = Effect.fn("LogicalCommerce.inspec
       return yield* Effect.fail(commerceError("storedCorruption"));
     mutations.push(Object.freeze({ ordinal: attempt.ordinal, table, operation: attempt.operation, before, after }));
   }
-  return Object.freeze(mutations);
+  const lifecycle: LogicalCommerceLifecycleObservation[] = [];
+  for (const observation of closed.changes.lifecycle) {
+    const table = names.get(observation.tableId);
+    if (table === undefined || table !== observation.tableName) return yield* Effect.fail(commerceError("storedCorruption"));
+    lifecycle.push(Object.freeze({ table, key: observation.key, operation: observation.operation,
+      beforeDeletedAt: observation.beforeDeletedAt, afterDeletedAt: observation.afterDeletedAt,
+      attemptOrdinal: observation.attemptOrdinal }));
+  }
+  return Object.freeze({ mutations: Object.freeze(mutations), lifecycle: Object.freeze(lifecycle) });
 });
 
 /** The root consumes exactly once while the source callback is still live. */

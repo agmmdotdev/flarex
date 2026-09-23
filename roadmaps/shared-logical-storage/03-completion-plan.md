@@ -78,8 +78,11 @@ remain distinct from logical schema evolution.
   order values for image rank. Native public Product list/retrieve/count now
   have a two-driver selected-graph witness beside more than one request bound
   of unrelated Product and Image rows, including page/count and deleted
-  visibility. General bounded population/overflow, broader Product commands
-  and relationship queries, and rich Links still block runtime cutover.
+  visibility. Public native Product soft-delete and restore now preserve the
+  owned logical cascade and match module events to core lifecycle observations,
+  including active restore without a fabricated row update. Hard deletion,
+  general bounded population/overflow, broader Product commands and
+  relationship queries, and rich Links still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key
   selection alone does not enforce or activate Product relationships.
