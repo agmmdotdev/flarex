@@ -77,6 +77,18 @@ deletion policy and cross-framework authorization still need one shared relation
 owner before Product admission. The physical Product query host remains its
 named consumer until that cutover.
 
+The conditional-index read cutover admits a text index conditional on a null field
+only when the query branch itself requires that field to be null. This is needed
+for Product's active-handle lookup; the prior reader recognized only unconditional
+text prefixes. The shared Boolean planner carries each branch's proven null
+conditions into index selection, including nested `and`/`or`, and continues to
+refuse an unindexed branch rather than scan. A neutral commerce source shows
+active and inactive rows, pending updates, a branch-local condition, and refusal
+of handle lookup without the active condition. The core reader and its existing
+index/revision settlement own this behavior; the Medusa adapter gains no query
+fallback. This changes no public API or durable format and leaves Product's FK
+and graph serving refusal intact.
+
 The physical profile is constructed in `product-schema.ts` and
 `product-profile.ts`. Its active test consumers include the Product runner and
 local service, installation, relationship, SalesChannel, ShippingProfile,

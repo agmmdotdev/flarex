@@ -21,9 +21,14 @@ const Node = Schema.Union([
 ]);
 const decodeEnvelope = Schema.decodeUnknownResult(Envelope, { onExcessProperty: "error" });
 const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" });
-interface Filter {
+interface Selection {
+  readonly column: string;
+  readonly value: string;
+  readonly nullColumn?: string;
+}
+interface Filter<Failure> {
   /** null denotes no indexed selection; an empty list matches no rows. */
-  readonly selections: readonly Readonly<{ column: string; value: string }>[] | null;
+  readonly select: (requiredNulls: ReadonlySet<string>) => Result.Result<readonly Selection[] | null, Failure>;
   /** Every matching row has these null fields, including across OR branches. */
   readonly requiredNulls: ReadonlySet<string>;
   readonly matches: (row: JsonObject) => boolean;
@@ -47,7 +52,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
     if (take > pageRows) return yield* Result.fail(error("limitExceeded"));
     let nodes = 0;
     let operands = 0;
-    const visit = (inputNode: unknown, depth: number): Result.Result<Filter, Failure> => Result.gen(function* () {
+    const visit = (inputNode: unknown, depth: number): Result.Result<Filter<Failure>, Failure> => Result.gen(function* () {
       if (++nodes > relationalReadLimits.filterNodes || depth > relationalReadLimits.filterDepth)
         return yield* Result.fail(error("limitExceeded"));
       const node = yield* decodeNode(inputNode).pipe(Result.mapError(cause => error("invalidInput", cause)));
@@ -55,39 +60,54 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         operands += node.values.length;
         if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
-        const indexed = table.keys.some(candidate => candidate.columns[0]?.columnId === node.column) ||
-          table.indexes.some(candidate => candidate.predicate === null && candidate.columns[0]?.columnId === node.column);
-        if (column?.type !== "text" || !indexed || node.values.some(value => !isRelationalColumnValue("text", false, value)))
+        if (column?.type !== "text" || node.values.some(value => !isRelationalColumnValue("text", false, value)))
           return yield* Result.fail(error("invalidInput"));
         const keys = new Set(node.values);
-        return { selections: [...keys].map(value => ({ column: node.column, value })), requiredNulls: new Set<string>(),
+        return { select: (requiredNulls: ReadonlySet<string>) => Result.gen(function* () {
+          const unconditional = table.keys.some(candidate => candidate.columns[0]?.columnId === node.column) ||
+            table.indexes.some(candidate => candidate.predicate === null && candidate.columns[0]?.columnId === node.column);
+          const conditional = unconditional ? undefined : table.indexes.find(candidate => candidate.columns[0]?.columnId === node.column &&
+            candidate.predicate?.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId));
+          if (!unconditional && conditional === undefined) return yield* Result.fail(error("invalidInput"));
+          const nullColumn = conditional?.predicate?.kind === "isNull" ? conditional.predicate.column.columnId : undefined;
+          return [...keys].map(value => ({ column: node.column, value,
+            ...(nullColumn === undefined ? {} : { nullColumn }) }));
+        }), requiredNulls: new Set<string>(),
           matches: row => { const value = row[node.column]; return typeof value === "string" && keys.has(value); } };
       }
       if (node.kind === "isNull") {
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
         if (column === undefined) return yield* Result.fail(error("invalidInput"));
-        return { selections: column.nullable ? null : [],
+        return { select: () => Result.succeed(column.nullable ? null : []),
           requiredNulls: column.nullable ? new Set([node.column]) : new Set<string>(),
           matches: row => row[node.column] === null };
       }
-      const children: Filter[] = [];
+      const children: Filter<Failure>[] = [];
       for (const child of node.children) children.push(yield* visit(child, depth + 1));
-      let selections: Filter["selections"] = node.kind === "and" ? null : [];
       const requiredNulls = new Set<string>(node.kind === "or" ? children[0]?.requiredNulls ?? [] : []);
       for (const child of children) {
         if (node.kind === "and") {
-          if (child.selections !== null && (selections === null || child.selections.length < selections.length))
-            selections = child.selections;
           for (const field of child.requiredNulls) requiredNulls.add(field);
-        } else selections = selections === null || child.selections === null ? null : [...selections, ...child.selections];
+        }
         if (node.kind === "or") for (const field of requiredNulls) if (!child.requiredNulls.has(field)) requiredNulls.delete(field);
       }
-      return { selections, requiredNulls,
+      return { select: (inheritedNulls: ReadonlySet<string>) => Result.gen(function* () {
+        const available = node.kind === "and" ? new Set([...inheritedNulls, ...requiredNulls]) : inheritedNulls;
+        let selections: readonly Selection[] | null = node.kind === "and" ? null : [];
+        for (const child of children) {
+          const candidate = yield* child.select(available);
+          if (node.kind === "and") {
+            if (candidate !== null && (selections === null || candidate.length < selections.length)) selections = candidate;
+          } else selections = selections === null || candidate === null ? null : [...selections, ...candidate];
+        }
+        return selections;
+      }), requiredNulls,
         matches: row => node.kind === "and" ? children.every(child => child.matches(row)) : children.some(child => child.matches(row)) };
     });
     const filter = yield* visit(query.predicate ?? { kind: "and", children: [] }, 0);
-    const selections = filter.selections === null ? null : Object.freeze([...new Map(filter.selections.map(selection =>
-      [JSON.stringify([selection.column, selection.value]), selection] as const)).values()]);
+    const planned = yield* filter.select(new Set());
+    const selections = planned === null ? null : Object.freeze([...new Map(planned.map(selection =>
+      [JSON.stringify([selection.column, selection.value, selection.nullColumn ?? null]), selection] as const)).values()]);
     return Object.freeze({ key, selections,
       requiredNulls: Object.freeze([...filter.requiredNulls]),
       offset: query.skip ?? 0, limit: take, direction: query.order.direction, fields: Object.freeze([...fields]),

@@ -440,7 +440,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       if (Option.isSome(index)) { completeSelection = candidate; break; }
     }
     const selections: LogicalWhere[] = query.selections === null ? [completeSelection] :
-      query.selections.map(selection => ({ [selection.column]: selection.value }));
+      query.selections.map(selection => ({ [selection.column]: selection.value,
+        ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) }));
     for (const where of selections) for (const row of yield* selectCandidates(tableName, where, true)) {
       if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
     }

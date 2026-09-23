@@ -37,11 +37,16 @@ const schema = Result.getOrThrow(normalizeRelationalSchema({
       ...["left_id", "right_id", "label"].map(columnId => ({ columnId, type: "text" as const, nullable: false,
         default: { kind: "none" as const }, origin: origin(`pair.${columnId}`) })),
       { columnId: "amount", type: "numeric", nullable: true, default: { kind: "none" }, origin: origin("pair.amount") },
+      { columnId: "deleted_at", type: "timestamptz", nullable: true, default: { kind: "none" }, origin: origin("pair.deleted_at") },
     ],
     keys: [{ keyId: "pair.identity", kind: "unique", columns: ["left_id", "right_id"], origin: origin("pair.identity") }],
     // The composite key itself must supply the ordered first-member prefix.
     // A decimal suffix must not block a text-only prefix lookup.
-    indexes: [{ indexId: "pair.by-right", kind: "btree", columns: ["right_id", "amount"], predicate: null, origin: origin("pair.by-right") }],
+    indexes: [
+      { indexId: "pair.by-right", kind: "btree", columns: ["right_id", "amount"], predicate: null, origin: origin("pair.by-right") },
+      { indexId: "pair.active-label", kind: "btree", columns: ["label"], predicate: { kind: "isNull", columnId: "deleted_at" },
+        origin: origin("pair.active-label") },
+    ],
     constraints: [], relationships: [],
   }],
 }));
@@ -64,6 +69,24 @@ const listByEither = defineCommerceCommand("pairListByEither", "read", ctx => Ef
       { kind: "in", column: "right_id", values: ["2"] },
     ] } });
 }));
+const listActiveLabel = defineCommerceCommand("pairListActiveLabel", "read", ctx => Effect.gen(function* () {
+  return yield* (yield* ctx.table("pair")).find(ctx.manager, { order: ordered,
+    predicate: { kind: "and", children: [
+      { kind: "in", column: "label", values: ["updated"] }, { kind: "isNull", column: "deleted_at" },
+    ] } });
+}));
+const listActiveEither = defineCommerceCommand("pairListActiveEither", "read", ctx => Effect.gen(function* () {
+  return yield* (yield* ctx.table("pair")).find(ctx.manager, { order: { column: "right_id", direction: "asc" },
+    predicate: { kind: "or", children: [
+      { kind: "and", children: [{ kind: "in", column: "label", values: ["first"] },
+        { kind: "isNull", column: "deleted_at" }] },
+      { kind: "in", column: "right_id", values: ["2"] },
+    ] } });
+}));
+const listLabelWithoutActive = defineCommerceCommand("pairListLabelWithoutActive", "read", ctx => Effect.gen(function* () {
+  return yield* (yield* ctx.table("pair")).find(ctx.manager, { order: ordered,
+    predicate: { kind: "in", column: "label", values: ["updated"] } });
+}));
 const insertFirst = defineCommerceCommand("pairInsertFirst", "write", ctx => Effect.gen(function* () {
   return yield* (yield* ctx.table("pair")).write(ctx.manager, "insert", [{ left_id: "a", right_id: "1", label: "first", amount: null }]);
 }));
@@ -78,7 +101,25 @@ const upsertFirst = defineCommerceCommand("pairUpsertFirst", "write", ctx => Eff
       { kind: "in", column: "right_id", values: ["1"] },
       { kind: "in", column: "left_id", values: ["a"] },
     ] } });
-  return { written, selected };
+  const active = yield* store.find(ctx.manager, { order: ordered,
+    predicate: { kind: "and", children: [{ kind: "in", column: "label", values: ["updated"] },
+      { kind: "isNull", column: "deleted_at" }] } });
+  return { written, selected, active };
+}));
+const deactivateFirst = defineCommerceCommand("pairDeactivateFirst", "write", ctx => Effect.gen(function* () {
+  const store = yield* ctx.table("pair");
+  yield* store.write(ctx.manager, "upsert", [{ left_id: "a", right_id: "1", label: "updated", amount: null,
+    deleted_at: "2026-09-24T00:00:00.000Z" }]);
+  return yield* store.find(ctx.manager, { order: ordered,
+    predicate: { kind: "and", children: [{ kind: "in", column: "label", values: ["updated"] },
+      { kind: "isNull", column: "deleted_at" }] } });
+}));
+const reactivateFirst = defineCommerceCommand("pairReactivateFirst", "write", ctx => Effect.gen(function* () {
+  const store = yield* ctx.table("pair");
+  yield* store.write(ctx.manager, "upsert", [{ left_id: "a", right_id: "1", label: "updated", amount: null, deleted_at: null }]);
+  return yield* store.find(ctx.manager, { order: ordered,
+    predicate: { kind: "and", children: [{ kind: "in", column: "label", values: ["updated"] },
+      { kind: "isNull", column: "deleted_at" }] } });
 }));
 const deleteFirst = defineCommerceCommand("pairDeleteFirst", "write", ctx => Effect.gen(function* () {
   return yield* (yield* ctx.table("pair")).delete(ctx.manager, [{ left_id: "a", right_id: "1" }]);
@@ -143,7 +184,8 @@ const witness = Effect.fn("CompositeIdentity.witness")(function* <Persistence ex
         logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts },
           unique: fixture.uniqueConstraintEligibility, schemaVersionId, source: sourceInput,
           initialization: { stepId: "pair.empty", datasetSha256: dataset.sha256Hex, expectedRowCount: 0 } },
-        commands: [list, listByRight, listByEither, insertFirst, insertSecond, upsertFirst, deleteFirst],
+        commands: [list, listByRight, listByEither, listActiveLabel, listActiveEither, listLabelWithoutActive,
+          insertFirst, insertSecond, upsertFirst, deactivateFirst, reactivateFirst, deleteFirst],
       }), host => Effect.gen(function* () {
         expect(yield* host.initialize([])).toEqual({ rowCount: 0 });
         expect(yield* host.run(host.newRequestKey(), insertFirst, {})).toMatchObject([{ left_id: "a", right_id: "1" }]);
@@ -156,11 +198,18 @@ const witness = Effect.fn("CompositeIdentity.witness")(function* <Persistence ex
         ]));
         expect(yield* host.read(listByRight, {})).toMatchObject([{ right_id: "2", label: "second" }]);
         expect(yield* host.read(listByEither, {})).toMatchObject([{ right_id: "1" }, { right_id: "2" }]);
+        expect(yield* host.read(listActiveEither, {})).toMatchObject([{ right_id: "1" }, { right_id: "2" }]);
         expect(yield* Effect.result(host.run(host.newRequestKey(), insertFirst, {})))
           .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
         expect(yield* host.run(host.newRequestKey(), upsertFirst, {})).toMatchObject({
-          written: [{ label: "updated" }], selected: [{ right_id: "1", label: "updated" }],
+          written: [{ label: "updated" }], selected: [{ right_id: "1", label: "updated" }], active: [{ label: "updated" }],
         });
+        expect(yield* host.read(listActiveLabel, {})).toMatchObject([{ label: "updated" }]);
+        expect(yield* Effect.result(host.read(listLabelWithoutActive, {})))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+        expect(yield* host.run(host.newRequestKey(), deactivateFirst, {})).toEqual([]);
+        expect(yield* host.read(listActiveLabel, {})).toEqual([]);
+        expect(yield* host.run(host.newRequestKey(), reactivateFirst, {})).toMatchObject([{ label: "updated" }]);
         expect(yield* host.run(host.newRequestKey(), deleteFirst, {})).toMatchObject([{ label: "updated" }]);
         expect(yield* host.read(list, {})).toMatchObject([{ left_id: "a", right_id: "2", label: "second" }]);
       }), host => host.close);
