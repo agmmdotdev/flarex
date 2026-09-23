@@ -278,6 +278,27 @@ type and lint checks, review and removal of displaced scalar-only descriptions.
 Bounded complete population and overflow behavior, broader Product commands,
 and general Product serving readiness remain later gates.
 
+## Native Product Read And Population Slice
+
+The selected logical Product source admits the native public `listProducts`,
+`retrieveProduct`, and `listAndCountProducts` methods. A filtered Product
+request reads its indexed root
+set and owned image/option/value/variant relations without requiring an
+unrelated Product or child catalog to fit in one request. Count must describe
+the selected roots before population, and page order must remain native. An
+unfiltered or overwide selection may still refuse at the shared resource bound;
+this slice does not claim general large-catalog pagination or complete-count
+overflow support.
+
+The existing core relational reader and Product query owner serve the request.
+The two-driver public-service witness selects one Product, its ordered images,
+option values and variant options beside 130 unrelated Product roots and 130
+unrelated images. It checks native list/retrieve/count, filtered page/count,
+and soft-deleted visibility. This proves indexed confinement for that selected
+shape, not general large-catalog serving. The physical Product profile remains
+for lifecycle, broader commands, Link and relationship consumers, with retirement gated on
+their cutovers. No durable format or public contract changes.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

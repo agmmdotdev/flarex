@@ -3,6 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { productLogicalCreateEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
+import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
+import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
@@ -111,5 +114,69 @@ describe("native Product creation on shared logical storage", () => {
       expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
       expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
     } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("serves native public filtered Product reads and owned population beyond unrelated rows", async () => {
+    const { host: create } = await prepareCreationHost();
+    const seed = defineCommerceCommand("logicalProductReadSeed", "write", Effect.fn("ProductTest.seedReadRows")(function* (ctx, input) {
+      if (!isJsonObject(input) || (input.table !== "product" && input.table !== "image") ||
+        !Array.isArray(input.values) || !input.values.every(isJsonObject)) return yield* ctx.refuse(commerceError("invalidInput"));
+      return yield* (yield* ctx.table(input.table)).write(ctx.manager, "insert", input.values);
+    }));
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [...product.hostInput.commands, product.runtime.commands.list,
+        product.runtime.commands.retrieve, product.runtime.commands.count, seed],
+    }));
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_public_read", title: "Public Read",
+        images: [{ id: "img_logical_public_read", url: "selected.png" },
+          { id: "img_logical_public_read_2", url: "selected-2.png" }],
+        options: [{ title: "Size", values: ["Small"] }],
+        variants: [{ id: "pvar_logical_public_read", title: "Small", options: { Size: "Small" } }],
+      }] }));
+      await Effect.runPromise(read.run(read.newRequestKey(), product.runtime.commands.internalProductCreate,
+        { id: "prod_logical_unrelated_read", title: "Unrelated", handle: "unrelated-read" }));
+      for (let start = 0; start < 130; start += 20) await Effect.runPromise(read.run(read.newRequestKey(), seed, {
+        table: "product", values: Array.from({ length: Math.min(20, 130 - start) }, (_, index) => ({
+          id: `prod_logical_unrelated_${start + index}`, title: "Unrelated Product",
+          handle: `unrelated-product-${start + index}`,
+        })),
+      }));
+      for (let start = 0; start < 130; start += 20) await Effect.runPromise(read.run(read.newRequestKey(), seed, {
+        table: "image", values: Array.from({ length: Math.min(20, 130 - start) }, (_, index) => ({
+          id: `img_logical_unrelated_${start + index}`, url: "unrelated.png", product_id: "prod_logical_unrelated_read",
+        })),
+      }));
+      const selected = await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: "prod_logical_public_read" }, config: { relations: ["images", "options.values", "variants.options"] },
+      }));
+      expect(selected).toMatchObject([{ id: "prod_logical_public_read", images: [{ id: "img_logical_public_read", rank: 0 },
+        { id: "img_logical_public_read_2", rank: 1 }],
+        options: [{ values: [{ value: "Small" }] }], variants: [{ options: [{ value: "Small" }] }] }]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.retrieve, {
+        id: "prod_logical_public_read", config: { select: ["title"] },
+      }))).toEqual({ title: "Public Read" });
+      expect(await Effect.runPromise(read.read(product.runtime.commands.count, {
+        filters: { id: "prod_logical_public_read" }, config: { take: 0, relations: ["images"] },
+      }))).toEqual([[], 1]);
+      const page = await Effect.runPromise(read.read(product.runtime.commands.count, {
+        filters: { id: ["prod_logical_public_read", "prod_logical_unrelated_read"] },
+        config: { take: 1, relations: ["images"] },
+      }));
+      expect(page).toMatchObject([[{ id: "prod_logical_public_read" }], 2]);
+      await Effect.runPromise(read.run(read.newRequestKey(), product.runtime.commands.internalProductSoftDelete,
+        "prod_logical_public_read"));
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: "prod_logical_public_read" },
+      }))).toEqual([]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: "prod_logical_public_read" }, config: { withDeleted: true, relations: ["images"] },
+      }))).toMatchObject([{ id: "prod_logical_public_read", deleted_at: expect.any(String),
+        images: [{ deleted_at: expect.any(String) }, { deleted_at: expect.any(String) }] }]);
+    } finally {
+      await Effect.runPromise(read.close);
+      await Effect.runPromise(create.close);
+    }
   }, 120_000);
 });

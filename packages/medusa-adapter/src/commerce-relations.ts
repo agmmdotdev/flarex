@@ -16,10 +16,10 @@ export type CommerceRelation = ToManyRelation | {
 export type CommerceRelations = ReadonlyMap<string, ReadonlyMap<string, CommerceRelation>>;
 export type CommerceRelationLookup = Pick<ReadonlyMap<string, Pick<ReadonlyMap<string, CommerceRelation>, "get">>, "get">;
 
-/** Core find bounds the entire scoped catalog before selecting any rows. A
- * single query taking that entire bound is therefore complete. The owned scope
- * lock prevents another admitted writer from changing it during this command.
- * A second count repeats the catalog scan and is not a stronger proof.
+/** The selected store must return a complete bounded relation set or refuse.
+ * Shared logical storage uses an indexed complete-set read; the retained
+ * physical profile enforces its own catalog bound. A truncated population
+ * would silently omit Medusa relationships, so a page alone is insufficient.
  */
 export const readCommerceRelationRows = Effect.fn("MedusaAdapter.readRelationRows")(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, table: string, predicate: Json, order: string = "id",

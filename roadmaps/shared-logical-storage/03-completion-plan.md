@@ -75,9 +75,11 @@ remain distinct from logical schema evolution.
   roots and an admitted owned image/option/value/variant/pivot graph into
   logical rows, reads the pending graph and correlates created module events
   before one publication. Shared relational reads admit non-null integer
-  order values for image rank. Complete bounded population/overflow, broader
-  Product commands and relationship queries, and rich Links still block
-  runtime cutover.
+  order values for image rank. Native public Product list/retrieve/count now
+  have a two-driver selected-graph witness beside more than one request bound
+  of unrelated Product and Image rows, including page/count and deleted
+  visibility. General bounded population/overflow, broader Product commands
+  and relationship queries, and rich Links still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key
   selection alone does not enforce or activate Product relationships.
