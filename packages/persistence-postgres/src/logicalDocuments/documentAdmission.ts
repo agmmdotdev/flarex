@@ -1,0 +1,159 @@
+import { Data, Effect, Result, Schema } from "effect";
+import { PayloadConfigurationSchema, verifyApplicationWritePolicies,
+  type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
+import { requireAppDocumentIdentityV1ForTableResult } from "flarex-protocol/app-document-id";
+import type { CatalogTableId } from "flarex-protocol/catalog";
+import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
+import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
+import type { CatalogSchemaVersionId, SchemaManifestAppTableDeclarationV1 } from "flarex-protocol/schema-manifest";
+import type { ScopeId } from "flarex-protocol/storage-authority";
+import { isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
+import { validateValidatorValueV1, type ValidatorIdPolicyV1 } from "flarex-protocol/validator-engine";
+import type { ApplicationBindingInput } from "../applicationActivation";
+import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
+import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
+import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
+import type { DataBindingHeadToken, DataBindingSetFrame } from "../frameworkSchema/binding/model";
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import { capturePrivateJsonData } from "../privateJsonData";
+import type { ScopeClockRecord } from "../scopeClock";
+import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
+import type { LogicalDocumentWrite } from "./model";
+import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError } from "./sourceAdmission";
+
+export class LogicalDocumentSourceAdmissionError extends Data.TaggedError("LogicalDocumentSourceAdmissionError")<{
+  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" | "documentInvalid" | "resourceFailure" | "unsupportedProfile";
+  readonly cause?: unknown;
+}> {}
+
+const SourceContract = Schema.Struct({
+  sourceKey: Schema.Literal("payload"), writeProfile: Schema.NonEmptyString,
+  definition: Schema.Json, evidence: Schema.Json, configuration: PayloadConfigurationSchema,
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+const decodeContract = Schema.decodeUnknownEffect(SourceContract);
+const projectSourceFailure = (cause: LogicalSourceAdmissionError) =>
+  new LogicalDocumentSourceAdmissionError({ reason: cause.reason, cause });
+const canonical = (value: Json) => encodeCanonicalJson(value, () => { throw new Error("Owned Payload policy is not JSON"); });
+
+declare const admissionBrand: unique symbol;
+export interface LogicalDocumentSourceAdmission { readonly [admissionBrand]: true }
+export interface LogicalDocumentSourceTable {
+  readonly localName: string;
+  readonly tableId: CatalogTableId;
+  readonly definition: SchemaManifestAppTableDeclarationV1;
+}
+export interface LogicalDocumentSourceAdmissionState {
+  readonly tx: FlarexMetadataTransaction;
+  readonly authority: TrustedScopeAuthority;
+  readonly clock: ScopeClockRecord;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly sourceKey: string;
+  readonly sourceSha256: string;
+  readonly head: DataBindingHeadToken;
+  readonly frame: DataBindingSetFrame;
+  readonly contentIdentity: Readonly<{ configSha256: string; provenanceSha256: string }>;
+  readonly configuration: PayloadConfiguration;
+  readonly tables: readonly LogicalDocumentSourceTable[];
+  readonly indexes: readonly LocatedAppIndexDefinitionV1[];
+  readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
+  readonly validate: (write: LogicalDocumentWrite) => Result.Result<void, LogicalDocumentSourceAdmissionError>;
+}
+const admissions = new WeakMap<object, LogicalDocumentSourceAdmissionState>();
+
+/** Payload's compiler supplies actual configuration, declarations and policy.
+ * The shared candidate, structural catalog and selected binding authenticate
+ * them; a namespace or collection label alone never grants write access. */
+export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentSourceAdmission.prepare")(function* (
+  ports: AppUniqueConstraintSetBuildPortsV1, unique: AppUniqueConstraintSetEligibilityPortV1,
+  input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
+  sourceInput: unknown,
+) {
+  const capturedPorts = Object.freeze({ controlDb: ports.controlDb, authority: ports.authority });
+  const capturedInput = Object.freeze({ deploymentId: input.deploymentId, scopeId: input.scopeId,
+    schemaVersionId: input.schemaVersionId });
+  const captured = yield* Effect.fromResult(capturePrivateJsonData(sourceInput, MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES,
+    (reason, cause) => new LogicalDocumentSourceAdmissionError({ reason: "invalidInput", cause: { reason, cause } })));
+  const expected = yield* decodeContract(captured.value).pipe(Effect.mapError(cause =>
+    new LogicalDocumentSourceAdmissionError({ reason: "invalidInput", cause })));
+  const declaredNames = expected.configuration.tables.map(table => table.logicalTableName);
+  const policy = yield* verifyApplicationWritePolicies(expected.evidence, declaredNames).pipe(Effect.mapError(cause =>
+    new LogicalDocumentSourceAdmissionError({ reason: cause.reason === "digestUnavailable" ? "resourceFailure" : "sourceMismatch", cause })));
+  if (canonical(policy.policies.configuration) !== canonical(expected.configuration) ||
+      expected.writeProfile !== expected.configuration.profile)
+    return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "sourceMismatch" }));
+  const firstPolicy = policy.policies.tables[0];
+  if (firstPolicy === undefined || firstPolicy.owner !== "payload")
+    return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "sourceMismatch" }));
+  const contentIdentity = Object.freeze({ configSha256: firstPolicy.configSha256,
+    provenanceSha256: firstPolicy.provenanceSha256 });
+  const selected = yield* prepareLogicalSourceEvidence(capturedPorts, unique, capturedInput, {
+    sourceKey: expected.sourceKey, writeProfile: expected.writeProfile,
+    definition: expected.definition, evidence: expected.evidence,
+  }, "payload", "documents").pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
+  // Native and extension relationships need edge, liveness and delete-policy
+  // enforcement. The scalar CMS participant must never issue a token for them.
+  if (selected.hasRelationships) return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "unsupportedProfile" }));
+  if (selected.source.definition.kind !== "documents" || selected.source.bindings.some(binding => binding.kind !== "definition"))
+    return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "sourceMismatch" }));
+  const definitions = selected.source.definition.tables;
+  if (definitions.length !== declaredNames.length || definitions.some(table => !declaredNames.includes(table.logicalName)))
+    return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "sourceMismatch" }));
+  const tables = [];
+  for (const binding of selected.tables) {
+    const definition = definitions.find(table => table.logicalName === binding.localName);
+    if (definition === undefined) return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "sourceMismatch" }));
+    tables.push(Object.freeze({ ...binding, definition }));
+  }
+  const selectedTables = Object.freeze(tables);
+  const idPolicy: ValidatorIdPolicyV1 = Object.freeze({ mode: "tableAware", check: (tableName, value) => {
+    if (tableName.startsWith("_")) return "unavailable";
+    const table = selectedTables.find(member => member.localName === tableName);
+    return table === undefined ? "unavailable" : Result.isSuccess(requireAppDocumentIdentityV1ForTableResult(value, table.tableId))
+      ? "valid" : "invalid";
+  } });
+  const validate = (write: LogicalDocumentWrite): Result.Result<void, LogicalDocumentSourceAdmissionError> => Result.gen(function* () {
+    const table = selectedTables.find(member => member.localName === write.tableName && member.tableId === write.tableId);
+    if (table === undefined) return yield* Result.fail(new LogicalDocumentSourceAdmissionError({ reason: "invalidAuthority" }));
+    const value = write.document.value;
+    if (!isCanonicalFlarexRuntimeObjectV1(value) || value._id !== write.documentId || value._creationTime !== write.creationTime)
+      return yield* Result.fail(new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid" }));
+    const fields: Record<string, CanonicalFlarexRuntimeValueV1> = {};
+    for (const [field, item] of Object.entries(value)) {
+      if (field === "_id" || field === "_creationTime") continue;
+      if (field.startsWith("_")) return yield* Result.fail(new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid" }));
+      Object.defineProperty(fields, field, { value: item, enumerable: true });
+    }
+    yield* validateValidatorValueV1(table.definition.definition.documentType, Object.freeze(fields),
+      { path: "$document", idPolicy }).pipe(Result.mapError(cause =>
+        new LogicalDocumentSourceAdmissionError({ reason: "documentInvalid", cause })));
+  });
+
+  const withAdmission = Effect.fn("LogicalDocumentSourceAdmission.withTransaction")(function* <Value, Failure, Requirements>(
+    application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (admission: LogicalDocumentSourceAdmission) => Effect.Effect<Value, Failure, Requirements>,
+  ) {
+    return yield* selected.withBinding(application, tx, authority, clock, binding => Effect.gen(function* () {
+      // The source-bound scalar participant has no V3 preference cleanup or
+      // embedded-content owner. Refuse mixed selected frames before token issue.
+      if (binding.frame.payloadContent !== null || binding.frame.payloadLifecycle !== null)
+        return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "unsupportedProfile" }));
+      // SAFETY: only callback lifetime membership authenticates this token.
+      const admission = Object.freeze({}) as LogicalDocumentSourceAdmission;
+      admissions.set(admission, Object.freeze({ tx, authority, clock, schemaVersionId: binding.schemaVersionId,
+        sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: binding.head,
+        frame: binding.frame, contentIdentity,
+        configuration: expected.configuration, tables: selectedTables, indexes: selected.indexes,
+        unique: selected.unique, validate }));
+      return yield* Effect.suspend(() => work(admission)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
+    }));
+  });
+  return Object.freeze({ withAdmission });
+});
+
+export const requireLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentSourceAdmission.require")(function* (
+  admission: LogicalDocumentSourceAdmission, tx: FlarexMetadataTransaction,
+) {
+  const state = admissions.get(admission);
+  if (state === undefined || state.tx !== tx) return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "invalidAuthority" }));
+  return state;
+});

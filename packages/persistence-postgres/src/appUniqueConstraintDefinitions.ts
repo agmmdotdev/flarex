@@ -4,6 +4,8 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import {
+  CatalogDefinitionNameSchema,
+  type CatalogDefinitionName,
   CatalogTableIdSchema,
   CatalogUniqueConstraintDefinitionIdSchema,
   CatalogUniqueConstraintIdSchema,
@@ -26,16 +28,14 @@ import {
 } from "flarex-protocol/app-unique-constraint-definition";
 import {
   CatalogSchemaVersionIdSchema,
-  SchemaManifestAppIndexDescriptorSchema,
-  decodeSchemaManifestAppSchemaV1Result,
   type CatalogSchemaVersionId,
-  type SchemaManifestAppIndexDescriptor,
 } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { AppUniqueConstraintSetMemberV1 } from
   "flarex-protocol/internal/app-unique-constraint-set-v1";
 
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
+import { readSchemaVersionTableBindings, type SchemaVersionTableBinding } from "./schemaVersionTableBindings";
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
   lockSchemaManifestBindingDeploymentEffect,
@@ -78,14 +78,14 @@ const decodeDefinitionIdResult = Schema.decodeUnknownResult(
   CatalogUniqueConstraintDefinitionIdSchema,
 );
 const decodeDescriptorResult = Schema.decodeUnknownResult(
-  SchemaManifestAppIndexDescriptorSchema,
+  CatalogDefinitionNameSchema,
 );
 
 export interface PrepareAppUniqueConstraintDefinitionBindingV1Input {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly tableId: CatalogTableId;
-  readonly descriptor: SchemaManifestAppIndexDescriptor;
+  readonly descriptor: CatalogDefinitionName;
   readonly physicalSpec: AppUniqueConstraintPhysicalSpecV1;
   readonly logicalUniqueConstraintId?: never;
   readonly uniqueConstraintDefinitionId?: never;
@@ -99,7 +99,7 @@ export interface PreparedAppUniqueConstraintDefinitionBindingV1 {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly tableId: CatalogTableId;
-  readonly descriptor: SchemaManifestAppIndexDescriptor;
+  readonly descriptor: CatalogDefinitionName;
   readonly [preparedBrand]: true;
 }
 
@@ -107,8 +107,9 @@ interface PreparedState {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly tableId: CatalogTableId;
-  readonly descriptor: SchemaManifestAppIndexDescriptor;
+  readonly descriptor: CatalogDefinitionName;
   readonly manifestSha256: Uint8Array;
+  readonly table: SchemaVersionTableBinding;
   readonly canonical: CanonicalAppUniqueConstraintPhysicalSpecV1;
 }
 const preparedStates = new WeakMap<
@@ -120,7 +121,7 @@ export interface AppUniqueConstraintIdentityRecordV1 {
   readonly deploymentId: string;
   readonly logicalUniqueConstraintId: CatalogUniqueConstraintId;
   readonly tableId: CatalogTableId;
-  readonly descriptor: SchemaManifestAppIndexDescriptor;
+  readonly descriptor: CatalogDefinitionName;
   readonly createdAt: Date;
 }
 
@@ -208,6 +209,11 @@ export class AppSchemaVersionUniqueConstraintBindingConflictError extends Data.T
   readonly requestedDefinitionId: CatalogUniqueConstraintDefinitionId | null;
 }> {}
 
+export class AppUniqueConstraintDefinitionPreparationError extends Data.TaggedError("AppUniqueConstraintDefinitionPreparationError")<{
+  readonly operation: "readSourceBindings" | "canonicalizeSpec";
+  readonly cause: unknown;
+}> {}
+
 export class AppSchemaVersionUniqueConstraintSetClosedError extends Data.TaggedError(
   "AppSchemaVersionUniqueConstraintSetClosedError",
 )<{
@@ -219,6 +225,7 @@ export type PrepareAppUniqueConstraintDefinitionBindingV1Error =
   | InvalidAppUniqueConstraintDefinitionInputError
   | AppUniqueConstraintCatalogParentError
   | AppUniqueConstraintCatalogCorruptionError
+  | AppUniqueConstraintDefinitionPreparationError
   | SchemaVersionArtifactCorruptionError
   | SchemaVersionArtifactPersistenceError;
 
@@ -437,18 +444,12 @@ export const prepareAppUniqueConstraintDefinitionBindingV1Effect = Effect.fn(
       deploymentId: decoded.deploymentId,
     }));
   }
-  const manifest = yield* Effect.fromResult(
-    decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson).pipe(
-      Result.mapError((cause) =>
-        corruption("stored schema artifact is not app-schema v1", cause)
-      ),
-    ),
-  );
-  if (
-    !manifest.tableDefinitions.tables.some((table) =>
-      table.tableId === decoded.tableId && table.namespace === "app"
-    )
-  ) {
+  const tables = yield* readSchemaVersionTableBindings(artifact.manifestJson, decoded.deploymentId).pipe(
+    Effect.mapError(cause => cause.reason === "resourceFailure"
+      ? new AppUniqueConstraintDefinitionPreparationError({ operation: "readSourceBindings", cause })
+      : corruption("stored schema table bindings are invalid", cause)));
+  const table = tables.find(binding => binding.tableId === decoded.tableId);
+  if (table === undefined) {
     return yield* Effect.fail(new AppUniqueConstraintCatalogParentError({
       parent: "schemaTableBinding",
       deploymentId: decoded.deploymentId,
@@ -456,8 +457,10 @@ export const prepareAppUniqueConstraintDefinitionBindingV1Effect = Effect.fn(
   }
   const canonical = yield* Effect.tryPromise({
     try: () => canonicalizeAppUniqueConstraintPhysicalSpecV1(decoded.physicalSpec),
-    catch: (cause) => corruption("canonical physical spec failed", cause),
-  });
+    catch: (cause) => new AppUniqueConstraintDefinitionPreparationError({ operation: "canonicalizeSpec", cause }),
+  }).pipe(Effect.catchTag("AppUniqueConstraintDefinitionPreparationError", failure =>
+    typeof DOMException !== "undefined" && failure.cause instanceof DOMException
+      ? Effect.fail(failure) : Effect.die(failure.cause)));
   const token = Object.freeze({
     deploymentId: decoded.deploymentId,
     schemaVersionId: decoded.schemaVersionId,
@@ -468,6 +471,7 @@ export const prepareAppUniqueConstraintDefinitionBindingV1Effect = Effect.fn(
   preparedStates.set(token, Object.freeze({
     ...decoded,
     manifestSha256: new Uint8Array(artifact.manifestSha256),
+    table,
     canonical,
   }));
   return token;
@@ -493,7 +497,7 @@ export const ensureAppUniqueConstraintDefinitionBindingV1InTransaction =
 
       const closed = yield* readSetClosureEffect(tx, state);
       if (closed) {
-        const identity = yield* readLogicalIdentityEffect(tx, state);
+        const identity = yield* getAppUniqueConstraintIdentityByNameEffect(tx, state);
         if (identity !== null) {
           const existingDefinition = yield* findDefinitionEffect(
             tx,
@@ -594,7 +598,7 @@ function decodePrepareInputResult(
     readonly deploymentId: string;
     readonly schemaVersionId: CatalogSchemaVersionId;
     readonly tableId: CatalogTableId;
-    readonly descriptor: SchemaManifestAppIndexDescriptor;
+    readonly descriptor: CatalogDefinitionName;
     readonly physicalSpec: AppUniqueConstraintPhysicalSpecV1;
   },
   InvalidAppUniqueConstraintDefinitionInputError
@@ -640,51 +644,49 @@ function queryEffect<A>(operation: string, query: () => Promise<A>) {
   }).pipe(Effect.uninterruptible);
 }
 
-function verifyParentsEffect(
+const verifyParentsEffect = Effect.fn("AppUniqueConstraintDefinitions.verifyParents")(function* (
   tx: StableTableCatalogTransaction,
   state: PreparedState,
 ) {
-  return Effect.gen(function* () {
-    const schemaRows = yield* queryEffect("readSchemaParent", () =>
-      tx.select({
-        schemaVersionId: fxControlSchemaVersions.schemaVersionId,
-        manifestSha256: fxControlSchemaVersions.manifestSha256,
-      })
-        .from(fxControlSchemaVersions)
-        .where(and(
-          eq(fxControlSchemaVersions.deploymentId, state.deploymentId),
-          eq(fxControlSchemaVersions.schemaVersionId, state.schemaVersionId),
-        )).limit(1));
-    const schemaRow = schemaRows[0];
-    if (schemaRow === undefined) {
-      return yield* Effect.fail(new AppUniqueConstraintCatalogParentError({
-        parent: "schemaVersion",
-        deploymentId: state.deploymentId,
-      }));
-    }
-    if (
-      !isUint8Array(schemaRow.manifestSha256) ||
-      !bytesEqual(schemaRow.manifestSha256, state.manifestSha256)
-    ) {
-      return yield* Effect.fail(
-        corruption("schema manifest commitment changed after preparation"),
-      );
-    }
-    const tableRows = yield* queryEffect("readTableParent", () =>
-      tx.select({ namespace: fxControlTables.namespace })
-        .from(fxControlTables)
-        .where(and(
-          eq(fxControlTables.deploymentId, state.deploymentId),
-          eq(fxControlTables.tableId, state.tableId),
-        )).limit(1));
-    if (tableRows[0]?.namespace !== "app") {
-      return yield* Effect.fail(new AppUniqueConstraintCatalogParentError({
-        parent: "table",
-        deploymentId: state.deploymentId,
-      }));
-    }
-  });
-}
+  const schemaRows = yield* queryEffect("readSchemaParent", () =>
+    tx.select({
+      schemaVersionId: fxControlSchemaVersions.schemaVersionId,
+      manifestSha256: fxControlSchemaVersions.manifestSha256,
+    })
+      .from(fxControlSchemaVersions)
+      .where(and(
+        eq(fxControlSchemaVersions.deploymentId, state.deploymentId),
+        eq(fxControlSchemaVersions.schemaVersionId, state.schemaVersionId),
+      )).limit(1));
+  const schemaRow = schemaRows[0];
+  if (schemaRow === undefined) {
+    return yield* Effect.fail(new AppUniqueConstraintCatalogParentError({
+      parent: "schemaVersion",
+      deploymentId: state.deploymentId,
+    }));
+  }
+  if (
+    !isUint8Array(schemaRow.manifestSha256) ||
+    !bytesEqual(schemaRow.manifestSha256, state.manifestSha256)
+  ) {
+    return yield* Effect.fail(
+      corruption("schema manifest commitment changed after preparation"),
+    );
+  }
+  const tableRows = yield* queryEffect("readTableParent", () =>
+    tx.select({ namespace: fxControlTables.namespace, logicalName: fxControlTables.logicalName })
+      .from(fxControlTables)
+      .where(and(
+        eq(fxControlTables.deploymentId, state.deploymentId),
+        eq(fxControlTables.tableId, state.tableId),
+      )).limit(1));
+  if (tableRows[0]?.namespace !== state.table.namespace || tableRows[0]?.logicalName !== state.table.logicalName) {
+    return yield* Effect.fail(new AppUniqueConstraintCatalogParentError({
+      parent: "table",
+      deploymentId: state.deploymentId,
+    }));
+  }
+});
 
 function ensureLogicalIdentityEffect(
   tx: StableTableCatalogTransaction,
@@ -736,20 +738,19 @@ function ensureLogicalIdentityEffect(
   });
 }
 
-function readLogicalIdentityEffect(
-  tx: StableTableCatalogTransaction,
-  state: PreparedState,
+/** Read the stable identity by its checked logical name, without allocation. */
+export const getAppUniqueConstraintIdentityByNameEffect = Effect.fn("AppUniqueConstraintDefinitions.getIdentityByName")(function* (
+  db: FlarexMetadataDatabase,
+  state: Pick<PreparedState, "deploymentId" | "tableId" | "descriptor">,
 ) {
-  return Effect.gen(function* () {
-    const rows = yield* queryEffect("readLogicalIdentity", () =>
-      tx.select().from(fxControlUniqueConstraints).where(and(
-        eq(fxControlUniqueConstraints.deploymentId, state.deploymentId),
-        eq(fxControlUniqueConstraints.tableId, state.tableId),
-        eq(fxControlUniqueConstraints.descriptor, state.descriptor),
-      )).limit(1));
-    return rows[0] === undefined ? null : yield* decodeIdentityRow(rows[0]);
-  });
-}
+  const rows = yield* queryEffect("readLogicalIdentity", () =>
+    db.select().from(fxControlUniqueConstraints).where(and(
+      eq(fxControlUniqueConstraints.deploymentId, state.deploymentId),
+      eq(fxControlUniqueConstraints.tableId, state.tableId),
+      eq(fxControlUniqueConstraints.descriptor, state.descriptor),
+    )).limit(1));
+  return rows[0] === undefined ? null : yield* decodeIdentityRow(rows[0]);
+});
 
 function readSetClosureEffect(
   tx: StableTableCatalogTransaction,
@@ -932,8 +933,10 @@ const decodeDefinitionRow = Effect.fn(
     );
     const canonical = yield* Effect.tryPromise({
       try: () => canonicalizeAppUniqueConstraintPhysicalSpecV1(physicalSpec),
-      catch: (cause) => corruption("canonical physical spec failed", cause),
-    });
+      catch: cause => new AppUniqueConstraintCatalogPersistenceError({ operation: "canonicalizeStoredSpec", cause }),
+    }).pipe(Effect.catchTag("AppUniqueConstraintCatalogPersistenceError", failure =>
+      typeof DOMException !== "undefined" && failure.cause instanceof DOMException
+        ? Effect.fail(failure) : Effect.die(failure.cause)));
     const expectedBytes = canonicalAppUniqueConstraintSpecBytesHexV1ToBytes(
       canonical.canonicalBytesHex,
     );

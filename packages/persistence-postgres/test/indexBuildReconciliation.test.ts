@@ -8,8 +8,8 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
-import { Cause, Effect, Exit, Fiber } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   createLocatedIndexBuildReconciliationTargetV1,
@@ -41,6 +41,40 @@ const LOCATOR = Object.freeze({
 } as const satisfies ScopePhysicalLocator);
 
 describe("S03-D3 durable index-build reconciliation", () => {
+  it("distinguishes Application digest outages from unexpected canonicalization defects", async () => {
+    const fixture = await publishedFixture("digest_classification");
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    const providerFailure = new DOMException("digest unavailable", "OperationError");
+    const unexpectedFailure = new Error("unexpected digest rejection");
+    for (const failure of [providerFailure, unexpectedFailure, null]) {
+      const spy = vi.spyOn(crypto.subtle, "digest").mockImplementation((algorithm, bytes) => {
+        if (!new TextDecoder().decode(bytes).startsWith('{"format":"flarexdb-app-index-physical-spec"')) return digest(algorithm, bytes);
+        return failure === null ? Promise.resolve(new ArrayBuffer(31)) : Promise.reject(failure);
+      });
+      try {
+        const exit = await Effect.runPromiseExit(reconcilePublishedIndexBuildsV1Effect(ports(fixture), {
+          deploymentId: fixture.deploymentId, schemaVersionId: fixture.schemaVersionId,
+        }));
+        expect(exit._tag).toBe("Failure");
+        if (exit._tag !== "Failure") throw new Error("Expected digest refusal");
+        if (failure === providerFailure) {
+          expect(Cause.hasDies(exit.cause)).toBe(false);
+          expect(Cause.hasFails(exit.cause)).toBe(true);
+          expect(Result.getOrThrow(Cause.findError(exit.cause))).toMatchObject({
+            _tag: "IndexBuildReconciliationCatalogV1Error", reason: "resourceFailure", cause: providerFailure,
+          });
+        } else {
+          expect(Cause.hasDies(exit.cause)).toBe(true);
+          expect(Cause.hasFails(exit.cause)).toBe(false);
+        }
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await buildRows(fixture.persistence, fixture.scopeId)).toHaveLength(0);
+    }
+    expect(await reconcile(fixture, fixture.schemaVersionId)).toMatchObject({ status: "reconciled", createdCount: 2 });
+  });
+
   it("keeps one precise private Effect contract and returns absent work", async () => {
     expectTypeOf<ReturnType<typeof reconcilePublishedIndexBuildsV1Effect>>()
       .toEqualTypeOf<Effect.Effect<

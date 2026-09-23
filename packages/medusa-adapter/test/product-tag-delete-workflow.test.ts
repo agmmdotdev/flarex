@@ -6,8 +6,6 @@ import { deleteProductTagsWorkflow } from "@medusajs/core-flows/product/delete-p
 import { prepareProductTagDeleteWorkflow, type ProductTagDeleteWorkflowHooks, type ProductTagDeleteResources } from "../src/product-tag-delete-workflow";
 import { makeLocalProductCommands } from "../src/product-service";
 import { prepareLocalProductProfile } from "../src/product-profile";
-import { prepareCurrencyProfile } from "../src/currency-contract";
-import { currencyCommands } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { productLocalEventPolicy, productModuleEventPolicy } from "../src/product-local-events";
@@ -22,8 +20,6 @@ import { RelationalSessionError } from "../../persistence-postgres/src/relationa
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
 import { commerceBindings } from "../../persistence-postgres/src/frameworkSchema/binding/model";
-import { dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
-import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { ProductLifecycleIds } from "../src/product-lifecycle";
@@ -230,21 +226,4 @@ describe("Product-tag deletion with native completion results", () => {
     expect(hooks).toBe(1); expect((await inventory()).data.commits).toHaveLength(before.data.commits.length + 1);
   });
 
-  it("supports Product-only deletion beside Currency and preserves whole-binding replay authority", async () => {
-    await seed("delete-coexisting"); const host = await assemble(); const key = host.newRequestKey();
-    await runEffect(host.run(key, args("delete-coexisting")));
-    const currency = await commerceHostFixture(product.persistence, product.session, prepareCurrencyProfile,
-      [currencyCommands.retrieve], control, undefined, {}, product);
-    const before = await inventory();
-    expect(await runEffectFailure(host.run(key, args("delete-coexisting")))).toMatchObject({ reason: "requestConflict" });
-    expect(await inventory()).toEqual(before);
-    expect(await runEffect(host.run(host.newRequestKey(), args("delete-coexisting")))).toBeNull();
-    const current = await runEffect(currency.bindings.withCurrent(readAdmittedDataBinding));
-    const candidate = await runEffect(currency.bindings.prepare({ ...currency.candidate.frame,
-      commerce: commerceBindings(currency.candidate.frame).filter(binding => binding.installation.installationSha256 === currency.installation.installation.installationSha256),
-    }));
-    await runEffect(currency.bindings.activate(dataBindingActivationRequest(candidate.frame.application.scopeId, candidate.frame.application.storageGeneration,
-      "delete-remove-product", candidate.sha256, current.head)));
-    expect(await runEffectFailure(host.run(host.newRequestKey(), args("delete-coexisting")))).toMatchObject({ reason: "bindingChanged" });
-  }, 100_000);
 });

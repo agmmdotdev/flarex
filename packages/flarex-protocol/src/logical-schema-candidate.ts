@@ -3,6 +3,7 @@ import { CatalogTableNamespaceSchema } from "./catalog";
 import { encodeCanonicalJson, isJson, JsonValue } from "./json";
 import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 import { RelationDeclarationsV1Schema } from "./relation-declaration-v1";
+import { LogicalDocumentUniqueConstraintDeclarationSchema } from "./app-unique-constraint-definition";
 import {
   SchemaManifestAppTableDeclarationV1Schema,
   SchemaManifestAppIndexDeclarationV1Schema,
@@ -41,6 +42,7 @@ const DocumentDefinition = Schema.Struct({
   kind: Schema.Literal("documents"),
   tables: Schema.Array(SchemaManifestAppTableDeclarationV1Schema).check(Schema.isMaxLength(10_000)),
   indexes: Schema.Array(SchemaManifestAppIndexDeclarationV1Schema).check(Schema.isMaxLength(10_000)),
+  uniqueConstraints: Schema.Array(LogicalDocumentUniqueConstraintDeclarationSchema).check(Schema.isMaxLength(10_000)),
   relations: RelationDeclarationsV1Schema,
 }).annotate(strict);
 const SourceDefinition = Schema.Union([
@@ -138,6 +140,17 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
           return "Invalid document index dependency";
         }
       }
+      const constraintNames = new Set<string>();
+      for (const constraint of definition.uniqueConstraints) {
+        const table = definition.tables.find(entry => entry.logicalName === constraint.tableLogicalName);
+        const name = JSON.stringify([constraint.tableLogicalName, constraint.descriptor]);
+        if (table === undefined || constraintNames.has(name) ||
+            [...constraint.fields, ...(constraint.predicate === undefined ? [] : [constraint.predicate.field])].some(field =>
+              !schemaManifestAppValidatorCanContainFieldPathV1(table.definition.documentType, field))) {
+          return "Invalid document constraint dependency";
+        }
+        constraintNames.add(name);
+      }
     }
     if (source.bindings.length !== names.length || new Set(source.bindings.map(binding => binding.localName)).size !== names.length ||
         source.bindings.some(binding => !names.some(name => name === binding.localName))) return "Incomplete source table bindings";
@@ -168,6 +181,7 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
       }
       // No hidden index/relationship installation through an exposure binding.
       if (source.definition.indexes.some(index => index.tableLogicalName === binding.localName) ||
+          source.definition.uniqueConstraints.some(constraint => constraint.tableLogicalName === binding.localName) ||
           source.definition.relations.some(relation => relation.source.table === binding.localName)) {
         return "View index or relationship changes require a separate capability";
       }

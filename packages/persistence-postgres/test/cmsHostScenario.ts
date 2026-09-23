@@ -278,10 +278,10 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
   expect(afterNested.outcomes).toHaveLength(beforeNested.outcomes.length + 1);
   expect(afterNested.wakes).toHaveLength(beforeNested.wakes.length + 1);
   expect(afterNested.revisions).toEqual(beforeNested.revisions);
-  await runEffect(host.run(host.newRequestKey(), bulk, { count: 32, prefix: "accepted-limit" }));
+  await runEffect(host.run(host.newRequestKey(), bulk, { count: 32, prefix: "accepted-page" }));
   const exactLimit = await inventory();
   expect(exactLimit.rows).toHaveLength(afterNested.rows.length + 32);
-  expect(await runEffectFailure(host.run(host.newRequestKey(), bulk, { count: 33, prefix: "rejected-limit" })))
+  expect(await runEffectFailure(host.run(host.newRequestKey(), bulk, { count: 64, prefix: "rejected-call-budget" })))
     .toMatchObject({ reason: "limitExceeded" });
   expect(await inventory()).toEqual(exactLimit);
   await runEffect(host.run(host.newRequestKey(), paging, null));

@@ -12,7 +12,7 @@ import { compileProjection } from "./query/projection";
 import { executeRead, type ReadPlan } from "./query/read";
 import { captureCurrencyInput, currencyWriteRows, serializeCurrency } from "./currency-values";
 
-function query(input: unknown) {
+export function currencyReadPlan(input: unknown) {
   return Result.gen(function* () {
     const value = yield* decodeCurrencyQuery(input ?? {});
     const catalog = yield* currencyReadCatalog;
@@ -32,7 +32,7 @@ export function currencyRepository(root: CommerceCommandContext, owner: Commerce
   const bridge = commerceRepositoryContext(root, owner);
   const { execute, checked } = bridge;
   const find = (input: unknown, shared: unknown) => execute(shared, ctx => Effect.gen(function* () {
-    const plan = yield* checked(ctx, Effect.fromResult(query(input)));
+    const plan = yield* checked(ctx, Effect.fromResult(currencyReadPlan(input)));
     const catalog = yield* checked(ctx, Effect.fromResult(currencyReadCatalog));
     return (yield* executeRead(ctx, catalog, plan, false, ctx.store)).rows;
   }));
@@ -43,7 +43,7 @@ export function currencyRepository(root: CommerceCommandContext, owner: Commerce
   const selectedKeys = Effect.fn("CurrencyRepository.selectedKeys")(function* (ctx: CommerceCommandContext, input: unknown, withDeleted: boolean) {
     const captured = yield* checked(ctx, Effect.fromResult(captureCurrencyInput(input)));
     const where = typeof captured === "string" || Array.isArray(captured) ? { code: captured } : captured;
-    const rows = yield* ctx.store.find(ctx.manager, (yield* checked(ctx, Effect.fromResult(query({ where, options: { fields: ["code"], filters: { softDeletable: { withDeleted } } } })))).query);
+    const rows = yield* ctx.store.find(ctx.manager, (yield* checked(ctx, Effect.fromResult(currencyReadPlan({ where, options: { fields: ["code"], filters: { softDeletable: { withDeleted } } } })))).query);
     return yield* checked(ctx, Effect.fromResult(currencyKeys(rows)));
   });
   const soft = (input: unknown, shared: unknown, restore: boolean) => execute(shared, ctx => Effect.gen(function* () {
@@ -67,7 +67,7 @@ export function currencyRepository(root: CommerceCommandContext, owner: Commerce
       })),
     find: (input, shared) => find(input, shared),
     findAndCount: (input, shared) => execute(shared, ctx => Effect.gen(function* () {
-      const selected = yield* checked(ctx, Effect.fromResult(query(input)));
+      const selected = yield* checked(ctx, Effect.fromResult(currencyReadPlan(input)));
       const catalog = yield* checked(ctx, Effect.fromResult(currencyReadCatalog));
       const result = yield* executeRead(ctx, catalog, selected, true, ctx.store);
       if (result.count === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));

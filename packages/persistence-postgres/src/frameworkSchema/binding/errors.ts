@@ -7,6 +7,8 @@ export class DataBindingError extends Data.TaggedError("DataBindingError")<{
     | "missingDependency"
     | "staleScope"
     | "staleApplication"
+    | "logicalSchemaMismatch"
+    | "logicalSchemaNotReady"
     | "concurrentHead"
     | "unavailableInstallation"
     | "unsupportedProfile"

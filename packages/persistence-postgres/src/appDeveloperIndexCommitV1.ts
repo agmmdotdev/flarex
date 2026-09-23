@@ -33,10 +33,11 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import {
   IndexBuildReconciliationCatalogV1Error,
   loadPublishedPhysicalRequirementSnapshotV1,
+  publishedPhysicalDefinitionMatchesLocated,
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
 import type { ReadSchemaVersionArtifactError } from "./schemaVersionArtifacts";
-import { lowerAppDocumentOrderedFieldValuesV1 } from
+import { appDocumentPathIsNull, lowerAppDocumentOrderedFieldValuesV1 } from
   "./appDocumentOrderedFieldValuesV1";
 
 export interface LocateAppDeveloperIndexDefinitionsV1Input {
@@ -109,13 +110,7 @@ export function createAppDeveloperIndexDefinitionPortV1(
           !required.every((expected, position) => {
             const actual = definitions[position];
             return actual !== undefined && actual.access.kind === "developer" &&
-              expected.access.kind === "developer" &&
-              actual.access.logicalIndexId === expected.access.logicalIndexId &&
-              actual.access.tableId === expected.tableId &&
-              actual.indexDefinitionId === expected.indexDefinitionId &&
-              actual.physicalSpecCodecVersion === expected.physicalSpecCodecVersion &&
-              actual.physicalSpecBytesHex === expected.physicalSpecBytesHex &&
-              actual.physicalSpecSha256Hex === expected.physicalSpecSha256Hex;
+              publishedPhysicalDefinitionMatchesLocated(expected, actual);
           })) {
           return yield* Effect.fail(new IndexBuildReconciliationCatalogV1Error({
             reason: "publishedProjectionContradictory",
@@ -153,11 +148,13 @@ export function lowerAppDeveloperIndexKeyV1(
   definition: LocatedAppIndexDefinitionV1,
   document: CanonicalFlarexValueV1,
   creationTime: AppCreationTimeV1,
-): Result.Result<OrderedIndexKeyHexV1, OrderedIndexKeyTooLargeError | ExactDecimalError> {
+): Result.Result<OrderedIndexKeyHexV1 | null, OrderedIndexKeyTooLargeError | ExactDecimalError> {
   try {
     if (definition.access.kind !== "developer") {
       throw new TypeError("Expected a located developer index definition.");
     }
+    const predicate = definition.physicalSpec.predicate;
+    if (predicate !== undefined && !appDocumentPathIsNull(document, predicate.field)) return Result.succeed(null);
     const values: OrderedIndexComponentV1[] = [];
     const documentFields = definition.physicalSpec.orderedFields.filter(
       (field): field is Extract<typeof field, { readonly kind: "documentPath" }> =>

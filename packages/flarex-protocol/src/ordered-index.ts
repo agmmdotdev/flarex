@@ -97,6 +97,9 @@ export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
     "by_id",
   ]),
   orderedFields: AppOrderedIndexPhysicalFieldsV1Schema,
+  predicate: Schema.optionalKey(Schema.Struct({
+    kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema,
+  }).annotate(StrictStructOptions)),
   tieBreaker: Schema.Struct({
     kind: Schema.Literal("separateRowIdentity"),
     byteLength: Schema.Literal(ORDERED_INDEX_ROW_ID_BYTES_V1),
@@ -891,8 +894,10 @@ function validateAppOrderedIndexPhysicalSpecV1(
   spec: {
     readonly accessPath: "developer" | "by_creation_time" | "by_id";
     readonly orderedFields: ReadonlyArray<AppOrderedIndexPhysicalFieldV1>;
+    readonly predicate?: Readonly<{ kind: "fieldIsNull"; field: string }>;
   },
 ): string | undefined {
+  if (spec.accessPath !== "developer" && spec.predicate !== undefined) return "Intrinsic indexes cannot have a predicate";
   switch (spec.accessPath) {
     case "developer": {
       if (spec.orderedFields.length < 2) {

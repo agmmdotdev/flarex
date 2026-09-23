@@ -5,7 +5,8 @@ import {
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { readRequiredEnabledIndexBuildsInTransactionEffect, MAX_REQUIRED_INDEX_BUILDS } from "./indexBuildStates";
 import { Cause, Data, Effect, Encoding, Exit, Result, Schema, Scope } from "effect";
 import {
   APPLICATION_REVISION_READINESS_RECEIPT_CODEC_VERSION_V1,
@@ -70,7 +71,6 @@ import {
   fxSystemDeclarativeV2VerifierCommandAuthorityV1,
   fxSystemDeclarativeV2VerifierCommandsV2,
   fxSystemDeclarativeV2Verdicts,
-  fxSystemIndexBuildStates,
 } from "./schema";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
@@ -119,7 +119,6 @@ const ROOT_DOMAIN = new TextEncoder().encode(
   "flarex.system/application-revision-readiness-receipt/v1/root\0",
 );
 const UTF8 = new TextEncoder();
-const MAX_REQUIRED_BUILDS = 256;
 const decodeCandidateValidationFrameSha256HexResult = Schema.decodeUnknownResult(
   AppSchemaCandidateValidationFrameSha256HexV1Schema,
 );
@@ -377,7 +376,7 @@ export const settleApplicationRevisionReadinessV1 = Effect.fn(
       reason: "evidence",
     });
   }
-  if (requirements.definitions.length > MAX_REQUIRED_BUILDS) {
+  if (requirements.definitions.length > MAX_REQUIRED_INDEX_BUILDS) {
     return yield* new ApplicationRevisionReadinessCorruptionV1Error({
       revisionId,
       detail: "the physical definition set exceeds the readiness bound",
@@ -566,7 +565,7 @@ export const prepareStoredApplicationRevisionReadinessEvidenceV1 = Effect.fn(
       reason: "evidence",
     });
   }
-  if (requirements.definitions.length > MAX_REQUIRED_BUILDS) {
+  if (requirements.definitions.length > MAX_REQUIRED_INDEX_BUILDS) {
     return yield* new ApplicationRevisionReadinessCorruptionV1Error({
       revisionId,
       detail: "the physical definition set exceeds the readiness bound",
@@ -1037,36 +1036,17 @@ const settleWithLockedClock = Effect.fn(
   const definitionIds = prepared.requirements.definitions.map(
     definition => definition.indexDefinitionId,
   );
-  const buildRows = definitionIds.length === 0 ? [] : yield* query(tx.select()
-    .from(fxSystemIndexBuildStates)
-    .where(and(
-      eq(fxSystemIndexBuildStates.scopeId, prepared.authority.scopeId),
-      inArray(fxSystemIndexBuildStates.indexDefinitionId, definitionIds),
-    ))
-    .orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId))
-    .for(evidenceLock));
-  for (const definitionId of definitionIds) {
-    const build = buildRows.find(row => row.indexDefinitionId === definitionId);
-    if (build === undefined) {
-      return notReady(revisionId, "physicalBuildMissing", definitionId);
-    }
-    if (
-      build.storageGeneration !== clock.storageGeneration ||
-      build.storageGenerationFence !== clock.storageGenerationFence ||
-      build.epoch !== clock.epoch
-    ) return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({
-      revisionId,
-      reason: "buildState",
-    });
-    if (build.lifecycle !== "enabled") {
-      return notReady(
-        revisionId,
-        "physicalBuildNotEnabled",
-        definitionId,
-        build.lifecycle,
-      );
-    }
+  const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, definitionIds, evidenceLock).pipe(
+    Effect.mapError(cause => cause._tag === "IndexMaintenanceError"
+      ? new ApplicationRevisionReadinessCorruptionV1Error({ revisionId, detail: "invalid required index set", cause })
+      : new ApplicationRevisionReadinessIntegrationV1Error({ phase: "targetTransaction", retryable: true, cause })),
+  );
+  if (builds.status === "not_ready") {
+    if (builds.reason === "stale") return yield* new ApplicationRevisionReadinessStaleAuthorityV1Error({ revisionId, reason: "buildState" });
+    if (builds.reason === "missing") return notReady(revisionId, "physicalBuildMissing", builds.indexDefinitionId);
+    return notReady(revisionId, "physicalBuildNotEnabled", builds.indexDefinitionId, builds.lifecycle);
   }
+  const buildRows = builds.rows;
   const uniqueConstraintEligibility = yield*
     revalidateUniqueConstraintEligibilityWithLockedClock(
       tx,

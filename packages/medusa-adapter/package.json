@@ -6,11 +6,12 @@
   "exports": {
     "./internal/currency-schema": "./src/currency-schema.ts",
     "./internal/currency": "./src/currency-service.ts",
-    "./internal/currency-profile": "./src/currency-contract.ts",
     "./internal/product-schema": "./src/product-schema.ts",
     "./internal/product-definition": "./src/product-definition.ts"
   },
   "dependencies": {
+    "@flarex/analysis": "workspace:*",
+    "@flarex/payload-adapter": "workspace:*",
     "@flarex/utils": "workspace:*",
     "@medusajs/currency": "workspace:*",
     "@medusajs/utils": "workspace:*",
@@ -28,6 +29,7 @@
     "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
+    "@flarex/application-schema-definition": "workspace:*",
     "@medusajs/deps": "workspace:*",
     "@medusajs/framework": "workspace:*",
     "@medusajs/types": "workspace:*",

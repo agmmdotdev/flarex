@@ -1,235 +1,106 @@
 import { Clock, Effect, Option } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
-import {
-  projectBoundedRequestLifetime,
-  type BoundedRequestLifetime,
-} from "../boundedRequestLifetime";
-import type {
-  CmsAdmission,
-  CmsAdmissionState,
-} from "../cmsTransaction/admission";
+import { projectBoundedRequestLifetime, type BoundedRequestLifetime } from "../boundedRequestLifetime";
+import { makeSourceApplicationInsertParticipant, ApplicationCommandError,
+  applicationCommandError } from "../applicationDocumentMaterialization/insertParticipant";
+import { makeSourceCmsDocuments, consumeSourceCmsDocumentClosure } from "../cmsTransaction/documents";
 import { makeCmsCommandContext } from "../cmsTransaction/context";
-import { getCmsCommand, type CmsCommandContext } from "../cmsTransaction/host";
-import {
-  makeCmsDocuments,
-  consumeCmsDocumentClosure,
-} from "../cmsTransaction/documents";
-import { validateCmsDocumentContribution } from "../cmsTransaction/contribution";
-import { makeCmsRelations } from "../cmsTransaction/relations";
+import type { CmsCommandContext } from "../cmsTransaction/host";
 import { cmsError, CmsTransactionError } from "../cmsTransaction/model";
-import type { CommerceAdmission } from "../commerceTransaction/admission";
+import { makeLogicalCommerceParticipant, consumeLogicalCommerceClosure } from "../commerceTransaction/logicalParticipant";
 import { makeCommerceCommandContext } from "../commerceTransaction/context";
-import {
-  getCommerceCommand,
-  type CommerceCommandContext,
-} from "../commerceTransaction/commands";
-import { makeCommerceStore } from "../commerceTransaction/store";
-import { consumeCommerceContribution } from "../commerceTransaction/publication";
-import {
-  commerceError,
-  CommerceTransactionError,
-} from "../commerceTransaction/model";
-import {
-  makePayloadPreferenceCleanup,
-  applyPayloadPreferenceCleanup,
-} from "../payloadPreferences/cleanup";
-import {
-  makeApplicationInsertParticipant,
-  ApplicationCommandError,
-  applicationCommandError,
-} from "../applicationDocumentMaterialization/insertParticipant";
-import type { enterApplicationDocumentParticipant } from "../applicationDocumentMaterialization/participant";
+import type { CommerceCommandContext } from "../commerceTransaction/commands";
+import { commerceError, CommerceTransactionError } from "../commerceTransaction/model";
+import type { LogicalApplicationSourceAdmission } from "../logicalDocuments/applicationAdmission";
+import type { LogicalDocumentSourceAdmission } from "../logicalDocuments/documentAdmission";
+import type { LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../scopeClock";
+import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
+import type { ApplicationDocumentMaterializationOptions } from "../applicationDocumentMaterialization/model";
+import { prepareJointLogicalMaterialization } from "./materialization";
 import { compositeError, type CompositeFailure } from "./model";
 import type { CurrencyAnnouncementArguments } from "./request";
 import type { CurrencyAnnouncementTestHooks } from "./testSupport";
+import type { getCommerceCommand } from "../commerceTransaction/commands";
+import type { getCmsCommand } from "../cmsTransaction/host";
 
-interface ParticipantInput {
-  readonly cmsAdmission: CmsAdmission;
-  readonly cmsState: CmsAdmissionState;
-  readonly commerceAdmission: CommerceAdmission;
-  readonly publicationClock: CmsAdmissionState["clock"];
+interface LogicalParticipantInput {
+  readonly tx: FlarexMetadataTransaction;
+  readonly authority: TrustedScopeAuthority;
+  readonly application: LogicalApplicationSourceAdmission;
+  readonly payload: LogicalDocumentSourceAdmission;
+  readonly currency: LogicalRelationalAdmission;
   readonly lifetime: BoundedRequestLifetime<CompositeFailure>;
   readonly transactionId: string;
   readonly applicationTable: string;
-  readonly lowering: Effect.Success<
-    ReturnType<typeof enterApplicationDocumentParticipant>
-  >;
-  readonly currency: NonNullable<ReturnType<typeof getCommerceCommand>>;
-  readonly cms: NonNullable<ReturnType<typeof getCmsCommand>>;
+  readonly currencyCommand: NonNullable<ReturnType<typeof getCommerceCommand>>;
+  readonly cmsCommand: NonNullable<ReturnType<typeof getCmsCommand>>;
+  readonly materialization: Pick<ApplicationDocumentMaterializationOptions, "afterTransactionStep" | "observeQuery">;
 }
 
-/** Fixed borrowed participants. The host retains the root lifetime and settlement. */
-export const makeCurrencyAnnouncementParticipants = Effect.fn(
-  "CurrencyAnnouncement.prepareParticipants",
-)(function* (input: ParticipantInput, hooks?: CurrencyAnnouncementTestHooks) {
-  const {
-    cmsAdmission,
-    cmsState,
-    commerceAdmission,
-    lifetime,
-    transactionId,
-    lowering,
-  } = input;
-  const cmsLifetime = projectBoundedRequestLifetime(lifetime, (error) =>
-    error instanceof CmsTransactionError
-      ? error
-      : cmsError("rollbackOnly", error),
-  );
-  const commerceLifetime = projectBoundedRequestLifetime(lifetime, (error) =>
-    error instanceof CommerceTransactionError
-      ? error
-      : commerceError("rollbackOnly", error),
-  );
-  const appLifetime = projectBoundedRequestLifetime(lifetime, (error) =>
-    error instanceof ApplicationCommandError
-      ? error
-      : applicationCommandError("rollbackOnly", error),
-  );
-
-  const documents = yield* makeCmsDocuments(
-    cmsAdmission,
-    cmsLifetime,
-    AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis),
-    lowering.uniqueDefinitions,
-    lowering.indexDefinitions,
-  );
-  const relations = yield* makeCmsRelations(
-    Option.none(),
-    cmsAdmission,
-    cmsLifetime,
-    documents.documents,
-    false,
-  );
-  const preferences = yield* makePayloadPreferenceCleanup(
-    cmsAdmission,
-    cmsLifetime,
-    documents.pendingDeletions,
-  );
-  const commerce = yield* makeCommerceStore(
-    commerceAdmission,
-    commerceLifetime,
-    transactionId,
-  );
-  const application = yield* makeApplicationInsertParticipant(
-    cmsState,
-    appLifetime,
-    transactionId,
-    input.applicationTable,
-  );
-
-  const commerceContext = (manager: CommerceCommandContext["manager"]) =>
-    makeCommerceCommandContext(
-      commerceLifetime,
-      commerce,
-      transactionId,
-      manager,
+/** Framework callbacks borrow one root lifetime; the root alone prepares the
+ * combined delta after all three admitted contributions are closed. */
+export const makeCurrencyAnnouncementParticipants = Effect.fn("CurrencyAnnouncement.makeParticipants")(
+  function* (input: LogicalParticipantInput, hooks?: CurrencyAnnouncementTestHooks) {
+    const { tx, authority, application, payload, currency, lifetime, transactionId,
+      applicationTable, currencyCommand, cmsCommand, materialization } = input;
+    const testHooks = hooks === undefined ? undefined : Object.freeze({ ...hooks });
+    const cmsLifetime = projectBoundedRequestLifetime(lifetime, error => error instanceof CmsTransactionError
+      ? error : cmsError("rollbackOnly", error));
+    const commerceLifetime = projectBoundedRequestLifetime(lifetime, error => error instanceof CommerceTransactionError
+      ? error : commerceError("rollbackOnly", error));
+    const appLifetime = projectBoundedRequestLifetime(lifetime, error => error instanceof ApplicationCommandError
+      ? error : applicationCommandError("rollbackOnly", error));
+    const documents = yield* makeSourceCmsDocuments(payload, tx, cmsLifetime,
+      AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis));
+    const commerce = yield* makeLogicalCommerceParticipant(currency, tx, commerceLifetime,
+      commerceLifetime.context, transactionId);
+    const app = yield* makeSourceApplicationInsertParticipant(application, tx, appLifetime,
+      transactionId, applicationTable);
+    const cmsContext = (context: CmsCommandContext["context"]) => makeCmsCommandContext(cmsLifetime,
+      transactionId, context, { documents: documents.documents,
+        relations: { incoming: (manager, id) => cmsLifetime.operation(manager, id, "read",
+          Effect.fail(cmsError("unsupportedProfile"))) },
+        preferences: { deleteForPendingDocument: (manager, id) => cmsLifetime.operation(manager, id, "write",
+          Effect.fail(cmsError("unsupportedProfile"))) } }, false,
+      () => Effect.fail(cmsError("invalidAuthority")));
+    const commerceContext = (manager: CommerceCommandContext["manager"]) => makeCommerceCommandContext(
+      commerceLifetime, commerce, transactionId, manager,
       () => Effect.fail(commerceError("invalidAuthority")),
-      (context) =>
-        commerceLifetime.operation(
-          context,
-          transactionId,
-          "write",
-          Effect.fail(commerceError("unadmittedEvent")),
-        ),
-    );
-  const cmsContext = (context: CmsCommandContext["context"]) =>
-    makeCmsCommandContext(
-      cmsLifetime,
-      transactionId,
-      context,
-      {
-        documents: documents.documents,
-        relations,
-        preferences: preferences.cleanup,
-      },
-      false,
-      () => Effect.fail(cmsError("invalidAuthority")),
-    );
+      context => commerceLifetime.operation(context, transactionId, "write",
+        Effect.fail(commerceError("unadmittedEvent"))));
 
-  const execute = Effect.fn("CurrencyAnnouncement.execute")(function* (
-    args: CurrencyAnnouncementArguments,
-  ) {
-    const currency = yield* commerceLifetime.nested(
-      lifetime.context,
-      transactionId,
-      (context) => input.currency.run(commerceContext(context), args.currency),
-    );
-    const cms = yield* cmsLifetime.nested(
-      lifetime.context,
-      transactionId,
-      (context) => input.cms.run(cmsContext(context), args.cms),
-    );
-    if (hooks?.beforeApplication !== undefined)
-      yield* hooks.beforeApplication();
-    const applicationId = yield* application.insert(
-      lifetime.context,
-      args.application,
-    );
-    const pending = yield* application.readPending(lifetime.context);
-    if (Option.isNone(pending) || pending.value._id !== applicationId) {
-      return yield* Effect.fail(compositeError("storedCorruption"));
-    }
-    if (hooks?.afterSteps !== undefined) yield* hooks.afterSteps();
-    return yield* canonicalizeSuccessfulResultV1Effect({
-      currency,
-      cms,
-      applicationId,
+    const execute = Effect.fn("CurrencyAnnouncement.executeLogical")(function* (args: CurrencyAnnouncementArguments) {
+      const currencyResult = yield* commerceLifetime.nested(lifetime.context, transactionId,
+        manager => currencyCommand.run(commerceContext(manager), args.currency));
+      const cmsResult = yield* cmsLifetime.nested(lifetime.context, transactionId,
+        context => cmsCommand.run(cmsContext(context), args.cms));
+      if (testHooks?.beforeApplication !== undefined) yield* testHooks.beforeApplication();
+      const applicationId = yield* app.insert(lifetime.context, args.application);
+      const pending = yield* app.readPending(lifetime.context);
+      if (Option.isNone(pending) || pending.value._id !== applicationId)
+        return yield* Effect.fail(compositeError("storedCorruption"));
+      if (testHooks?.afterSteps !== undefined) yield* testHooks.afterSteps();
+      return yield* canonicalizeSuccessfulResultV1Effect({ currency: currencyResult, cms: cmsResult, applicationId });
     });
-  });
 
-  const close = Effect.fn("CurrencyAnnouncement.closeParticipants")(
-    function* () {
+    const close = Effect.fn("CurrencyAnnouncement.closeLogicalParticipants")(function* () {
       const cmsClosure = yield* documents.close();
       const commerceClosure = yield* commerce.close();
-      const appClosure = yield* application.close();
+      const appClosure = yield* app.close();
       const expected = Object.freeze([cmsClosure, commerceClosure, appClosure]);
-      const presented = hooks?.receipts?.(expected) ?? expected;
-      if (
-        presented.length !== 3 ||
-        presented.some((receipt, index) => receipt !== expected[index])
-      ) {
+      const presented = testHooks?.receipts?.(expected) ?? expected;
+      if (presented.length !== expected.length || presented.some((receipt, index) => receipt !== expected[index]))
         return yield* Effect.fail(compositeError("invalidAuthority"));
-      }
-      const closed = yield* consumeCmsDocumentClosure(
-        cmsClosure,
-        cmsAdmission,
-        cmsLifetime,
-      );
-      const cmsContribution = yield* validateCmsDocumentContribution(
-        cmsAdmission,
-        closed,
-      );
-      const preferenceFacts = yield* applyPayloadPreferenceCleanup(
-        yield* preferences.close(),
-        cmsAdmission,
-        cmsLifetime,
-        closed.pendingDeletions,
-      );
-      if (preferenceFacts.length !== 0) {
-        return yield* Effect.fail(compositeError("unsupportedProfile"));
-      }
-      const relationalFacts = yield* consumeCommerceContribution(
-        commerceAdmission,
-        commerceLifetime,
-        commerceClosure,
-      );
-      const appChanges = (yield* application.consume(appClosure)).map(change =>
-        Object.freeze({ ...change, readAt: input.publicationClock.lastCommitSeq }));
-      const changes = [...cmsContribution.changes, ...appChanges].toSorted(
-        (a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId),
-      );
-      const dependencies = [
-        ...cmsContribution.dependencies,
-        ...appChanges,
-      ].toSorted(
-        (a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId),
-      );
-      // CMS and Application must lower one combined delta, including cross-table uniqueness.
-      const delta = yield* lowering.prepareDelta(changes, dependencies);
-      return { changes, relationalFacts, delta };
-    },
-  );
-
-  return { execute, close };
-});
+      const payloadChanges = yield* consumeSourceCmsDocumentClosure(cmsClosure, payload, tx, cmsLifetime);
+      const currencyChanges = (yield* consumeLogicalCommerceClosure(commerceClosure, commerceLifetime)).changes;
+      const applicationChanges = yield* app.consume(appClosure);
+      const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, authority.scopeId);
+      const delta = yield* prepareJointLogicalMaterialization({ tx, clock, application, payload, currency,
+        applicationChanges, payloadChanges, currencyChanges, options: materialization });
+      return Object.freeze({ changes: delta.changes, relationalFacts: Object.freeze([]), delta, clock });
+    });
+    return Object.freeze({ execute, close });
+  });

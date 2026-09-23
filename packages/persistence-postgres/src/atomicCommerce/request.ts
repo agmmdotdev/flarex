@@ -12,7 +12,10 @@ import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import { captureCommerceJsonData } from "../commerceTransaction/request";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
 import { commerceIdentityEvidence, commerceRequestHash, projectCommerceRequestFailure } from "../commerceTransaction/request";
-import { requireCommerceAdmission, type CommerceAdmission } from "../commerceTransaction/admission";
+import { requireCommerceAdmission } from "../commerceTransaction/admission";
+import { requireLogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import type { AtomicCommerceAdmission } from "./admission";
 import {
   getAtomicCommerceCommand,
   type AtomicCommerceCommand,
@@ -67,12 +70,14 @@ export const prepareAtomicCommerceRequestEvidence = Effect.fn("AtomicCommerce.pr
       "deploymentId" | "members" | "identityDigest"
     >,
     request: CapturedAtomicCommerceRequest,
-    admission: CommerceAdmission,
+    admission: AtomicCommerceAdmission,
+    tx: FlarexMetadataTransaction,
     authority: TrustedScopeAuthority,
     clock: ScopeClockRecord,
   ): Effect.fn.Return<AtomicCommerceRequestEvidence, CommerceTransactionError> {
     const { deploymentId, members, identityDigest } = configuration;
-    const admitted = yield* requireCommerceAdmission(admission);
+    const admitted = admission.kind === "physical" ? yield* requireCommerceAdmission(admission.admission)
+      : yield* requireLogicalRelationalAdmission(admission.admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
     const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(authority.scopeId)).pipe(
       Effect.mapError(projectCommerceRequestFailure),
     );
@@ -87,7 +92,8 @@ export const prepareAtomicCommerceRequestEvidence = Effect.fn("AtomicCommerce.pr
       args: request.args,
       participants: members.map((member) => ({
         name: member.name,
-        installation: member.reference,
+        ...(member.kind === "physical" ? { installation: member.reference }
+          : { logicalSource: { sourceKey: member.sourceKey, contractSha256: member.contractSha256 } }),
         contractSha256: member.descriptor.contractSha256,
         commands: member.commandNames,
       })),

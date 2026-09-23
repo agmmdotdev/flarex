@@ -283,6 +283,7 @@ function encodeCanonicalPhysicalSpec(
     `"kind":"appOrdered",` +
     `"maxEncodedKeyBytes":2048,` +
     `"orderedFields":[${fields}],` +
+    (spec.predicate === undefined ? "" : `"predicate":{"field":${encodeJsonString(spec.predicate.field)},"kind":"fieldIsNull"},`) +
     `"specVersion":1,` +
     `"tieBreaker":{"byteLength":16,"kind":"separateRowIdentity"}}`
   );
@@ -292,7 +293,7 @@ function encodeCanonicalPhysicalField(
   field: AppOrderedIndexPhysicalFieldV1,
 ): string {
   return field.kind === "documentPath"
-    ? `{"kind":"documentPath","path":${encodeJsonString(field.path)}}`
+    ? `{"kind":"documentPath","path":${encodeJsonString(field.path)}${field.valueFormat === undefined ? "" : ',"valueFormat":"exactDecimal"'}}`
     : `{"kind":"systemCreationTime"}`;
 }
 

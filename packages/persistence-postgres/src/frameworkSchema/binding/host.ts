@@ -1,11 +1,16 @@
 import { Cause, Effect, Option, Result } from "effect";
+import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import { prepareLogicalStorageReadiness } from "../../logicalStorageReadiness";
+import type { AppUniqueConstraintSetEligibilityPortV1 } from "../../appUniqueConstraintSetBuildV1";
+import type { ScopeClockRecord } from "../../scopeClock";
 import type { FlarexMetadataDatabase } from "../../deployments";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import {
   hasApplicationBindingComposition,
   type ApplicationBindingSelectionReader,
 } from "../../applicationActivation";
-import { readApplicationBindingProjectionInTransaction } from "../../applicationBindingProjection";
+import { readApplicationBindingProjectionInTransaction, readApplicationBindingEvidenceInTransaction } from "../../applicationBindingProjection";
+import { verifyLogicalSchemaBindingInTransaction, type PreparedLogicalStorage } from "./logicalSchema";
 import {
   captureTrustedScopeAuthorityResolutionPorts,
   resolveLocatedTrustedScopeAuthorityEffect,
@@ -58,6 +63,8 @@ import { scopePhysicalLocatorsEqual } from "../../scopePhysicalLocator";
 import type { ApplicationBindingReference, DataBindingSetFrame } from "./model";
 import type { PayloadContentProfiles } from "../../payloadPreferences/binding";
 
+type LogicalStoragePreparationFailure = Effect.Error<ReturnType<typeof prepareLogicalStorageReadiness>>;
+
 export type DataBindingFailure<ApplicationFailure> =
   | ApplicationFailure
   | DataBindingError
@@ -66,7 +73,9 @@ export type DataBindingFailure<ApplicationFailure> =
   | Effect.Error<
       ReturnType<typeof readApplicationBindingProjectionInTransaction>
     >
-  | Effect.Error<ReturnType<typeof verifyBindingLanes>>;
+  | Effect.Error<ReturnType<typeof verifyBindingLanes>>
+  | LogicalStoragePreparationFailure
+  | Effect.Error<ReturnType<PreparedLogicalStorage["inspect"]>>;
 export interface DataBindingActivationReport<ApplicationFailure> {
   readonly receipt: StoredBindingValue<DataBindingActivationFrame>;
   readonly current: Result.Result<
@@ -102,6 +111,11 @@ export interface DataBindingHost<ApplicationFailure> {
 }
 
 export interface DataBindingHostInput<ApplicationFailure> {
+  readonly logicalStorage?: Readonly<{
+    controlDb: FlarexMetadataDatabase;
+    schemaVersionId: CatalogSchemaVersionId;
+    unique: AppUniqueConstraintSetEligibilityPortV1;
+  }>;
   readonly commerceProfiles?: readonly import("../../commerceTransaction/profile").CommerceProfile[];
   readonly payloadProfiles?: PayloadContentProfiles;
   readonly database: FlarexMetadataDatabase;
@@ -134,6 +148,8 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
   )
     return yield* Effect.fail(bindingError("placementMismatch"));
   const database = input.database;
+  const logicalInput = input.logicalStorage === undefined ? null : Object.freeze({ ...input.logicalStorage });
+  const logicalAuthority = input.authority;
   const target = input.target;
   const commerceProfiles = yield* captureCommerceBindingProfiles(input.commerceProfiles ?? []);
   const payloadProfiles = input.payloadProfiles;
@@ -207,6 +223,36 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
     }
     return clock;
   });
+  let preparedLogicalStorage: PreparedLogicalStorage | undefined;
+  // Immutable success may be reused. Failure is not cached: build/catalog
+  // availability can recover, and receipt recovery precedes this preparation.
+  const prepareLogicalStorage = Effect.fn("DataBindingHost.prepareLogicalStorage")(function* (authority: TrustedScopeAuthority) {
+    if (logicalInput === null) return null;
+    if (preparedLogicalStorage !== undefined) return preparedLogicalStorage;
+    const prepared = yield* prepareLogicalStorageReadiness(
+      { controlDb: logicalInput.controlDb, authority: logicalAuthority }, logicalInput.unique,
+      { deploymentId, scopeId: authority.scopeId, schemaVersionId: logicalInput.schemaVersionId },
+    );
+    if (prepared.status === "not_ready") return yield* Effect.fail(bindingError("logicalSchemaNotReady"));
+    preparedLogicalStorage = prepared;
+    return prepared;
+  });
+
+  // Projection acceptance immediately precedes this check under the same clock.
+  // The immutable analysis correlation grants no native execution capability.
+  const verifyLogicalStorage = Effect.fn("DataBindingHost.verifyLogicalStorage")(function* (
+    frame: DataBindingSetFrame, evidence: Effect.Success<ReturnType<typeof readApplicationBindingEvidenceInTransaction>>,
+    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    logicalStorage: PreparedLogicalStorage | null,
+  ) {
+    if (logicalStorage === null) {
+      if (frame.logicalSchema !== null) return yield* Effect.fail(bindingError("logicalSchemaMismatch"));
+      if (!sameBindingValue(frame.application, evidence.projection)) return yield* Effect.fail(bindingError("staleApplication"));
+      return;
+    }
+    yield* verifyLogicalSchemaBindingInTransaction(logicalStorage, frame, evidence, tx, authority, clock);
+  });
+
   const readApplicationReference = Effect.fn(
     "DataBindingHost.readApplicationReference",
   )(function* () {
@@ -231,17 +277,17 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
       isDataBindingSetFrame,
     );
     const located = yield* resolve();
+    const logicalStorage = yield* prepareLogicalStorage(located.authority);
     const active = yield* application.readActive();
     return yield* run(located, (tx, authority) =>
       Effect.gen(function* () {
         const clock = yield* lockScope(tx, authority);
-        const projection = yield* readApplicationBindingProjectionInTransaction(
+        const evidence = yield* readApplicationBindingEvidenceInTransaction(
           active.selection,
           tx,
           clock,
         );
-        if (!sameBindingValue(projection, candidate.frame.application))
-          return yield* Effect.fail(bindingError("staleApplication"));
+        yield* verifyLogicalStorage(candidate.frame, evidence, tx, authority, clock, logicalStorage);
         const verified = yield* verifyBindingLanes(
           tx,
           candidate.frame,
@@ -267,11 +313,12 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
     );
     if (Option.isNone(hint))
       return yield* Effect.fail(bindingError("missingDependency"));
+    const logicalStorage = yield* prepareLogicalStorage(located.authority);
     const active = yield* application.readActive();
     return yield* run(located, (tx, authority) =>
       Effect.gen(function* () {
         const clock = yield* lockScope(tx, authority);
-        const projection = yield* readApplicationBindingProjectionInTransaction(
+        const evidence = yield* readApplicationBindingEvidenceInTransaction(
           active.selection,
           tx,
           clock,
@@ -283,8 +330,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
         );
         if (Option.isNone(candidate))
           return yield* Effect.fail(bindingError("storedCorruption"));
-        if (!sameBindingValue(projection, candidate.value.frame.application))
-          return yield* Effect.fail(bindingError("staleApplication"));
+        yield* verifyLogicalStorage(candidate.value.frame, evidence, tx, authority, clock, logicalStorage);
         yield* verifyBindingLanes(
           tx,
           candidate.value.frame,
@@ -355,6 +401,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
         return yield* Effect.fail(bindingError("requestConflict"));
       return yield* report(previous.value);
     }
+    const logicalStorage = yield* prepareLogicalStorage(located.authority);
     const active = yield* application.readActive();
     const receipt = yield* run(located, (tx, authority) =>
       Effect.gen(function* () {
@@ -371,7 +418,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
             return yield* Effect.fail(bindingError("requestConflict"));
           return raced.value;
         }
-        const projection = yield* readApplicationBindingProjectionInTransaction(
+        const evidence = yield* readApplicationBindingEvidenceInTransaction(
           active.selection,
           tx,
           clock,
@@ -383,8 +430,7 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
         );
         if (Option.isNone(candidate))
           return yield* Effect.fail(bindingError("missingDependency"));
-        if (!sameBindingValue(candidate.value.frame.application, projection))
-          return yield* Effect.fail(bindingError("staleApplication"));
+        yield* verifyLogicalStorage(candidate.value.frame, evidence, tx, authority, clock, logicalStorage);
         yield* verifyBindingLanes(
           tx,
           candidate.value.frame,

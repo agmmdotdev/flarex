@@ -2,24 +2,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { expireEventClaims, makeEventRetriesDue, corruptEventCount, replaceEventEnvelope, explainSparseEventDirectory } from "../../persistence-postgres/test/commitEventTestSupport";
-import { Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import type { Json } from "flarex-protocol/json";
 import { prepareProductTagWorkflow, type ProductTagWorkflowHooks } from "../src/product-tag-workflow";
-import { prepareCurrencyProfile } from "../src/currency-contract";
 import { currencyCommands, currencyWorkflowModule } from "../src/currency-service";
 import { makeLocalProductCommands } from "../src/product-service";
-import { prepareLocalProductProfile } from "../src/product-profile";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLocalEventPolicy, productModuleEventPolicy } from "../src/product-local-events";
+import { productModuleEventPolicy } from "../src/product-local-events";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { commerceHostFixture, type CommerceHostTestFixture } from "../../persistence-postgres/test/commerceHostFixture";
-import { commerceInventory, expireCommerceResult, compactCommerceHistory } from "../../persistence-postgres/test/commerceInventory";
-import { createRelationalPGliteFixture } from "../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
-import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
-import { createFileScopedPostgresFixture } from "../../persistence-postgres/test/postgresHelpers";
-import { issueRelationalSession, makePostgresRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
+import { commercePhysicalRows, expireCommerceResult, compactRetainedCommitHistory } from "../../persistence-postgres/test/commerceInventory";
+import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
 import { makeCommitEventPump, type CommitEventHandler } from "../../persistence-postgres/src/commitEvents/pump";
@@ -30,27 +24,30 @@ import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { commerceDecoder } from "../src/commerce-decoder";
 import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition } from "../src/workflow/module";
+import { logicalCategoryCurrencyFixture } from "./support/logical-category-currency-fixture";
+import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 
 const cleanup: Array<() => Promise<void>> = [];
-const driver = process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
-let currency: CommerceHostTestFixture;
-let product: CommerceHostTestFixture;
+const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
+if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
+let fixture: Awaited<ReturnType<typeof logicalCategoryCurrencyFixture>>;
 let policy: ReturnType<typeof productModuleEventPolicy>;
 let productCommands: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
 let revision: string;
 const subscribers = [{ id: "tags-index", revision: "a".repeat(64) }, { id: "tags-audit", revision: "b".repeat(64) }];
 const args = (value: string) => ({ product_tags: [{ value }], additional_data: { witness: value } });
-const inventory = async () => ({ product: await commerceInventory(product),
-  events: await product.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
-  deliveries: await product.persistence.drizzle.select().from(fxSystemCommitEventDeliveries).orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId),
+const inventory = async () => ({ logical: await logicalCurrencyInventory(fixture.currency),
+  productRows: await commercePhysicalRows(fixture.currency.persistence, fixture.product.descriptor.layout.frame),
+  events: await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
+  deliveries: await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEventDeliveries).orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId),
 });
-const execution = (session = currency.session) => ({
-  identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-  prepare: (composition: import("../src/workflow/host").AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...currency.hostInput, session, ...composition }),
+const execution = (session = fixture.currency.session) => ({
+  identityAndAccessPolicy: fixture.input.identityAndAccessPolicy,
+  prepare: (composition: import("../src/workflow/host").AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...fixture.input, session, ...composition }),
 });
 const installedModules = () => ({
-  product: { module: productCommands.workflow, profile: product.prepared.profile, installation: product.installation, moduleEvents: policy },
-  currency: { module: Result.getOrThrow(currencyWorkflowModule), profile: currency.prepared.profile, installation: currency.installation },
+  product: { module: productCommands.workflow, profile: fixture.product.profile, installation: fixture.installation, moduleEvents: policy },
+  currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: fixture.currency.hostInput.logicalStorage },
 });
 const assemble = async (hooks?: ProductTagWorkflowHooks, suffix = "standard") => {
   const input = { execution: execution(), modules: installedModules(), revision: createHash("sha256").update(revision).update(suffix).digest("hex"),
@@ -74,20 +71,16 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     sources.push(await readFile(new URL(import.meta.url)));
     const hash = createHash("sha256"); for (const source of sources) hash.update(source);
     revision = hash.digest("hex");
-    const register = (close: () => Promise<void>) => { cleanup.push(close); };
-    const resource = driver === "pglite" ? await createRelationalPGliteFixture({ registerCleanup: register }) : await (async () => {
-      const fixture = await createFileScopedPostgresFixture(); register(fixture.dispose);
-      return { persistence: fixture.persistence, session: makePostgresRelationalSession(fixture.persistence) };
-    })();
-    const control = driver === "pglite" ? await createMigratedPGlitePersistence(register) : resource.persistence;
+    fixture = await logicalCategoryCurrencyFixture(driver, close => cleanup.push(close));
     productCommands = await runEffect(makeLocalProductCommands());
-    const catalog = await runEffect(captureProductSchema("workflow-events").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    currency = await commerceHostFixture(resource.persistence, resource.session, prepareCurrencyProfile, [currencyCommands.retrieve], control);
-    product = await commerceHostFixture(resource.persistence, resource.session, prepareLocalProductProfile, [productCommands.commands.createTags], control,
-      descriptor => productLocalEventPolicy(descriptor, catalog, () => Effect.void), {}, currency);
-    policy = productModuleEventPolicy(product.descriptor, catalog);
+    const catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
+    policy = productModuleEventPolicy(fixture.product.descriptor, catalog);
   }, 150_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+  afterAll(async () => {
+    const failures: unknown[] = [];
+    for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+    if (failures.length > 0) throw new AggregateError(failures, "Logical Product-tag workflow cleanup failed");
+  });
 
   it("executes the original business sequence with pending graph reads, both event families and one root commit", async () => {
     let hookCalls = 0;
@@ -108,12 +101,12 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const result = await runEffect(workflow.host.run(key, args("workflow-created")));
     expect(result).toMatchObject([{ value: "workflow-created" }]);
     const after = await inventory();
-    expect(after.product.commits).toHaveLength(before.product.commits.length + 1);
+    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
     expect(after.events.slice(before.events.length).map(row => row.envelope.contract)).toEqual(["product.product-tag.created", "product-tag.created"]);
     expect(after.events.slice(before.events.length).map(row => row.eventOrdinal)).toEqual([0, 1]);
     expect(after.events.slice(before.events.length).map(row => row.envelope.internal)).toEqual([true, false]);
     expect(after.events.at(-1)?.envelope).toMatchObject({ group: key, message: { name: "product-tag.created", metadata: { eventGroupId: key } }, subscribers });
-    expect(after.product.commits.at(-1)?.eventCount).toBe(2);
+    expect(after.logical.commits.at(-1)?.eventCount).toBe(2);
     expect(new Set(after.events.slice(before.events.length).map(row => row.commitSeq)).size).toBe(1);
     expect(after.deliveries.slice(before.deliveries.length)).toHaveLength(4);
     expect(after.deliveries.every(row => row.state === "pending")).toBe(true);
@@ -153,12 +146,21 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const waiting = new Promise<void>(resolve => { release = resolve; });
     const workflow = await assemble({ productTagsCreated: async () => { await runEffect(Deferred.succeed(reached, undefined)); await waiting; } }, "cancel-hook");
     const before = await inventory();
-    await runEffect(Effect.scoped(Effect.gen(function* () {
-      const fiber = yield* Effect.forkScoped(workflow.host.run(workflow.host.newRequestKey(), args("cancel-hook")));
-      yield* Deferred.await(reached).pipe(Effect.timeout(5000));
-      yield* Fiber.interrupt(fiber);
-    })));
-    release?.();
+    try {
+      await runEffect(Effect.scoped(Effect.gen(function* () {
+        const fiber = yield* Effect.forkScoped(workflow.host.run(workflow.host.newRequestKey(), args("cancel-hook")));
+        yield* Deferred.await(reached).pipe(Effect.timeout(5000));
+        yield* Fiber.interrupt(fiber);
+        const exit = yield* Fiber.await(fiber);
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(exit.cause.reasons.length).toBeGreaterThan(0);
+          expect(exit.cause.reasons.every(Cause.isInterruptReason)).toBe(true);
+        }
+      })));
+    } finally {
+      release?.();
+    }
     expect(await inventory()).toEqual(before);
   }, 30_000);
 
@@ -166,7 +168,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     let hookCalls = 0;
     const workflow = await assemble({ productTagsCreated: async () => { hookCalls++; } }, "recovery-hook");
     let lose = true;
-    const session = issueRelationalSession(currency.persistence.drizzle, (profile, work) => runRelationalSession(currency.session, profile, work).pipe(
+    const session = issueRelationalSession(fixture.currency.persistence.drizzle, (profile, work) => runRelationalSession(fixture.currency.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
         return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: "test lost acknowledgement" })); }),
@@ -190,14 +192,14 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const workflow = await assemble();
     const before = await inventory();
     for (const table of ["fx_system_commit_event", "fx_system_commit_event_delivery", "fx_system_idempotency", "fx_system_commit_wake", "fx_system_scope_clock"]) {
-      await product.persistence.exec("create function fx_test_workflow_failure() returns trigger language plpgsql as $$ begin raise exception 'workflow publication failure'; end $$");
+      await fixture.currency.persistence.exec("create function fx_test_workflow_failure() returns trigger language plpgsql as $$ begin raise exception 'workflow publication failure'; end $$");
       try {
-        await product.persistence.exec(`create trigger fx_test_workflow_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_workflow_failure()`);
+        await fixture.currency.persistence.exec(`create trigger fx_test_workflow_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_workflow_failure()`);
         expect(Exit.isFailure(await runEffect(Effect.exit(workflow.host.run(workflow.host.newRequestKey(), args("publication-failed")))))).toBe(true);
         expect(await inventory()).toEqual(before);
       } finally {
-        await product.persistence.exec(`drop trigger if exists fx_test_workflow_failure on "${table}"`);
-        await product.persistence.exec("drop function fx_test_workflow_failure()");
+        await fixture.currency.persistence.exec(`drop trigger if exists fx_test_workflow_failure on "${table}"`);
+        await fixture.currency.persistence.exec("drop function fx_test_workflow_failure()");
       }
     }
   }, 60_000);
@@ -206,9 +208,9 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const workflow = await assemble();
     const key = workflow.host.newRequestKey();
     const value = await runEffect(workflow.host.run(key, args("restart-delivery")));
-    await expireCommerceResult(product, key);
+    await expireCommerceResult(fixture.currency, key);
     const messages: CommitEventMessage[] = [];
-    const pump = await runEffect(makeCommitEventPump(currency.hostInput, handlers(messages)));
+    const pump = await runEffect(makeCommitEventPump(fixture.currency.hostInput, handlers(messages)));
     let cursor = 0n;
     for (let page = 0; page < 20; page++) {
       const result = await runEffect(pump.runNext(cursor)); cursor = result.cursor;
@@ -226,15 +228,15 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   it("recovers a lost delivery acknowledgement with stable identity and fenced settlement", async () => {
     const workflow = await assemble();
     await runEffect(workflow.host.run(workflow.host.newRequestKey(), args("claim-fence")));
-    const commit = (await inventory()).product.commits.at(-1);
+    const commit = (await inventory()).logical.commits.at(-1);
     if (commit === undefined) throw new Error("Missing event commit");
-    const store = await runEffect(makeCommitEventStore(currency.hostInput));
+    const store = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
     const first = await runEffect(store.claim(commit.commitSeq, subscribers));
     if (Option.isNone(first)) throw new Error("Missing claim");
     // Handler succeeded but acknowledgement was lost. Only the lease changes;
     // the immutable event family and pinned handler identities remain intact.
-    await expireEventClaims(product.persistence.drizzle, commit.commitSeq);
-    const restarted = await runEffect(makeCommitEventStore(currency.hostInput));
+    await expireEventClaims(fixture.currency.persistence.drizzle, commit.commitSeq);
+    const restarted = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
     const second = await runEffect(restarted.claim(commit.commitSeq, subscribers));
     if (Option.isNone(second)) throw new Error("Missing recovered claim");
     expect(second.value.message.deliveryId).toBe(first.value.message.deliveryId);
@@ -248,16 +250,16 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const workflow = await assemble();
     const key = workflow.host.newRequestKey();
     const value = await runEffect(workflow.host.run(key, args("subscriber-failure")));
-    const commit = (await inventory()).product.commits.at(-1);
+    const commit = (await inventory()).logical.commits.at(-1);
     if (commit === undefined) throw new Error("Missing event commit");
     const counts = { audit: 0, index: 0 };
-    const pump = await runEffect(makeCommitEventPump(currency.hostInput, subscribers.map(subscriber => ({ ...subscriber,
+    const pump = await runEffect(makeCommitEventPump(fixture.currency.hostInput, subscribers.map(subscriber => ({ ...subscriber,
       handle: () => subscriber.id === "tags-audit" ? Effect.sync(() => { counts.audit++; }) : Effect.sync(() => { counts.index++; }).pipe(Effect.andThen(Effect.fail(new CommitEventSubscriberFailure({ retryable: true, code: "index-unavailable" })))),
     }))));
     await runEffect(pump.runNext(commit.commitSeq - 1n));
     expect(counts).toEqual({ audit: 2, index: 2 });
     for (let attempt = 1; attempt < 5; attempt++) {
-      await makeEventRetriesDue(product.persistence.drizzle, commit.commitSeq);
+      await makeEventRetriesDue(fixture.currency.persistence.drizzle, commit.commitSeq);
       await runEffect(pump.runNext(commit.commitSeq - 1n));
     }
     expect(counts).toEqual({ audit: 2, index: 10 });
@@ -270,21 +272,21 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const workflow = await assemble();
     await runEffect(workflow.host.run(workflow.host.newRequestKey(), args("integrity")));
     const before = await inventory();
-    const commit = before.product.commits.at(-1);
+    const commit = before.logical.commits.at(-1);
     if (commit === undefined) throw new Error("Missing event commit");
-    const store = await runEffect(makeCommitEventStore(currency.hostInput));
+    const store = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
     expect(Option.isNone(await runEffect(store.claim(commit.commitSeq, subscribers.map(subscriber => ({ ...subscriber, revision: "f".repeat(64) })))))).toBe(true);
     expect(await inventory()).toEqual(before);
-    await corruptEventCount(product.persistence.drizzle, commit.commitSeq, 3);
+    await corruptEventCount(fixture.currency.persistence.drizzle, commit.commitSeq, 3);
     expect(await runEffectFailure(store.claim(commit.commitSeq, subscribers))).toMatchObject({ reason: "storedCorruption" });
-    await corruptEventCount(product.persistence.drizzle, commit.commitSeq, 2);
+    await corruptEventCount(fixture.currency.persistence.drizzle, commit.commitSeq, 2);
     expect(await inventory()).toEqual(before);
     const event = before.events.find(row => row.commitSeq === commit.commitSeq);
     if (event === undefined) throw new Error("Missing event envelope");
     for (const envelope of [{ ...event.envelope, message: { name: "changed", data: { id: "different" } } }, { ...event.envelope, producerRevision: "f".repeat(64) }, { ...event.envelope, internal: false }]) {
-      await replaceEventEnvelope(product.persistence.drizzle, { ...event, envelope });
+      await replaceEventEnvelope(fixture.currency.persistence.drizzle, { ...event, envelope });
       expect(await runEffectFailure(store.claim(commit.commitSeq, subscribers))).toMatchObject({ reason: "storedCorruption" });
-      await replaceEventEnvelope(product.persistence.drizzle, event);
+      await replaceEventEnvelope(fixture.currency.persistence.drizzle, event);
     }
     expect(await inventory()).toEqual(before);
   }, 30_000);
@@ -292,10 +294,16 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   it.runIf(driver === "postgres")("serializes competing claims without claiming the same delivery twice", async () => {
     const workflow = await assemble();
     await runEffect(workflow.host.run(workflow.host.newRequestKey(), args("concurrent-delivery")));
-    const commit = (await inventory()).product.commits.at(-1);
+    const commit = (await inventory()).logical.commits.at(-1);
     if (commit === undefined) throw new Error("Missing event commit");
-    const stores = await Promise.all([runEffect(makeCommitEventStore(currency.hostInput)), runEffect(makeCommitEventStore(currency.hostInput))]);
-    const claims = await Promise.all(stores.map(store => runEffect(store.claim(commit.commitSeq, subscribers))));
+    const { stores, claims } = await runEffect(Effect.gen(function* () {
+      const stores = yield* Effect.all([
+        makeCommitEventStore(fixture.currency.hostInput),
+        makeCommitEventStore(fixture.currency.hostInput),
+      ], { concurrency: 2 });
+      const claims = yield* Effect.all(stores.map(store => store.claim(commit.commitSeq, subscribers)), { concurrency: 2 });
+      return { stores, claims };
+    }));
     expect(claims.every(Option.isSome)).toBe(true);
     expect(new Set(claims.flatMap(claim => Option.isSome(claim) ? [claim.value.message.deliveryId] : [])).size).toBe(2);
     for (const [index, claim] of claims.entries()) {
@@ -335,13 +343,13 @@ describe("native Medusa Product-tag workflow and committed events", () => {
 
   it("retains the committed event family independently of ordinary history compaction", async () => {
     const before = await inventory();
-    expect(before.product.commits.filter(row => row.eventCount > 0).length).toBeGreaterThan(1);
-    await compactCommerceHistory(product);
+    expect(before.logical.commits.filter(row => row.eventCount > 0).length).toBeGreaterThan(1);
+    await compactRetainedCommitHistory(fixture.currency.hostInput, fixture.currency.persistence, before.logical);
     const after = await inventory();
     expect(after.events).toEqual(before.events);
     expect(after.deliveries).toEqual(before.deliveries);
-    expect(after.product.commits.filter(row => row.eventCount > 0)).toEqual(before.product.commits.filter(row => row.eventCount > 0));
-    expect(after.product.commits.length).toBeLessThan(before.product.commits.length);
+    expect(after.logical.commits.filter(row => row.eventCount > 0)).toEqual(before.logical.commits.filter(row => row.eventCount > 0));
+    expect(after.logical.commits.length).toBeLessThan(before.logical.commits.length);
   }, 60_000);
 
   it("uses the same host for native Product/Currency reads with no event resource", async () => {
@@ -370,9 +378,9 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     expect(result.tags.length).toBeGreaterThan(0);
     const after = await inventory();
     expect(after.events).toEqual(before.events); expect(after.deliveries).toEqual(before.deliveries);
-    expect(after.product.facts).toEqual(before.product.facts);
-    expect(after.product.commits).toHaveLength(before.product.commits.length + 1);
-    expect(after.product.commits.at(-1)?.eventCount).toBe(0);
+    expect(after.logical.physicalFacts).toEqual(before.logical.physicalFacts);
+    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
+    expect(after.logical.commits.at(-1)?.eventCount).toBe(0);
     expect(await runEffect(host.run(key, { code: "usd" }))).toEqual(result);
     expect(await inventory()).toEqual(after);
     await expect(escaped?.("usd")).rejects.toMatchObject({ reason: "closed" });
@@ -424,8 +432,8 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const before = await inventory(); const key = host.newRequestKey();
     expect(await runEffect(host.run(key, null))).toBeNull();
     const after = await inventory();
-    expect(after.events).toEqual(before.events); expect(after.product.facts).toEqual(before.product.facts);
-    expect(after.product.commits).toHaveLength(before.product.commits.length + 1);
+    expect(after.events).toEqual(before.events); expect(after.logical.physicalFacts).toEqual(before.logical.physicalFacts);
+    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
     expect(await runEffect(host.run(key, null))).toBeNull(); expect(await inventory()).toEqual(after);
     expect(executions).toBe(1); expect(validations).toBe(1);
   });
@@ -438,9 +446,10 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     } });
     const first = await assemble(makeHook("isolated-a"), "isolated-a");
     const second = await assemble(makeHook("isolated-b"), "isolated-b");
-    const a = () => runEffect(first.host.run(first.host.newRequestKey(), args("isolated-a")));
-    const b = () => runEffect(second.host.run(second.host.newRequestKey(), args("isolated-b")));
-    if (driver === "postgres") await Promise.all([a(), b()]); else { await a(); await b(); }
+    await runEffect(Effect.all([
+      first.host.run(first.host.newRequestKey(), args("isolated-a")),
+      second.host.run(second.host.newRequestKey(), args("isolated-b")),
+    ], { concurrency: driver === "postgres" ? 2 : 1 }));
     expect(seen.toSorted()).toEqual(["isolated-a", "isolated-b"]);
     const invalid = await assemble({ productTagsCreated: async (_input, { resources }) => {
       await expect(Reflect.apply(resources.product.createProductTags, undefined, [[{ value: Symbol("invalid-native-input") }]]))
@@ -467,7 +476,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const key = host.newRequestKey();
     expect(await runEffect(host.run(key, "41"))).toBe(42);
     const after = await inventory();
-    expect(after.product.commits).toHaveLength(before.product.commits.length + 1);
+    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
     expect(await runEffect(host.run(key, "41"))).toBe(42);
     expect(calls).toBe(1); expect(await inventory()).toEqual(after);
     const invalid = await runEffect(Effect.exit(host.run(host.newRequestKey(), "invalid")));
@@ -538,15 +547,15 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   });
 
   it.runIf(driver === "postgres")("discovers sparse event history through the partial commit directory", async () => {
-    if (!("pool" in product.persistence)) throw new Error("PostgreSQL proof requires a real pool");
+    if (!("pool" in fixture.currency.persistence)) throw new Error("PostgreSQL proof requires a real pool");
     const before = await inventory();
-    const latest = before.product.commits.at(-1);
+    const latest = before.logical.commits.at(-1);
     if (latest === undefined) throw new Error("Missing latest commit");
     let observed: CommitEventQuery | undefined;
-    const store = await runEffect(makeCommitEventStore({ ...currency.hostInput, observeQuery: query => { observed = query; } }));
+    const store = await runEffect(makeCommitEventStore({ ...fixture.currency.hostInput, observeQuery: query => { observed = query; } }));
     expect(Option.isNone(await runEffect(store.nextCommit(latest.commitSeq)))).toBe(true);
     if (observed === undefined) throw new Error("Missing event directory query");
-    expect(await explainSparseEventDirectory(product.persistence, observed, latest)).toContain("fx_commit_event_directory_idx");
+    expect(await explainSparseEventDirectory(fixture.currency.persistence, observed, latest)).toContain("fx_commit_event_directory_idx");
     expect(await inventory()).toEqual(before);
   }, 30_000);
 });

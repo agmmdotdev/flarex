@@ -593,7 +593,7 @@ export const fxControlIndexDefinitions = pgTable(
           )}
           and (${table.physicalSpecJson} - 'accessPath' - 'collation'
             - 'keyCodecVersion' - 'kind' - 'maxEncodedKeyBytes'
-            - 'orderedFields' - 'specVersion' - 'tieBreaker') = '{}'::jsonb
+            - 'orderedFields' - 'specVersion' - 'tieBreaker' - 'predicate') = '{}'::jsonb
           and ${table.physicalSpecJson} ->> 'kind' = 'appOrdered'
           and ${table.physicalSpecJson} -> 'specVersion' = '1'::jsonb
           and ${table.physicalSpecJson} ->> 'accessPath' = ${table.accessKind}
@@ -603,6 +603,14 @@ export const fxControlIndexDefinitions = pgTable(
           and jsonb_typeof(${table.physicalSpecJson} -> 'orderedFields') = 'array'
           and ${table.physicalSpecJson} -> 'tieBreaker'
             = '{"byteLength":16,"kind":"separateRowIdentity"}'::jsonb
+          and (not (${table.physicalSpecJson} ? 'predicate') or (
+            ${table.accessKind} = 'developer'
+            and jsonb_typeof(${table.physicalSpecJson} -> 'predicate') = 'object'
+            and ((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'field') = '{}'::jsonb
+            and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNull'
+            and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'field') = 'string'
+            and length(${table.physicalSpecJson} -> 'predicate' ->> 'field') > 0
+          ))
         ) is true
       `,
     ),

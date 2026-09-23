@@ -1,255 +1,392 @@
-import { afterAll, expect, it } from "vitest";
-import { Deferred, Effect, Exit, Fiber, Tracer } from "effect";
-import { fxSystemApplicationActiveHeads } from "../../persistence-postgres/src/applicationActivationSchema";
-import { currencyAnnouncementWrite } from "../src/currency-service";
-import { prepareCurrencyProfile } from "../src/currency-contract";
-import { commerceHostFixture } from "../../persistence-postgres/test/commerceHostFixture";
-import { commerceInventory } from "../../persistence-postgres/test/commerceInventory";
-import { createRelationalPGliteFixture } from "../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
-import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
-import { createFileScopedPostgresFixture } from "../../persistence-postgres/test/postgresHelpers";
-import { makePostgresRelationalSession, issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
-import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
-import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
+import { describe, expect, it } from "vitest";
+import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
+import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { makePayloadConformanceRuntime } from "../../payload-adapter/src/testing";
-import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
-import { makeCurrencyAnnouncementHost } from "../../persistence-postgres/src/crossDomainCommand/host";
-import { makePreparedHostRuntime } from "../../persistence-postgres/src/preparedHostRuntime";
-import { compositeError } from "../../persistence-postgres/src/crossDomainCommand/model";
-import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../../persistence-postgres/src/intrinsicCreationTimeIndexBuildV1";
-import { createAppDeveloperIndexDefinitionPortV1 } from "../../persistence-postgres/src/appDeveloperIndexCommitV1";
-import { createAppUniqueConstraintDefinitionPortV1 } from "../../persistence-postgres/src/appUniqueConstraintCommitV1";
-import { createAppSchemaCandidateWriteGuardPort } from "../../persistence-postgres/src/appSchemaCandidateValidation";
-import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys, fxSystemCommitAppRowChanges } from "../../persistence-postgres/src/schema";
-import { assertNativeCommandPublication } from "../../persistence-postgres/test/nativeCommandPublicationScenario";
-import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
+import { payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
 import { defineCmsCommand } from "../../persistence-postgres/src/cmsTransaction/host";
-import type { CompositeBinding } from "../../persistence-postgres/src/crossDomainCommand/binding";
+import { makeCurrencyAnnouncementHost, type CurrencyAnnouncementHostInput } from "../../persistence-postgres/src/crossDomainCommand/host";
+import type { CurrencyAnnouncementTestHooks } from "../../persistence-postgres/src/crossDomainCommand/testSupport";
+import { preparedHostTestRuntime } from "../../persistence-postgres/test/preparedHostRuntimeTestSupport";
+import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
+import { issueRelationalSession, makePostgresRelationalSession, runRelationalSession } from
+  "../../persistence-postgres/src/relationalTransaction/session";
+import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
+import { compositeError } from "../../persistence-postgres/src/crossDomainCommand/model";
+import { currencyAnnouncementWrite } from "../src/currency-service";
+import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
+import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 import { postgresFailureCode } from "../../persistence-postgres/test/postgresFailureCode";
+import { prepareNativeApplicationJournalOnLogicalScope } from
+  "../../persistence-postgres/test/nativeApplicationJournalOnLogicalScope";
+import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
 
-const cleanup: (() => Promise<void>)[] = [];
-afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
-it("settles real Currency, Payload and Application participants once, with complete rollback and replay", async () => {
-  const registerCleanup = (close: () => Promise<void>) => { cleanup.push(close); };
-  const driver = process.env.MEDUSA_COMPARISON_DRIVER ?? process.env.FLAREX_TEST_DRIVER ?? "pglite";
-  if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid test driver");
-  const resource = driver === "pglite" ? await createRelationalPGliteFixture({ registerCleanup }) : await (async () => {
-    const fixture = await createFileScopedPostgresFixture(); registerCleanup(fixture.dispose);
-    return { persistence: fixture.persistence, session: makePostgresRelationalSession(fixture.persistence) };
-  })();
-  const control = driver === "pglite" ? await createMigratedPGlitePersistence(registerCleanup) : resource.persistence;
-  const fixture = await commerceHostFixture(resource.persistence, resource.session, prepareCurrencyProfile, [currencyAnnouncementWrite], control, undefined, { cmsFields: payloadScalarFields });
-  const native = fixture.cms.fixture;
-  const db = resource.persistence.drizzle;
-  const inventory = async () => ({ commerce: await commerceInventory(fixture), rows: await db.select().from(fxAppRowCurrent), revisions: await db.select().from(fxAppRowRevisions),
-    indexes: await db.select().from(fxAppIndexEntryCurrent), unique: await db.select().from(fxAppUniqueKeys), facts: await db.select().from(fxSystemCommitAppRowChanges) });
-  await runEffect(Effect.scoped(Effect.gen(function* () {
-    const conformance = yield* makePayloadConformanceRuntime();
-    // Acquire after the borrowed Payload instance so composite hosts drain before
-    // that instance is destroyed when their shared composition scope closes.
-    const hostRuntime = yield* makePreparedHostRuntime({ maximumHosts: 64, maximumPreparedBytes: 67_108_864 });
-    const input = { hostRuntime, database: db, controlDatabase: control.drizzle, session: resource.session, deploymentId: native.deploymentId,
-      authority: native.authorityPorts, application: native.relationActivation, pointCommitAuthority: native.pointCommitAuthority,
-      identityAndAccessPolicy: { subject: "composite-conformance" }, expectedContentIdentity: payloadScalarContentIdentity,
-      materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(control.drizzle), developerIndexes: createAppDeveloperIndexDefinitionPortV1(control.drizzle),
-        uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(control.drizzle), candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: native.candidateValidation, pointCommitAuthority: native.pointCommitAuthority }) },
-      commerce: { target: fixture.hostInput.target, profile: fixture.hostInput.profile, installation: fixture.installation },
-      currencyCommand: currencyAnnouncementWrite, cmsCommand: conformance.runtime.commands.create, applicationTable: "audit" };
-    const host = yield* makeCurrencyAnnouncementHost(input);
-    // This fixture owns an isolated database schema; restore its exact inventory.
-    const activeHeads = yield* Effect.promise(() => db.select().from(fxSystemApplicationActiveHeads));
-    yield* Effect.gen(function* () {
-      yield* Effect.promise(async () => { await db.delete(fxSystemApplicationActiveHeads); });
-      expect(yield* Effect.flip(makeCurrencyAnnouncementHost(input))).toMatchObject({
-        _tag: "CompositeCommandError", reason: "invalidAuthority",
-        cause: { _tag: "ApplicationActivationError", reason: "activeMissing" },
-      });
-    }).pipe(Effect.ensuring(Effect.promise(async () => { await db.insert(fxSystemApplicationActiveHeads).values(activeHeads); })));
-    const runAcceptedOnce = <Value, Failure, Requirements>(effect: Effect.Effect<Value, Failure, Requirements>) => Effect.gen(function* () {
-      const spans: string[] = [];
-      const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
-      const value = yield* effect.pipe(Effect.provideService(Tracer.Tracer, tracer));
-      expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
-      expect(spans).not.toContain("CmsAdmission.prepare");
-      return value;
-    });
-    const args = (title: string, applicationTitle: string | number = title) => ({ currency: { code: "zzz", name: title, symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0 },
-      cms: { collection: "posts", data: { title, publishedAt: "2026-01-01" } }, application: { title: applicationTitle } });
-    yield* Effect.gen(function* () {
-      const before = (yield* Effect.promise(inventory));
-      const key = host.newRequestKey();
-      const value = (yield* runAcceptedOnce(host.run(key, args("composite-success"))));
-      expect(value).toMatchObject({ currency: { code: "zzz" }, cms: { title: "composite-success" }, applicationId: expect.any(String) });
-      const after = (yield* Effect.promise(inventory));
-      expect(after.rows).toHaveLength(before.rows.length + 2);
-      expect(after.revisions).toHaveLength(before.revisions.length + 2);
-      expect(after.facts).toHaveLength(before.facts.length + 2);
-      expect(after.commerce.rows).toHaveLength(before.commerce.rows.length + 1);
-      expect(after.commerce.commits).toHaveLength(before.commerce.commits.length + 1);
-      expect(after.commerce.outcomes).toHaveLength(before.commerce.outcomes.length + 1);
-      expect(after.commerce.wakes).toHaveLength(before.commerce.wakes.length + 1);
-      const commit = after.commerce.commits.at(-1);
-      expect(commit).toMatchObject({ changeCount: 2, relationalChangeCount: 1 });
-      expect(after.facts.every(fact => fact.commitSeq === commit?.commitSeq)).toBe(true);
-      expect(after.commerce.facts.at(-1)?.commitSeq).toBe(commit?.commitSeq);
-      const executions = conformance.observations.executions();
-      expect((yield* runAcceptedOnce(host.run(key, args("composite-success"))))).toEqual(value);
-      expect(conformance.observations.executions()).toBe(executions);
-      expect((yield* Effect.promise(inventory))).toEqual(after);
-      expect((yield* Effect.flip(host.run(key, args("changed"))))).toMatchObject({ reason: "requestConflict" });
-      expect((yield* Effect.flip(host.run(host.newRequestKey(), args("late-failure", 42))))).toMatchObject({ reason: "documentInvalid" });
-      expect((yield* Effect.promise(inventory))).toEqual(after);
-      for (const title of ["nested-caught", "id-foreign", "id-removed"]) {
-        (yield* Effect.flip(host.run(host.newRequestKey(), args(title))));
-        expect((yield* Effect.promise(inventory))).toEqual(after);
-      }
-      const nestedBefore = (yield* Effect.promise(inventory));
-      (yield* host.run(host.newRequestKey(), args("nested-ok")));
-      expect(((yield* Effect.promise(inventory))).rows).toHaveLength(nestedBefore.rows.length + 3);
-      const stable = (yield* Effect.promise(inventory));
-      const fail = () => Effect.fail(compositeError("invalidInput"));
-      for (const hooks of [{ beforeApplication: fail }, { afterSteps: fail }, { receipts: (receipts: readonly object[]) => receipts.slice(0, 2) },
-        { receipts: (receipts: readonly object[]) => receipts.map(receipt => ({ ...receipt })) },
-        { bindingProof: (binding: CompositeBinding) => ({ ...binding }) }]) {
-        const failing = (yield* makeCurrencyAnnouncementHost(input, hooks));
-        (yield* Effect.flip(failing.run(failing.newRequestKey(), args("hook-failure"))));
-        expect((yield* Effect.promise(inventory))).toEqual(stable);
-      }
-      for (const changedInput of [
-        { ...input, applicationTable: "posts" },
-        { ...input, expectedContentIdentity: { ...payloadScalarContentIdentity, configSha256: "0".repeat(64) } },
-        { ...input, commerce: { ...input.commerce, installation: { ...input.commerce.installation, installationReceiptSha256: "0".repeat(64) } } },
-      ]) {
-        const refused = (yield* makeCurrencyAnnouncementHost(changedInput));
-        (yield* Effect.flip(refused.run(refused.newRequestKey(), args("authority-refusal"))));
-        expect((yield* Effect.promise(inventory))).toEqual(stable);
-      }
-      const event = defineCommerceCommand("currencyAnnouncementWrite", "write", ctx => ctx.captureLocalEvent({ name: "unadmitted" }).pipe(Effect.catch(() => Effect.void), Effect.as(null)));
-      const noEvents = (yield* makeCurrencyAnnouncementHost({ ...input, currencyCommand: event }));
-      (yield* Effect.flip(noEvents.run(noEvents.newRequestKey(), args("caught-event"))));
-      expect((yield* Effect.promise(inventory))).toEqual(stable);
-      const crossover = defineCmsCommand({ name: "payload-create", mode: "write", run: ctx => ctx.documents.insert(ctx.context, ctx.transactionId, "audit", { title: "denied" }) });
-      const noCrossover = (yield* makeCurrencyAnnouncementHost({ ...input, cmsCommand: crossover }));
-      (yield* Effect.flip(noCrossover.run(noCrossover.newRequestKey(), args("crossover"))));
-      expect((yield* Effect.promise(inventory))).toEqual(stable);
-      for (const step of ["commitHeaderWritten", "commitChangeWritten", "outcomeWritten", "wakeWritten", "clockAdvanced"]) {
-        const failing = (yield* makeCurrencyAnnouncementHost({ ...input, materialization: { ...input.materialization,
-          afterTransactionStep: async event => { if (event.step === step) throw new Error(`Injected ${step}`); } } }));
-        (yield* Effect.flip(failing.run(failing.newRequestKey(), args("publication-failure"))));
-        expect((yield* Effect.promise(inventory))).toEqual(stable);
-      }
-      let lost = true;
-      const session = issueRelationalSession(db, (profile, work) => runRelationalSession(resource.session, profile, work).pipe(
-        Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
-        Effect.flatMap(value => { if (!lost) return Effect.succeed(value); lost = false; return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: new Error("Lost composite COMMIT reply") })); })));
-      const recovering = (yield* makeCurrencyAnnouncementHost({ ...input, session }));
-      const recoveryExecutions = conformance.observations.executions();
-      const recoveryKey = recovering.newRequestKey();
-      const recovered = (yield* recovering.run(recoveryKey, args("recovery")));
-      expect(conformance.observations.executions()).toBe(recoveryExecutions + 1);
-      expect((yield* recovering.run(recoveryKey, args("recovery")))).toEqual(recovered);
-      expect(conformance.observations.executions()).toBe(recoveryExecutions + 1);
-      yield* assertNativeCommandPublication(fixture, host.run(host.newRequestKey(), args("native-overlap")), "overlap");
-      if ("pool" in resource.persistence) {
-        const postgres = resource.persistence;
-        const entered = yield* Deferred.make<void>();
-        const admitted = yield* Deferred.make<void>();
-        const release = yield* Deferred.make<void>();
-        const overlapBefore = yield* Effect.promise(inventory);
-        const heldHost = yield* makeCurrencyAnnouncementHost(input, {
-          beforeApplication: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
-        });
-        const admissionSpans: string[] = [];
-        const admissionTracer = Tracer.make({ span(options) {
-          admissionSpans.push(options.name);
-          if (options.name === "CommerceAdmission.enterPublication") Effect.runSync(Deferred.succeed(admitted, undefined));
-          return new Tracer.NativeSpan(options);
-        } });
-        yield* Effect.scoped(Effect.gen(function* () {
-          const first = yield* heldHost.run(heldHost.newRequestKey(), args("admission-held")).pipe(Effect.forkScoped);
-          yield* Deferred.await(entered).pipe(Effect.timeout("5 seconds"));
-          const second = yield* host.run(host.newRequestKey(), args("admission-overlap"))
-            .pipe(Effect.provideService(Tracer.Tracer, admissionTracer), Effect.forkScoped);
-          yield* Deferred.await(admitted).pipe(Effect.timeout("5 seconds"));
-          expect(admissionSpans).toContain("CmsAdmission.withTransaction");
-          expect(admissionSpans).toContain("CommerceBinding.verify");
-          expect(yield* Deferred.isDone(release)).toBe(false);
-          yield* Deferred.succeed(release, undefined);
-          expect(yield* Fiber.join(first)).toMatchObject({ cms: { title: "admission-held" } });
-          expect(yield* Fiber.join(second)).toMatchObject({ cms: { title: "admission-overlap" } });
-        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds")));
-        const overlapAfter = yield* Effect.promise(inventory);
-        expect(overlapAfter.commerce.commits.length).toBe(overlapBefore.commerce.commits.length + 2);
-        expect(overlapAfter.commerce.outcomes.length).toBe(overlapBefore.commerce.outcomes.length + 2);
-        expect(overlapAfter.commerce.clocks[0]?.lastCommitSeq).toBe((overlapBefore.commerce.clocks[0]?.lastCommitSeq ?? -1n) + 2n);
-        expect(overlapAfter.rows.length).toBe(overlapBefore.rows.length + 4);
-        const duplicatesBefore = (yield* Effect.promise(inventory));
-        const duplicateCalls = conformance.observations.executions();
-        const duplicateKey = host.newRequestKey();
-        const duplicates = yield* Effect.all([host.run(duplicateKey, args("concurrent-replay")), host.run(duplicateKey, args("concurrent-replay"))], { concurrency: 2 });
-        expect(duplicates[0]).toEqual(duplicates[1]);
-        expect(conformance.observations.executions()).toBe(duplicateCalls + 1);
-        expect(((yield* Effect.promise(inventory))).commerce.commits).toHaveLength(duplicatesBefore.commerce.commits.length + 1);
+const causedBy = (value: unknown, expected: Error): boolean => {
+  for (let depth = 0; depth < 8; depth++) {
+    if (value === expected) return true;
+    if (typeof value !== "object" || value === null || !("cause" in value)) return false;
+    value = value.cause;
+  }
+  return false;
+};
+const scalarPostsDeclaration = () => [{ slug: "posts", fields: [
+  { name: "title", type: "text", required: true, unique: true },
+  { name: "score", type: "number", required: true, defaultValue: 0 },
+  { name: "enabled", type: "checkbox", required: true, defaultValue: false },
+  { name: "publishedAt", type: "date", required: true },
+] }];
 
-        const lockStable = (yield* Effect.promise(inventory));
-        yield* Effect.scoped(Effect.gen(function* () {
-          const blocker = yield* Effect.acquireRelease(Effect.promise(() => postgres.pool.connect()), client =>
-            Effect.promise(() => client.query("rollback")).pipe(Effect.ensuring(Effect.sync(() => client.release()))));
-          // This awaited session barrier runs after authority preparation and before
-          // physical entry, so the command deterministically meets the competing lock.
-          const contendedSession = issueRelationalSession(db, (profile, work) => Effect.gen(function* () {
-            yield* Effect.promise(() => blocker.query("begin"));
-            yield* Effect.promise(() => blocker.query("select 1 from fx_system_scope_clock for update"));
-            return yield* runRelationalSession(resource.session, profile, work).pipe(
-              Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))));
-          }));
-          const contended = yield* makeCurrencyAnnouncementHost({ ...input, session: contendedSession });
-          const failure = yield* Effect.flip(contended.run(contended.newRequestKey(), args("blocked-command")));
-          expect(postgresFailureCode(failure)).toBe("55P03");
-        }));
-        expect((yield* Effect.promise(inventory))).toEqual(lockStable);
+describe("selected logical Currency announcement", () => {
+  for (const driver of ["pglite", "postgres"] as const) {
+    it.skipIf(driver === "postgres" && postgresUrl === null)(`publishes and replays one three-source commit on ${driver}`, async () => {
+      const cleanup: Array<() => Promise<void>> = [];
+      try {
+        const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close));
+        await Effect.runPromise(Effect.scoped(Effect.fn("LogicalCurrencyAnnouncement.scenario")(function* () {
+          const acquireHost = <Failure>(hostInput: CurrencyAnnouncementHostInput<Failure>,
+            hooks?: CurrencyAnnouncementTestHooks) => Effect.acquireRelease(
+              makeCurrencyAnnouncementHost(hostInput, hooks), host => host.close);
+          const compiled = yield* (compilePayloadCollections([{ slug: "news", fields: [
+            { name: "title", type: "text", required: true, unique: true },
+          ] }]));
+          let cmsExecutions = 0;
+          const cmsCommand = defineCmsCommand({ name: "payload-create", mode: "write", run: (ctx, args) => {
+            cmsExecutions++;
+            return ctx.documents.insert(ctx.context, ctx.transactionId, "news", args);
+          } });
+          const input = { hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
+            database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,
+            session: fixture.session, deploymentId: fixture.deploymentId,
+            authority: fixture.application.authorityPorts, application: fixture.application.activation,
+            identityAndAccessPolicy: { profile: "logical-currency-announcement" }, materialization: {},
+            expectedContentIdentity: compiled.contentIdentity, currency: fixture.hostInput.logicalStorage,
+            applicationSource: fixture.applicationSource, payloadSource: compiled.sourceContract,
+            currencyCommand: currencyAnnouncementWrite, cmsCommand, applicationTable: "users" };
+          const before = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+          const host = yield* (acquireHost(input));
 
-        const pendingBefore = conformance.observations.pendingReads();
-        const fiber = yield* Effect.forkScoped(host.run(host.newRequestKey(), args("id-unresolved")));
-        try {
-          const deadline = performance.now() + 5000;
-          while (conformance.observations.pendingReads() === pendingBefore && performance.now() < deadline) yield* Effect.sleep(10);
-          expect(conformance.observations.pendingReads()).toBe(pendingBefore + 1);
-          (yield* Fiber.interrupt(fiber));
-          expect(Exit.isFailure((yield* Fiber.await(fiber)))).toBe(true);
-        } finally { (yield* Fiber.interrupt(fiber)); }
-        expect((yield* Effect.promise(inventory))).toEqual(lockStable);
+          const args = { currency: { code: "zzz", name: "Joint announcement", symbol: "Z", symbol_native: "Z" },
+            cms: { title: "Joint announcement", createdAt: "2026-09-23T00:00:00.000Z",
+              updatedAt: "2026-09-23T00:00:00.000Z" }, application: { name: "Joint announcement" } };
+          const key = host.newRequestKey();
+          const value = yield* (host.run(key, args));
+          expect(value).toMatchObject({ currency: { code: "zzz" }, cms: { title: "Joint announcement" },
+            applicationId: expect.any(String) });
+          const after = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+          expect(after.rows).toHaveLength(before.rows.length + 3);
+          expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3);
+          expect(after.commits).toHaveLength(before.commits.length + 1);
+          expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+          expect(after.wakes).toHaveLength(before.wakes.length + 1);
+          expect(after.physicalFacts).toEqual(before.physicalFacts);
+          expect(after.rowChanges.slice(-3).every(row => row.commitSeq === after.commits.at(-1)?.commitSeq)).toBe(true);
+          expect(yield* (host.run(key, args))).toEqual(value);
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          expect(yield* (Effect.result(host.run(key, { ...args,
+            application: { name: "different" } })))).toMatchObject({ _tag: "Failure",
+              failure: { reason: "requestConflict" } });
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          let reachedLate = false;
+          const lateFault = new Error("Late announcement publication fault");
+          const late = yield* (acquireHost({ ...input,
+            materialization: { afterTransactionStep: async ({ step }) => {
+              if (step === "clockAdvanced") { reachedLate = true; throw lateFault; }
+            } } }));
 
-        let failedPid = 0;
-        const pids: number[] = [];
-        const physical = (yield* makeCurrencyAnnouncementHost({ ...input, session: makePostgresRelationalSession(postgres, { lifecycleFault: event => {
-          const pid: unknown = Reflect.get(event.client, "processID");
-          if (typeof pid !== "number") throw new Error("Missing backend PID");
-          if (event.phase === "begin" && event.edge === "after") pids.push(pid);
-          if (event.phase === "commit" && event.edge === "after" && failedPid === 0) { failedPid = pid; throw new Error("Lost real composite COMMIT acknowledgement"); }
-        } }) }));
-        const calls = conformance.observations.executions();
-        const physicalKey = physical.newRequestKey();
-        const physicalResult = (yield* physical.run(physicalKey, args("physical-recovery")));
-        expect(conformance.observations.executions()).toBe(calls + 1);
-        expect(pids.length).toBeGreaterThanOrEqual(2);
-        expect(pids[1]).not.toBe(failedPid);
-        expect((yield* physical.run(physicalKey, args("physical-recovery")))).toEqual(physicalResult);
-        const beforeLoss = (yield* Effect.promise(inventory));
-        let backendPid = 0;
-        const terminated = (yield* makeCurrencyAnnouncementHost({ ...input, session: makePostgresRelationalSession(postgres, { lifecycleFault: event => {
-          if (event.phase === "begin" && event.edge === "after") {
-            const pid: unknown = Reflect.get(event.client, "processID");
-            if (typeof pid !== "number") throw new Error("Missing backend PID");
-            backendPid = pid;
+          const lateFailure = yield* (Effect.flip(late.run(late.newRequestKey(), { ...args,
+            currency: { ...args.currency, code: "yyy" }, cms: { ...args.cms, title: "Late announcement" } })));
+          expect(reachedLate).toBe(true);
+          expect(causedBy(lateFailure, lateFault)).toBe(true);
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          for (const [index, [step, code]] of ([
+            ["commitHeaderWritten", "baa"], ["commitChangeWritten", "bab"],
+            ["outcomeWritten", "bac"], ["wakeWritten", "bad"], ["clockAdvanced", "bae"],
+          ] as const).entries()) {
+            let reached = false;
+            const fault = new Error(`Injected ${step}`);
+            const failing = yield* (acquireHost({ ...input,
+              materialization: { afterTransactionStep: async event => {
+                if (event.step === step) { reached = true; throw fault; }
+              } } }));
+
+            const failedArgs = { ...args, currency: { ...args.currency, code },
+              cms: { ...args.cms, title: `Publication failure ${index}` } };
+            const failure = yield* (Effect.flip(failing.run(failing.newRequestKey(), failedArgs)));
+            expect(reached).toBe(true);
+            expect(causedBy(failure, fault)).toBe(true);
+            expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
           }
-        } }) }, { afterSteps: () => Effect.promise(async () => {
-          const terminated = await postgres.pool.query<{ terminated: boolean }>("select pg_terminate_backend($1) as terminated", [backendPid]);
-          expect(terminated.rows[0]?.terminated).toBe(true);
-        }) }));
-        (yield* Effect.flip(terminated.run(terminated.newRequestKey(), args("backend-loss"))));
-        expect((yield* Effect.promise(inventory))).toEqual(beforeLoss);
+          const swallowedEvent = defineCommerceCommand("currencyAnnouncementWrite", "write", context =>
+            context.captureLocalEvent({ name: "unadmitted" }).pipe(Effect.catch(() => Effect.void), Effect.as(null)));
+          const noEvents = yield* (acquireHost({ ...input,
+            currencyCommand: swallowedEvent }));
+
+          expect((yield* (Effect.exit(noEvents.run(noEvents.newRequestKey(), { ...args,
+            currency: { ...args.currency, code: "eee" }, cms: { ...args.cms, title: "Caught event" } }))))._tag)
+            .toBe("Failure");
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          const crossover = defineCmsCommand({ name: "payload-create", mode: "write", run: context =>
+            context.documents.insert(context.context, context.transactionId, "users", { name: "denied" }) });
+          const noCrossover = yield* acquireHost({ ...input, cmsCommand: crossover });
+          expect((yield* Effect.exit(noCrossover.run(noCrossover.newRequestKey(), { ...args,
+            currency: { ...args.currency, code: "xxx" }, cms: { ...args.cms, title: "Crossover" } })))._tag)
+            .toBe("Failure");
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          for (const hooks of [{ beforeApplication: () => Effect.fail(compositeError("invalidInput")) },
+            { afterSteps: () => Effect.fail(compositeError("invalidInput")) },
+            { receipts: (receipts: readonly object[]) => receipts.slice(0, 2) },
+            { receipts: (receipts: readonly object[]) => receipts.map(receipt => ({ ...receipt })) }]) {
+            const failing = yield* (acquireHost(input, hooks));
+
+            expect((yield* (Effect.exit(failing.run(failing.newRequestKey(), { ...args,
+              currency: { ...args.currency, code: "fff" }, cms: { ...args.cms, title: "Receipt failure" } }))))._tag)
+              .toBe("Failure");
+            expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          }
+          for (const changed of [{ ...input, applicationTable: "news" },
+            { ...input, expectedContentIdentity: { ...compiled.contentIdentity, configSha256: "0".repeat(64) } },
+            { ...input, currency: { ...input.currency,
+              initialization: { ...input.currency.initialization, datasetSha256: "0".repeat(64) } } }]) {
+            const refused = yield* (acquireHost(changed));
+
+            expect((yield* (Effect.exit(refused.run(refused.newRequestKey(), { ...args,
+              currency: { ...args.currency, code: "ggg" }, cms: { ...args.cms, title: "Authority refusal" } }))))._tag)
+              .toBe("Failure");
+            expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          }
+          let lostReply = true;
+          const session = issueRelationalSession(input.database, (profile, work) =>
+            runRelationalSession(fixture.session, profile, work).pipe(
+              Effect.catchTag("RelationalTransactionError", cause =>
+                Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
+              Effect.flatMap(value => {
+                if (!lostReply) return Effect.succeed(value);
+                lostReply = false;
+                return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain",
+                  cause: new Error("Lost logical announcement COMMIT reply") }));
+              })));
+          const recovering = yield* (acquireHost({ ...input, session }));
+
+          const recoveryArgs = { ...args, currency: { ...args.currency, code: "rrr" },
+            cms: { ...args.cms, title: "Recovered announcement" } };
+          const recoveryKey = recovering.newRequestKey();
+          const beforeRecoveryExecutions = cmsExecutions;
+          const recovered = yield* (recovering.run(recoveryKey, recoveryArgs));
+          expect(cmsExecutions).toBe(beforeRecoveryExecutions + 1);
+          expect(yield* (recovering.run(recoveryKey, recoveryArgs))).toEqual(recovered);
+          expect(cmsExecutions).toBe(beforeRecoveryExecutions + 1);
+          const recoveredInventory = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+          expect(recoveredInventory.commits).toHaveLength(after.commits.length + 1);
+          expect(recoveredInventory.outcomes).toHaveLength(after.outcomes.length + 1);
+          expect(recoveredInventory.rows).toHaveLength(after.rows.length + 3);
+          const concurrentArgs = { ...args, currency: { ...args.currency, code: "ccc" },
+            cms: { ...args.cms, title: "Concurrent replay" } };
+          const concurrentKey = host.newRequestKey();
+          const beforeConcurrentExecutions = cmsExecutions;
+          const concurrent = yield* (Effect.all([
+            host.run(concurrentKey, concurrentArgs), host.run(concurrentKey, concurrentArgs),
+          ], { concurrency: 2 }));
+          expect(concurrent[0]).toEqual(concurrent[1]);
+          expect(cmsExecutions).toBe(beforeConcurrentExecutions + 1);
+          const concurrentInventory = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+          expect(concurrentInventory.commits).toHaveLength(recoveredInventory.commits.length + 1);
+          expect(concurrentInventory.rows).toHaveLength(recoveredInventory.rows.length + 3);
+          yield* (Effect.scoped(Effect.gen(function* () {
+            const entered = yield* Deferred.make<void>();
+            const held = yield* acquireHost(input, {
+              beforeApplication: () => Deferred.succeed(entered, undefined)
+                .pipe(Effect.andThen(Effect.never)),
+            });
+
+            const interrupted = yield* held.run(held.newRequestKey(), { ...args,
+              currency: { ...args.currency, code: "iii" },
+              cms: { ...args.cms, title: "Interrupted announcement" } }).pipe(Effect.forkScoped);
+            yield* Deferred.await(entered).pipe(Effect.timeout("5 seconds"));
+            yield* Fiber.interrupt(interrupted);
+            const interruptedExit = yield* Fiber.await(interrupted);
+            expect(Exit.isFailure(interruptedExit)).toBe(true);
+            if (Exit.isFailure(interruptedExit)) expect(Cause.hasInterruptsOnly(interruptedExit.cause)).toBe(true);
+          })));
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(concurrentInventory);
+          if ("pool" in fixture.persistence) {
+            const postgres = fixture.persistence;
+            const entered = yield* Deferred.make<void>();
+            const admitted = yield* Deferred.make<void>();
+            const release = yield* Deferred.make<void>();
+            const heldHost = yield* acquireHost(input, { beforeApplication: () =>
+              Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))) });
+            const admittedHost = yield* acquireHost(input, { beforeApplication: () =>
+              Deferred.succeed(admitted, undefined).pipe(Effect.asVoid) });
+            const overlapBefore = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+            yield* Effect.scoped(Effect.gen(function* () {
+              const first = yield* heldHost.run(heldHost.newRequestKey(), { ...args,
+                currency: { ...args.currency, code: "hhh" },
+                cms: { ...args.cms, title: "Held admission" } }).pipe(Effect.forkScoped);
+              yield* Deferred.await(entered).pipe(Effect.timeout("5 seconds"));
+              const second = yield* admittedHost.run(admittedHost.newRequestKey(), { ...args,
+                currency: { ...args.currency, code: "jjj" },
+                cms: { ...args.cms, title: "Overlapping admission" } })
+                .pipe(Effect.forkScoped);
+              yield* Deferred.await(admitted).pipe(Effect.timeout("5 seconds"));
+              expect(yield* Deferred.isDone(release)).toBe(false);
+              yield* Deferred.succeed(release, undefined);
+              expect(yield* Fiber.join(first)).toMatchObject({ cms: { title: "Held admission" } });
+              expect(yield* Fiber.join(second)).toMatchObject({ cms: { title: "Overlapping admission" } });
+            }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds")));
+            const overlapAfter = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+            expect(overlapAfter.commits).toHaveLength(overlapBefore.commits.length + 2);
+            expect(overlapAfter.rows).toHaveLength(overlapBefore.rows.length + 6);
+            const lockStable = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+            yield* (Effect.scoped(Effect.gen(function* () {
+              const blocker = yield* Effect.acquireRelease(Effect.promise(() => postgres.pool.connect()), client =>
+                Effect.promise(() => client.query("rollback")).pipe(Effect.ensuring(Effect.sync(() => client.release(true)))));
+              const contendedSession = issueRelationalSession(input.database, (profile, work) => Effect.gen(function* () {
+                yield* Effect.promise(() => blocker.query("begin"));
+                yield* Effect.promise(() => blocker.query("select 1 from fx_system_scope_clock for update"));
+                return yield* runRelationalSession(fixture.session, profile, work).pipe(
+                  Effect.catchTag("RelationalTransactionError", cause =>
+                    Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))));
+              }));
+              const contended = yield* acquireHost({ ...input, session: contendedSession });
+
+              const failure = yield* Effect.flip(contended.run(contended.newRequestKey(), { ...args,
+                currency: { ...args.currency, code: "lll" },
+                cms: { ...args.cms, title: "Lock contention" } }));
+              expect(postgresFailureCode(failure)).toBe("55P03");
+              yield* Effect.promise(() => blocker.query("rollback"));
+            })));
+            expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(lockStable);
+            let failedPid = 0;
+            const pids: number[] = [];
+            const physical = yield* (acquireHost({ ...input,
+              session: makePostgresRelationalSession(postgres, { lifecycleFault: event => {
+                const pid: unknown = Reflect.get(event.client, "processID");
+                if (typeof pid !== "number") throw new Error("Missing PostgreSQL backend PID");
+                if (event.phase === "begin" && event.edge === "after") pids.push(pid);
+                if (event.phase === "commit" && event.edge === "after" && failedPid === 0) {
+                  failedPid = pid;
+                  throw new Error("Lost physical logical announcement COMMIT acknowledgement");
+                }
+              } }) }));
+
+            const physicalArgs = { ...args, currency: { ...args.currency, code: "ppp" },
+              cms: { ...args.cms, title: "Physical recovery" } };
+            const physicalKey = physical.newRequestKey();
+            const beforePhysicalExecutions = cmsExecutions;
+            const physicalResult = yield* (physical.run(physicalKey, physicalArgs));
+            expect(cmsExecutions).toBe(beforePhysicalExecutions + 1);
+            expect(pids.length).toBeGreaterThanOrEqual(2);
+            expect(pids[1]).not.toBe(failedPid);
+            expect(yield* (physical.run(physicalKey, physicalArgs))).toEqual(physicalResult);
+            expect(cmsExecutions).toBe(beforePhysicalExecutions + 1);
+            const physicalInventory = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+            expect(physicalInventory.commits).toHaveLength(lockStable.commits.length + 1);
+            expect(physicalInventory.rows).toHaveLength(lockStable.rows.length + 3);
+            let backendPid = 0;
+            const terminated = yield* acquireHost({ ...input,
+              session: makePostgresRelationalSession(postgres, { lifecycleFault: event => {
+                if (event.phase === "begin" && event.edge === "after") {
+                  const pid: unknown = Reflect.get(event.client, "processID");
+                  if (typeof pid !== "number") throw new Error("Missing PostgreSQL backend PID");
+                  backendPid = pid;
+                }
+              } }),
+            }, { afterSteps: () => Effect.promise(async () => {
+              const response = await postgres.pool.query<{ terminated: boolean }>(
+                "select pg_terminate_backend($1) as terminated", [backendPid]);
+              expect(response.rows[0]?.terminated).toBe(true);
+            }) });
+            const beforeTermination = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+            yield* Effect.flip(terminated.run(terminated.newRequestKey(), { ...args,
+              currency: { ...args.currency, code: "ttt" },
+              cms: { ...args.cms, title: "Backend termination" } }));
+            expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(beforeTermination);
+          }
+        })()));
+      } finally {
+        const failures: unknown[] = [];
+        for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+        if (failures.length > 0) throw new AggregateError(failures, "Logical announcement cleanup failed");
       }
-    });
-  })));
-}, 240_000);
+    }, 180_000);
+    it.skipIf(driver === "postgres" && postgresUrl === null)(`executes native Payload Local API and hooks on ${driver}`, async () => {
+      const cleanup: Array<() => Promise<void>> = [];
+      try {
+        const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close),
+          { includeUserNameIndex: true, payloadCollections: scalarPostsDeclaration() });
+        await Effect.runPromise(Effect.scoped(Effect.fn("LogicalCurrencyAnnouncement.nativePayload")(function* () {
+          const native = yield* makePayloadConformanceRuntime();
+          const compiled = yield* compilePayloadCollections(scalarPostsDeclaration());
+          expect(compiled.contentIdentity).toEqual(payloadScalarContentIdentity);
+          const input = { hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
+            database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,
+            session: fixture.session, deploymentId: fixture.deploymentId,
+            authority: fixture.application.authorityPorts, application: fixture.application.activation,
+            identityAndAccessPolicy: { profile: "logical-native-payload-announcement" }, materialization: {},
+            expectedContentIdentity: compiled.contentIdentity, currency: fixture.hostInput.logicalStorage,
+            applicationSource: fixture.applicationSource, payloadSource: compiled.sourceContract,
+            currencyCommand: currencyAnnouncementWrite, cmsCommand: native.runtime.commands.create,
+            applicationTable: "users" };
+          const host = yield* Effect.acquireRelease(makeCurrencyAnnouncementHost(input), value => value.close);
+          const args = (title: string, code: string) => ({
+            currency: { code, name: title, symbol: "N", symbol_native: "N" },
+            cms: { collection: "posts", data: { title, publishedAt: "2026-09-23" } },
+            application: { name: title },
+          });
+          const before = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+          const nativeJournal = yield* prepareNativeApplicationJournalOnLogicalScope(fixture.application);
+          const key = host.newRequestKey();
+          const result = yield* host.run(key, args("native-payload", "nnn"));
+          expect(result).toMatchObject({ currency: { code: "nnn" }, cms: { title: "native-payload" },
+            applicationId: expect.any(String) });
+          const after = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+          expect(after.rows).toHaveLength(before.rows.length + 3);
+          expect(after.commits).toHaveLength(before.commits.length + 1);
+          expect(after.rowChanges).toHaveLength(before.rowChanges.length + 3);
+          expect(native.observations.executions()).toBe(1);
+          expect(native.observations.touched()).toContain("posts");
+          const conflict = yield* Effect.flip(nativeJournal.publish);
+          expect(conflict).toBeInstanceOf(PointCommitConflictV1Error);
+          expect(conflict).toMatchObject({ conflict: { kind: "appIndexRange", reason: "overlap" } });
+          yield* nativeJournal.verifyUnchanged;
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          expect(yield* host.run(key, args("native-payload", "nnn"))).toEqual(result);
+          expect(native.observations.executions()).toBe(1);
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          const invalidApp = { ...args("invalid-application", "aaa"), application: { name: 42 } };
+          expect(yield* Effect.flip(host.run(host.newRequestKey(), invalidApp)))
+            .toMatchObject({ reason: "documentInvalid" });
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          for (const [title, code] of [["nested-caught", "bbb"], ["id-foreign", "ccc"],
+            ["id-removed", "ddd"]] as const) {
+            yield* Effect.flip(host.run(host.newRequestKey(), args(title, code)));
+            expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(after);
+          }
+          const nestedResult = yield* host.run(host.newRequestKey(), args("nested-ok", "eee"));
+          expect(nestedResult).toMatchObject({ cms: { title: "nested-ok" } });
+          const nested = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+          expect(nested.rows).toHaveLength(after.rows.length + 4);
+          expect(nested.commits).toHaveLength(after.commits.length + 1);
+          const pendingBefore = native.observations.pendingReads();
+          yield* Effect.scoped(Effect.gen(function* () {
+            const fiber = yield* host.run(host.newRequestKey(), args("id-unresolved", "fff"))
+              .pipe(Effect.forkScoped);
+            yield* Effect.gen(function* () {
+              while (native.observations.pendingReads() === pendingBefore) yield* Effect.sleep(10);
+            }).pipe(Effect.timeout("5 seconds"));
+            expect(native.observations.pendingReads()).toBe(pendingBefore + 1);
+            yield* Fiber.interrupt(fiber);
+            const interrupted = yield* Fiber.await(fiber);
+            expect(Exit.isFailure(interrupted)).toBe(true);
+            if (Exit.isFailure(interrupted)) expect(Cause.hasInterruptsOnly(interrupted.cause)).toBe(true);
+          }));
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(nested);
+        })()));
+      } finally {
+        const failures: unknown[] = [];
+        for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+        if (failures.length > 0) throw new AggregateError(failures, "Native Payload announcement cleanup failed");
+      }
+    }, 180_000);
+  }
+});

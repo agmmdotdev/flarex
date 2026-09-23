@@ -1,8 +1,10 @@
 import { Deferred, Effect, Fiber, Result, Schema } from "effect";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
 import { defineCmsCommand, makeCmsHost } from "../src/cmsTransaction/host";
-import { applicationUniqueDeclarationsMatch } from "../src/applicationWriteOwnership/UniqueDeclarations";
+import { applicationUniqueDeclarationsMatch, prepareApplicationUniqueDeclarationsInTransaction } from "../src/applicationWriteOwnership/UniqueDeclarations";
+import { runEffectTransaction } from "../src/effectTransaction";
+import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { makeIndexedPayloadFixture, type IndexedPayloadFixture } from "./payloadIndexedFixture";
 import type { JsonObject } from "flarex-protocol/json";
 
@@ -35,6 +37,29 @@ export const payloadNullableScenario = Effect.fn("NullablePayload.scenario")(fun
   if (manifest.version !== 3) throw new Error("Expected Payload-owned manifest");
   const bound = { deploymentId: tested.fixture.deploymentId, schemaVersionId: tested.fixture.relation.binding.schemaVersionId,
     tables: tested.fixture.relation.binding.tables };
+  expect(yield* applicationUniqueDeclarationsMatch(tested.fixture.control.drizzle, manifest, bound)).toBe(true);
+  const beforePreparationFailure = yield* Effect.promise(tested.inventory);
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  const providerFailure = new DOMException("temporary unique spec digest failure", "OperationError");
+  yield* Effect.acquireUseRelease(
+    Effect.sync(() => vi.spyOn(crypto.subtle, "digest").mockImplementation((algorithm, bytes) =>
+      new TextDecoder().decode(bytes).startsWith('{"format":"flarexdb-app-unique-constraint-physical-spec"')
+        ? Promise.reject(providerFailure) : digest(algorithm, bytes))),
+    () => Effect.gen(function* () {
+      const prepared = yield* Effect.result(runEffectTransaction(
+        callback => tested.fixture.control.drizzle.transaction(callback), "Payload declaration test rollback",
+        (tx: FlarexMetadataTransaction) => prepareApplicationUniqueDeclarationsInTransaction(tx, manifest, bound),
+        cause => new Error("Payload declaration transaction failed", { cause }),
+      ));
+      expect(prepared).toMatchObject({ _tag: "Failure", failure: { _tag: "ApplicationWriteOwnershipError",
+        reason: "resourceFailure", cause: { _tag: "AppUniqueConstraintDefinitionPreparationError", operation: "canonicalizeSpec", cause: providerFailure } } });
+      expect(yield* Effect.result(applicationUniqueDeclarationsMatch(tested.fixture.control.drizzle, manifest, bound)))
+        .toMatchObject({ _tag: "Failure", failure: { _tag: "ApplicationWriteOwnershipError", reason: "resourceFailure",
+          cause: { _tag: "AppUniqueConstraintCatalogPersistenceError", operation: "canonicalizeStoredSpec", cause: providerFailure } } });
+    }),
+    spy => Effect.sync(() => spy.mockRestore()),
+  );
+  expect(yield* Effect.promise(tested.inventory)).toEqual(beforePreparationFailure);
   expect(yield* applicationUniqueDeclarationsMatch(tested.fixture.control.drizzle, manifest, bound)).toBe(true);
   const changed = { ...manifest, schema: { ...manifest.schema, writePolicies: { ...manifest.schema.writePolicies,
     configuration: { ...manifest.schema.writePolicies.configuration, tables: manifest.schema.writePolicies.configuration.tables.map(table => ({ ...table,

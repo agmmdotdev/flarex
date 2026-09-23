@@ -1,6 +1,10 @@
 import { expect, it } from "vitest";
 import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure } from "../src/commitPublication/scopePublicationModel";
 import { projectCompositeFailure, projectCompositePublicationFailure } from "../src/crossDomainCommand/model";
+import { LogicalDocumentSourceAdmissionError } from "../src/logicalDocuments/documentAdmission";
+import { LogicalStorageDefinitionError } from "../src/logicalStorageDefinitions";
+import { IndexBuildStatePersistenceError } from "../src/indexBuildStates";
+import { DataBindingError } from "../src/frameworkSchema/binding/errors";
 
 it("retains publication corruption and resource categories through both root boundaries", () => {
   const cases = [
@@ -16,4 +20,20 @@ it("retains publication corruption and resource categories through both root bou
       expect(failure.cause).toBe(cause);
     }
   }
+});
+
+it("retains selected-source provider outages as resource failures", () => {
+  const provider = new Error("Provider unavailable");
+  for (const cause of [
+    new LogicalDocumentSourceAdmissionError({ reason: "resourceFailure", cause: provider }),
+    new LogicalStorageDefinitionError({ reason: "resourceFailure", cause: provider }),
+    new IndexBuildStatePersistenceError("readRequiredIndexBuildStates", provider),
+    new DataBindingError({ reason: "resourceFailure", cause: provider }),
+  ]) {
+    const failure = projectCompositeFailure(cause);
+    expect(failure).toMatchObject({ _tag: "CompositeCommandError", reason: "resourceFailure" });
+    expect(failure.cause).toBe(cause);
+  }
+  expect(projectCompositeFailure(new DataBindingError({ reason: "invalidAuthority" })))
+    .toMatchObject({ reason: "invalidAuthority" });
 });

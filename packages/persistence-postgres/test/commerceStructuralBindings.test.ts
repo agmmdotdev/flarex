@@ -121,7 +121,7 @@ it("authenticates structural ownership through activation, restart, replay, repl
   for (const command of forbidden) {
     expect(await runEffectFailure(restarted.host.run(restarted.host.newRequestKey(), command, {}))).toMatchObject({ reason: "invalidAuthority" });
   }
-  expect(await runEffectFailure(restarted.host.run(restarted.host.newRequestKey(), caught, {}))).toMatchObject({ reason: "closed" });
+  expect(await runEffectFailure(restarted.host.run(restarted.host.newRequestKey(), caught, {}))).toMatchObject({ reason: "rollbackOnly" });
   expect(await runEffectFailure(restarted.host.run(restarted.host.newRequestKey(), publish, {}))).toMatchObject({ reason: "unadmittedEvent" });
   expect(await runEffectFailure(restarted.host.initialize([{ id: "unadmitted-seed" }]))).toMatchObject({ reason: "unsupportedProfile" });
   if (escaped === undefined) throw new Error("Missing escaped context");

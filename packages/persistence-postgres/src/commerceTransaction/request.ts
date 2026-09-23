@@ -4,7 +4,21 @@ import { RelationalSessionError } from "../relationalTransaction/model";
 import { commerceError, CommerceTransactionError } from "./model";
 import { Effect, Result } from "effect";
 import { PreparedHostRuntimeError } from "../preparedHostRuntime";
+import { LogicalDocumentMaterializationError } from "../logicalDocuments/materialization";
 import { canonicalizeJsonOutcome, captureJsonOutcomeValue, JsonOutcomeError } from "../jsonOutcome";
+import { sql } from "drizzle-orm";
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
+
+/** Exclude one durable Commerce request across standalone and atomic hosts.
+ * The outcome row remains the authority; this lock only orders callbacks. */
+export const lockCommerceRequest = Effect.fn("CommerceRequest.lock")(function* (
+  tx: FlarexMetadataTransaction, scopeId: string, key: string,
+) {
+  yield* runDrizzleStatementEffect(tx.execute(sql`select pg_advisory_xact_lock(
+    hashtextextended(${JSON.stringify(["flarex.commerce.request", scopeId, key])}, 0))`),
+    cause => commerceError("statementFailure", cause));
+});
 
 export const captureCommerceJsonData = (input: unknown, maximum: number) =>
   captureJsonOutcomeValue(input, maximum).pipe(Result.mapError(projectCommerceRequestFailure));
@@ -32,6 +46,9 @@ export const commerceRequestHash = makeLivePrivateSha256V1({
 /** Expected errors only. Effect.mapError preserves interruption and defects. */
 export const projectCommerceRequestFailure = (cause: unknown): CommerceTransactionError => {
   if (cause instanceof CommerceTransactionError) return cause;
+  if (cause instanceof LogicalDocumentMaterializationError) return commerceError(
+    cause.reason === "uniqueConflict" || cause.reason === "relationInvalid" || cause.reason === "relationTargetMissing" || cause.reason === "relationDeleteRestricted"
+      ? "invalidInput" : cause.reason, cause);
   if (cause instanceof PreparedHostRuntimeError) return commerceError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
   if (cause instanceof JsonOutcomeError) return commerceError(cause.reason === "invalidEvidence" ? "storedCorruption" : cause.reason, cause);
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return commerceError("requestConflict", cause);

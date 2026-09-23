@@ -3,11 +3,13 @@ import type { Json } from "flarex-protocol/json";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext } from "./commands";
 import { commerceError, type CommerceTransactionError } from "./model";
-import type { makeCommerceStore } from "./store";
+import type { CommerceStore } from "./storeModel";
+import type { CommerceResources } from "./resources";
 
-/** Same borrowed-manager semantics for standalone and composite physical owners. */
+/** Same borrowed-manager semantics for standalone and composite owners. */
 export function makeCommerceCommandContext(
-  lifetime: BoundedRequestLifetime<CommerceTransactionError>, working: Pick<Effect.Success<ReturnType<typeof makeCommerceStore>>, "store" | "table" | "resources">,
+  lifetime: BoundedRequestLifetime<CommerceTransactionError>, working: Readonly<{ store: CommerceStore; resources: CommerceResources;
+    table: (context: BoundedRequestContext, tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError> }>,
   id: string, manager: BoundedRequestContext,
   invoke: (context: BoundedRequestContext, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>,
   captureEvent: (context: BoundedRequestContext, event: unknown) => Effect.Effect<void, CommerceTransactionError>,

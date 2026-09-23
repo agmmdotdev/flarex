@@ -11,6 +11,7 @@ import { commerceError, commerceLimits } from "./model";
 import { capturePrivateCanonicalValue } from "../frameworkSchema/privateCanonicalValue";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { selectRelationalRowKey } from "../commitPublication/relationalRowKey";
+import { decodeCommerceInitialization, type CommerceInitialization } from "./initializationContract";
 
 declare const commerceProfileBrand: unique symbol;
 export interface CommerceProfile { readonly [commerceProfileBrand]: true }
@@ -41,7 +42,7 @@ export interface CommerceProfileState {
   readonly artifact: FrameworkSchemaArtifact;
   readonly layout: RelationalPhysicalLayout;
   readonly profileId: string;
-  readonly initialization: Readonly<{ stepId: string; datasetSha256: string; expectedRowCount: number }> | null;
+  readonly initialization: CommerceInitialization | null;
   readonly tables: readonly CommerceTableCapability[];
   /** Layout ownership only; these identities never enter the scoped store. */
   readonly structuralTables: readonly string[];
@@ -92,15 +93,17 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
   artifact: FrameworkSchemaArtifact,
   layout: RelationalPhysicalLayout,
   profileId: string,
-  initialization: Readonly<{ stepId: string; datasetSha256: string; expectedRowCount: number }>,
+  initialization: CommerceInitialization,
 ) {
   if (copyCapturedFrameworkSchemaArtifactEvidence(artifact) === undefined || !isCapturedRelationalPhysicalLayout(layout)) {
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
   const table = layout.frame.tables[0];
-  const { stepId, datasetSha256, expectedRowCount } = initialization;
-  if (!/^[a-z][a-z0-9_.-]{0,127}$/.test(profileId) || !/^[a-z][a-z0-9_.-]{0,127}$/.test(stepId) ||
-    !/^[0-9a-f]{64}$/.test(datasetSha256) || !Number.isSafeInteger(expectedRowCount) || expectedRowCount < 0 || expectedRowCount > commerceLimits.catalogRows ||
+  const capturedInitialization = yield* Effect.fromResult(decodeCommerceInitialization({
+    stepId: initialization.stepId, datasetSha256: initialization.datasetSha256,
+    expectedRowCount: initialization.expectedRowCount,
+  })).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
+  if (!/^[a-z][a-z0-9_.-]{0,127}$/.test(profileId) ||
     artifact.identity.owner !== "medusa" ||
     artifact.provenance.kind !== "sourceSnapshot" || artifact.dependencies.length !== 0 ||
     !sameArtifactIdentity(artifact.identity, layout.frame.artifact) || layout.frame.tables.length !== 1 ||
@@ -112,7 +115,6 @@ export const registerCommerceProfile = Effect.fn("CommerceProfile.register")(fun
   }
   // SAFETY: only this WeakMap authenticates the inert profile token.
   const profile = Object.freeze({}) as CommerceProfile;
-  const capturedInitialization = Object.freeze({ stepId, datasetSha256, expectedRowCount });
   const contract = yield* capturePrivateCanonicalValue({ format: "flarex.commerce-profile-contract", version: 1,
     artifact: { ...artifact.identity }, layoutSha256: layout.layoutSha256, profileId, initialization: capturedInitialization }, 4096,
     { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) });

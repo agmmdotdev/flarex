@@ -58,8 +58,7 @@
     "./types": "./src/types.ts",
     "./test/backendHarness": "./test/backendHarness.ts",
     "./test/lifecycleFixture": "./test/lifecycleFixture.ts",
-    "./test/sync-protocol": "./src/syncProtocol.ts",
-    "./internal/schema-composition": "./src/schemaComposition.ts"
+    "./test/sync-protocol": "./src/syncProtocol.ts"
   },
   "scripts": {
     "build": "pnpm check:application-runtime-core && pnpm check:application-worker-core && pnpm check:function-api-core && pnpm check:edge-action-runtime-kernel && pnpm check:edge-action-exact-runtime-core && pnpm check:exact-runtime-core && pnpm check:point-mutation-runtime-kernel && pnpm check:point-query-runtime-kernel && pnpm check:point-query-exact-runtime-core && pnpm check:point-query-internal-call-runtime-kernel && pnpm check:point-query-internal-call-exact-runtime-core && pnpm check:point-mutation-internal-query-runtime-kernel && pnpm check:point-mutation-internal-query-exact-runtime-core && pnpm check:point-mutation-internal-call-runtime-kernel && pnpm check:point-mutation-internal-call-exact-runtime-core && tsc -p tsconfig.json",
@@ -119,8 +118,7 @@
     "effect": "catalog:",
     "flarex": "workspace:*",
     "flarex-protocol": "workspace:*",
-    "@flarex/payload-adapter": "workspace:*",
-    "@flarex/medusa-adapter": "workspace:*"
+    "@flarex/payload-adapter": "workspace:*"
   },
   "peerDependencies": {
     "miniflare": "catalog:",

@@ -1,5 +1,15 @@
 import { Schema } from "effect";
 
+/** Opaque producer-owned name within one table's definition family. This is
+ * catalog data, never a SQL identifier. Application applies its own narrower
+ * language rules. Native key/index namespaces may prefix their exact IDs. */
+export const CatalogDefinitionNameSchema = Schema.String.check(
+  Schema.isMinLength(1), Schema.isMaxLength(1024),
+  Schema.makeFilter(value => value.trim().length > 0 && !value.includes("\0") && !/[\uD800-\uDFFF]/u.test(value) &&
+    new TextEncoder().encode(value).byteLength <= 1024),
+).pipe(Schema.brand("FlarexDB/CatalogDefinitionName"));
+export type CatalogDefinitionName = typeof CatalogDefinitionNameSchema.Type;
+
 export const MAX_CATALOG_TABLE_ID = 2_147_483_647;
 export const MAX_CATALOG_INDEX_ID = 2_147_483_647;
 export const MAX_CATALOG_INDEX_DEFINITION_ID = 2_147_483_647;

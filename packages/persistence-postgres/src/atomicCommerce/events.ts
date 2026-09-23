@@ -6,7 +6,6 @@ import type { AtomicCommerceParticipant } from "./commands";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 import { capturePrivateJsonData } from "../privateJsonData";
 import { commitEventLimits, EventEnvelope, EventName, EventRevision, EventSubscriber, type CommittedEvent, type CommitEventSubscriber } from "../commitEvents/model";
-import { requireCommerceAdmission, type CommerceAdmission } from "../commerceTransaction/admission";
 import type { BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { commitEventsDigest } from "../commitEvents/digest";
 import { chargeHostPreparation } from "../preparedHostRuntime";
@@ -71,11 +70,26 @@ const decodeSubscribers = Schema.decodeUnknownEffect(Schema.Array(EventSubscribe
 const decodeEnvelope = Schema.decodeUnknownEffect(EventEnvelope, { onExcessProperty: "error" });
 const isEnvelope = Schema.is(EventEnvelope);
 
-export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(function* (input: AtomicCommerceEvents) {
-  const definitions = [...input.contracts].map(token => ({ token, definition: contracts.get(token) }));
-  const subscriberInput = yield* Effect.fromResult(capturePrivateJsonData(input.subscribers, commitEventLimits.bytes, commerceError));
+/** Capture policy bytes and registered tokens before host construction yields. */
+export interface CapturedAtomicCommerceEvents {
+  readonly definitions: readonly Readonly<{ token: CommerceEventContract; definition: EventContract | undefined }>[];
+  readonly subscribers: Json;
+  readonly producerRevision: string;
+  readonly validate: AtomicCommerceEvents["validate"];
+}
+export function captureAtomicCommerceEvents(input: AtomicCommerceEvents): Result.Result<CapturedAtomicCommerceEvents, CommerceTransactionError> {
+  if (!Array.isArray(input.contracts) || input.contracts.length < 1 || input.contracts.length > commitEventLimits.messages)
+    return Result.fail(commerceError("invalidAuthority"));
+  const definitions = Object.freeze([...input.contracts].map(token => Object.freeze({ token, definition: contracts.get(token) })));
+  return capturePrivateJsonData(input.subscribers, commitEventLimits.bytes, commerceError).pipe(Result.map(subscriberInput =>
+    Object.freeze({ definitions, subscribers: subscriberInput.value, producerRevision: input.producerRevision,
+      validate: input.validate })));
+}
+
+export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(function* (input: CapturedAtomicCommerceEvents) {
+  const { definitions } = input;
   const producerRevision = yield* decodeRevision(input.producerRevision).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
-  const subscribers = yield* decodeSubscribers(subscriberInput.value).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
+  const subscribers = yield* decodeSubscribers(input.subscribers).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   const validate = input.validate;
   if (definitions.length < 1 || definitions.length > commitEventLimits.messages || new Set(subscribers.map(value => value.id)).size !== subscribers.length) return yield* Effect.fail(commerceError("invalidAuthority"));
   const allowed = new Map<CommerceEventContract, EventContract>();
@@ -108,11 +122,12 @@ export function admitParticipantEvents(selection: ParticipantEventSelection | un
 
 declare const closureBrand: unique symbol;
 export interface CommerceEventClosure { readonly [closureBrand]: true }
-const closures = new WeakMap<object, { admission: CommerceAdmission; lifetime: BoundedRequestLifetime<CommerceTransactionError>; events: readonly CommittedEvent[] }>();
+const closures = new WeakMap<object, { requireAdmission: Effect.Effect<void, CommerceTransactionError>;
+  lifetime: BoundedRequestLifetime<CommerceTransactionError>; events: readonly CommittedEvent[] }>();
 
 /** One request owns this buffer; it cannot publish, clear another root, or deliver. */
 export function makeAtomicEventCapture(
-  admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>, group: string,
+  requireAdmission: Effect.Effect<void, CommerceTransactionError>, lifetime: BoundedRequestLifetime<CommerceTransactionError>, group: string,
   policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>, maximum: number,
 ) {
   const events: CommittedEvent[] = [];
@@ -149,22 +164,22 @@ export function makeAtomicEventCapture(
   });
   const close = Effect.fn("AtomicEvents.close")(function* (calls: readonly AtomicCommerceCallObservation[]) {
     if (sealed || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
-    yield* requireCommerceAdmission(admission);
+    yield* requireAdmission;
     yield* policy.validate(Object.freeze([...events]), Object.freeze([...calls]));
     sealed = true;
     // SAFETY: the single-use registry authenticates admission and lifetime.
     const token = Object.freeze({}) as CommerceEventClosure;
-    closures.set(token, { admission, lifetime, events: Object.freeze([...events]) });
+    closures.set(token, { requireAdmission, lifetime, events: Object.freeze([...events]) });
     return token;
   });
   return { capture, captureSelected, close };
 }
 export const consumeCommerceEvents = Effect.fn("AtomicEvents.consume")(function* (
-  closure: CommerceEventClosure, admission: CommerceAdmission, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
+  closure: CommerceEventClosure, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
 ) {
   const state = closures.get(closure);
-  if (state === undefined || state.admission !== admission || state.lifetime !== lifetime || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
-  yield* requireCommerceAdmission(admission);
+  if (state === undefined || state.lifetime !== lifetime || !lifetime.isClosing()) return yield* Effect.fail(commerceError("invalidAuthority"));
+  yield* state.requireAdmission;
   closures.delete(closure);
   return { values: state.events, sha256: state.events.length === 0 ? null : yield* commitEventsDigest(state.events).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause))) };
 });

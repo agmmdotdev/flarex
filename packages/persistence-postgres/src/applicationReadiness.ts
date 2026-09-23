@@ -884,6 +884,7 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
         repositoryState,
         issuedState,
         tx,
+        currentClock,
       );
     },
   );
@@ -894,6 +895,7 @@ const validateStoredIssuedReadiness = Effect.fn(
   repositoryState: ApplicationReadinessIssuerState,
   issuedState: StoredIssuedApplicationReadinessState,
   tx: AppRowTransaction,
+  clock: ScopeClockRecord,
 ): Effect.fn.Return<
   StoredApplicationReadinessActivationValidation,
   | ApplicationReadinessError
@@ -910,15 +912,12 @@ const validateStoredIssuedReadiness = Effect.fn(
     }),
     repositoryState.context.taskCatalog,
     "share",
+    clock,
   );
   if ("status" in currentBundle ||
     !storedBundlesEqual(currentBundle, issuedState.stored.bundle)) {
     return yield* readinessFailure("authorityChanged");
   }
-  const clock = yield* lockScopeClockForShareInTransactionEffect(
-    tx,
-    currentBundle.authority.scopeId,
-  );
   const physical = yield* loadPhysicalReadiness(
     tx,
     currentBundle.authority,
@@ -940,6 +939,7 @@ const validateStoredIssuedReadiness = Effect.fn(
     issuedState.stored.physicalDefinitionLifecycle,
     physical.physicalReadinessSha256,
     repositoryState.context.cold,
+    clock,
   );
   if (replay === null ||
     !bytesEqualFullScan(
@@ -965,14 +965,12 @@ function* (
   },
   taskCatalog: ApplicationTaskCatalogSnapshotPort,
   rowLock: "share" | "update" = "update",
+  lockedClock?: ScopeClockRecord,
 ): Effect.fn.Return<StoredBundle | Extract<ApplicationReadinessResult, {
   readonly status: "not_ready";
 }>, ApplicationReadinessError | ApplicationTaskCatalogSnapshotError |
   LockScopeClockForShareError> {
-    const clock = yield* lockScopeClockForShareInTransactionEffect(
-      tx,
-      authority.scopeId,
-    );
+    const clock = lockedClock ?? (yield* lockScopeClockForShareInTransactionEffect(tx, authority.scopeId));
     yield* requireExactAuthority(authority, clock);
     const revisionRows = yield* query(
       tx.select().from(fxSystemApplicationRevisionsV2).where(and(
@@ -1360,13 +1358,13 @@ function materializeFunctions<Failure>(
   });
 }
 
-function loadStoredColdEvidence<Failure>(
+const loadStoredColdEvidence = Effect.fn("ApplicationReadiness.loadStoredColdEvidence")(function* <Failure>(
   tx: AppRowTransaction,
   bundle: StoredBundle,
   port: ApplicationReadinessColdMaterializationPort<Failure>,
-): Effect.Effect<PreparedColdEvidence | null, ApplicationReadinessError |
+  lockedClock?: ScopeClockRecord,
+): Effect.fn.Return<PreparedColdEvidence | null, ApplicationReadinessError |
   LockScopeClockForShareError> {
-  return Effect.gen(function* () {
     const runtimeHostIdentity = port.runtimeHostIdentity;
     const compatibilityDate = port.compatibilityDate;
     if (!validRuntimeHostIdentity(runtimeHostIdentity) ||
@@ -1376,10 +1374,7 @@ function loadStoredColdEvidence<Failure>(
       compatibilityDate !== bundle.task.compatibilityDate) {
       return yield* readinessFailure("coldMaterialization");
     }
-    const clock = yield* lockScopeClockForShareInTransactionEffect(
-      tx,
-      bundle.authority.scopeId,
-    );
+    const clock = lockedClock ?? (yield* lockScopeClockForShareInTransactionEffect(tx, bundle.authority.scopeId));
     yield* requireExactAuthority(bundle.authority, clock);
     const readinessRows = yield* query(
       tx.select().from(fxSystemApplicationReadinessV1).where(and(
@@ -1459,8 +1454,7 @@ function loadStoredColdEvidence<Failure>(
       compatibilityDate,
       entries: Object.freeze(entries),
     });
-  });
-}
+});
 
 const loadStoredReadinessAuthority = Effect.fn(
   "ApplicationReadiness.loadStoredAuthority",
@@ -1475,11 +1469,12 @@ const loadStoredReadinessAuthority = Effect.fn(
     PreparedPhysicalDefinitionLifecycleReadiness,
   physicalReadinessSha256: Uint8Array,
   coldPort: ApplicationReadinessColdMaterializationPort<Failure>,
+  lockedClock?: ScopeClockRecord,
 ): Effect.fn.Return<
   StoredReadinessAuthority | null,
   ApplicationReadinessError | LockScopeClockForShareError
 > {
-  const cold = yield* loadStoredColdEvidence(tx, bundle, coldPort);
+  const cold = yield* loadStoredColdEvidence(tx, bundle, coldPort, lockedClock);
   if (cold === null) return null;
   const rows = yield* query(
     tx.select().from(fxSystemApplicationReadinessV1).where(and(

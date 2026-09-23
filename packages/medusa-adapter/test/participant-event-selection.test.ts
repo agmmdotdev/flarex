@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Result } from "effect";
-import { admitParticipantEvents, captureParticipantEvents, defineCommerceEventContract, prepareAtomicCommerceEvents } from "../../persistence-postgres/src/atomicCommerce/events";
+import { admitParticipantEvents, captureAtomicCommerceEvents, captureParticipantEvents, defineCommerceEventContract, prepareAtomicCommerceEvents } from "../../persistence-postgres/src/atomicCommerce/events";
 import { runEffect } from "../../persistence-postgres/test/effectTestRuntime";
 
 describe("participant event configuration capture", () => {
@@ -14,8 +14,8 @@ describe("participant event configuration capture", () => {
     tokens.reverse(); input.select = () => Effect.succeed(second);
     expect(captured?.contracts).toEqual([second, first]); expect(captured?.select).toBe(select);
     expect(Object.isFrozen(captured)).toBe(true); expect(Object.isFrozen(captured?.contracts)).toBe(true);
-    const policy = await runEffect(prepareAtomicCommerceEvents({ producerRevision: revision, contracts: [second, first],
-      subscribers: [{ id: "test", revision }], validate: () => Effect.void }));
+    const policy = await runEffect(prepareAtomicCommerceEvents(Result.getOrThrow(captureAtomicCommerceEvents({ producerRevision: revision, contracts: [second, first],
+      subscribers: [{ id: "test", revision }], validate: () => Effect.void }))));
     expect(Result.getOrThrow(admitParticipantEvents(captured, policy))).toEqual([{ name: "first", revision }, { name: "second", revision }]);
     expect(Result.getOrThrow(captureParticipantEvents(undefined))).toBeUndefined();
     expect(Result.getOrThrow(admitParticipantEvents(undefined, undefined))).toEqual([]);

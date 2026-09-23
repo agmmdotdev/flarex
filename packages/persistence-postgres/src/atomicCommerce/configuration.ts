@@ -3,6 +3,7 @@ import { hasApplicationBindingComposition } from "../applicationActivation";
 import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
 import { hasRelationalSessionDatabase } from "../relationalTransaction/session";
 import { captureTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
 import { captureCommerceJsonData } from "../commerceTransaction/request";
 import type { CommerceHostConfiguration } from "../commerceTransaction/hostConfiguration";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
@@ -11,10 +12,11 @@ import { CommerceCallLimit, defaultCommerceResources } from "../commerceTransact
 import { getAtomicCommerceCommand, type AtomicCommerceCommand } from "./commands";
 import {
   prepareAtomicCommerceParticipants,
+  captureAtomicCommerceParticipants,
   isCommerceDefinitionName,
   type AtomicCommerceParticipantInput,
 } from "./participants";
-import { admitParticipantEvents, prepareAtomicCommerceEvents, type AtomicCommerceEvents } from "./events";
+import { admitParticipantEvents, captureAtomicCommerceEvents, prepareAtomicCommerceEvents, type AtomicCommerceEvents } from "./events";
 import { TransactionIdentityAccessPolicySha256V1Schema } from "flarex-protocol/transaction-session";
 import { commerceIdentityEvidence } from "../commerceTransaction/request";
 import { hashAtomicCommerceBytes } from "./request";
@@ -58,12 +60,17 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     !hasApplicationBindingComposition(application, input.authority)
   )
     return yield* Effect.fail(commerceError("invalidAuthority"));
+  // No authority lookup or schema preparation may read caller-owned selection.
+  const participantInput = captureAtomicCommerceParticipants(input.participants);
+  const eventInput = input.events === undefined ? undefined : captureAtomicCommerceEvents(input.events);
+  const selectedCommands = [...input.commands];
+  const policyInput = captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes);
+  const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const selectedCallLimit = input.requestCallLimit;
   const callLimit = yield* decodeCallLimit(
     selectedCallLimit === undefined ? commerceLimits.calls : selectedCallLimit,
   ).pipe(Effect.mapError((cause) => commerceError("unsupportedProfile", cause)));
-  const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
-  const allowed = new Set(input.commands);
+  const allowed = new Set(selectedCommands);
   const names = new Set<string>();
   if (allowed.size === 0 || allowed.size > commerceLimits.commandDefinitions)
     return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -73,20 +80,23 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
       return yield* Effect.fail(commerceError("invalidAuthority"));
     names.add(definition.name);
   }
-  const policy = yield* Effect.fromResult(
-    captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes),
-  );
-  const members = yield* prepareAtomicCommerceParticipants(database, target, input.participants);
-  const eventPolicy =
-    input.events === undefined ? undefined : yield* prepareAtomicCommerceEvents(input.events);
+  const policy = yield* Effect.fromResult(policyInput);
+  const capturedMembers = yield* Effect.fromResult(participantInput);
+  const logicalLocation = capturedMembers.some(member => member.kind === "logical")
+    ? yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)))
+    : undefined;
+  const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
+    logicalLocation === undefined ? undefined : { deploymentId, scopeId: logicalLocation.authority.scopeId });
+  const eventPolicy = eventInput === undefined ? undefined : yield* prepareAtomicCommerceEvents(yield* Effect.fromResult(eventInput));
   const participantEvents = [];
   for (const member of members) {
-    if (member.events !== undefined && member.validate === undefined)
+    if (member.kind === "physical" && member.events !== undefined && member.validate === undefined)
       return yield* Effect.fail(commerceError("invalidAuthority"));
     const contracts = yield* Effect.fromResult(admitParticipantEvents(member.events, eventPolicy));
     participantEvents.push({
       participant: member.name,
-      installation: member.reference.installation.installationSha256,
+      ...(member.kind === "physical" ? { installation: member.reference.installation.installationSha256 }
+        : { logicalSource: member.contractSha256 }),
       contracts,
     });
   }

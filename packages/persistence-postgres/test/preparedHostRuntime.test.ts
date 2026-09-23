@@ -8,6 +8,7 @@ import {
 import { runEffect } from "./effectTestRuntime";
 import {
   defineCommerceEventContract,
+  captureAtomicCommerceEvents,
   prepareAtomicCommerceEvents,
 } from "../src/atomicCommerce/events";
 
@@ -57,10 +58,10 @@ it(
       decode: () => Effect.succeed(null),
     });
     const prepareEvents = (subscribers: readonly { readonly id: string; readonly revision: string }[]) =>
-      prepareAtomicCommerceEvents({
+      Effect.fromResult(captureAtomicCommerceEvents({
         producerRevision: revision, contracts: [contract], subscribers,
         validate: () => Effect.void,
-      });
+      })).pipe(Effect.flatMap(prepareAtomicCommerceEvents));
     const small = [{ id: "inventory", revision }];
     const first = yield* retainPreparedHost(runtime, prepareEvents(small));
     yield* first.close;

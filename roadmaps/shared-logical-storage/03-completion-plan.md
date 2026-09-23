@@ -48,6 +48,12 @@ remain distinct from logical schema evolution.
 - Existing Medusa models still use physical relational artifacts and installation
   evidence. Exact numeric presentation, native Links and current workflow tests
   are replacement obligations, not generic query proofs.
+  The connected [Currency cutover](./10-currency-storage-cutover.md) is in progress;
+  its native and atomic consumers use shared storage. A selected-source private
+  announcement now combines native Currency, Payload and Application writes in
+  one generic delta and one publication. The displaced private physical host and
+  Currency profile entry point are retired; remaining physical consumers and
+  data disposition are tracked in the [Currency cutover](./10-currency-storage-cutover.md).
 - Core execution, materialization, admission integrity and scoped host lifetime
   are implemented. Reuse these owners; do not reopen completed work without a
   connected defect or changed replacement contract.

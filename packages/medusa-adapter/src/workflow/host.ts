@@ -21,12 +21,16 @@ export interface AtomicWorkflowExecution {
   readonly identityAndAccessPolicy: Json;
   readonly prepare: (composition: AtomicWorkflowHostComposition) => Effect.Effect<AtomicCommerceHost, CommerceTransactionError>;
 }
-export interface InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule> {
+type InstalledWorkflowModuleBase<Module extends WorkflowModule> = {
   readonly module: Module;
-  readonly profile: AtomicCommerceParticipantInput["profile"];
-  readonly installation: AtomicCommerceParticipantInput["installation"];
   readonly moduleEvents?: Pick<LocalCommerceEventPolicy, "capture" | "validate">;
-}
+};
+export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule,
+  Storage extends "physical" | "logical" = "physical"> = InstalledWorkflowModuleBase<Module> & (
+    Storage extends "physical"
+      ? Pick<Extract<AtomicCommerceParticipantInput, { readonly profile: unknown }>, "profile" | "installation" | "logicalStorage">
+      : Pick<Extract<AtomicCommerceParticipantInput, { readonly logicalStorage: unknown }>, "logicalStorage" | "profile" | "installation">
+  );
 export interface WorkflowCallResults {
   /** Native encoded inputs and outputs of successful, validated outer calls. */
   readonly calls: (method: WorkflowMethod) => readonly Pick<AtomicCommerceCallObservation, "input" | "result">[];
@@ -48,7 +52,7 @@ export interface AtomicWorkflowDefinition<Resources, Input extends Json, Output 
  * per invocation, and exactly one existing core transaction/recovery owner. */
 export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
+  readonly modules: Readonly<Record<string, InstalledWorkflowModule<WorkflowModule, "physical" | "logical">>>;
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
@@ -89,6 +93,11 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     const binding = yield* Effect.fromResult(captureWorkflowRecord(raw));
     const definition = workflowModuleDefinition(member.module);
     if (binding.module !== member.module || definition === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+    const hasLogicalStorage = "logicalStorage" in binding;
+    const hasPhysicalStorage = "profile" in binding || "installation" in binding;
+    const logicalStorage = "logicalStorage" in binding ? binding.logicalStorage : undefined;
+    const profile = "profile" in binding ? binding.profile : undefined;
+    const installation = "installation" in binding ? binding.installation : undefined;
     const moduleEvents = binding.moduleEvents === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(binding.moduleEvents));
     if (moduleEvents !== undefined && (typeof moduleEvents.capture !== "function" || typeof moduleEvents.validate !== "function")) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const commands = new Set<CommerceCommand>();
@@ -127,7 +136,7 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
         commands.add(command); graphIdentities.push({ ...metadata, command: identity });
       }
     }
-    participants.push({ participant: member.participant, profile: binding.profile, installation: binding.installation, commands: [...commands],
+    const selected = { participant: member.participant, commands: [...commands],
       ...(moduleEvents === undefined ? {} : { validate: moduleEvents.validate }), ...(moduleContracts.size === 0 ? {} : { events: {
         contracts: [...moduleContracts.values()],
         select: Effect.fn("Workflow.selectModuleEvent")(function* (message: Json) {
@@ -136,7 +145,15 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
           return token;
         }),
       } }),
-    });
+    };
+    if (hasLogicalStorage) {
+      if (logicalStorage === undefined || hasPhysicalStorage) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      participants.push({ ...selected, logicalStorage });
+    } else {
+      if (!hasPhysicalStorage || profile === undefined || installation === undefined)
+        return yield* Effect.fail(commerceError("unsupportedProfile"));
+      participants.push({ ...selected, profile, installation });
+    }
     identities.push({ name: member.name, module: member.module.name, profile: definition.source.profile, methods: methodIdentities,
       graph: member.graph ? { aliases: definition.graph.aliases, reads: graphIdentities } : null,
     });

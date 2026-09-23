@@ -8,6 +8,7 @@
 export { fxSystemCommitPayloadPreferenceDeletions } from "./payloadPreferences/factsSchema";
 export { fxSystemCommitRelationalChanges } from "./commitPublication/relationalFactsSchema";
 export { fxSystemFrameworkInitializations } from "./frameworkSchema/installation/initializationSchema";
+export { fxSystemLogicalSourceInitializations } from "./logicalStorageInitialization";
 export {
   commits,
   deploymentPackages,

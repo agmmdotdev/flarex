@@ -1,5 +1,6 @@
 import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
+import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
@@ -176,6 +177,7 @@ import {
 
 import {
   decodeIndexBuildStateRowResult,
+  publicationModeForTable,
   type IndexBuildStateRecord,
 } from "../indexBuildStates";
 import { validateAppRowPointOccV1 } from "../appRowPointOcc";
@@ -203,13 +205,14 @@ export const decodePointCommitSeqResult = Schema.decodeUnknownResult(
 export const MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 = 256;
 
 /**
- * S11 currently performs one bounded transaction-local transition per action.
- * Keep this materially below the general material-row ceiling until that owner
- * has a set-based mutation primitive and corresponding contention evidence.
+ * The unique owner applies bounded statement batches in the borrowed transaction.
+ * Allow one constraint transition per material row at the core row ceiling;
+ * additional constraints consume the same aggregate budget. A transition may
+ * release one previous claim and acquire one replacement claim.
  */
-export const MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 = 32;
+export const MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 = MAX_POINT_COMMIT_MATERIAL_ROWS_V1;
 
-export const MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1 = 64;
+export const MAX_POINT_COMMIT_UNIQUE_KEY_ACTIONS_V1 = 2 * MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1;
 
 export const prepareIntrinsicIndexDefinitions = Effect.fn(
   "PointCommitTransaction.prepareIntrinsicIndexDefinitions",
@@ -535,6 +538,7 @@ export async function materializeApplicationDocumentRows(
   developerBuilds: ReadonlyArray<LockedPointCommitDeveloperIndexV1>,
   uniqueKeyActions: ReadonlyArray<PointCommitUniqueKeyActionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  publicationProfile: import("../indexBuildStates").IndexPublicationProfile,
   options: ApplicationDocumentMaterializationOptions,
 ): Promise<void> {
   const writeEpoch = clock.epoch;
@@ -545,12 +549,17 @@ export async function materializeApplicationDocumentRows(
         : corruption("developerIndexBuildInvalid"))),
   ));
   const uniqueBuilds = await runUniqueCoverage(
-    prepareActiveUniqueCoverageInTransactionEffect(tx, clock, command.authorityPins.schemaVersionId, uniqueDefinitions, coverageContext),
+    prepareActiveUniqueCoverageInTransactionEffect(tx, clock, command.authorityPins.schemaVersionId, uniqueDefinitions, coverageContext, publicationProfile),
   );
   for (const { build, definition } of maintainedBuilds) {
-    if (coverageContext.active !== null && (build.lifecycle !== "enabled" || build.maintenance === null))
+    const mode = publicationModeForTable(publicationProfile, definition.access.tableId);
+    if ((mode === "activeApplication" && coverageContext.active !== null && (build.lifecycle !== "enabled" || build.maintenance === null)) ||
+      (mode === "sourceBound" && (build.lifecycle !== "enabled" || build.maintenance !== null)) ||
+      (typeof publicationProfile !== "string" && mode === "activeApplication" && coverageContext.active === null))
       throw new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({ reason: "definitionSetUnavailable" });
-    if (build.maintenance !== null && (build.maintenance.frame.schemaVersionId !== command.authorityPins.schemaVersionId ||
+    const maintenanceSchemaVersionId = typeof publicationProfile !== "string" && mode === "activeApplication"
+      ? coverageContext.active?.schema.schemaVersionId : command.authorityPins.schemaVersionId;
+    if (build.maintenance !== null && (build.maintenance.frame.schemaVersionId !== maintenanceSchemaVersionId ||
       build.maintenance.frame.deploymentId !== command.authorityPins.deploymentId ||
       build.maintenance.frame.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex))
       throw corruption("developerIndexBuildInvalid");
@@ -1852,7 +1861,7 @@ function lowerDeveloperIndexKey(
   definition: LocatedAppIndexDefinitionV1,
   document: CanonicalFlarexValueV1,
   creationTime: AppCreationTimeV1,
-): OrderedIndexKeyHexV1 {
+): OrderedIndexKeyHexV1 | null {
   return projectPointCommitTransactionResult(
     lowerAppDeveloperIndexKeyV1(definition, document, creationTime).pipe(
       Result.mapError(

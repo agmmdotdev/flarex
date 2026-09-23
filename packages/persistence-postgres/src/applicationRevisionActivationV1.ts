@@ -401,6 +401,10 @@ export const readActiveApplicationRevisionV1 = Effect.fn(
       reason: "readinessMissing",
     });
   }
+  const schemaManifest = prepared.requirements.manifest;
+  if (schemaManifest.kind !== "appSchema") return yield* Effect.fail(new ApplicationRevisionActivationCorruptionV1Error({
+    revisionId: hint.applicationRevisionId, detail: "Application revision requires its exact Application schema validator",
+  }));
   const state = yield* runActiveReaderTransaction(prepared, context);
   const metadata = copyActiveApplicationRevisionMetadataV1(state.metadata);
   const selection = yield* Effect.acquireRelease(
@@ -408,7 +412,7 @@ export const readActiveApplicationRevisionV1 = Effect.fn(
       return issueActiveApplicationRevisionSelectionV1(
         metadata,
         prepared.authority,
-        prepared.requirements.manifest,
+        schemaManifest,
         Object.freeze({
           attemptSha256: copyBytes(prepared.revision.attemptSha256),
           functionMetadataBytes: copyBytes(

@@ -30,7 +30,7 @@ import {
   lockPointCommitDeveloperIndexBuilds,
   runCandidateSchemaWriteGuard,
 } from "../src/applicationDocumentMaterialization/materialization";
-import type { CmsFinalDocumentChange } from "../src/cmsTransaction/documents";
+import type { LogicalDocumentChange } from "../src/logicalDocuments/workingSet";
 import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
 import { lowerAppDeveloperIndexKeyV1 } from "../src/appDeveloperIndexCommitV1";
 import { lowerCanonicalAppUniqueConstraintV1Result } from "../src/appUniqueConstraintCommitV1";
@@ -191,7 +191,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
   );
   const builds = [...intrinsic, ...developer];
   return Effect.fn("Ce0Insert.apply")(function* (
-    changes: readonly CmsFinalDocumentChange[],
+    changes: readonly LogicalDocumentChange[],
     commitSeq: CommitSeq,
   ) {
     if (
@@ -234,6 +234,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
       prepared.schema.schemaVersionId,
       prepared.unique,
       context,
+      "activeApplication",
     ).pipe(
       Effect.mapError((cause) =>
         cmsError(
@@ -322,6 +323,7 @@ export const prepareCe0FirstInsertMaterialization = Effect.fn(
               ).pipe(
                 Effect.mapError((cause) => cmsError("storedCorruption", cause)),
               );
+        if (key === null) continue;
         const bytes = orderedIndexKeyHexV1ToBytes(key);
         memberships.push({
           scopeUuid: scope.scopeUuid,

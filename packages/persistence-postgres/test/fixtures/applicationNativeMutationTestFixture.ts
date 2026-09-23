@@ -175,6 +175,7 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly physicalLocator?: SplitScopePhysicalLocator;
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
+  readonly includeUserNameIndex?: boolean;
   readonly includeTask?: boolean;
   readonly taskMaximumDurationInSeconds?: number;
   readonly taskRetryMinimumTimeoutInMs?: number;
@@ -462,7 +463,12 @@ async function createApplicationNativeMutationFixture<
           },
           placement: { kind: "global" },
         }],
-        indexes: [],
+        indexes: options.includeUserNameIndex ? [{
+          indexId: 1,
+          tableId: 1,
+          name: "by_name",
+          fields: ["name"],
+        }] : [],
       },
       functions: [{
         path: "users:create",

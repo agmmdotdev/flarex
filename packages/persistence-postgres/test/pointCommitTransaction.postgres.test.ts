@@ -716,13 +716,6 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         const scope = await createScope(persistence, randomUuid, `ce1_unique_${rowCount}`);
         const unique = await prepareUniqueConstraintForPostgres(persistence, scope);
         const inserted = await createAttempt(persistence, randomUuid, scope, "ce1_unique_insert", rowCount);
-        if (rowCount > 32) {
-          expect(await runFailure(createPublisher(persistence, unique).publish(inserted.publicationCommand)))
-            .toMatchObject({ reason: "mutationLimitExceeded", observed: rowCount, maximum: 32 });
-          expect(await durableState(persistence, inserted.command.sealIdentity.scopeUuid))
-            .toMatchObject({ revisions: "0", commit_headers: "0", outcomes: "0", last_commit_seq: "0" });
-          continue;
-        }
         const measured = await withPostgresExecutionObservation(persistence.pool, async markPhase =>
           runEffect(createPublisher(persistence, {
             ...unique,
@@ -736,6 +729,52 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         expect(measured.observation.phases.uniqueKeyBatchWriting?.queryCalls).toBe(1 + 3 * Math.ceil(rowCount / 32));
         const claims = await persistence.query("select row_id from fx_app_unique_key where scope_uuid = $1", [inserted.command.sealIdentity.scopeUuid]);
         expect(claims.rows).toHaveLength(rowCount);
+        if (rowCount === 128) {
+          // All existing owners must be authenticated across read batches; every
+          // changed key releases and acquires a claim (256 actions, one commit).
+          const beforeKeys = await uniqueKeyState(persistence, inserted.command.sealIdentity.scopeUuid);
+          const documentIds = inserted.command.rowIntents.map(intent => intent.documentId);
+          const expectedKeys = documentIds.map((documentId, index) => {
+            const key = Result.getOrThrow(canonicalizeAppUniqueKeyV1Result({ sparse: false, localeKey: null,
+              values: [orderedIndexValueFromFlarexValueV1(`ce1_unique_move_name_${index}`)] }));
+            if (key.kind !== "claim") throw new Error("Expected canonical replacement key");
+            return { rowIdHex: decodeAppDocumentIdentityV1(documentId).rowId, encodedKeyHex: key.encodedKey };
+          }).sort((left, right) => left.rowIdHex.localeCompare(right.rowIdHex));
+          const moved = await createAttempt(persistence, randomUuid, scope, "ce1_unique_move", { kind: "bulkPatch", documentIds });
+          expect(await runEffect(createPublisher(persistence, unique).publish(moved.publicationCommand)))
+            .toMatchObject({ kind: "published" });
+          const updated = await uniqueKeyState(persistence, inserted.command.sealIdentity.scopeUuid);
+          expect(updated.map(({ rowIdHex, encodedKeyHex }) => ({ rowIdHex, encodedKeyHex }))
+            .sort((left, right) => left.rowIdHex.localeCompare(right.rowIdHex))).toEqual(expectedKeys);
+          const previousKeys = new Set(beforeKeys.map(row => row.encodedKeyHex));
+          expect(updated.every(row => !previousKeys.has(row.encodedKeyHex))).toBe(true);
+          expect(await durableState(persistence, inserted.command.sealIdentity.scopeUuid))
+            .toMatchObject({ revisions: "256", commit_headers: "2", outcomes: "2", last_commit_seq: "2" });
+        }
+      }
+    });
+  }, 120_000);
+
+  it("counts every unique constraint against the shared transition budget", async () => {
+    await withPostgresPersistence(async persistence => {
+      const randomUuid = uuidFactory("96419310");
+      for (const rowCount of [64, 65]) {
+        const scope = await createScope(persistence, randomUuid, `unique_fanout_${rowCount}`);
+        const unique = await prepareUniqueConstraintForPostgres(persistence, scope, undefined, ["unique_name", "unique_name_second"]);
+        const inserted = await createAttempt(persistence, randomUuid, scope, `unique_fanout_insert_${rowCount}`, rowCount);
+        if (rowCount === 64) {
+          expect(await runEffect(createPublisher(persistence, unique).publish(inserted.publicationCommand)))
+            .toMatchObject({ kind: "published" });
+          const claims = await persistence.query("select row_id from fx_app_unique_key where scope_uuid = $1", [inserted.command.sealIdentity.scopeUuid]);
+          expect(claims.rows).toHaveLength(128);
+        } else {
+          expect(await runFailure(createPublisher(persistence, unique).publish(inserted.publicationCommand)))
+            .toMatchObject({ reason: "mutationLimitExceeded", observed: 130, maximum: 128 });
+          expect(await durableState(persistence, inserted.command.sealIdentity.scopeUuid))
+            .toMatchObject({ revisions: "0", current_rows: "0", commit_headers: "0", outcomes: "0", last_commit_seq: "0" });
+          const claims = await persistence.query("select row_id from fx_app_unique_key where scope_uuid = $1", [inserted.command.sealIdentity.scopeUuid]);
+          expect(claims.rows).toHaveLength(0);
+        }
       }
     });
   }, 120_000);
@@ -4979,6 +5018,7 @@ async function commitCompetingIndexedUser(
   const encodedKey = Result.getOrThrow(
     lowerAppDeveloperIndexKeyV1(attempt.definition, document, creationTime),
   );
+    if (encodedKey === null) throw new Error("Expected fixture row in the ordered index");
   await persistence.drizzle.transaction(async (tx) => {
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
@@ -5173,31 +5213,34 @@ async function prepareUniqueConstraintForPostgres(
   persistence: PostgresFlarexPersistence,
   scope: ScopeScenario,
   uniqueSpec?: typeof conditionalUniqueSpec,
+  descriptors: readonly string[] = ["unique_name"],
 ): Promise<
   Required<Pick<PointCommitTransactionProofOptionsV1, "uniqueConstraints">>
 > {
-  const prepared = await runEffect(
-    prepareAppUniqueConstraintDefinitionBindingV1Effect(persistence.drizzle, {
-      deploymentId: scope.deploymentId,
-      schemaVersionId: scope.schemaVersionId,
-      tableId: decodeCatalogTableId(1),
-      descriptor: SchemaManifestAppIndexDescriptorSchema.make("unique_name"),
-      physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
-        kind: "appUniqueConstraint",
-        specVersion: 1,
-        orderedFields: ["name"],
-        sparse: false,
-        localePolicy: { kind: "none" },
-        keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
-        keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  for (const descriptor of descriptors) {
+    const prepared = await runEffect(
+      prepareAppUniqueConstraintDefinitionBindingV1Effect(persistence.drizzle, {
+        deploymentId: scope.deploymentId,
+        schemaVersionId: scope.schemaVersionId,
+        tableId: decodeCatalogTableId(1),
+        descriptor: SchemaManifestAppIndexDescriptorSchema.make(descriptor),
+        physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
+          kind: "appUniqueConstraint",
+          specVersion: 1,
+          orderedFields: ["name"],
+          sparse: false,
+          localePolicy: { kind: "none" },
+          keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+          keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+        }),
       }),
-    }),
-  );
-  await persistence.drizzle.transaction((tx) =>
-    runEffect(
-      ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
-    ),
-  );
+    );
+    await persistence.drizzle.transaction((tx) =>
+      runEffect(
+        ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
+      ),
+    );
+  }
   const input = {
     deploymentId: scope.deploymentId,
     schemaVersionId: scope.schemaVersionId,

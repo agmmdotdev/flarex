@@ -58,12 +58,24 @@ export const readApplicationBindingProjectionInTransaction = Effect.fn(
   tx: AppRowTransaction,
   clock: ScopeClockRecord,
 ) {
+  return (yield* readApplicationBindingEvidenceInTransaction(selection, tx, clock)).projection;
+});
+
+/** Fresh projection and source correlation from the same nominal selection.
+ * Plain evidence only; the accepting owner retains the transaction lifetime. */
+export const readApplicationBindingEvidenceInTransaction = Effect.fn(
+  "ApplicationBindingProjection.readEvidenceInTransaction",
+)(function* (selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord) {
   const validated = yield* validateApplicationBindingBasisInTransaction(
     selection,
     tx,
     clock,
   );
-  return yield* projectApplicationBindingInTransaction(validated, tx, clock);
+  const projection = yield* projectApplicationBindingInTransaction(validated, tx, clock);
+  const basis = validated.basis;
+  return Object.freeze({ projection, analysis: Object.freeze({ candidateId: basis.candidateId,
+    analysisId: basis.analysisId, manifestSha256: hex(basis.manifestSha256),
+    sourceArtifactRootSha256: hex(basis.sourceArtifactRootSha256) }) });
 });
 
 export const readAcceptedApplicationBindingProjection = Effect.fn("ApplicationBindingProjection.readAccepted")(

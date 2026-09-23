@@ -29,6 +29,8 @@ import {
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { isLogicalSchemaAdmissionManifest } from "./logicalSchemaAdmissionEvidence";
+import { verifyLogicalUniqueDefinitionSet } from "./logicalStorageDefinitions";
 import { runEffectTransaction } from "./effectTransaction";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
@@ -154,7 +156,7 @@ export class AppUniqueConstraintSetClosurePersistenceV1Error
 
 export class AppUniqueConstraintSetClosureResourceError
   extends Data.TaggedError("AppUniqueConstraintSetClosureResourceError")<{
-    readonly reason: "digestUnavailable";
+    readonly reason: "digestUnavailable" | "sourceUnavailable";
     readonly cause: unknown;
   }> {}
 
@@ -255,6 +257,14 @@ export const prepareAppUniqueConstraintSetClosureV1Effect = Effect.fn(
     decoded.schemaVersionId,
     MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   );
+  if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
+    yield* verifyLogicalUniqueDefinitionSet(db, decoded.deploymentId, decoded.schemaVersionId, members).pipe(
+      Effect.mapError(cause => cause._tag === "SchemaVersionArtifactPersistenceError" ||
+        cause._tag === "StableTableIdentityPersistenceError" || cause._tag === "AppUniqueConstraintCatalogPersistenceError" ||
+        ((cause._tag === "LogicalSchemaAdmissionEvidenceError" || cause._tag === "LogicalStorageDefinitionError") && cause.reason === "resourceFailure")
+        ? new AppUniqueConstraintSetClosureResourceError({ reason: "sourceUnavailable", cause })
+        : corruption("unique bindings do not match the complete logical source requirements", cause)));
+  }
   const canonical = yield* canonicalizeClosureMembers(members);
   const token = Object.freeze({
     ...decoded,

@@ -446,16 +446,14 @@ describe("C03 Postgres SessionJournalStore", () => {
           creationTime: seed.creationTime,
           fields: seed.fields,
         });
+        const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(locatedDefinition, canonical, seed.creationTime));
+        if (encodedKey === null) throw new Error("Expected fixture row in the ordered index");
         await persistence.drizzle.transaction((tx) =>
             runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
                 kind: "live",
                 scopeId,
                 definition: locatedDefinition,
-                encodedKey: Result.getOrThrow(lowerAppDeveloperIndexKeyV1(
-                  locatedDefinition,
-                  canonical,
-                  seed.creationTime,
-                )),
+                encodedKey,
                 rowId: decodeOrderedIndexRowIdHexV1(seed.rowId),
                 writeEpoch: clock.epoch,
                 commitSeq: CommitSeqSchema.make(1n),

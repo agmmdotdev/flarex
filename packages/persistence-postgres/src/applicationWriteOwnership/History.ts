@@ -9,7 +9,7 @@ import { digestApplicationWriteOwnership as digest } from "./Digest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { CatalogSchemaVersionIdSchema, decodeSchemaManifestAppSchemaV1Result, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { readSchemaVersionArtifactByIdEffect } from "../schemaVersionArtifacts";
+import { readSchemaVersionArtifactByIdEffect, SchemaVersionArtifactPersistenceError } from "../schemaVersionArtifacts";
 import { locateApplicationRelationBindingForCommitEffect } from "../applicationRelationBinding";
 import { makeApplicationSchemaAuthorityPublisher } from "../applicationSchemaAuthority";
 import { fxSystemApplicationPublications } from "../applicationRelationSchema";
@@ -61,13 +61,15 @@ export const readPreviouslyApplicationWritableTables = Effect.fn("ApplicationWri
     const serving = catalogHistory.filter(row => !row.candidate);
     yield* Effect.fromResult(budget.consume(serving.length, serving.reduce((sum, row) => sum + row.length, 0)));
     for (const historical of catalogHistory) {
-      const artifact = yield* readSchemaVersionArtifactByIdEffect(controlDb, input.deploymentId, historical.schemaVersionId).pipe(Effect.mapError(failure));
+      const artifact = yield* readSchemaVersionArtifactByIdEffect(controlDb, input.deploymentId, historical.schemaVersionId).pipe(Effect.mapError(cause =>
+        cause instanceof SchemaVersionArtifactPersistenceError ? new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause }) : failure(cause)));
       if (artifact === null || artifact.manifestBytes.byteLength !== historical.length ||
           isLogicalSchemaAdmissionManifest(artifact.manifestJson) !== historical.candidate) return yield* invalid();
       // Shared candidates allocate identities but have never granted writes.
       // Authenticate the semantic envelope before excluding it from serving history.
       if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
-        yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, input.deploymentId).pipe(Effect.mapError(failure));
+        yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, input.deploymentId).pipe(Effect.mapError(cause =>
+          cause.reason === "resourceFailure" ? new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause }) : failure(cause)));
         continue;
       }
       const appSchema = yield* Effect.fromResult(decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson).pipe(Result.mapError(failure)));

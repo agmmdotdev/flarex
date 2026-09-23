@@ -17,7 +17,7 @@ import { makeCatalogControlSessionStarter, startCatalogControlDeadline, type Cat
 import { postgresUrl, withTemporaryPostgresPersistence } from "../../persistence-postgres/test/postgresHelpers";
 import { insertSessionTestScope, SESSION_TEST_SCOPE_UUID, SESSION_TEST_EPOCH_UUID } from "../../persistence-postgres/test/sessionAuthorityTestSupport";
 import { ensureStableTableIdentityEffect } from "../../persistence-postgres/src/stableTableCatalog";
-import { deployments, fxControlScopes, fxControlTables, fxControlSchemaVersions } from "../../persistence-postgres/src/schema";
+import { deployments, fxControlScopes, fxControlTables, fxControlSchemaVersions, fxControlIndexDefinitions, fxControlUniqueConstraintDefinitions } from "../../persistence-postgres/src/schema";
 import type { FlarexMetadataDatabase } from "../../persistence-postgres/src/deployments";
 import type { FlarexSqlClient } from "../../persistence-postgres/src/index";
 import { readPreviouslyApplicationWritableTables } from "../../persistence-postgres/src/applicationWriteOwnership/History";
@@ -26,6 +26,12 @@ import { runEffectTransaction } from "../../persistence-postgres/src/effectTrans
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
 import { publishApplicationRelationBindingEffect } from "../../persistence-postgres/src/applicationRelationBinding";
 import { policyManifestFixture } from "../../persistence-postgres/test/applicationWritePolicyFixture";
+import { currencyCatalogWitness } from "../../persistence-postgres/test/currencyCatalogPreparationScenario";
+import { readSchemaVersionTableBindings } from "../../persistence-postgres/src/schemaVersionTableBindings";
+import { relationalPartialIndexScenario } from "../../persistence-postgres/test/relationalPartialIndexScenario";
+import { currencyInitialization } from "../../medusa-adapter/src/currency-contract";
+import { relationalValueAdmissionScenario } from "../../persistence-postgres/test/relationalValueAdmissionScenario";
+import { ensureLogicalStorageDefinitions } from "../../persistence-postgres/src/logicalStorageDefinitions";
 
 const deploymentId = "shared-candidate";
 const authority = {
@@ -139,10 +145,11 @@ async function witness(
   await Effect.runPromise(analyses.settle(authority, { kind: "analyzed", candidateId: pending.candidateId,
     sourceArtifactRootSha256: rootSha256, analyzerIdentity: "test-native-analyzer", analyzerPolicyIdentity: "test-policy",
     canonicalManifest: manifest.canonicalText }));
-  const compose = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses });
+  const medusaModules = ["product", "currency"] as const;
+  const compose = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses, medusaModules });
   const request = {
     applicationCandidateId: pending.candidateId,
-    payloadCollections: [{ slug: "news", fields: [{ name: "title", type: "text", required: true }] }],
+    payloadCollections: [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
     payloadViews: [{ collections: [{ slug: "cms-view", fields: [
       { name: "title", type: "text", required: true }, { name: "commerceId", type: "text", required: true },
     ] }], bindings: [{ localName: "cms_view", table }] }],
@@ -167,7 +174,7 @@ async function witness(
     _tag: "Failure", failure: { reason: "unsupportedPlacement" },
   });
   const candidate = await Effect.runPromise(readPreparedLogicalSchemaCandidate(prepared));
-  const mutableConfig = { deploymentId, authority: { ...authority }, applicationAnalyses: analyses };
+  const mutableConfig = { deploymentId, authority: { ...authority }, applicationAnalyses: analyses, medusaModules };
   mutableConfig.applicationAnalyses = { ...analyses, inspect: (scope, id) => analyses.inspect(scope, id).pipe(Effect.tap(() => Effect.sync(() => {
     mutableConfig.deploymentId = "mutated-deployment";
     mutableConfig.authority.scopeId = ScopeIdSchema.make("mutated-scope");
@@ -185,8 +192,14 @@ async function witness(
   expect(pivots.every(table => table.keys.some(key => key.kind === "unique"))).toBe(true);
   expect(product.definition.schema.tables.some(table => table.indexes.some(index => index.predicate?.kind === "isNull"))).toBe(true);
   expect(product.definition.schema.capabilities.some(capability => capability.kind === "softDelete")).toBe(true);
+  const currency = candidate.sources.find(source => source.key === "medusa.currency");
+  expect(currency?.definition).toMatchObject({ kind: "relational", schema: { coordinate: { lineageId: "commerce.currency" },
+    tables: [{ identity: { tableId: "currency" }, keys: [{ kind: "primary", columns: [{ columnId: "code" }] }] }] } });
   expect(candidate.applicationAnalysis.sourceArtifactRootSha256).toBe(rootSha256);
   expect(candidate.sources[0]?.definition).toMatchObject({ kind: "documents", indexes: [{ descriptor: "by_title", fields: ["title"] }] });
+  expect(candidate.sources.find(source => source.key === "payload")?.definition).toMatchObject({
+    kind: "documents", uniqueConstraints: [{ tableLogicalName: "news", fields: ["title"], nullsDistinct: false, sparse: false }],
+  });
 
   const admission = makeLogicalSchemaAdmission({ controlDb: persistence.drizzle, session, deploymentId, scopeId: authority.scopeId });
   const identity = { schemaVersionId: decodeCatalogSchemaVersionId("shared-candidate-one"), version: decodeCatalogSchemaVersion(1) };
@@ -209,12 +222,41 @@ async function witness(
     { deadline: await Effect.runPromise(startCatalogControlDeadline("read", 20_000)) }));
   const stored = await inspect();
   expect(stored.candidate).toEqual(candidate);
-  expect(stored.tableBindings).toHaveLength(15);
+  expect(stored.tableBindings).toHaveLength(16);
   expect(stored.tableBindings.find(binding => binding.table.logicalName === table.logicalName)?.tableId).toBe(stable.table.tableId);
   expect(stored.tableBindings.some(binding => binding.table.logicalName === "cms_view")).toBe(false);
-  expect((await persistence.drizzle.select().from(fxControlTables))).toHaveLength(15);
+  expect((await persistence.drizzle.select().from(fxControlTables))).toHaveLength(16);
   expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows).toEqual(before.rows);
   expect(Schema.decodeUnknownResult(ApplicationManifestSchema)(stored.artifact.manifestJson)).toMatchObject({ _tag: "Failure" });
+  if (historyLimits === null) {
+    const currencyTable = stored.tableBindings.find(binding => binding.table.logicalName === "commerce.currency/currency");
+    if (currencyTable === undefined) throw new Error("Missing native Currency binding");
+    // Product's still-unsupported requirements cannot silently disappear from
+    // the complete-candidate contract. No definitions are installed on failure.
+    expect(await Effect.runPromise(Effect.result(runEffectTransaction(callback => persistence.drizzle.transaction(callback),
+      "Refuse unsupported candidate", (tx: FlarexMetadataTransaction) => ensureLogicalStorageDefinitions(tx, deploymentId, identity.schemaVersionId),
+      cause => new Error("Candidate definition transaction failed", { cause })))))
+      .toMatchObject({ _tag: "Failure", failure: { _tag: "LogicalStorageRequirementError", sourceKey: "medusa.product" } });
+    expect(await persistence.drizzle.select().from(fxControlIndexDefinitions)).toHaveLength(0);
+    expect(await persistence.drizzle.select().from(fxControlUniqueConstraintDefinitions)).toHaveLength(0);
+    // A separately configured Currency candidate has its own complete artifact.
+    // This does not activate or partially reinterpret the Product candidate.
+    const currencyComposer = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses, medusaModules: ["currency"] });
+    const currencyCandidate = await Effect.runPromise(currencyComposer({ ...request, extensions: [] }));
+    const currencyIdentity = { schemaVersionId: decodeCatalogSchemaVersionId("currency-candidate"), version: decodeCatalogSchemaVersion(4) };
+    await Effect.runPromise(admission.admit(currencyCandidate, currencyIdentity, await budget()));
+    const activeIndex = await Effect.runPromise(currencyCatalogWitness(persistence, deploymentId, currencyIdentity.schemaVersionId, currencyTable.tableId, concurrent));
+    const seed = await Effect.runPromise(currencyInitialization());
+    await Effect.runPromise(relationalPartialIndexScenario(persistence.drizzle, deploymentId, authority.scopeId,
+      currencyIdentity.schemaVersionId, activeIndex, seed.rows));
+    await Effect.runPromise(relationalValueAdmissionScenario(persistence.drizzle, deploymentId, currencyIdentity.schemaVersionId));
+    expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows).toEqual(before.rows);
+    const forgedSource = { ...stored.artifact.manifestJson, candidate: { ...candidate,
+      sources: candidate.sources.map(source => source.key === "medusa.currency" ? { ...source, sourceSha256: "0".repeat(64) } : source) } };
+    expect(await Effect.runPromise(Effect.result(readSchemaVersionTableBindings(forgedSource, deploymentId)))).toMatchObject({
+      _tag: "Failure", failure: { _tag: "SchemaVersionTableBindingsError" },
+    });
+  }
 
   const takeoverSources = [];
   for (const { sourceSha256: _digest, ...source } of candidate.sources.filter(source => !source.bindings.some(binding => binding.kind === "view"))) {

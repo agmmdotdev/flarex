@@ -168,9 +168,9 @@ it("rejects duplicate keys across chunks, managed input, missing keys and late c
   }
   expect(await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), upsert, [row("x", "must-rollback"), { ...key("y"), value: null }]))).toMatchObject({ reason: "statementFailure" });
   expect(await commerceInventory(fixture)).toEqual(before);
-  // The first refusal closes the borrowed context; catching it cannot reopen
-  // the context for the host's final result capture or settle the earlier row.
-  expect(await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), caughtFailure, [row("x", "caught")]))).toMatchObject({ reason: "closed" });
+  // Catching the refusal cannot reopen the borrowed context or settle the row.
+  // Root sealing reports rollback-only before capturing the command result.
+  expect(await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), caughtFailure, [row("x", "caught")]))).toMatchObject({ reason: "rollbackOnly" });
   expect(await commerceInventory(fixture)).toEqual(before);
 });
 

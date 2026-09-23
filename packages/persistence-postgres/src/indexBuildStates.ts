@@ -1,10 +1,11 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
   type CatalogIndexDefinitionId,
+  type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
   IndexBuildAttemptFenceSchema,
@@ -35,6 +36,7 @@ import {
 import { readAppTableWriteFrontierInTransactionEffect, type AppRowTransaction, type AppRowReadPersistenceError, type AppRowTableFrontierCorruptionError, type InvalidAppRowReadInputError } from "./appRows";
 import type { AppIndexDefinitionRecord } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import { decodeScopeClockRecordResult, type ScopeClockRecord } from "./scopeClock";
 import { readCoherentApplicationActiveHeadForShareInTransactionEffect, readApplicationSchemaForHeadForShareInTransactionEffect, type CoherentApplicationActiveHead } from "./applicationActiveHeadRead";
@@ -209,13 +211,39 @@ export class IndexBuildStatePersistenceError extends Error {
   readonly _tag = "IndexBuildStatePersistenceError" as const;
 
   constructor(
-    readonly operation: "readFencedIndexBuildState",
+    readonly operation: "readFencedIndexBuildState" | "readRequiredIndexBuildStates",
     readonly cause: unknown,
   ) {
-    super("Failed to read fenced index build state.", { cause });
+    super("Failed to read index build state.", { cause });
     this.name = "IndexBuildStatePersistenceError";
   }
 }
+
+export const MAX_REQUIRED_INDEX_BUILDS = 256;
+
+/** Shared structural gate under the caller's locked clock. The caller supplies
+ * its authenticated complete requirement set. Enabled state alone is not a
+ * serving grant or proof of coverage at an arbitrary read snapshot. */
+export const readRequiredEnabledIndexBuildsInTransactionEffect = Effect.fn("IndexBuildState.readRequiredEnabled")(
+  function* (tx: AppRowTransaction, clock: ScopeClockRecord, definitionIds: readonly CatalogIndexDefinitionId[], lock: "key share" | "share" | "update") {
+    if (definitionIds.length > MAX_REQUIRED_INDEX_BUILDS || new Set(definitionIds).size !== definitionIds.length)
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    const rows = definitionIds.length === 0 ? [] : yield* Effect.uninterruptible(runDrizzleStatementEffect(
+      tx.select().from(fxSystemIndexBuildStates).where(and(
+        eq(fxSystemIndexBuildStates.scopeId, clock.scopeId), inArray(fxSystemIndexBuildStates.indexDefinitionId, [...definitionIds]),
+      )).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for(lock),
+      cause => new IndexBuildStatePersistenceError("readRequiredIndexBuildStates", cause),
+    ));
+    for (const indexDefinitionId of definitionIds) {
+      const build = rows.find(row => row.indexDefinitionId === indexDefinitionId);
+      if (build === undefined) return Object.freeze({ status: "not_ready" as const, reason: "missing" as const, indexDefinitionId });
+      if (build.storageGeneration !== clock.storageGeneration || build.storageGenerationFence !== clock.storageGenerationFence || build.epoch !== clock.epoch)
+        return Object.freeze({ status: "not_ready" as const, reason: "stale" as const, indexDefinitionId });
+      if (build.lifecycle !== "enabled") return Object.freeze({ status: "not_ready" as const, reason: "notEnabled" as const, indexDefinitionId, lifecycle: build.lifecycle });
+    }
+    return Object.freeze({ status: "ready" as const, rows: Object.freeze(rows) });
+  },
+);
 
 export type ReadFencedIndexBuildStateError =
   | InvalidIndexBuildStateReadInputError
@@ -572,6 +600,15 @@ export interface IndexCoverageContext {
   readonly clock: ScopeClockRecord;
   readonly active: (CoherentApplicationActiveHead & { readonly schema: { readonly deploymentId: string; readonly schemaVersionId: string; readonly schemaManifestSha256: string } }) | null;
 }
+
+/** Application activation owns a maintained suffix. A separately admitted
+ * logical source requires explicit build progress and cannot borrow that suffix.
+ * A joint command names exactly which selected tables retain Application
+ * maintenance; framework-owned tables still require source-bound coverage. */
+export type IndexPublicationProfile = "activeApplication" | "sourceBound" |
+  Readonly<{ kind: "mixedSelectedSources"; activeApplicationTables: ReadonlySet<CatalogTableId> }>;
+export const publicationModeForTable = (profile: IndexPublicationProfile, tableId: CatalogTableId) =>
+  typeof profile === "string" ? profile : profile.activeApplicationTables.has(tableId) ? "activeApplication" : "sourceBound";
 
 /** Keep this value within the guarded transaction that produced it. */
 export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuildState.readCoverageContext")(

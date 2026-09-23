@@ -22,6 +22,7 @@ import {
 } from "../src/index-definition";
 import {
   APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+  decodeAppOrderedIndexPhysicalSpecV1Result,
   lowerAppDeveloperOrderedIndexPhysicalSpecV1,
 } from "../src/ordered-index";
 import {
@@ -34,6 +35,34 @@ const tableId = CatalogTableIdSchema.make(7);
 const logicalIndexId = CatalogIndexIdSchema.make(11);
 
 describe("physical index definition protocol", () => {
+  it("commits partial membership and refuses predicates on intrinsic indexes", async () => {
+    const base = lowerAppDeveloperOrderedIndexPhysicalSpecV1(decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({
+      kind: "developerOrdered", specVersion: 1, fields: ["deleted_at"],
+    }));
+    const partial = Result.getOrThrow(decodeAppOrderedIndexPhysicalSpecV1Result({ ...base,
+      predicate: { kind: "fieldIsNull", field: "deleted_at" } }));
+    expect((await canonicalizeAppIndexPhysicalSpecV1(partial)).sha256Hex).not.toBe((await canonicalizeAppIndexPhysicalSpecV1(base)).sha256Hex);
+    expect(Result.isFailure(decodeAppOrderedIndexPhysicalSpecV1Result({ ...APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+      predicate: partial.predicate }))).toBe(true);
+    for (const predicate of [null, { kind: "fieldIsNull", field: "deleted_at", ignored: true }, { kind: "fieldEquals", field: "deleted_at", value: null }]) {
+      expect(Result.isFailure(decodeAppOrderedIndexPhysicalSpecV1Result({ ...base, predicate }))).toBe(true);
+    }
+  });
+  it("commits exact-decimal projection independently of ordinary ordering", async () => {
+    const ordinary = lowerAppDeveloperOrderedIndexPhysicalSpecV1(
+      decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({ kind: "developerOrdered", specVersion: 1, fields: ["amount"] }),
+    );
+    const decimal = lowerAppDeveloperOrderedIndexPhysicalSpecV1(
+      decodeSchemaManifestAppDeveloperOrderedIndexSpecV1({ kind: "developerOrdered", specVersion: 1,
+        fields: ["amount"], decimalFields: ["amount"] }),
+    );
+    const left = await canonicalizeAppIndexPhysicalSpecV1(ordinary);
+    const right = await canonicalizeAppIndexPhysicalSpecV1(decimal);
+    expect(right.canonicalText).toContain('"valueFormat":"exactDecimal"');
+    expect(right.canonicalBytesHex).not.toBe(left.canonicalBytesHex);
+    expect(right.sha256Hex).not.toBe(left.sha256Hex);
+    expect(await canonicalizeAppIndexPhysicalSpecV1(right.physicalSpec)).toEqual(right);
+  });
   it("keeps developer and intrinsic access ownership discriminated", () => {
     expectTypeOf<AppDeveloperPhysicalIndexAccessIdentityV1["tableId"]>()
       .toEqualTypeOf<CatalogTableId>();

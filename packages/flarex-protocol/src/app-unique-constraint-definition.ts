@@ -9,8 +9,10 @@ import {
 import {
   MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS,
   SchemaManifestAppIndexFieldPathSchema,
+  SchemaManifestAppTableNameSchema,
   type SchemaManifestAppIndexFieldPath,
 } from "./schema-manifest";
+import { CatalogDefinitionNameSchema } from "./catalog";
 import {
   StrictParseOptions,
   StrictStructOptions,
@@ -44,6 +46,21 @@ const UniqueConstraintFieldsV1Schema = Schema.Array(
       : "Expected unique ordered field paths"
   ),
 );
+const NullPredicateSchema = Schema.Struct({
+  kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema,
+}).annotate(StrictStructOptions);
+
+/** Semantic producer intent; stable identities and physical generations are
+ * assigned by the shared catalog, never by a framework's configuration. */
+export const LogicalDocumentUniqueConstraintDeclarationSchema = Schema.Struct({
+  tableLogicalName: SchemaManifestAppTableNameSchema,
+  descriptor: CatalogDefinitionNameSchema,
+  fields: UniqueConstraintFieldsV1Schema,
+  sparse: Schema.Boolean,
+  nullsDistinct: Schema.Boolean,
+  predicate: Schema.optionalKey(NullPredicateSchema),
+}).annotate(StrictStructOptions);
+export type LogicalDocumentUniqueConstraintDeclaration = typeof LogicalDocumentUniqueConstraintDeclarationSchema.Type;
 
 /**
  * First target-native unique-constraint generation.
@@ -58,10 +75,7 @@ export const AppUniqueConstraintPhysicalSpecV1Schema = Schema.Struct({
   orderedFields: UniqueConstraintFieldsV1Schema,
   sparse: Schema.Boolean,
   nullsDistinct: Schema.optionalKey(Schema.Literal(true)),
-  predicate: Schema.optionalKey(Schema.Struct({
-    kind: Schema.Literal("fieldIsNull"),
-    field: SchemaManifestAppIndexFieldPathSchema,
-  }).annotate(StrictStructOptions)),
+  predicate: Schema.optionalKey(NullPredicateSchema),
   localePolicy: Schema.Struct({ kind: Schema.Literal("none") }).annotate(
     StrictStructOptions,
   ),
@@ -70,6 +84,18 @@ export const AppUniqueConstraintPhysicalSpecV1Schema = Schema.Struct({
 }).annotate(StrictStructOptions);
 export type AppUniqueConstraintPhysicalSpecV1 =
   typeof AppUniqueConstraintPhysicalSpecV1Schema.Type;
+
+export function lowerLogicalDocumentUniqueConstraint(
+  declaration: LogicalDocumentUniqueConstraintDeclaration,
+): AppUniqueConstraintPhysicalSpecV1 {
+  return Object.freeze({ kind: "appUniqueConstraint", specVersion: 1,
+    orderedFields: declaration.fields, sparse: declaration.sparse,
+    ...(declaration.nullsDistinct ? { nullsDistinct: true as const } : {}),
+    ...(declaration.predicate === undefined ? {} : { predicate: declaration.predicate }),
+    localePolicy: { kind: "none" as const }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+    keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+  });
+}
 const decodeAppUniqueConstraintPhysicalSpecV1ShapeResult =
   Schema.decodeUnknownResult(
     AppUniqueConstraintPhysicalSpecV1Schema,

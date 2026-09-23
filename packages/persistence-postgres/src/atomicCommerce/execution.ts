@@ -10,7 +10,11 @@ import {
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
 import type { CommerceAdmission } from "../commerceTransaction/admission";
+import { requireCommerceAdmission } from "../commerceTransaction/admission";
 import { makeCommerceStore, type CommerceRowClosure } from "../commerceTransaction/store";
+import { makeLogicalCommerceParticipant, type LogicalCommerceClosure } from "../commerceTransaction/logicalParticipant";
+import { requireLogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { makeCommerceCommandContext } from "../commerceTransaction/context";
 import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
 import { finalizeCommerceCommit } from "../commerceTransaction/publication";
@@ -22,6 +26,7 @@ import {
   type CommerceEventClosure,
 } from "./events";
 import type { PreparedAtomicCommerceConfiguration } from "./configuration";
+import type { AtomicCommerceAdmission } from "./admission";
 import {
   hashAtomicCommerceBytes,
   type CapturedAtomicCommerceRequest,
@@ -32,22 +37,21 @@ type ExecutionConfiguration = Pick<
   PreparedAtomicCommerceConfiguration<never>,
   "members" | "eventPolicy" | "limits" | "factLimit" | "owner"
 >;
-interface CommerceContribution {
-  readonly admission: CommerceAdmission;
-  readonly closure: CommerceRowClosure;
-}
+type CommerceContribution = Readonly<{ kind: "physical"; admission: CommerceAdmission; closure: CommerceRowClosure }> |
+  Readonly<{ kind: "logical"; closure: LogicalCommerceClosure }>;
+type PhysicalWorking = Effect.Success<ReturnType<typeof makeCommerceStore>>;
+type LogicalWorking = Effect.Success<ReturnType<typeof makeLogicalCommerceParticipant>>;
+type Working = PhysicalWorking | LogicalWorking;
+type OpenContribution = Readonly<{ kind: "physical"; token: AtomicCommerceAdmission; admission: CommerceAdmission; working: PhysicalWorking }> |
+  Readonly<{ kind: "logical"; token: AtomicCommerceAdmission; working: LogicalWorking }>;
 interface AtomicCommerceExecution {
   readonly context: AtomicCommerceContext;
+  readonly openMissingContributions: () => Effect.Effect<void, CommerceTransactionError>;
   readonly closeContributions: () => Effect.Effect<
     {
       readonly root: CommerceContribution;
       readonly additional: readonly CommerceContribution[];
-      readonly events:
-        | {
-            readonly admission: CommerceAdmission;
-            readonly closure: CommerceEventClosure;
-          }
-        | undefined;
+      readonly events: CommerceEventClosure | undefined;
     },
     CommerceTransactionError
   >;
@@ -56,7 +60,7 @@ interface AtomicCommerceExecution {
 /** Recursive commands borrow one call's store, event buffer and manager lineage. */
 function makeParticipantInvocation(
   member: ExecutionConfiguration["members"][number],
-  working: Effect.Success<ReturnType<typeof makeCommerceStore>>,
+  working: Working,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>,
   id: string,
   eventCapture: ReturnType<typeof makeAtomicEventCapture> | undefined,
@@ -110,8 +114,9 @@ function makeParticipantInvocation(
  * Only context crosses into command code; closure capabilities stay with the root. */
 function makeAtomicCommerceExecution(
   configuration: ExecutionConfiguration,
-  admissions: readonly CommerceAdmission[],
-  first: CommerceAdmission,
+  admissions: readonly AtomicCommerceAdmission[],
+  first: AtomicCommerceAdmission,
+  tx: FlarexMetadataTransaction,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>,
   id: string,
   key: CapturedAtomicCommerceRequest["key"],
@@ -121,7 +126,8 @@ function makeAtomicCommerceExecution(
     eventPolicy === undefined
       ? undefined
       : makeAtomicEventCapture(
-          first,
+          first.kind === "physical" ? requireCommerceAdmission(first.admission).pipe(Effect.asVoid) :
+            requireLogicalRelationalAdmission(first.admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure), Effect.asVoid),
           lifetime,
           key,
           eventPolicy,
@@ -130,10 +136,23 @@ function makeAtomicCommerceExecution(
             ...members.map((member) => member.descriptor.resources.eventMessages),
           ),
         );
-  const contributions: Array<{
-    admission: CommerceAdmission;
-    working: Effect.Success<ReturnType<typeof makeCommerceStore>>;
-  }> = [];
+  const contributions: OpenContribution[] = [];
+  const logicalWork = new Map<AtomicCommerceAdmission, LogicalWorking>();
+  const makeWorking = Effect.fn("AtomicCommerce.makeWorking")(function* (
+    admission: AtomicCommerceAdmission, manager: BoundedRequestContext,
+  ): Effect.fn.Return<Working, CommerceTransactionError> {
+    if (admission.kind === "physical") {
+      const working = yield* makeCommerceStore(admission.admission, lifetime, id);
+      contributions.push({ kind: "physical", token: admission, admission: admission.admission, working });
+      return working;
+    }
+    const existing = logicalWork.get(admission);
+    if (existing !== undefined) return existing;
+    const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id);
+    logicalWork.set(admission, created);
+    contributions.push({ kind: "logical", token: admission, working: created });
+    return created;
+  });
   let facts = 0;
   const observations: AtomicCommerceCallObservation[] = [];
   const callParticipant: AtomicCommerceContext["call"] = Effect.fn("AtomicCommerce.callParticipant")(
@@ -141,7 +160,7 @@ function makeAtomicCommerceExecution(
       lifetime.nested(
         lifetime.context,
         id,
-        (child) =>
+        (child): Effect.Effect<Json, CommerceTransactionError> =>
           Effect.gen(function* () {
             const index = members.findIndex((member) => member.participant === participant);
             const member = members[index];
@@ -154,15 +173,20 @@ function makeAtomicCommerceExecution(
               !member.commands.has(command)
             )
               return yield* Effect.fail(commerceError("invalidAuthority"));
-            const working = yield* makeCommerceStore(admission, lifetime, id);
-            contributions.push({ admission, working });
+            const working: Working = yield* makeWorking(admission, child);
             const { invoke, events } = makeParticipantInvocation(member, working, lifetime, id, eventCapture);
-            const call = yield* invoke(child, command, inputArgs);
-            const rows = working.snapshot();
-            facts += rows.length;
-            if (facts > factLimit) return yield* Effect.fail(commerceError("limitExceeded"));
-            if (member.validate !== undefined)
-              yield* member.validate(events, rows, root.name, working.lifecycleSnapshot(), working.observationSnapshot());
+            const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs);
+            if (admission.kind === "physical") {
+              if (!("snapshot" in working)) return yield* Effect.fail(commerceError("invalidAuthority"));
+              const rows = working.snapshot();
+              facts += rows.length;
+              if (facts > factLimit) return yield* Effect.fail(commerceError("limitExceeded"));
+              if (member.validate !== undefined) {
+                const validation: Effect.Effect<void, CommerceTransactionError> = member.validate(
+                  events, rows, root.name, working.lifecycleSnapshot(), working.observationSnapshot());
+                yield* validation;
+              }
+            }
             // Inputs/results are the already charged, recursively frozen
             // captures. Only the validated outer call becomes evidence.
             if (eventCapture !== undefined)
@@ -200,32 +224,32 @@ function makeAtomicCommerceExecution(
     refuse: (error) => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
     call: callParticipant,
   });
-  const closeContributions = Effect.fn("AtomicCommerce.closeContributions")(function* () {
-    // Empty stores authenticate even participants with no calls. Called
-    // stores are consumed in execution order, preserving global ordinals.
+  const openMissingContributions = Effect.fn("AtomicCommerce.openMissingContributions")(function* () {
+    // Opening a logical table is a bounded request operation, so admitted but
+    // unused participants must be constructed while the lifetime is still open.
     for (const admission of admissions) {
-      if (!contributions.some((member) => member.admission === admission))
-        contributions.push({
-          admission,
-          working: yield* makeCommerceStore(admission, lifetime, id),
-        });
+      if (!contributions.some((member) => member.token === admission)) yield* makeWorking(admission, lifetime.context);
     }
-    const closed = [];
-    for (const contribution of contributions)
-      closed.push({
-        admission: contribution.admission,
-        closure: yield* contribution.working.close(),
-      });
+  });
+  const closeContributions = Effect.fn("AtomicCommerce.closeContributions")(function* () {
+    if (admissions.some(admission => !contributions.some(member => member.token === admission)))
+      return yield* Effect.fail(commerceError("invalidAuthority"));
+    const closed: CommerceContribution[] = [];
+    for (const contribution of contributions) {
+      if (contribution.kind === "physical") closed.push({ kind: "physical", admission: contribution.admission,
+        closure: yield* contribution.working.close() });
+      else closed.push({ kind: "logical", closure: yield* contribution.working.close() });
+    }
     const root = closed[0];
     if (root === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
     const eventClosure = eventCapture === undefined ? undefined : yield* eventCapture.close(observations);
     return {
       root,
       additional: closed.slice(1),
-      events: eventClosure === undefined ? undefined : { admission: first, closure: eventClosure },
+      events: eventClosure,
     };
   });
-  return { context, closeContributions };
+  return { context, openMissingContributions, closeContributions };
 }
 
 /** Execute only after replay misses. The existing lifetime and publisher retain
@@ -234,7 +258,8 @@ export const executeAtomicCommerceRequest = Effect.fn("AtomicCommerce.executeReq
   configuration: ExecutionConfiguration,
   request: CapturedAtomicCommerceRequest,
   evidence: AtomicCommerceRequestEvidence,
-  admissions: readonly CommerceAdmission[],
+  admissions: readonly AtomicCommerceAdmission[],
+  tx: FlarexMetadataTransaction,
 ): Effect.fn.Return<Json, CommerceTransactionError> {
   const first = admissions[0];
   if (first === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -252,12 +277,19 @@ export const executeAtomicCommerceRequest = Effect.fn("AtomicCommerce.executeReq
       configuration,
       admissions,
       first,
+      tx,
       lifetime,
       id,
       request.key,
     );
     yield* Effect.fromResult(lifetime.charge(evidence.bytes));
-    const value = yield* request.definition.run(execution.context, request.args).pipe(
+    const value = yield* Effect.gen(function* () {
+      const output = yield* request.definition.run(execution.context, request.args);
+      // An unused logical member still needs a closure. Open it before seal,
+      // inside the same Cause boundary as participant command execution.
+      yield* execution.openMissingContributions();
+      return output;
+    }).pipe(
       Effect.catchCause((cause) =>
         Effect.gen(function* () {
           // Preserve any earlier participant refusal alongside a later
@@ -279,14 +311,12 @@ export const executeAtomicCommerceRequest = Effect.fn("AtomicCommerce.executeReq
     );
     const { root, additional, events } = yield* execution.closeContributions();
     yield* finalizeCommerceCommit(
-      root.admission,
+      { kind: "atomic", participants: [root, ...additional], factLimit: configuration.factLimit,
+        ...(events === undefined ? {} : { events }) },
       lifetime,
-      root.closure,
       evidence.lookup,
       result,
       yield* hashAtomicCommerceBytes(result.canonicalBytes),
-      additional,
-      events,
     );
     return result.valueJson;
   }).pipe(

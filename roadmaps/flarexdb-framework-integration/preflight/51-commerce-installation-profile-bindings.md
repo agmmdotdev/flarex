@@ -94,7 +94,7 @@ The displaced implementation had the following limitation:
   Commerce runtime verification does not separately dispatch adapter/query/store
   implementations. Keeping three repeated grants is not necessary for that proof.
 - `commerceTransaction/admission.ts` re-reads the active candidate per request;
-  `atomicCommerce/admission.ts` and `crossDomainCommand/binding.ts` also project
+  `atomicCommerce/admission.ts` and the now-retired physical announcement binding also projected
   an installation reference by stripping `profiles`. New fields must not leak
   into those exact-reference comparisons.
 - `atomicCommerce/participants.ts` independently refuses duplicate installations.

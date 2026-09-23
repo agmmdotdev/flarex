@@ -11,7 +11,7 @@ import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock"
 import { enterCommercePublication } from "../commerceTransaction/admission";
 import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
 import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
-import { projectCommerceRequestFailure } from "../commerceTransaction/request";
+import { lockCommerceRequest, projectCommerceRequestFailure } from "../commerceTransaction/request";
 import type { AtomicCommerceHost } from "./commands";
 import { withAtomicCommerceAdmissions } from "./admission";
 import { prepareAtomicCommerceConfiguration, type AtomicCommerceHostInput } from "./configuration";
@@ -58,6 +58,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
               ),
               (cause) => commerceError("statementFailure", cause),
             );
+            yield* lockCommerceRequest(tx, located.authority.scopeId, request.key);
             const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
             return yield* withAtomicCommerceAdmissions(
               members,
@@ -74,10 +75,12 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
                     configuration,
                     request,
                     first,
+                    tx,
                     located.authority,
                     clock,
                   );
-                  yield* enterCommercePublication(admissions);
+                  const physical = admissions.flatMap(member => member.kind === "physical" ? [member.admission] : []);
+                  if (physical.length > 0) yield* enterCommercePublication(physical);
                   const retained = yield* createCommittedJsonOutcomeResolver(tx)
                     .resolve(evidence.lookup)
                     .pipe(Effect.mapError(projectCommerceRequestFailure));
@@ -85,7 +88,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
                   if (retained.kind === "expired")
                     return yield* Effect.fail(commerceError("resultUnavailable"));
                   if (recoverOnly) return yield* Effect.fail(commerceError("decisionUncertain"));
-                  return yield* executeAtomicCommerceRequest(configuration, request, evidence, admissions);
+                  return yield* executeAtomicCommerceRequest(configuration, request, evidence, admissions, tx);
                 }),
             );
           }),

@@ -77,7 +77,7 @@ export async function exerciseBindingLifecycle<
     readiness: { kind: "legacy" },
   });
   const frame: DataBindingSetFrame = {
-    format: "flarex.data-binding-set",
+    format: "flarex.data-binding-set", logicalSchema: null,
     application: reference,
     payloadContent: null,
     payloadLifecycle: null,

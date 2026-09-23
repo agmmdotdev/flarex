@@ -42,7 +42,6 @@
     "vitest.link-storage.config.ts"
   ],
   "exclude": [
-    "test/atomic-commerce.test.ts",
     "test/product-tag-workflow.test.ts",
     "test/product-tag-update-workflow.test.ts",
     "test/product-tag-delete-workflow.test.ts",

@@ -8,7 +8,7 @@ import { hasFrameworkSchemaTargetDatabase, type FrameworkSchemaTarget } from "..
 import { Clock, Cause, Effect, Option, Schema } from "effect";
 import { sql } from "drizzle-orm";
 import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
-import { canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { canonicalizeSuccessfulResultV1Effect, type CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
@@ -17,6 +17,24 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ApplicationBindingSelectionReader } from "../applicationActivation";
+import { prepareApplicationBindingSelection } from "../applicationActivation";
+import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
+import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
+import { prepareLogicalDocumentSourceAdmission, requireLogicalDocumentSourceAdmission,
+  LogicalDocumentSourceAdmissionError, type LogicalDocumentSourceAdmission } from "../logicalDocuments/documentAdmission";
+import { IndexBuildReconciliationCatalogV1Error } from "../indexBuildReconciliation";
+import { AppUniqueConstraintSetClosurePersistenceV1Error, AppUniqueConstraintSetClosureResourceError } from "../appUniqueConstraintSetClosureV1";
+import { AppUniqueConstraintSetBuildIntegrationV1Error } from "../appUniqueConstraintSetBuildV1";
+import { AppUniqueConstraintCatalogPersistenceError } from "../appUniqueConstraintDefinitions";
+import { AppIndexDefinitionReadPersistenceError, AppSchemaVersionIndexBindingPersistenceError } from "../appIndexDefinitions";
+import { IndexBuildStatePersistenceError } from "../indexBuildStates";
+import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
+import { LogicalStorageDefinitionError } from "../logicalStorageDefinitions";
+import { LogicalSchemaAdmissionEvidenceError } from "../logicalSchemaAdmissionEvidence";
+import { SchemaVersionArtifactPersistenceError } from "../schemaVersionArtifacts";
+import { StableTableIdentityPersistenceError } from "../stableTableCatalog";
+import { DataBindingError } from "../frameworkSchema/binding/errors";
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect, type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
@@ -25,10 +43,10 @@ import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSess
 import { RelationalSessionError } from "../relationalTransaction/model";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedPointOutcomeResolverV1, CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
-import { prepareCmsApplicationCommit, enterCmsApplicationCommit, type CmsMaterializationOptions } from "./publication";
-import { prepareCmsApplication, prepareCmsPreferences, withCmsAdmission, requireCmsAdmission } from "./admission";
+import { prepareCmsApplicationCommit, enterCmsApplicationCommit, enterSourceCmsCommit, type CmsMaterializationOptions } from "./publication";
+import { prepareCmsApplication, prepareCmsPreferences, withCmsAdmission, requireCmsAdmission, type CmsAdmission } from "./admission";
 import { makeCmsRequestLifetime } from "./lifetime";
-import { makeCmsDocuments, type CmsDocuments, type CmsDocumentReadTestHooks } from "./documents";
+import { makeCmsDocuments, makeSourceCmsDocuments, type CmsDocuments, type CmsDocumentReadTestHooks } from "./documents";
 import { makePayloadPreferenceCleanup, type PayloadPreferenceCleanup } from "../payloadPreferences/cleanup";
 import { cmsError, cmsLimits, CmsTransactionError, type CmsRequestContext, type CmsPresentedTransactionId } from "./model";
 import { chargeHostPreparation, retainPreparedHost, PreparedHostRuntimeError, type PreparedHostRuntime } from "../preparedHostRuntime";
@@ -85,7 +103,14 @@ export interface CmsHostInput<Failure> {
   readonly payloadPreferenceTarget?: FrameworkSchemaTarget;
   /** Optional closed-consumer restriction, checked under the admitted scope lock. */
   readonly expectedContentIdentity?: Readonly<{ configSha256: string; provenanceSha256: string }>;
+  readonly logicalStorage?: never;
 }
+/** Selected Payload source; the displaced host contract has named callers and a removal gate. */
+export type SourceCmsHostInput<Failure> = Omit<CmsHostInput<Failure>, "pointCommitAuthority" | "logicalStorage"> &
+  Readonly<{ pointCommitAuthority?: never; logicalStorage: Readonly<{
+    ports: AppUniqueConstraintSetBuildPortsV1; unique: AppUniqueConstraintSetEligibilityPortV1;
+    schemaVersionId: CatalogSchemaVersionId; source: unknown;
+  }> }>;
 export interface CmsHost {
   readonly close: Effect.Effect<void>;
   readonly newRequestKey: () => string;
@@ -107,6 +132,17 @@ const sha256 = Effect.fn("CmsHost.sha256")((bytes: Uint8Array) => digestBytes(by
 
 const projectFailure = (cause: unknown): CmsTransactionError => {
   if (cause instanceof CmsTransactionError) return cause;
+  if ((cause instanceof IndexBuildReconciliationCatalogV1Error || cause instanceof LogicalStorageDefinitionError ||
+    cause instanceof LogicalSchemaAdmissionEvidenceError || cause instanceof IndexMaintenanceError ||
+    cause instanceof DataBindingError) && cause.reason === "resourceFailure") return cmsError("resourceFailure", cause);
+  if (cause instanceof AppUniqueConstraintSetClosureResourceError || cause instanceof AppUniqueConstraintSetClosurePersistenceV1Error ||
+    cause instanceof AppUniqueConstraintSetBuildIntegrationV1Error || cause instanceof AppUniqueConstraintCatalogPersistenceError ||
+    cause instanceof AppIndexDefinitionReadPersistenceError || cause instanceof AppSchemaVersionIndexBindingPersistenceError ||
+    cause instanceof IndexBuildStatePersistenceError || cause instanceof StableTableIdentityPersistenceError ||
+    cause instanceof SchemaVersionArtifactPersistenceError) return cmsError("resourceFailure", cause);
+  if (cause instanceof LogicalDocumentSourceAdmissionError) return cmsError(
+    cause.reason === "sourceMismatch" || cause.reason === "bindingMissing" || cause.reason === "notReady"
+      ? "bindingChanged" : cause.reason, cause);
   if (cause instanceof PreparedHostRuntimeError) return cmsError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return cmsError("requestConflict", cause);
   if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return cmsError("storedCorruption", cause);
@@ -115,7 +151,7 @@ const projectFailure = (cause: unknown): CmsTransactionError => {
 };
 
 export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
-  input: CmsHostInput<Failure>, hooks?: CmsHostTestHooks,
+  input: CmsHostInput<Failure> | SourceCmsHostInput<Failure>, hooks?: CmsHostTestHooks,
 ): Effect.fn.Return<CmsHost, CmsTransactionError> {
   const retained = yield* retainPreparedHost(input.hostRuntime, composeCmsHost(input, hooks)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
   return Object.freeze({ close: retained.close, newRequestKey: () => `cms/${crypto.randomUUID()}`,
@@ -125,16 +161,29 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
 });
 
 const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
-  input: CmsHostInput<Failure>,
+  input: CmsHostInput<Failure> | SourceCmsHostInput<Failure>,
   hooks?: CmsHostTestHooks,
 ): Effect.fn.Return<Omit<CmsHost, "close">, CmsTransactionError> {
-  const { database, session, deploymentId, controlDatabase, application, pointCommitAuthority } = input;
+  const { database, session, deploymentId, controlDatabase, application } = input;
+  const pointCommitAuthority = "pointCommitAuthority" in input ? input.pointCommitAuthority : undefined;
+  const logicalSelectionInput = input.logicalStorage;
+  const logicalSelection = logicalSelectionInput === undefined ? undefined : Object.freeze({
+    ports: Object.freeze({ controlDb: logicalSelectionInput.ports.controlDb,
+      authority: logicalSelectionInput.ports.authority }),
+    unique: logicalSelectionInput.unique, schemaVersionId: logicalSelectionInput.schemaVersionId,
+    source: capturePrivateJsonData(logicalSelectionInput.source, MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, cmsError),
+  });
   const relationReads = input.relationReads;
-  if (relationReads !== undefined && (!hasApplicationRelationReadPortAuthorityForControlDb(relationReads, controlDatabase) ||
+  if (relationReads !== undefined && (pointCommitAuthority === undefined ||
+    !hasApplicationRelationReadPortAuthorityForControlDb(relationReads, controlDatabase) ||
     !hasApplicationRelationReadPortAuthorityForPointCommit(relationReads, pointCommitAuthority))) return yield* Effect.fail(cmsError("invalidAuthority"));
   const compositionAuthority = input.authority;
   const preferenceTarget = input.payloadPreferenceTarget;
   if (preferenceTarget !== undefined && !hasFrameworkSchemaTargetDatabase(preferenceTarget, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
+  if (logicalSelection !== undefined && (preferenceTarget !== undefined || relationReads !== undefined))
+    return yield* Effect.fail(cmsError("unsupportedProfile"));
+  if (logicalSelection === undefined && pointCommitAuthority === undefined)
+    return yield* Effect.fail(cmsError("invalidAuthority"));
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const expectedContentIdentity = input.expectedContentIdentity === undefined ? undefined :
     yield* decodeContentIdentity(input.expectedContentIdentity).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
@@ -162,8 +211,14 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     deploymentId, preferenceTarget).pipe(Effect.mapError(projectFailure));
   // A host owns one revision's immutable preparation. Every attempt still accepts
   // its live evidence below; a different revision requires a new host.
-  const prepared = yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId)
-    .pipe(Effect.mapError(projectFailure));
+  const prepared = logicalSelection === undefined ? yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId)
+    .pipe(Effect.mapError(projectFailure)) : undefined;
+  const logicalLocation = logicalSelection === undefined ? undefined :
+    yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(projectFailure));
+  const preparedLogical = logicalSelection === undefined || logicalLocation === undefined ? undefined :
+    yield* prepareLogicalDocumentSourceAdmission(logicalSelection.ports, logicalSelection.unique,
+      { deploymentId, scopeId: logicalLocation.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId },
+      (yield* Effect.fromResult(logicalSelection.source)).value).pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("cms.host") });
   const materialization = Object.freeze({ ...input.materialization });
   const testHooks = hooks === undefined ? undefined : Object.freeze({ ...hooks });
@@ -180,7 +235,9 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
       // Both first entry and uncertain-decision recovery re-authenticate the target.
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
-      const commit = requestKey === null ? null : yield* prepareCmsApplicationCommit(prepared, controlDatabase, located.authority, pointCommitAuthority, materialization);
+      const commit = requestKey === null || prepared === undefined || pointCommitAuthority === undefined ? null :
+        yield* prepareCmsApplicationCommit(prepared, controlDatabase, located.authority, pointCommitAuthority, materialization);
+      const active = preparedLogical === undefined ? undefined : yield* prepareApplicationBindingSelection(application);
       return yield* runRelationalSession(session, requestKey === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`),
           cause => cmsError("statementFailure", cause));
@@ -190,12 +247,18 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
           hashtextextended(${JSON.stringify(["flarex.cms.request", located.authority.scopeId, key])}, 0))`),
           cause => cmsError("statementFailure", cause));
         const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
-        return yield* withCmsAdmission(prepared, tx, located.authority, clock, admission => Effect.gen(function* () {
-          const state = yield* requireCmsAdmission(admission);
+        const runAdmitted = Effect.fn("CmsHost.runAdmitted")(function* (member:
+          Readonly<{ kind: "application"; admission: CmsAdmission }> |
+          Readonly<{ kind: "source"; admission: LogicalDocumentSourceAdmission }>) {
+          const state = member.kind === "source"
+            ? yield* requireLogicalDocumentSourceAdmission(member.admission, tx).pipe(Effect.mapError(projectFailure))
+            : yield* requireCmsAdmission(member.admission);
           // Native join capabilities borrow this acceptance; no extra readiness transaction.
-          const relations = requestKey === null ? yield* prepareCmsRelations(admission, relationReads) : Option.none();
-          if (expectedContentIdentity !== undefined && (state.frame.payloadContent?.configSha256 !== expectedContentIdentity.configSha256 ||
-            state.frame.payloadContent.provenanceSha256 !== expectedContentIdentity.provenanceSha256)) return yield* Effect.fail(cmsError("invalidAuthority"));
+          const relations = member.kind === "application" && requestKey === null
+            ? yield* prepareCmsRelations(member.admission, relationReads) : Option.none();
+          const contentIdentity = "contentIdentity" in state ? state.contentIdentity : state.frame.payloadContent;
+          if (expectedContentIdentity !== undefined && (contentIdentity?.configSha256 !== expectedContentIdentity.configSha256 ||
+            contentIdentity.provenanceSha256 !== expectedContentIdentity.provenanceSha256)) return yield* Effect.fail(cmsError("invalidAuthority"));
           if (testHooks?.afterAdmission !== undefined) yield* testHooks.afterAdmission(tx);
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId));
           const evidence = yield* canonicalizeSuccessfulResultV1Effect({ domain: "flarex.private.cms-command", version: 1,
@@ -217,17 +280,41 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
           const lifetime = yield* makeCmsRequestLifetime(owner, requestIdentity, transactionId, key === null ? "read" : root.mode);
           return yield* Effect.gen(function* () {
             yield* Effect.fromResult(lifetime.charge(captured.bytes + evidence.canonicalBytes.byteLength));
-            const participant = commit === null ? null : yield* enterCmsApplicationCommit(commit, admission, lifetime);
-            const working = yield* makeCmsDocuments(admission, lifetime, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis),
-              participant?.uniqueDefinitions ?? prepared.uniqueDefinitions, participant?.indexDefinitions ?? prepared.indexDefinitions, testHooks?.documentReads);
-            const incoming = yield* makeCmsRelations(relations, admission, lifetime, working.documents, key === null, testHooks?.observeIncomingQuery);
-            const preferences = yield* makePayloadPreferenceCleanup(admission, lifetime, working.pendingDeletions);
+            const creationTime = AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis);
+            const bundle = member.kind === "source" ? yield* Effect.gen(function* () {
+              const participant = key === null ? null : yield* enterSourceCmsCommit(member.admission, tx, lifetime, materialization);
+              const working = yield* makeSourceCmsDocuments(member.admission, tx, lifetime, creationTime, testHooks?.documentReads);
+              const incoming: CmsRelations = Object.freeze({ incoming: (context: CmsRequestContext, id: CmsPresentedTransactionId) =>
+                lifetime.operation(context, id, "read", Effect.fail(cmsError("unsupportedProfile"))) });
+              const preferences: PayloadPreferenceCleanup = Object.freeze({ deleteForPendingDocument: (context: CmsRequestContext, id: CmsPresentedTransactionId) =>
+                lifetime.operation(context, id, "write", Effect.fail(cmsError("unsupportedProfile"))) });
+              const finalize = (actualLookup: NonNullable<typeof lookup>, value: CanonicalSuccessfulResultV1, digest: Uint8Array) =>
+                participant === null ? Effect.fail(cmsError("invalidAuthority")) :
+                  working.close().pipe(Effect.flatMap(closure => participant.finalize(closure, actualLookup, value, digest, testHooks)), Effect.asVoid);
+              return Object.freeze({ documents: working.documents, incoming, preferences, finalize });
+            }) : yield* Effect.gen(function* () {
+              if (prepared === undefined || (key !== null && commit === null)) return yield* Effect.fail(cmsError("invalidAuthority"));
+              const participant = commit === null ? null : yield* enterCmsApplicationCommit(commit, member.admission, lifetime);
+              const working = yield* makeCmsDocuments(member.admission, lifetime, creationTime,
+                participant?.uniqueDefinitions ?? prepared.uniqueDefinitions,
+                participant?.indexDefinitions ?? prepared.indexDefinitions, testHooks?.documentReads);
+              const incoming = yield* makeCmsRelations(relations, member.admission, lifetime, working.documents,
+                key === null, testHooks?.observeIncomingQuery);
+              const preferences = yield* makePayloadPreferenceCleanup(member.admission, lifetime, working.pendingDeletions);
+              const finalize = (actualLookup: NonNullable<typeof lookup>, value: CanonicalSuccessfulResultV1, digest: Uint8Array) =>
+                participant === null ? Effect.fail(cmsError("invalidAuthority")) :
+                  working.close().pipe(Effect.flatMap(closure => preferences.close().pipe(Effect.flatMap(preferenceClosure =>
+                    participant.finalize(closure, preferenceClosure, actualLookup, value, digest, testHooks)))), Effect.asVoid);
+              return Object.freeze({ documents: working.documents, incoming, preferences: preferences.cleanup, finalize });
+            });
             const invoke = Effect.fn("CmsHost.invoke")(function* (context: CmsRequestContext, child: CmsCommand, childArgs: Json): Effect.fn.Return<Json, CmsTransactionError> {
               const definition = commands.get(child);
               if (definition === undefined || !allowed.has(child) || (key === null && definition.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
               const childInput = yield* Effect.fromResult(capturePrivateJsonData(childArgs, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(childInput.bytes));
-              const commandContext = makeCmsCommandContext(lifetime, transactionId, context, { documents: working.documents, relations: incoming, preferences: preferences.cleanup }, key === null && context === lifetime.context, invoke);
+              const commandContext = makeCmsCommandContext(lifetime, transactionId, context,
+                { documents: bundle.documents, relations: bundle.incoming, preferences: bundle.preferences },
+                key === null && context === lifetime.context, invoke);
               const value = yield* Effect.suspend(() => definition.run(commandContext, childInput.value));
               const output = yield* Effect.fromResult(capturePrivateJsonData(value, lifetime.remainingBytes(), cmsError));
               yield* Effect.fromResult(lifetime.charge(output.bytes));
@@ -238,10 +325,15 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
             yield* Effect.fromResult(lifetime.charge(result.canonicalBytes.byteLength));
             const digest = yield* sha256(result.canonicalBytes);
             yield* lifetime.seal;
-            if (participant !== null && lookup !== null) yield* participant.finalize(yield* working.close(), yield* preferences.close(), lookup, result, digest, testHooks);
+            if (lookup !== null) yield* bundle.finalize(lookup, result, digest);
             return result.valueJson;
           }).pipe(Effect.ensuring(lifetime.close));
-        }), preparedPreferences);
+        });
+        if (prepared !== undefined) return yield* withCmsAdmission(prepared, tx, located.authority, clock,
+          admission => runAdmitted({ kind: "application", admission }), preparedPreferences);
+        if (preparedLogical !== undefined && active !== undefined) return yield* preparedLogical.withAdmission(
+          active, tx, located.authority, clock, admission => runAdmitted({ kind: "source", admission }));
+        return yield* Effect.fail(cmsError("invalidAuthority"));
       })));
     });
     return yield* runWithRequestRecovery(attempt, {

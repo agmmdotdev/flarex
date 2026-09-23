@@ -5877,7 +5877,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const prepared = await prepareO07BScenario(
       "c08b2_unique_ceiling",
       async (current, table) => {
-        for (let index = 0; index < 33; index += 1) {
+        for (let index = 0; index < 65; index += 1) {
           await runPointOperation(current.store, table, {
             kind: "insert",
             syscallSequence: CommitSyscallSequenceV1Schema.make(
@@ -5887,14 +5887,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           });
         }
       },
-      (current) => prepareUniqueConstraintForO06(current),
+      (current) => prepareUniqueConstraintForO06(current, false, false, false, undefined, ["unique_name", "unique_name_second"]),
     );
     await expect(
       runEffect(prepared.authentication.publishPointCommit(prepared.plan)),
     ).rejects.toMatchObject({
       reason: "mutationLimitExceeded",
-      observed: 33,
-      maximum: 32,
+      observed: 130,
+      maximum: 128,
     });
     expect(await uniqueKeyState(prepared.scopeUuid)).toEqual([]);
     expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
@@ -7915,14 +7915,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       if (clock === null) {
         throw new Error("Missing C08-A seeded scope clock.");
       }
+      const encodedKey = Result.getOrThrow(lowerAppDeveloperIndexKeyV1(definition, document, creationTime));
+      if (encodedKey === null) throw new Error("Expected fixture row in the ordered index");
       await persistence.drizzle.transaction(async (tx) => {
         await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx, [{
               kind: "live",
               scopeId: current.anchor.scopeId,
               definition,
-              encodedKey: Result.getOrThrow(
-                lowerAppDeveloperIndexKeyV1(definition, document, creationTime),
-              ),
+              encodedKey,
               rowId: decodeOrderedIndexRowIdHexV1(rowId),
               writeEpoch: clock.epoch,
               commitSeq: CommitSeqSchema.make(1n),
@@ -8002,6 +8002,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const encodedKey = Result.getOrThrow(
       lowerAppDeveloperIndexKeyV1(definition, document, creationTime),
     );
+    if (encodedKey === null) throw new Error("Expected fixture row in the ordered index");
     await persistence.drizzle.transaction(async (tx) => {
       await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
         kind: "live",
@@ -8057,6 +8058,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     sparse = false,
     eligibilityAuthorityUnavailable = false,
     uniqueSpec?: typeof conditionalUniqueSpec,
+    descriptors: readonly string[] = ["unique_name"],
   ): Promise<
     Required<
       Pick<
@@ -8066,28 +8068,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     >
   > {
     const tableId = decodeCatalogTableId(1);
-    const prepared = await runEffect(
-      prepareAppUniqueConstraintDefinitionBindingV1Effect(persistence.drizzle, {
-        deploymentId: current.anchor.deploymentId,
-        schemaVersionId: current.schemaVersionId,
-        tableId,
-        descriptor: SchemaManifestAppIndexDescriptorSchema.make("unique_name"),
-        physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
-          kind: "appUniqueConstraint",
-          specVersion: 1,
-          orderedFields: ["name"],
-          sparse,
-          localePolicy: { kind: "none" },
-          keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
-          keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+    for (const descriptor of descriptors) {
+      const prepared = await runEffect(
+        prepareAppUniqueConstraintDefinitionBindingV1Effect(persistence.drizzle, {
+          deploymentId: current.anchor.deploymentId,
+          schemaVersionId: current.schemaVersionId,
+          tableId,
+          descriptor: SchemaManifestAppIndexDescriptorSchema.make(descriptor),
+          physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
+            kind: "appUniqueConstraint",
+            specVersion: 1,
+            orderedFields: ["name"],
+            sparse,
+            localePolicy: { kind: "none" },
+            keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+            keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+          }),
         }),
-      }),
-    );
-    await persistence.drizzle.transaction((tx) =>
-      runEffect(
-        ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
-      ),
-    );
+      );
+      await persistence.drizzle.transaction((tx) =>
+        runEffect(
+          ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
+        ),
+      );
+    }
     const closure = await runEffect(
       prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle, {
         deploymentId: current.anchor.deploymentId,

@@ -238,6 +238,10 @@ export class SchemaVersionArtifactPersistenceError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+class SchemaVersionArtifactCanonicalizationFailure extends Data.TaggedError("SchemaVersionArtifactCanonicalizationFailure")<{
+  readonly cause: unknown;
+}> {}
+
 export type EnsureSchemaVersionArtifactError =
   | InvalidPreparedSchemaVersionArtifactError
   | SchemaVersionArtifactPersistenceError
@@ -818,14 +822,15 @@ const decodeSchemaVersionArtifactRowEffect = Effect.fn(
     decodeStoredSchemaVersionArtifactRowResult(row),
   );
   yield* corroborateStoredManifestJsonEffect(db, operation, stored);
+  // Stored JSON was decoded and corroborated above. Native crypto rejection is
+  // a resource failure; unexpected reconstruction failures remain defects.
   const canonical = yield* Effect.tryPromise({
     try: () => canonicalizeSchemaManifestV1(stored.manifestJson),
-    catch: (cause) => new SchemaVersionArtifactCorruptionError(
-      stored.deploymentId,
-      "canonical manifest could not be reconstructed",
-      { cause },
-    ),
-  });
+    catch: cause => new SchemaVersionArtifactCanonicalizationFailure({ cause }),
+  }).pipe(Effect.catchTag("SchemaVersionArtifactCanonicalizationFailure", failure =>
+    typeof DOMException !== "undefined" && failure.cause instanceof DOMException
+      ? Effect.fail(new SchemaVersionArtifactPersistenceError({ operation, cause: failure.cause }))
+      : Effect.die(failure.cause)));
   if (stored.manifestCodecVersion !== canonical.codecVersion) {
     return yield* Effect.fail(new SchemaVersionArtifactCorruptionError(
       stored.deploymentId,

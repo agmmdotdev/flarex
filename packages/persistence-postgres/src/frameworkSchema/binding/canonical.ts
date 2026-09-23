@@ -27,6 +27,7 @@ import {
   MAX_BINDING_BYTES,
   MAX_BINDING_REQUIREMENTS,
   MAX_COMMERCE_BINDINGS,
+  LogicalSchemaBindingSchema,
   type ApplicationBindingReference,
   type BindingProfileReference,
   type PhysicalDataBinding,
@@ -50,6 +51,7 @@ function invalidCanonical(): never {
 }
 const isScopeEpoch = Schema.is(ScopeEpochSchema);
 const isScopeId = Schema.is(ScopeIdSchema);
+const isLogicalSchemaBinding = Schema.is(LogicalSchemaBindingSchema);
 
 function arrayOf<T>(
   input: unknown,
@@ -246,6 +248,7 @@ export function isDataBindingSetFrame(
     !record(input, [
       "format",
       "application",
+      "logicalSchema",
       "payloadContent",
       "payloadLifecycle",
       "commerce",
@@ -253,6 +256,8 @@ export function isDataBindingSetFrame(
     ]) ||
     input.format !== "flarex.data-binding-set" ||
     !isApplicationBindingReference(input.application) ||
+    (input.logicalSchema !== null && (!record(input.logicalSchema, ["schemaVersionId", "manifestSha256"]) ||
+      !isLogicalSchemaBinding(input.logicalSchema))) ||
     !arrayOf(input.crossDomainReferences, 0, (_value): _value is never => false)
   )
     return false;

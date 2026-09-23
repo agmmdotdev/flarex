@@ -7,22 +7,16 @@ import { createProductTagsWorkflow } from "@medusajs/core-flows/product/create-p
 import { deleteProductTagsWorkflow } from "@medusajs/core-flows/product/delete-product-tags";
 import { prepareProductTagComposition, type ProductTagCompositionHooks } from "../src/product-tag-composition";
 import { composedProductTagEvents } from "../src/product-tag-workflow-events";
-import { prepareCurrencyProfile } from "../src/currency-contract";
-import { currencyCommands, currencyWorkflowModule } from "../src/currency-service";
+import { currencyWorkflowModule } from "../src/currency-service";
 import { makeLocalProductCommands } from "../src/product-service";
-import { prepareLocalProductProfile } from "../src/product-profile";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLocalEventPolicy, productModuleEventPolicy } from "../src/product-local-events";
+import { productModuleEventPolicy } from "../src/product-local-events";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { commerceHostFixture, type CommerceHostTestFixture } from "../../persistence-postgres/test/commerceHostFixture";
-import { commerceInventory } from "../../persistence-postgres/test/commerceInventory";
-import { createRelationalPGliteFixture } from "../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
-import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
-import { createFileScopedPostgresFixture } from "../../persistence-postgres/test/postgresHelpers";
-import { issueRelationalSession, makePostgresRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
+import { commercePhysicalRows } from "../../persistence-postgres/test/commerceInventory";
+import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
@@ -30,23 +24,28 @@ import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "..
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
 import { defineCommerceEventContract, type ParticipantEventSelection, type CommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
 import { commerceError, type CommerceTransactionError } from "../../persistence-postgres/src/commerceTransaction/model";
+import { logicalCategoryCurrencyFixture } from "./support/logical-category-currency-fixture";
+import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 
 const cleanup: Array<() => Promise<void>> = [];
-const driver = process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
-let product: CommerceHostTestFixture, currency: CommerceHostTestFixture;
+const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
+if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
+let fixture: Awaited<ReturnType<typeof logicalCategoryCurrencyFixture>>;
 let commands: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
 let policy: ReturnType<typeof productModuleEventPolicy>;
 let revision: string;
 const subscribers = [{ id: "composition", revision: "a".repeat(64) }];
-const inventory = async () => ({ product: await commerceInventory(product), currency: await commerceInventory(currency),
-  events: await product.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
-  deliveries: await product.persistence.drizzle.select().from(fxSystemCommitEventDeliveries).orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal),
+const inventory = async () => ({ logical: await logicalCurrencyInventory(fixture.currency),
+  productRows: await commercePhysicalRows(fixture.currency.persistence, fixture.product.descriptor.layout.frame),
+  events: await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
+  deliveries: await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEventDeliveries).orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal),
 });
-const execution = (session = currency.session) => ({ identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-  prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...currency.hostInput, session, ...composition }),
+const execution = (session = fixture.currency.session) => ({ identityAndAccessPolicy: fixture.input.identityAndAccessPolicy,
+  prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...fixture.input, session, ...composition }),
 });
-const modules = () => ({ product: { module: commands.workflow, profile: product.prepared.profile, installation: product.installation, moduleEvents: policy },
-  currency: { module: Result.getOrThrow(currencyWorkflowModule), profile: currency.prepared.profile, installation: currency.installation } });
+const modules = () => ({ product: { module: commands.workflow, profile: fixture.product.profile,
+    installation: fixture.installation, moduleEvents: policy },
+  currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: fixture.currency.hostInput.logicalStorage } });
 const options = (hooks?: ProductTagCompositionHooks) => ({ execution: execution(), modules: modules(), revision, subscribers, ...(hooks === undefined ? {} : { hooks }) });
 const args = (value: string) => ({ value, updated_value: `${value}-updated` });
 const resources = () => Result.getOrThrow(prepareWorkflowResources({
@@ -73,20 +72,16 @@ describe("native composed Product workflows", () => {
       }
     }
     hash.update(await readFile(new URL(import.meta.url))); revision = hash.digest("hex");
-    const register = (close: () => Promise<void>) => { cleanup.push(close); };
-    const resource = driver === "pglite" ? await createRelationalPGliteFixture({ registerCleanup: register }) : await (async () => {
-      const fixture = await createFileScopedPostgresFixture(); register(fixture.dispose);
-      return { persistence: fixture.persistence, session: makePostgresRelationalSession(fixture.persistence) };
-    })();
-    const control = driver === "pglite" ? await createMigratedPGlitePersistence(register) : resource.persistence;
+    fixture = await logicalCategoryCurrencyFixture(driver, close => cleanup.push(close));
     commands = await runEffect(makeLocalProductCommands());
-    const catalog = await runEffect(captureProductSchema("tag-composition").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    currency = await commerceHostFixture(resource.persistence, resource.session, prepareCurrencyProfile, [currencyCommands.retrieve], control);
-    product = await commerceHostFixture(resource.persistence, resource.session, prepareLocalProductProfile, [commands.commands.createTags, commands.commands.listTags], control,
-      descriptor => productLocalEventPolicy(descriptor, catalog, () => Effect.void), {}, currency);
-    policy = productModuleEventPolicy(product.descriptor, catalog);
+    const catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
+    policy = productModuleEventPolicy(fixture.product.descriptor, catalog);
   }, 150_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+  afterAll(async () => {
+    const failures: unknown[] = [];
+    for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+    if (failures.length > 0) throw new AggregateError(failures, "Logical composition cleanup failed");
+  });
 
   it("runs real create/update children, reads pending graphs and publishes one ordered root", async () => {
     const hooks: string[] = [];
@@ -109,18 +104,18 @@ describe("native composed Product workflows", () => {
     const key = host.newRequestKey(); const result = await runEffect(host.run(key, args("composed")));
     expect(result).toMatchObject([{ value: "composed-updated" }]); expect(hooks).toEqual(["created", "updated"]);
     const after = await inventory();
-    expect(after.product.commits).toHaveLength(before.product.commits.length + 1);
-    expect(after.product.outcomes).toHaveLength(before.product.outcomes.length + 1);
-    expect(after.product.wakes).toHaveLength(before.product.wakes.length + 1);
+    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
+    expect(after.logical.outcomes).toHaveLength(before.logical.outcomes.length + 1);
+    expect(after.logical.wakes).toHaveLength(before.logical.wakes.length + 1);
     const events = after.events.slice(before.events.length);
     expect(events.map(row => row.envelope.contract)).toEqual(["product.product-tag.created", "product-tag.created", "product.product-tag.updated", "product-tag.updated"]);
     expect(events.map(row => row.eventOrdinal)).toEqual([0, 1, 2, 3]);
     expect(events.map(row => row.envelope.internal)).toEqual([true, false, true, false]);
     expect(events.every(row => row.envelope.group === key)).toBe(true);
     expect(new Set(events.map(row => row.commitSeq)).size).toBe(1);
-    expect(after.product.commits.at(-1)?.eventCount).toBe(4);
+    expect(after.logical.commits.at(-1)?.eventCount).toBe(4);
     expect(after.deliveries).toHaveLength(before.deliveries.length + 4);
-    const facts = after.product.facts.slice(before.product.facts.length);
+    const facts = after.logical.physicalFacts.slice(before.logical.physicalFacts.length);
     expect(facts.map(fact => fact.changeOrdinal)).toEqual(facts.map((_, index) => index));
     expect(await runEffect(host.run(key, args("composed")))).toEqual(result);
     expect(hooks).toEqual(["created", "updated"]); expect(await inventory()).toEqual(after);
@@ -158,7 +153,8 @@ describe("native composed Product workflows", () => {
     const before = await inventory();
     const ids = await runEffect(host.run(host.newRequestKey(), { value: "created-deleted", enabled: true }));
     expect(ids).toEqual([expect.any(String)]);
-    expect(await runEffect(product.host.read(commands.commands.listTags, { filters: { value: "created-deleted" }, config: {} }))).toEqual([]);
+    expect((await inventory()).productRows.product_tag?.filter(row =>
+      row.value === "created-deleted" && row.deleted_at === null)).toEqual([]);
     expect((await inventory()).events.slice(before.events.length).map(row => row.envelope.contract))
       .toEqual(["product.product-tag.created", "product-tag.created", "product.product-tag.deleted", "product-tag.deleted"]);
   }, 30_000);
@@ -237,18 +233,26 @@ describe("native composed Product workflows", () => {
       escaped = resources; await runEffect(Deferred.succeed(reached, undefined)); await wait;
     } })));
     const before = await inventory();
-    await runEffect(Effect.scoped(Effect.gen(function* () {
-      const fiber = yield* Effect.forkScoped(host.run(host.newRequestKey(), args("cancel-child")));
-      yield* Deferred.await(reached).pipe(Effect.timeout(5000)); yield* Fiber.interrupt(fiber);
-    })));
-    release?.();
+    try {
+      await runEffect(Effect.scoped(Effect.gen(function* () {
+        const fiber = yield* Effect.forkScoped(host.run(host.newRequestKey(), args("cancel-child")));
+        yield* Deferred.await(reached).pipe(Effect.timeout(5000));
+        yield* Fiber.interrupt(fiber);
+        const exit = yield* Fiber.await(fiber);
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(exit.cause.reasons.length).toBeGreaterThan(0);
+          expect(exit.cause.reasons.every(Cause.isInterruptReason)).toBe(true);
+        }
+      })));
+    } finally { release?.(); }
     await expect(escaped?.query.graph({ entity: "currency", fields: ["code"], pagination: { take: 1 } })).rejects.toMatchObject({ reason: "closed" });
     expect(await inventory()).toEqual(before);
   }, 30_000);
 
   it("recovers a lost root acknowledgement without repeating either child", async () => {
     const called = vi.fn(); let lose = true;
-    const session = issueRelationalSession(currency.persistence.drizzle, (profile, work) => runRelationalSession(currency.session, profile, work).pipe(
+    const session = issueRelationalSession(fixture.currency.persistence.drizzle, (profile, work) => runRelationalSession(fixture.currency.session, profile, work).pipe(
       Effect.catchTag("RelationalTransactionError", cause => Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
       Effect.flatMap(value => { if (!lose) return Effect.succeed(value); lose = false;
         return Effect.fail(new RelationalSessionError({ reason: "decisionUncertain", cause: "lost composition acknowledgement" })); }),
@@ -264,9 +268,11 @@ describe("native composed Product workflows", () => {
   it.skipIf(driver !== "postgres")("settles concurrent duplicate roots once", async () => {
     const called = vi.fn(); const host = await runEffect(prepareProductTagComposition(options({ created: called, updated: called })));
     const before = await inventory(); const key = host.newRequestKey();
-    const [first, second] = await Promise.all([runEffect(host.run(key, args("concurrent-composition"))), runEffect(host.run(key, args("concurrent-composition")))]);
+    const [first, second] = await runEffect(Effect.all([
+      host.run(key, args("concurrent-composition")), host.run(key, args("concurrent-composition")),
+    ], { concurrency: 2 }));
     expect(first).toEqual(second); expect(called).toHaveBeenCalledTimes(2);
-    expect((await inventory()).product.commits).toHaveLength(before.product.commits.length + 1);
+    expect((await inventory()).logical.commits).toHaveLength(before.logical.commits.length + 1);
   }, 30_000);
 
   it("checks event selection in core independently of the adapter", async () => {
@@ -283,8 +289,8 @@ describe("native composed Product workflows", () => {
     const command = defineAtomicCommerceCommand("selectParticipantEvent", ctx => ctx.call(participant, emitted, null).pipe(
       Effect.catch(error => Effect.sync(() => { failures.push(error); return null; })),
     ));
-    const base = { ...currency.hostInput, commands: [command], events: { producerRevision: revision, contracts: [first, second, external], subscribers, validate: () => Effect.void } };
-    const member = { participant, installation: product.installation, profile: product.prepared.profile, commands: [emitted], validate: () => Effect.void };
+    const base = { ...fixture.input, commands: [command], events: { producerRevision: revision, contracts: [first, second, external], subscribers, validate: () => Effect.void } };
+    const member = { participant, installation: fixture.installation, profile: fixture.product.profile, commands: [emitted], validate: () => Effect.void };
     const make = (events?: ParticipantEventSelection) => makeAtomicCommerceHost({ ...base, participants: [{ ...member, ...(events === undefined ? {} : { events }) }] });
     for (const contracts of [[forged], [unlisted], [external], [first, first], Array.from({ length: 65 }, () => first)]) {
       expect(await runEffectFailure(make({ contracts, select: () => Effect.succeed(first) }))).toMatchObject({ reason: "invalidAuthority" });

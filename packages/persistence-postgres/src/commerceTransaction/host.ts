@@ -13,7 +13,7 @@ import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema, Transac
 import { capturePrivateCanonicalValue } from "../frameworkSchema/privateCanonicalValue";
 import { isSyntheticBindingReference } from "../frameworkSchema/binding/canonical";
 import type { InstallationBindingReference } from "../frameworkSchema/binding/model";
-import { captureCommerceJsonData } from "./request";
+import { captureCommerceJsonData, lockCommerceRequest } from "./request";
 import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../boundedRequestLifetime";
 import { hasApplicationBindingComposition, prepareApplicationBindingSelection } from "../applicationActivation";
 import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
@@ -24,20 +24,33 @@ import { hasRelationalSessionDatabase, runRelationalSession } from "../relationa
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
 import { finalizeCommerceCommit } from "./publication";
-import { withCommerceAdmission, requireCommerceAdmission, enterCommercePublication } from "./admission";
+import { withCommerceAdmission, requireCommerceAdmission, enterCommercePublication, type CommerceAdmission } from "./admission";
 import { prepareInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { makeCommerceStore, type RelationalRowFact, type CommerceLifecycleObservation, type CommerceRowObservation } from "./store";
+import { makeLogicalCommerceParticipant } from "./logicalParticipant";
+import { requireLogicalCommerceInitialization } from "./logicalInitialization";
+import { prepareLogicalRelationalAdmission, requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { requireCommerceProfile, type CommerceProfile } from "./profile";
+import { defaultCommerceResources } from "./resources";
+import { captureLogicalCommerceSelection, prepareLogicalCommerceContract, type LogicalCommerceSelectionInput } from "./logicalSelection";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "./model";
 import { commerceIdentityEvidence, commerceRequestHash as hash, projectCommerceRequestFailure as projectFailure } from "./request";
 
 import type { CommerceHostConfiguration } from "./hostConfiguration";
 
-export interface CommerceHostInput<Failure> extends CommerceHostConfiguration<Failure> {
-  readonly profile: CommerceProfile;
-  readonly installation: InstallationBindingReference;
-  readonly commands: readonly CommerceCommand[];
-}
+export type PhysicalCommerceHostInput<Failure> = CommerceHostConfiguration<Failure> & Readonly<{
+  commands: readonly CommerceCommand[];
+  profile: CommerceProfile;
+  installation: InstallationBindingReference;
+  logicalStorage?: never;
+}>;
+export type LogicalCommerceHostInput<Failure> = CommerceHostConfiguration<Failure> & Readonly<{
+  commands: readonly CommerceCommand[];
+  profile?: never;
+  installation?: never;
+  logicalStorage: LogicalCommerceSelectionInput;
+}>;
+export type CommerceHostInput<Failure> = PhysicalCommerceHostInput<Failure> | LogicalCommerceHostInput<Failure>;
 const decodeKey = Schema.decodeUnknownResult(TransactionRequestKeyV1Schema);
 
 export const makeCommerceHost = Effect.fn("CommerceHost.make")(<Failure>(input: CommerceHostInput<Failure>) => makeHost(input));
@@ -74,17 +87,24 @@ const makeHost = Effect.fn("CommerceHost.retain")(function* <Failure>(input: Com
 });
 
 const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: CommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<Omit<CommerceHost, "close">, CommerceTransactionError> {
-  const { database, session, target, deploymentId, application, profile } = input;
+  const { database, session, target, deploymentId, application } = input;
   if (!hasRelationalSessionDatabase(session, database) || !hasFrameworkSchemaTargetDatabase(target, database) ||
     !hasApplicationBindingComposition(application, input.authority)) return yield* Effect.fail(commerceError("invalidAuthority"));
-  const descriptor = yield* requireCommerceProfile(profile);
+  const logicalResult = input.logicalStorage === undefined ? undefined : captureLogicalCommerceSelection(input.logicalStorage);
+  const logicalSelection = logicalResult === undefined ? undefined : yield* Effect.fromResult(logicalResult);
+  const logicalContract = logicalSelection === undefined ? undefined : yield* prepareLogicalCommerceContract(logicalSelection);
+  const physicalDescriptor = input.profile === undefined ? undefined : yield* requireCommerceProfile(input.profile);
+  const descriptor = physicalDescriptor ?? (logicalContract === undefined || logicalSelection === undefined
+    ? yield* Effect.fail(commerceError("invalidAuthority"))
+    : Object.freeze({ contractSha256: logicalContract.sha256Hex, resources: defaultCommerceResources,
+      localOnly: false, initialization: logicalSelection.initialization }));
   const resources = descriptor.resources;
   const sha = (bytes: Uint8Array) => hash(bytes, { maximumInputBytes: resources.commandBytes });
   if (descriptor.localOnly !== (local !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const capturedReference = yield* Effect.fromResult(captureCommerceJsonData(input.installation, commerceLimits.rowBytes));
-  if (!isSyntheticBindingReference(capturedReference.value)) return yield* Effect.fail(commerceError("invalidInput"));
-  const reference = capturedReference.value;
-  yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectFailure));
+  const capturedReference = input.installation === undefined ? undefined : yield* Effect.fromResult(captureCommerceJsonData(input.installation, commerceLimits.rowBytes));
+  const reference = capturedReference === undefined ? undefined : isSyntheticBindingReference(capturedReference.value)
+    ? capturedReference.value : yield* Effect.fail(commerceError("invalidInput"));
+  if (reference !== undefined) yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectFailure));
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const allowed = new Set(input.commands);
   const names = new Set<string>();
@@ -96,7 +116,12 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
   const policy = yield* Effect.fromResult(captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes));
   const identityBytes = yield* commerceIdentityEvidence("policy", policy.value, resources.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identityBytes.canonicalBytes));
-  const installationRuntime = yield* prepareInstallationRuntime(database, target, reference).pipe(Effect.mapError(projectFailure));
+  const installationRuntime = reference === undefined ? undefined : yield* prepareInstallationRuntime(database, target, reference).pipe(Effect.mapError(projectFailure));
+  const initialLocation = logicalSelection === undefined ? undefined : yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(projectFailure));
+  const preparedLogical = logicalSelection === undefined || initialLocation === undefined ? undefined :
+    yield* prepareLogicalRelationalAdmission(logicalSelection.ports, logicalSelection.unique, {
+      deploymentId, scopeId: initialLocation.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId,
+    }, logicalSelection.source).pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("commerce.host") });
   const execute = Effect.fn("CommerceHost.execute")(function* (requestKey: string | null, token: CommerceCommand | null, args: Json) {
     const root = token === null ? undefined : getCommerceCommand(token);
@@ -118,21 +143,34 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
       const active = yield* prepareApplicationBindingSelection(application);
       return yield* runRelationalSession(session, key === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
         yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`), cause => commerceError("statementFailure", cause));
+        // One exact request may be replayed through either retained storage
+        // representation. Exclusion precedes admission and callback execution.
+        if (key !== null) yield* lockCommerceRequest(tx, located.authority.scopeId, key);
         const clock = yield* (bootstrap
           ? lockScopeClockForUpdateInTransactionEffect(tx, located.authority.scopeId)
           : lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId));
-        return yield* withCommerceAdmission(profile, target, reference, active, tx, located.authority, clock, bootstrap, installationRuntime, admission => Effect.gen(function* () {
-          const admitted = yield* requireCommerceAdmission(admission);
+        const runAdmitted = Effect.fn("CommerceHost.runAdmitted")(function* (member:
+          Readonly<{ kind: "physical"; admission: CommerceAdmission }> | Readonly<{ kind: "logical"; admission: LogicalRelationalAdmission }>) {
+          const admitted = member.kind === "physical"
+            ? { kind: "physical" as const, state: yield* requireCommerceAdmission(member.admission) }
+            : { kind: "logical" as const, state: yield* requireLogicalRelationalAdmission(member.admission, tx).pipe(Effect.mapError(projectFailure)) };
           const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(projectFailure));
+          if (member.kind === "logical" && !bootstrap) {
+            const initialization = descriptor.initialization;
+            if (initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
+            yield* requireLogicalCommerceInitialization(member.admission, tx, initialization, descriptor.contractSha256);
+          }
           const evidence = yield* commerceIdentityEvidence("command", {
             deploymentId, scopeId: located.authority.scopeId, epoch: clock.epoch, generation: clock.storageGeneration,
-            fence: clock.storageGenerationFence.toString(), installation: reference, bindingHead: admitted.head,
+            fence: clock.storageGenerationFence.toString(),
+            ...(reference === undefined ? { logicalSource: logicalContract?.sha256Hex } : { installation: reference }),
+            bindingHead: admitted.state.head,
             contractSha256: descriptor.contractSha256, operation: root?.name ?? "initialize", args: captured.value }, resources.commandBytes);
           const lookup = key === null ? null : { scopeUuid: scope.scopeUuid, requestKey: key, expectedIdentityAccessPolicySha256: identityDigest,
             expectedFunctionPath: TransactionFunctionPathV1Schema.make(`__flarex_private_commerce/${root?.name ?? "initialize"}`),
             expectedRequestSha256: TransactionRequestSha256V1Schema.make(yield* sha(evidence.canonicalBytes)) };
           if (lookup !== null) {
-            yield* enterCommercePublication([admission]);
+            if (member.kind === "physical") yield* enterCommercePublication([member.admission]);
             const retained = yield* createCommittedJsonOutcomeResolver(tx).resolve(lookup);
             if (retained.kind === "available") return retained.successfulResult.valueJson;
             if (retained.kind === "expired") return yield* Effect.fail(commerceError("resultUnavailable"));
@@ -142,7 +180,10 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
           const lifetime = yield* makeBoundedRequestLifetime(commerceError, { ...commerceLimits, ...resources }, owner, Object.freeze({ requestId: Symbol("commerce.request") }), id, bootstrap ? "write" : root?.mode ?? "read");
           return yield* Effect.gen(function* () {
             yield* Effect.fromResult(lifetime.charge(evidence.canonicalBytes.byteLength));
-            const working = yield* makeCommerceStore(admission, lifetime, id);
+            const selected = member.kind === "physical"
+              ? { kind: "physical" as const, admission: member.admission, working: yield* makeCommerceStore(member.admission, lifetime, id) }
+              : { kind: "logical" as const, working: yield* makeLogicalCommerceParticipant(member.admission, tx, lifetime, lifetime.context, id) };
+            const working = selected.working;
             const events: Json[] = [];
             const captureEvent = (manager: BoundedRequestContext, event: unknown) => lifetime.operation(manager, id, "write", Effect.gen(function* () {
               if (local === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
@@ -152,13 +193,15 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
               yield* Effect.fromResult(lifetime.charge(capturedEvent.bytes));
               events.push(capturedEvent.value);
             }));
-            const invoke = Effect.fn("CommerceHost.invoke")(function* (context: BoundedRequestContext, command: CommerceCommand, inputArgs: Json): Effect.fn.Return<Json, CommerceTransactionError> {
+            const invoke = Effect.fn("CommerceHost.invoke")(function* (context: BoundedRequestContext, command: CommerceCommand, inputArgs: Json,
+              rootInvocation = false): Effect.fn.Return<Json, CommerceTransactionError> {
               const definition = getCommerceCommand(command);
               if (definition === undefined || !allowed.has(command) || (key === null && definition.mode !== "read")) return yield* Effect.fail(commerceError("invalidAuthority"));
               const contextFor = (manager: BoundedRequestContext) => makeCommerceCommandContext(lifetime, working, id, manager, invoke, captureEvent);
               const commandInput = yield* Effect.fromResult(captureCommerceJsonData(inputArgs, lifetime.remainingBytes()));
               yield* Effect.fromResult(lifetime.charge(commandInput.bytes));
               const output = yield* definition.run(contextFor(context), commandInput.value);
+              if (rootInvocation) yield* lifetime.seal;
               const result = yield* Effect.fromResult(captureCommerceJsonData(output, lifetime.remainingBytes()));
               yield* Effect.fromResult(lifetime.charge(result.bytes));
               return result.value;
@@ -166,27 +209,45 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
             let value: Json;
             if (bootstrap) {
               if (descriptor.initialization === null) return yield* Effect.fail(commerceError("unsupportedProfile"));
-              const table = descriptor.layout.frame.tables[0];
-              const firstKey = table?.keys.find(candidate => candidate.kind === "primary")?.columns.find(name => name !== "scope_uuid");
-              const keyColumn = table?.columns.find(column => column.name === firstKey);
-              if (keyColumn === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-              const existing = yield* working.store.count(lifetime.context, { order: { column: keyColumn.identity.columnId, direction: "asc" } });
+              const keyColumnId = selected.kind === "physical"
+                ? physicalDescriptor?.layout.frame.tables[0]?.columns.find(column => column.name ===
+                  physicalDescriptor.layout.frame.tables[0]?.keys.find(candidate => candidate.kind === "primary")?.columns.find(name => name !== "scope_uuid"))?.identity.columnId
+                : admitted.kind === "logical"
+                  ? admitted.state.schema.tables[0]?.keys.find(candidate => candidate.kind === "primary")?.columns
+                    .find(column => column.columnId !== "scope_uuid")?.columnId
+                  : undefined;
+              if (keyColumnId === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+              const existing = yield* working.store.count(lifetime.context, { order: { column: keyColumnId, direction: "asc" } });
               if (existing !== 0) return yield* Effect.fail(commerceError("seedMismatch"));
               const rows = yield* working.store.write(lifetime.context, "insert", captured.value);
               value = { rowCount: rows.length };
             } else {
               if (token === null) return yield* Effect.fail(commerceError("invalidAuthority"));
-              value = yield* invoke(lifetime.context, token, captured.value);
+              value = yield* invoke(lifetime.context, token, captured.value, true);
             }
             const result = yield* Effect.fromResult(canonicalizeJsonOutcome(value, resources.commandBytes)).pipe(Effect.mapError(projectFailure));
             yield* Effect.fromResult(lifetime.charge(bootstrap ? result.canonicalBytes.byteLength : 0));
-            yield* lifetime.seal;
-            if (local !== undefined) yield* local.validate(Object.freeze(events.slice()), working.snapshot(), root?.name ?? "initialize", working.lifecycleSnapshot(), working.observationSnapshot());
-            if (lookup !== null) yield* finalizeCommerceCommit(admission, lifetime, yield* working.close(), lookup, result, yield* sha(result.canonicalBytes));
+            if (bootstrap) yield* lifetime.seal;
+            if (local !== undefined && selected.kind === "physical") yield* local.validate(Object.freeze(events.slice()), selected.working.snapshot(), root?.name ?? "initialize", selected.working.lifecycleSnapshot(), selected.working.observationSnapshot());
+            if (lookup !== null) {
+              const resultHash = yield* sha(result.canonicalBytes);
+              if (selected.kind === "physical") yield* finalizeCommerceCommit({ kind: "physical", admission: selected.admission,
+                closure: yield* selected.working.close(), additional: [] }, lifetime, lookup, result, resultHash);
+              else yield* finalizeCommerceCommit({ kind: "logical", closure: yield* selected.working.close(),
+                ...(bootstrap && descriptor.initialization !== null ? { initialization: { ...descriptor.initialization,
+                  contractSha256: descriptor.contractSha256 } } : {}) }, lifetime, lookup, result, resultHash);
+            }
             pendingEvents = Object.freeze(events.slice());
             return result.valueJson;
           }).pipe(Effect.timeoutOrElse({ duration: commerceLimits.commandMs, orElse: () => Effect.fail(commerceError("deadlineExceeded")) }), Effect.ensuring(lifetime.close));
-        }));
+        });
+        if (reference !== undefined && input.profile !== undefined)
+          return yield* withCommerceAdmission(input.profile, target, reference, active, tx, located.authority, clock, bootstrap,
+            installationRuntime, admission => runAdmitted({ kind: "physical", admission }));
+        if (preparedLogical !== undefined)
+          return yield* preparedLogical.withAdmission(active, tx, located.authority, clock,
+            admission => runAdmitted({ kind: "logical", admission }));
+        return yield* Effect.fail(commerceError("invalidAuthority"));
       })));
     });
     const value = yield* runWithRequestRecovery(attempt, {
@@ -209,8 +270,13 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
     }
     return value;
   });
-  const initializationKeySha256 = (yield* capturePrivateCanonicalValue({ installationSha256: reference.installation.installationSha256,
-    contractSha256: descriptor.contractSha256 }, 4096, { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) })).sha256Hex;
+  const logicalSourceSha256 = logicalContract?.sha256Hex;
+  const initializationIdentity = reference !== undefined
+    ? { installationSha256: reference.installation.installationSha256, contractSha256: descriptor.contractSha256 }
+    : logicalSourceSha256 === undefined ? yield* Effect.fail(commerceError("invalidAuthority"))
+      : { logicalSourceSha256, contractSha256: descriptor.contractSha256 };
+  const initializationKeySha256 = (yield* capturePrivateCanonicalValue(initializationIdentity,
+    4096, { invalidInput: () => commerceError("invalidInput"), hashFailure: cause => commerceError("resourceFailure", cause) })).sha256Hex;
   yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, initializationKeySha256 })
     .pipe(Effect.mapError(projectFailure));
   return Object.freeze({ newRequestKey: () => `commerce/${crypto.randomUUID()}`,

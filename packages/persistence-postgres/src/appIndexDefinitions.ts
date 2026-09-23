@@ -5,7 +5,7 @@ import {
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
-import { Effect, Result, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
   CatalogIndexIdSchema,
@@ -36,6 +36,8 @@ import {
   type CanonicalAppIndexPhysicalSpecV1,
 } from "flarex-protocol/index-definition";
 import {
+  APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+  AppOrderedIndexPhysicalSpecV1Schema,
   decodeAppOrderedIndexPhysicalSpecV1Result,
   lowerAppDeveloperOrderedIndexPhysicalSpecV1,
   type AppOrderedIndexPhysicalSpecV1,
@@ -46,7 +48,6 @@ import {
   type CatalogSchemaVersionId,
   type SchemaManifestAppDeveloperOrderedIndexSpecV1,
   type SchemaManifestAppIndexDescriptor,
-  type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
@@ -56,6 +57,8 @@ import {
   type PreparedAppSchemaPublicationV1,
 } from "./appSchemaPublicationPreparation";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { readSchemaVersionTableBindings, type SchemaVersionTableBinding } from "./schemaVersionTableBindings";
+import { readSchemaVersionArtifactByIdEffect } from "./schemaVersionArtifacts";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   lockSchemaManifestBindingDeploymentEffect,
@@ -436,7 +439,7 @@ export class AppCreationTimeIndexDefinitionParentError extends Error {
   constructor(
     readonly deploymentId: string,
     readonly tableId: CatalogTableId,
-    readonly expectedLogicalName: SchemaManifestAppTableName,
+    readonly expectedLogicalName: string,
     readonly issue: AppCreationTimeIndexDefinitionParentIssue,
   ) {
     super(
@@ -599,7 +602,8 @@ interface PreparedDefinitionBindingState
 interface PreparedCreationTimeDefinitionState
   extends PreparedPhysicalDefinitionState<"by_creation_time"> {
   readonly tableId: CatalogTableId;
-  readonly expectedLogicalName: SchemaManifestAppTableName;
+  readonly expectedNamespace: CatalogTableNamespace;
+  readonly expectedLogicalName: string;
   readonly access: AppCreationTimePhysicalIndexAccessIdentityV1;
 }
 
@@ -638,6 +642,29 @@ export const prepareAppDeveloperIndexDefinitionBindingV1Effect = Effect.fn(
     decodePrepareAppDeveloperIndexDefinitionBindingV1InputResult(input),
   );
   const physicalSpec = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec);
+  return yield* canonicalizeOrderedBinding({ deploymentId, schemaVersionId, tableId, logicalIndexId, physicalSpec });
+});
+
+const OrderedBindingInput = Schema.Struct({
+  deploymentId: Schema.String.check(Schema.makeFilter(isNonBlankString)),
+  schemaVersionId: CatalogSchemaVersionIdSchema, tableId: CatalogTableIdSchema, logicalIndexId: CatalogIndexIdSchema,
+  physicalSpec: AppOrderedIndexPhysicalSpecV1Schema.check(Schema.makeFilter(spec => spec.accessPath === "developer")),
+});
+const decodeOrderedBindingInput = Schema.decodeUnknownEffect(OrderedBindingInput, { onExcessProperty: "error" });
+
+/** Trusted native-schema compilation supplies a checked physical projection.
+ * Both Application and native sources register through the same catalog owner. */
+export const prepareOrderedIndexDefinitionBinding = Effect.fn("AppIndexDefinitions.prepareOrderedBinding")(function* (
+  input: typeof OrderedBindingInput.Type,
+) {
+  const decoded = yield* decodeOrderedBindingInput(input).pipe(Effect.mapError(cause =>
+    new InvalidAppIndexDefinitionBindingInputError({ reason: "invalidInputShape" }, { cause })));
+  return yield* canonicalizeOrderedBinding(decoded);
+});
+
+const canonicalizeOrderedBinding = Effect.fn("AppIndexDefinitions.canonicalizeOrderedBinding")(function* (
+  { deploymentId, schemaVersionId, tableId, logicalIndexId, physicalSpec }: typeof OrderedBindingInput.Type,
+) {
   const canonical = yield* Effect.tryPromise({
     try: () => canonicalizeAppIndexPhysicalSpecV1(physicalSpec),
     catch: (cause) => new AppIndexDefinitionPreparationError(
@@ -646,7 +673,9 @@ export const prepareAppDeveloperIndexDefinitionBindingV1Effect = Effect.fn(
       logicalIndexId,
       { cause },
     ),
-  });
+  }).pipe(Effect.catchTag("AppIndexDefinitionPreparationError", failure =>
+    typeof DOMException !== "undefined" && failure.cause instanceof DOMException
+      ? Effect.fail(failure) : Effect.die(failure.cause)));
   const access = Object.freeze({
     kind: "developer",
     tableId,
@@ -726,24 +755,7 @@ export function prepareAppCreationTimeIndexDefinitionsV1Result(
         );
       }
       seenTableIds.add(requirement.tableId);
-      const access = Object.freeze({
-        kind: "by_creation_time",
-        tableId: requirement.tableId,
-      } satisfies AppCreationTimePhysicalIndexAccessIdentityV1);
-      const token = Object.freeze({
-        deploymentId: publication.deploymentId,
-        tableId: requirement.tableId,
-        [preparedCreationTimeDefinitionBrand]: true,
-      } satisfies PreparedAppCreationTimeIndexDefinitionV1);
-      preparedCreationTimeDefinitionStates.set(token, Object.freeze({
-        deploymentId: publication.deploymentId,
-        tableId: requirement.tableId,
-        expectedLogicalName: table.logicalName,
-        access,
-        storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
-        canonical: requirement.canonical,
-      } satisfies PreparedCreationTimeDefinitionState));
-      prepared.push(token);
+      prepared.push(registerCreationTimeDefinition(publication.deploymentId, table, requirement.canonical));
     }
     if (seenTableIds.size !== tablesById.size) {
       return yield* Result.fail(
@@ -759,6 +771,50 @@ export function prepareAppCreationTimeIndexDefinitionsV1Result(
     }
     return Object.freeze(prepared);
   });
+}
+
+export class SchemaCreationTimeIndexPreparationError extends Data.TaggedError("SchemaCreationTimeIndexPreparationError")<{
+  readonly reason: "invalidIdentity" | "missingSchema" | "canonicalizationFailed";
+  readonly cause?: unknown;
+}> {}
+
+/** Source-bound preparation for an already persisted schema artifact. Uses the
+ * same table-owned intrinsic definition as Application publication; neither
+ * candidate admission nor this token supplies build/readiness authority. */
+export const prepareSchemaCreationTimeIndexDefinitions = Effect.fn("AppIndexDefinitions.prepareSchemaCreationTime")(
+  function* (db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: CatalogSchemaVersionId) {
+    if (!isNonBlankString(deploymentId)) {
+      return yield* Effect.fail(new SchemaCreationTimeIndexPreparationError({ reason: "invalidIdentity" }));
+    }
+    const id = yield* Effect.fromResult(decodeCatalogSchemaVersionIdResult(schemaVersionId)).pipe(
+      Effect.mapError(cause => new SchemaCreationTimeIndexPreparationError({ reason: "invalidIdentity", cause })));
+    const artifact = yield* readSchemaVersionArtifactByIdEffect(db, deploymentId, id);
+    if (artifact === null) {
+      return yield* Effect.fail(new SchemaCreationTimeIndexPreparationError({ reason: "missingSchema" }));
+    }
+    const tables = yield* readSchemaVersionTableBindings(artifact.manifestJson, deploymentId);
+    const canonical = yield* Effect.tryPromise({
+      try: () => canonicalizeAppIndexPhysicalSpecV1(APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1),
+      catch: cause => new SchemaCreationTimeIndexPreparationError({ reason: "canonicalizationFailed", cause }),
+    }).pipe(Effect.catchTag("SchemaCreationTimeIndexPreparationError", failure =>
+      typeof DOMException !== "undefined" && failure.cause instanceof DOMException
+        ? Effect.fail(failure) : Effect.die(failure.cause)));
+    return Object.freeze(tables.toSorted((a, b) => a.tableId - b.tableId).map(table =>
+      registerCreationTimeDefinition(deploymentId, table, canonical)));
+  },
+);
+
+function registerCreationTimeDefinition(
+  deploymentId: string, table: SchemaVersionTableBinding, canonical: CanonicalAppIndexPhysicalSpecV1,
+): PreparedAppCreationTimeIndexDefinitionV1 {
+  const access = Object.freeze({ kind: "by_creation_time", tableId: table.tableId } satisfies AppCreationTimePhysicalIndexAccessIdentityV1);
+  const token = Object.freeze({ deploymentId, tableId: table.tableId,
+    [preparedCreationTimeDefinitionBrand]: true } satisfies PreparedAppCreationTimeIndexDefinitionV1);
+  preparedCreationTimeDefinitionStates.set(token, Object.freeze({
+    deploymentId, tableId: table.tableId, expectedNamespace: table.namespace, expectedLogicalName: table.logicalName,
+    access, storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access), canonical,
+  } satisfies PreparedCreationTimeDefinitionState));
+  return token;
 }
 
 /**
@@ -1860,7 +1916,7 @@ const verifyCreationTimeTableParentEffect = Effect.fn(
     );
   }
   if (
-    current.namespace !== "app" ||
+    current.namespace !== state.expectedNamespace ||
     current.logicalName !== state.expectedLogicalName
   ) {
     return yield* Effect.fail(

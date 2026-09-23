@@ -33,7 +33,6 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority, TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { cmsError } from "./model";
-import { requireCompositeBinding, type CompositeBinding } from "../crossDomainCommand/binding";
 
 declare const admissionBrand: unique symbol;
 export interface CmsAdmission { readonly [admissionBrand]: true }
@@ -148,7 +147,6 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
   clock: ScopeClockRecord,
   work: (admission: CmsAdmission) => Effect.Effect<Value, Failure, Requirements>,
   preferences?: PreparedCmsPreferences,
-  composite?: CompositeBinding,
   accepted?: AcceptedApplicationBinding,
 ) {
   if (!prepared.has(application) || !cmsClockMatches(authority, clock)) return yield* Effect.fail(cmsError("invalidAuthority"));
@@ -161,14 +159,9 @@ export const withCmsAdmission = Effect.fn("CmsAdmission.withTransaction")(functi
     const frame = candidate.value.frame;
     if (!sameBindingValue(projection, frame.application)) return yield* Effect.fail(cmsError("bindingChanged"));
     if (frame.payloadContent === null || (frame.payloadLifecycle !== null && preferences === undefined) ||
-      (frame.payloadLifecycle === null && preferences !== undefined) || (commerceBindings(frame).length !== 0 && composite === undefined) ||
+      (frame.payloadLifecycle === null && preferences !== undefined) || commerceBindings(frame).length !== 0 ||
       projection.readiness.kind !== "policy" || projection.readiness.relationCount > 2) {
       return yield* Effect.fail(cmsError("unsupportedProfile"));
-    }
-    if (composite !== undefined) {
-      if (frame.payloadLifecycle !== null || projection.readiness.relationCount !== 0) return yield* Effect.fail(cmsError("unsupportedProfile"));
-      yield* requireCompositeBinding(composite, tx, clock, frame, { sequence: head.value.frame.sequence, sha256: head.value.sha256 })
-        .pipe(Effect.mapError(cause => cmsError("invalidAuthority", cause)));
     }
     const schema = application.schema;
     if (schema.schemaVersionId !== projection.schemaVersionId || schema.applicationSchemaSha256 !== projection.applicationSchemaSha256 ||

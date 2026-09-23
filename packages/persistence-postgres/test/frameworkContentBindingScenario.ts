@@ -39,7 +39,7 @@ export async function frameworkContentBindingScenario(persistence: PGliteFlarexP
   if (first?.owner !== "payload") throw new Error("Expected a managed policy");
   const content: PayloadContentBinding = { configSha256: first.configSha256, provenanceSha256: first.provenanceSha256,
     application: reference, tables: claims.map(policy => ({ tableId: policy.tableId.toString(), writePolicySha256: policy.writePolicySha256 })) };
-  const frame: DataBindingSetFrame = { format: "flarex.data-binding-set", application: reference,
+  const frame: DataBindingSetFrame = { format: "flarex.data-binding-set", logicalSchema: null, application: reference,
     payloadContent: content, payloadLifecycle: null, commerce: [], crossDomainReferences: [] };
   const inventory = async () => ({
     clock: await persistence.drizzle.select().from(fxSystemScopeClocks),

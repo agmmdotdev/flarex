@@ -34,6 +34,11 @@ describe("Payload collection compiler", () => {
     expect(compiled.configuration.tables[0]?.indexes).toEqual(expect.arrayContaining([
       expect.objectContaining({ fields: ["alias"] }), expect.objectContaining({ fields: ["category", "amount"], unique: true }),
     ]));
+    expect(compiled.logicalDefinition.uniqueConstraints).toHaveLength(2);
+    expect(compiled.logicalDefinition.uniqueConstraints).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tableLogicalName: "items", fields: ["alias"], nullsDistinct: true, sparse: false }),
+      expect.objectContaining({ tableLogicalName: "items", fields: ["category", "amount"], nullsDistinct: true, sparse: false }),
+    ]));
     expect(compiled.schemaDefinition.tables.items?.validator.json).toMatchObject({ type: "object", value: {
       alias: { optional: false, fieldType: { type: "union", value: [{ type: "string" }, { type: "null" }] } },
       amount: { optional: false, fieldType: { type: "union", value: [{ type: "number" }, { type: "null" }] } },

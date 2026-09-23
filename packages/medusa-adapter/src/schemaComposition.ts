@@ -4,7 +4,8 @@ import {
   prepareLogicalSchemaCandidate,
 } from "@flarex/analysis/internal/logical-schema-candidate";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
-import { compileProductDefinition } from "@flarex/medusa-adapter/internal/product-definition";
+import { compileProductDefinition } from "./product-definition";
+import { compileCurrencyDefinition } from "./currency-schema";
 import type {
   ApplicationAnalysisAuthority,
   ApplicationAnalysisRepository,
@@ -20,6 +21,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
+const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency"])));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
   payloadCollections: Schema.Unknown,
@@ -45,13 +47,16 @@ export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
+  readonly medusaModules: readonly ("product" | "currency")[];
 }) {
   const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
     storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
   const deploymentId = configuration.deploymentId;
   const repository = configuration.applicationAnalyses;
   const inspect = repository.inspect;
+  const selectedModules = decodeModules([...configuration.medusaModules]);
   return Effect.fn("SchemaComposition.compose")(function* (request: unknown) {
+    const modules = yield* Effect.fromResult(selectedModules).pipe(Effect.mapError(cause => new SchemaCompositionError({ reason: "invalidRequest", cause })));
     const config = yield* Schema.decodeUnknownEffect(Request)(request).pipe(
       Effect.mapError(cause => new SchemaCompositionError({ reason: "invalidRequest", cause })),
     );
@@ -79,26 +84,39 @@ export function makeSchemaComposer(configuration: {
     const applicationSource = yield* captureLogicalSchemaSource({
       key: "application", owner: "application", writeProfile: "application.occ",
       evidence: { sourceArtifact: manifest.sourceArtifact, manifestSha256: application.manifestSha256 },
-      definition: { kind: "documents", tables, indexes, relations: manifest.version === 2 ? manifest.schema.relations.map(relation => relation.declaration) : [] },
+      definition: { kind: "documents", tables, indexes, uniqueConstraints: [], relations: manifest.version === 2 ? manifest.schema.relations.map(relation => relation.declaration) : [] },
       bindings: tables.map(table => ({ kind: "definition", localName: table.logicalName,
         table: { namespace: "app", logicalName: table.logicalName } })),
     });
     const payload = yield* compilePayloadCollections(config.payloadCollections);
     const payloadSource = yield* captureLogicalSchemaSource({
-      key: "payload", owner: "payload", writeProfile: payload.configuration.profile,
-      evidence: payload.schemaDefinition.writePolicies,
-      definition: payload.logicalDefinition,
-      bindings: payload.logicalDefinition.tables.map(table => ({ kind: "definition", localName: table.logicalName,
+      key: payload.sourceContract.sourceKey, owner: "payload", writeProfile: payload.sourceContract.writeProfile,
+      evidence: payload.sourceContract.evidence,
+      definition: payload.sourceContract.definition,
+      bindings: payload.sourceContract.definition.tables.map(table => ({ kind: "definition", localName: table.logicalName,
         table: { namespace: "app", logicalName: table.logicalName } })),
     });
-    const product = yield* compileProductDefinition();
-    const productSource = yield* captureLogicalSchemaSource({
-      key: "medusa.product", owner: "medusa", writeProfile: "medusa.product",
-      evidence: product.provenance,
-      definition: { kind: "relational", schema: product.schema },
-      bindings: product.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
-        table: { namespace: "medusa", logicalName: `${product.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
-    });
+    const medusaSources: LogicalSchemaSource[] = [];
+    if (modules.includes("product")) {
+      const product = yield* compileProductDefinition();
+      medusaSources.push(yield* captureLogicalSchemaSource({
+        key: "medusa.product", owner: "medusa", writeProfile: "medusa.product",
+        evidence: product.provenance,
+        definition: { kind: "relational", schema: product.schema },
+        bindings: product.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${product.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      }));
+    }
+    if (modules.includes("currency")) {
+      const currency = yield* compileCurrencyDefinition();
+      medusaSources.push(yield* captureLogicalSchemaSource({
+        key: "medusa.currency", owner: "medusa", writeProfile: "medusa.currency",
+        evidence: currency.provenance,
+        definition: { kind: "relational", schema: currency.schema },
+        bindings: currency.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${currency.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      }));
+    }
     const views: LogicalSchemaSource[] = [];
     for (const [position, view] of config.payloadViews.entries()) {
       const compiled = yield* compilePayloadCollections(view.collections);
@@ -114,7 +132,7 @@ export function makeSchemaComposer(configuration: {
       deploymentId, scopeId: authority.scopeId,
       applicationAnalysis: { candidateId: application.candidateId, analysisId: application.analysisId,
         manifestSha256: application.manifestSha256, sourceArtifactRootSha256: application.sourceArtifactRootSha256 },
-      sources: [applicationSource, payloadSource, productSource, ...views],
+      sources: [applicationSource, payloadSource, ...medusaSources, ...views],
       extensions: config.extensions,
     });
   });

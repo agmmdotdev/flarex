@@ -1000,7 +1000,7 @@ const backfillPage = Effect.fn("AppOrderedIndexBuild.backfillPage")(function* (
     if (disposition === "written") {
       written += 1;
       yield* runFault(options, "afterEntryWrite", rowId);
-    } else {
+    } else if (disposition === "replayed") {
       replayed += 1;
     }
   }
@@ -1127,15 +1127,17 @@ const validateAndEnable = Effect.fn("AppOrderedIndexBuild.validateAndEnable")(
           definition,
           rowId,
         });
-      if (expectedRow === null) {
+      const encodedKey = expectedRow === null ? null : yield* projectIndexKey(definition, expectedRow, state);
+      if (encodedKey === null) {
         if (actualRows.length !== 0) {
           return yield* mismatch(
             state,
-            `index-only row ${index} has ${actualRows.length} current entries`,
+            `excluded row ${index} has ${actualRows.length} current entries`,
           );
         }
         continue;
       }
+      if (expectedRow === null) return yield* mismatch(state, "missing row has an index key");
       if (actualRows.length !== 1) {
         return yield* mismatch(
           state,
@@ -1143,7 +1145,6 @@ const validateAndEnable = Effect.fn("AppOrderedIndexBuild.validateAndEnable")(
         );
       }
       const actualRow = actualRows[0]!;
-      const encodedKey = yield* projectIndexKey(definition, expectedRow, state);
       if (
         rowId !== actualRow.rowId ||
         actualRow.commitSeq > expectedRow.commitSeq ||
@@ -1516,12 +1517,13 @@ const ensureCurrentIndexEntry = Effect.fn(
   definition: LocatedAppIndexDefinitionV1,
   current: CurrentAppRowV1,
 ): Effect.fn.Return<
-  "written" | "replayed",
+  "written" | "replayed" | "excluded",
   | AppOrderedIndexBuildIntegrationError
   | AppOrderedIndexBuildStateError
   | AppendAppIndexEntryRevisionV1Error
 > {
   const encodedKey = yield* projectIndexKey(definition, current, state);
+  if (encodedKey === null) return "excluded";
   const rowId = yield* Effect.fromResult(
     orderedIndexRowIdHexV1FromBytesResult(
       orderedIndexRowIdHexV1ToBytes(current.rowId),
@@ -1596,7 +1598,7 @@ function projectIndexKey(
   definition: LocatedAppIndexDefinitionV1,
   current: CurrentAppRowV1,
   state: IndexBuildStateRecord,
-): Effect.Effect<OrderedIndexKeyHexV1, AppOrderedIndexBuildStateError> {
+): Effect.Effect<OrderedIndexKeyHexV1 | null, AppOrderedIndexBuildStateError> {
   if (current.kind === "intrinsicCreationTime") {
     return Effect.succeed(creationTimeKey(definition, current.creationTime));
   }

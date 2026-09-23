@@ -90,7 +90,7 @@ export function makeLogicalSchemaAdmission(configuration: {
     const artifact = yield* getSchemaVersionArtifactByIdEffect(db, input.deploymentId, schemaVersionId);
     if (artifact === null) return yield* Effect.fail(new LogicalSchemaAdmissionError({ reason: "missingCandidate" }));
     const admitted = yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, input.deploymentId).pipe(
-      Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })));
+      Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: cause.reason, cause })));
     const candidate = admitted.candidate;
     yield* requireTarget(candidate);
     for (const binding of admitted.tableBindings) {
@@ -190,7 +190,7 @@ const requireRetainedOwners = Effect.fn("LogicalSchemaAdmission.requireRetainedO
     }
     if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
       const previous = yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, deploymentId).pipe(
-        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: "storedCorruption", cause })));
+        Effect.mapError(cause => new LogicalSchemaAdmissionError({ reason: cause.reason, cause })));
       for (const source of previous.candidate.sources) for (const binding of source.bindings) {
         if (binding.kind !== "definition") continue;
         const next = proposed.get(logicalTableKey(binding.table));

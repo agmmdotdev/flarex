@@ -42,7 +42,7 @@ import {
   CmsTransactionError,
 } from "../src/cmsTransaction/model";
 import type { CmsRequestLifetime } from "../src/cmsTransaction/lifetime";
-import type { CmsFinalDocumentChange } from "../src/cmsTransaction/documents";
+import type { LogicalDocumentChange } from "../src/logicalDocuments/workingSet";
 
 /** Fixed test-only first-insert execution; no public document API or closure capability.
  * Schema validation, bounded readers and lifetime are explicit common components. */
@@ -75,7 +75,7 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
     const loaded = new Map<AppDocumentIdV1, AppRowRevisionV1>();
     const pending = new Map<
       AppDocumentIdV1,
-      Extract<CmsFinalDocumentChange, { readonly kind: "live" }>
+      Extract<LogicalDocumentChange, { readonly kind: "live" }>
     >();
     let closed = false;
     let inserted = 0;
@@ -302,7 +302,7 @@ export const makeCe0FirstInsertDocuments = Effect.fn("Ce0InsertDocuments.make")(
                   basis: { kind: "noVisibleRevision" },
                 },
               },
-            } satisfies CmsFinalDocumentChange),
+            } satisfies LogicalDocumentChange),
           );
           const output = yield* Effect.fromResult(
             capturePrivateJsonData(

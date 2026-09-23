@@ -1,14 +1,13 @@
 import type { ApplicationManifestWithRelations } from "@flarex/analysis/application-analysis";
-import { digestApplicationWritePolicyFrame, payloadUniqueSelections } from "@flarex/analysis/internal/application-write-policy";
-import { Effect, Result } from "effect";
+import { payloadUniqueDeclarations } from "@flarex/analysis/internal/application-write-policy";
+import { Effect } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
-  APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1,
   canonicalizeAppUniqueConstraintPhysicalSpecV1,
-  decodeAppUniqueConstraintPhysicalSpecV1Result,
+  lowerLogicalDocumentUniqueConstraint,
 } from "flarex-protocol/app-unique-constraint-definition";
 import { MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
-import { SchemaManifestAppIndexDescriptorSchema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import {
   ensureAppUniqueConstraintDefinitionBindingV1InTransaction,
   listAppUniqueConstraintDefinitionSetMembersV1Effect,
@@ -41,21 +40,13 @@ const declarations = Effect.fn("ApplicationUniqueDeclarations.lower")(function* 
   for (const configured of manifest.schema.writePolicies.configuration.tables) {
     const table = bound.tables.find(candidate => candidate.logicalName === configured.logicalTableName);
     if (table === undefined) return yield* Effect.fail(new ApplicationWriteOwnershipError({ reason: "invalidEvidence" }));
-    for (const fields of payloadUniqueSelections(configured)) {
-      const digest = yield* digestApplicationWritePolicyFrame(fields).pipe(
+    const constraints = yield* payloadUniqueDeclarations(configured).pipe(
         Effect.mapError(cause => new ApplicationWriteOwnershipError({
           reason: cause.reason === "digestUnavailable" ? "resourceFailure" : "invalidEvidence", cause,
         })));
-      const descriptor = SchemaManifestAppIndexDescriptorSchema.make(`u_${digest.slice(0, 60)}`);
-      const physicalSpec = yield* Effect.fromResult(decodeAppUniqueConstraintPhysicalSpecV1Result({
-        kind: "appUniqueConstraint", specVersion: 1, orderedFields: fields, sparse: false,
-        ...(fields.some(name => configured.fields.some(field => field.name === name && field.kind !== "relationship" && field.nullable))
-          ? { nullsDistinct: true } : {}),
-        localePolicy: { kind: "none" }, keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
-        keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
-      }).pipe(Result.mapError(cause => new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause }))));
+    for (const constraint of constraints) {
       plans.push({ deploymentId: bound.deploymentId, schemaVersionId: bound.schemaVersionId,
-        tableId: table.tableId, descriptor, physicalSpec });
+        tableId: table.tableId, descriptor: constraint.descriptor, physicalSpec: lowerLogicalDocumentUniqueConstraint(constraint) });
     }
   }
   return plans;
@@ -89,8 +80,10 @@ export const applicationUniqueDeclarationsMatch = Effect.fn("ApplicationUniqueDe
     for (const plan of plans) {
       const canonical = yield* Effect.tryPromise({
         try: () => canonicalizeAppUniqueConstraintPhysicalSpecV1(plan.physicalSpec),
-        catch: cause => new ApplicationWriteOwnershipError({ reason: "invalidEvidence", cause }),
-      });
+        catch: cause => new ApplicationWriteOwnershipError({ reason: "resourceFailure", cause }),
+      }).pipe(Effect.catchTag("ApplicationWriteOwnershipError", failure =>
+        typeof DOMException !== "undefined" && failure.cause instanceof DOMException
+          ? Effect.fail(failure) : Effect.die(failure.cause)));
       if (actual.filter(member => member.tableId === plan.tableId && member.physicalSpecSha256Hex === canonical.sha256Hex).length !== 1) return false;
     }
     return true;
@@ -101,6 +94,7 @@ function projectFailure(cause: PrepareAppUniqueConstraintDefinitionBindingV1Erro
   EnsureAppUniqueConstraintDefinitionBindingV1Error | ReadAppUniqueConstraintDefinitionV1Error) {
   return new ApplicationWriteOwnershipError({
     reason: cause._tag === "AppUniqueConstraintCatalogPersistenceError" || cause._tag === "SchemaVersionArtifactPersistenceError" ||
-      cause._tag === "SchemaManifestTableBindingPersistenceError" ? "resourceFailure" : "invalidEvidence", cause,
+      cause._tag === "SchemaManifestTableBindingPersistenceError" || cause._tag === "AppUniqueConstraintDefinitionPreparationError"
+      ? "resourceFailure" : "invalidEvidence", cause,
   });
 }

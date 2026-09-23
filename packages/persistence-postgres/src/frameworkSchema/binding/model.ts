@@ -1,4 +1,6 @@
 import type { JsonObject } from "flarex-protocol/json";
+import { Schema } from "effect";
+import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import type {
   FrameworkSchemaInstallationIdentity,
   RelationalResidualRequirement,
@@ -9,6 +11,12 @@ import type { PrivateCanonicalValueSnapshot } from "../privateCanonicalValue";
 export const MAX_BINDING_BYTES = 1_048_576;
 export const MAX_BINDING_REQUIREMENTS = 64;
 export const MAX_COMMERCE_BINDINGS = 8;
+
+export const LogicalSchemaBindingSchema = Schema.Struct({
+  schemaVersionId: CatalogSchemaVersionIdSchema,
+  manifestSha256: Schema.String.check(Schema.isLengthBetween(64, 64), Schema.isPattern(/^[a-f0-9]{64}$/)),
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type LogicalSchemaBinding = typeof LogicalSchemaBindingSchema.Type;
 
 import type { ApplicationBindingReference } from "../../applicationBindingProjection";
 export type { ApplicationBindingReference } from "../../applicationBindingProjection";
@@ -49,6 +57,7 @@ export type PayloadContentBinding = Readonly<{
 type DataBindingSetBase = Readonly<{
   format: "flarex.data-binding-set";
   application: ApplicationBindingReference;
+  logicalSchema: LogicalSchemaBinding | null;
   payloadContent: PayloadContentBinding | null;
   payloadLifecycle: PhysicalDataBinding | null;
   crossDomainReferences: readonly [];

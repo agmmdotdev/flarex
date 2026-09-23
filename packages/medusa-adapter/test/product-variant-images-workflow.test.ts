@@ -13,13 +13,15 @@ import { prepareLocalProductProfile } from "../src/product-profile";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { productLocalEventPolicy, productModuleEventPolicy } from "../src/product-local-events";
-import { prepareCurrencyProfile } from "../src/currency-contract";
-import { currencyCommands, currencyWorkflowModule } from "../src/currency-service";
+import { currencyWorkflowModule } from "../src/currency-service";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { commerceHostFixture, type CommerceHostTestFixture } from "../../persistence-postgres/test/commerceHostFixture";
-import { commerceInventory } from "../../persistence-postgres/test/commerceInventory";
+import { commerceInventory, commercePhysicalRows } from "../../persistence-postgres/test/commerceInventory";
+import { makeLocalCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import type { CommerceHost } from "../../persistence-postgres/src/commerceTransaction/commands";
+import type { CommerceTransactionError } from "../../persistence-postgres/src/commerceTransaction/model";
 import { createRelationalPGliteFixture } from "../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
 import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
 import { createFileScopedPostgresFixture } from "../../persistence-postgres/test/postgresHelpers";
@@ -29,9 +31,12 @@ import { runEffect, runEffectFailure } from "../../persistence-postgres/test/eff
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
 import { fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { logicalCategoryCurrencyFixture } from "./support/logical-category-currency-fixture";
+import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 
 const cleanup: Array<() => Promise<void>> = [];
-const driver = process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
+const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
+if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
 let product: CommerceHostTestFixture;
 let control: CommerceHostTestFixture["persistence"];
 let commands: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
@@ -49,16 +54,17 @@ const inventory = async () => ({ data: await commerceInventory(product),
   events: await product.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
   deliveries: await product.persistence.drizzle.select().from(fxSystemCommitEventDeliveries).orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal),
 });
-async function seed(prefix: string, thumbnail: string | null = `${prefix}-old-url`) {
-  await runEffect(product.host.run(product.host.newRequestKey(), commands.commands.create, {
+const seed = Effect.fn("VariantImagesTest.seed")((prefix: string, thumbnail: string | null = `${prefix}-old-url`,
+  host: CommerceHost = product.host): Effect.Effect<void, CommerceTransactionError> => Effect.gen(function* () {
+  yield* host.run(host.newRequestKey(), commands.commands.create, {
     id: `${prefix}-product`, title: prefix, handle: prefix,
     images: [{ id: `${prefix}-old`, url: `${prefix}-old-url` }, { id: `${prefix}-new`, url: `${prefix}-new-url` }, { id: `${prefix}-general`, url: `${prefix}-general-url` }],
     variants: [{ id: `${prefix}-variant`, title: prefix, thumbnail }, { id: `${prefix}-other`, title: "other" }],
-  }));
-  await runEffect(product.host.run(product.host.newRequestKey(), commands.commands.addImageToVariant, [
+  });
+  yield* host.run(host.newRequestKey(), commands.commands.addImageToVariant, [
     { variant_id: `${prefix}-variant`, image_id: `${prefix}-old` }, { variant_id: `${prefix}-other`, image_id: `${prefix}-new` },
-  ]));
-}
+  ]);
+}));
 const args = (prefix: string) => ({ variant_id: `${prefix}-variant`, add: [`${prefix}-new`], remove: [`${prefix}-old`] });
 
 describe("conditional Variant Image workflow on the native transaction", () => {
@@ -84,10 +90,14 @@ describe("conditional Variant Image workflow on the native transaction", () => {
       descriptor => productLocalEventPolicy(descriptor, catalog, () => Effect.void));
     policy = productModuleEventPolicy(product.descriptor, catalog);
   }, 150_000);
-  afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+  afterAll(async () => {
+    const failures: unknown[] = [];
+    for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
+    if (failures.length > 0) throw new AggregateError(failures, "Variant-images fixture cleanup failed");
+  });
 
   it("adds then removes assignments, clears the matching thumbnail and publishes exactly once", async () => {
-    await seed("mixed"); const host = await assemble(); const key = host.newRequestKey(); const before = await inventory();
+    await runEffect(seed("mixed")); const host = await assemble(); const key = host.newRequestKey(); const before = await inventory();
     const result = await runEffect(host.run(key, args("mixed")));
     expectTypeOf(result).toEqualTypeOf<{ readonly added: readonly string[]; readonly removed: readonly string[] }>();
     expect(result).toEqual({ added: ["mixed-new"], removed: ["mixed-old"] });
@@ -117,7 +127,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
 
   it.each([null, "unrelated-url"])("retains a nonmatching thumbnail (%s) without inventing events", async thumbnail => {
     const prefix = thumbnail === null ? "null-thumb" : "different-thumb";
-    await seed(prefix, thumbnail); const host = await assemble(); const before = await inventory();
+    await runEffect(seed(prefix, thumbnail)); const host = await assemble(); const before = await inventory();
     expect(await runEffect(host.run(host.newRequestKey(), { variant_id: `${prefix}-variant`, remove: [`${prefix}-old`] }))).toEqual({ added: [], removed: [`${prefix}-old`] });
     const after = await inventory();
     expect(after.data.tables.product_variant).toEqual(before.data.tables.product_variant);
@@ -126,7 +136,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
   });
 
   it("keeps add-only and existing-association service behavior and returns requested IDs", async () => {
-    await seed("add"); const host = await assemble(); const before = await inventory();
+    await runEffect(seed("add")); const host = await assemble(); const before = await inventory();
     for (let repeat = 0; repeat < 2; repeat++) {
       expect(await runEffect(host.run(host.newRequestKey(), { variant_id: "add-variant", add: ["add-new"] }))).toEqual({ added: ["add-new"], removed: [] });
     }
@@ -138,7 +148,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
   });
 
   it("checks requested image URLs even when removal changes no association", async () => {
-    await seed("noop", "noop-general-url"); const host = await assemble(); const before = await inventory();
+    await runEffect(seed("noop", "noop-general-url")); const host = await assemble(); const before = await inventory();
     expect(await runEffect(host.run(host.newRequestKey(), { variant_id: "noop-variant", remove: ["noop-general", "missing-image"] })))
       .toEqual({ added: [], removed: ["noop-general", "missing-image"] });
     const after = await inventory();
@@ -154,7 +164,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
     const host = await assemble(); const beforeEmpty = await inventory();
     expect(await runEffect(host.run(host.newRequestKey(), { variant_id: "missing-variant" }))).toEqual({ added: [], removed: [] });
     const afterEmpty = await inventory(); expect(afterEmpty.data.tables).toEqual(beforeEmpty.data.tables); expect(afterEmpty.events).toEqual(beforeEmpty.events);
-    await seed("invalid"); const before = await inventory();
+    await runEffect(seed("invalid")); const before = await inventory();
     for (const input of [
       { variant_id: "invalid-variant", add: ["invalid-new", "invalid-new"] },
       { variant_id: "invalid-variant", remove: ["invalid-old", "invalid-old"] },
@@ -172,7 +182,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
   });
 
   it("rolls back the complete real workflow when final output validation fails", async () => {
-    await seed("rollback"); const before = await inventory();
+    await runEffect(seed("rollback")); const before = await inventory();
     const resources = Result.getOrThrow(prepareWorkflowResources({ product: { module: commands.workflow,
       methods: ["addImageToVariant", "removeImageFromVariant", "listProductVariants", "updateProductVariants"], graph: true,
     } }, true));
@@ -184,7 +194,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
   });
 
   it("keeps colliding foreign-scope images and variants out of graph reads and mutations", async () => {
-    await seed("scoped");
+    await runEffect(seed("scoped"));
     const clock = (await product.persistence.drizzle.select().from(fxSystemScopeClocks))[0];
     if (clock === undefined) throw new Error("Missing fixture clock");
     const uuid = "1d687ee5-82a0-45c9-b0dc-998353412742";
@@ -218,7 +228,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
   });
 
   it("keeps extra graph arguments a sticky refusal even when the workflow catches it", async () => {
-    await seed("extra-args"); const before = await inventory();
+    await runEffect(seed("extra-args")); const before = await inventory();
     const resources = Result.getOrThrow(prepareWorkflowResources({ product: { module: commands.workflow,
       methods: ["addImageToVariant"], graph: true,
     } }, false));
@@ -239,7 +249,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
   });
 
   it("drains cancellation after mutation and recovers an uncertain commit without repeating the flow", async () => {
-    await seed("cancel"); const before = await inventory();
+    await runEffect(seed("cancel")); const before = await inventory();
     const reached = await runEffect(Deferred.make<void>());
     const cancelled = await assemble({ ...policy, validate: (...args) => policy.validate(...args).pipe(
       Effect.andThen(args[2] === "productUpdateVariantsBySelector"
@@ -269,7 +279,7 @@ describe("conditional Variant Image workflow on the native transaction", () => {
   });
 
   it.skipIf(driver !== "postgres")("hides pending mutations from other connections and settles duplicate calls once", async () => {
-    await seed("isolated"); const before = await inventory(); let observed = false;
+    await runEffect(seed("isolated")); const before = await inventory(); let observed = false;
     const host = await assemble({ ...policy, validate: (...args) => policy.validate(...args).pipe(Effect.andThen(args[2] === "productUpdateVariantsBySelector"
       ? Effect.promise(async () => { observed = true; expect(await inventory()).toEqual(before); }) : Effect.void)) });
     const key = host.newRequestKey();
@@ -280,16 +290,57 @@ describe("conditional Variant Image workflow on the native transaction", () => {
   });
 
   it("uses the same graph step for Currency and runs Product beside its installation", async () => {
-    const currency = await commerceHostFixture(product.persistence, product.session, prepareCurrencyProfile, [currencyCommands.retrieve], control, undefined, {}, product);
+    const mixed = await logicalCategoryCurrencyFixture(driver, close => cleanup.push(close));
+    const catalog = await runEffect(captureProductSchema("atomic-commerce")
+      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
+    const mixedPolicy = productModuleEventPolicy(mixed.product.descriptor, catalog);
+    const physicalProduct = await runEffect(makeLocalCommerceHost({
+      hostRuntime: mixed.currency.hostInput.hostRuntime,
+      database: mixed.currency.hostInput.database,
+      session: mixed.currency.session,
+      target: mixed.currency.hostInput.target,
+      deploymentId: mixed.currency.deploymentId,
+      authority: mixed.currency.hostInput.authority,
+      application: mixed.currency.hostInput.application,
+      identityAndAccessPolicy: mixed.currency.hostInput.identityAndAccessPolicy,
+      commands: [commands.commands.create, commands.commands.addImageToVariant],
+      profile: mixed.product.profile,
+      installation: mixed.installation,
+    }, productLocalEventPolicy(mixed.product.descriptor, catalog, () => Effect.void)));
+    cleanup.push(() => runEffect(physicalProduct.host.close));
+    const mixedExecution = { identityAndAccessPolicy: mixed.input.identityAndAccessPolicy,
+      prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...mixed.input, ...composition }) };
     const module = Result.getOrThrow(currencyWorkflowModule);
     const resources = Result.getOrThrow(prepareWorkflowResources({ currency: { module, methods: [], graph: true } }, false));
     const flow = createWorkflow("currency-common-graph", () => new WorkflowResponse(useQueryGraphStep({ entity: "currency", fields: ["code", "name"], filters: { code: "usd" }, options: { isList: false } })));
-    const host = await runEffect(prepareAtomicWorkflowHost({ execution: execution(), revision,
-      modules: { currency: { module, profile: currency.prepared.profile, installation: currency.installation } },
+    const host = await runEffect(prepareAtomicWorkflowHost({ execution: mixedExecution, revision,
+      modules: { currency: { module, logicalStorage: mixed.currency.hostInput.logicalStorage } },
       workflow: { name: "currencyCommonGraph", resources, prepared: Result.getOrThrow(flow.prepare()), input: Schema.Null, output: Schema.JsonObject },
     }));
+    cleanup.push(() => runEffect(host.close));
     expect(await runEffect(host.run(host.newRequestKey(), null))).toMatchObject({ data: { code: "usd", name: "US Dollar" }, metadata: { count: 1, skip: 0, take: 256 } });
-    await seed("coexisting"); const native = await assemble();
-    expect(await runEffect(native.run(native.newRequestKey(), args("coexisting")))).toEqual({ added: ["coexisting-new"], removed: ["coexisting-old"] });
-  }, 100_000);
+    await runEffect(seed("coexisting", "coexisting-old-url", physicalProduct.host));
+    const native = await runEffect(prepareVariantImagesWorkflow({ ...options(mixedPolicy), execution: mixedExecution,
+      modules: { product: { module: commands.workflow, profile: mixed.product.profile,
+        installation: mixed.installation, moduleEvents: mixedPolicy } } }));
+    cleanup.push(() => runEffect(native.close));
+    const before = await logicalCurrencyInventory(mixed.currency);
+    const beforeProduct = await commercePhysicalRows(mixed.currency.persistence, mixed.product.descriptor.layout.frame);
+    const key = native.newRequestKey();
+    const result = await runEffect(native.run(key, args("coexisting")));
+    expect(result).toEqual({ added: ["coexisting-new"], removed: ["coexisting-old"] });
+    const after = await logicalCurrencyInventory(mixed.currency);
+    const afterProduct = await commercePhysicalRows(mixed.currency.persistence, mixed.product.descriptor.layout.frame);
+    expect(after.rows).toEqual(before.rows);
+    expect(after.commits).toHaveLength(before.commits.length + 1);
+    expect(after.physicalFacts.length).toBeGreaterThan(before.physicalFacts.length);
+    expect(afterProduct.product_variant_product_image?.filter(row => row.variant_id === "coexisting-variant"))
+      .toMatchObject([{ image_id: "coexisting-new" }]);
+    expect(afterProduct.product_variant?.find(row => row.id === "coexisting-variant"))
+      .toMatchObject({ thumbnail: null });
+    expect(afterProduct).not.toEqual(beforeProduct);
+    expect(await runEffect(native.run(key, args("coexisting")))).toEqual(result);
+    expect(await logicalCurrencyInventory(mixed.currency)).toEqual(after);
+    expect(await commercePhysicalRows(mixed.currency.persistence, mixed.product.descriptor.layout.frame)).toEqual(afterProduct);
+  }, 150_000);
 });

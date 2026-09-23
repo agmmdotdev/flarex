@@ -344,9 +344,13 @@ const compactInTransaction = Effect.fn(
       "storedEvidenceInvalid",
     ));
   }
+  const identityRow = identityRows[0];
+  if (identityRow === undefined) {
+    return yield* Effect.fail(compactionError(authority, "storedEvidenceInvalid"));
+  }
   const root = yield* Effect.fromResult(decodeRevisionResult(
     authority,
-    identityRows[0],
+    identityRow,
   ));
   if (root.prevCommitSeq !== null) {
     return yield* Effect.fail(compactionError(
@@ -378,9 +382,13 @@ const compactInTransaction = Effect.fn(
       "storedEvidenceInvalid",
     ));
   }
+  const anchorRow = anchorRows[0];
+  if (anchorRow === undefined) {
+    return yield* Effect.fail(compactionError(authority, "storedEvidenceInvalid"));
+  }
   const anchor = yield* Effect.fromResult(decodeRevisionResult(
     authority,
-    anchorRows[0],
+    anchorRow,
   ));
   yield* Effect.fromResult(requireSameIdentityEvidenceResult(
     authority,

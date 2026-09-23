@@ -3523,6 +3523,11 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
     const encodedKey = yield* Effect.fromResult(
       lowerAppDeveloperIndexKeyV1(index.definition, document, creationTime),
     );
+    if (encodedKey === null) {
+      // Remove the old index position when a live overlay leaves its predicate.
+      stagedByRowId.set(rowId, Object.freeze({ kind: "deleted", rowId }));
+      continue;
+    }
     stagedByRowId.set(rowId, Object.freeze({
       kind: "live",
       rowId,

@@ -19,16 +19,14 @@ import { runOwnedPromise } from "../ownedPromise";
 import { compositeError, projectCompositePublicationFailure } from "./model";
 import type { makeCurrencyAnnouncementParticipants } from "./participants";
 
-type Participants = Effect.Success<
-  ReturnType<typeof makeCurrencyAnnouncementParticipants>
->;
+type LogicalParticipants = Effect.Success<ReturnType<typeof makeCurrencyAnnouncementParticipants>>;
 interface PublicationInput {
   readonly tx: FlarexMetadataTransaction;
   readonly scopeId: ReplacementScopeIdV1;
   readonly clock: ScopePublicationClock;
   readonly materialization: ApplicationParticipantOptions;
   readonly identity: ResolveCommittedPointOutcomeInputV1;
-  readonly closed: Effect.Success<ReturnType<Participants["close"]>>;
+  readonly closed: Effect.Success<ReturnType<LogicalParticipants["close"]>>;
   readonly result: CanonicalSuccessfulResultV1;
   readonly resultSha256: Uint8Array;
 }

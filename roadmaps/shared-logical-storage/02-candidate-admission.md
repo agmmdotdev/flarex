@@ -6,7 +6,7 @@ It does not complete shared commerce storage, serving activation or migrations.
 
 ## Owners And Authentication
 
-[The backend composer](../../packages/flarex-backend/src/schemaComposition.ts)
+[The private Medusa integration composer](../../packages/medusa-adapter/src/schemaComposition.ts)
 loads the Application candidate through the authenticated analysis repository.
 The repository checks scope authority and the immutable analysis/source binding.
 The composer invokes Payload's native collection compiler and the complete
@@ -132,7 +132,7 @@ follow-on work, including [deferred evolution](./deferred-framework-schema-evolu
 
 ## Decisive Witnesses And Remaining Gates
 
-[The connected test](../../packages/flarex-backend/test/schemaComposition.test.ts)
+[The connected test](../../packages/medusa-adapter/test/schemaComposition.test.ts)
 uses native Application schema definitions, durable Application analysis,
 native Payload configuration and the full Product compiler. It checks preserved
 IDs, both dependency directions, read-only exposure, canonical reload, replay,

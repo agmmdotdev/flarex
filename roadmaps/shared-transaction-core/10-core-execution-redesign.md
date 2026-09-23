@@ -186,8 +186,11 @@ it retains unnamed driver execution and the existing transaction lifetime. The
 [index application slice](./16-ce1-index-batch-application.md) extends bounded
 execution to membership/parent checks and index revisions/current pointers.
 The [unique ownership slice](./17-ce1-unique-batch-application.md) replaces scalar
-unique writes with bounded validation and release/claim phases. Native unique
-admission remains capped at 32 transitions. The
+unique writes with bounded validation and release/claim phases. Shared document
+admission now allows 128 aggregate transitions and 256 release/claim actions;
+ownership reads and mutations retain 32-position statement batches within one
+transaction. The [Currency storage cutover](../shared-logical-storage/10-currency-storage-cutover.md)
+owns this budget alignment and its remaining native initialization gates. The
 [CE2 continuous-maintenance preflight](./18-ce2-continuous-index-maintenance.md)
 selects activation-bound coverage and identifies exact writer composition as
 its prerequisite. [Exact developer selection](./19-ce2-exact-developer-index-selection.md)

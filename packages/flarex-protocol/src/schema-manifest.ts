@@ -4,6 +4,7 @@ import { Result, Schema } from "effect";
 
 import { isCanonicalArrayIndex } from "./canonical-array-index";
 import {
+  CatalogDefinitionNameSchema,
   CatalogIndexIdSchema,
   CatalogTableIdSchema,
   type CatalogIndexId,
@@ -224,7 +225,9 @@ export function decodeSchemaManifestTableDefinitionsV1Result(
 }
 
 export const SchemaManifestAppIndexDescriptorSchema =
-  SchemaManifestAppIdentifierSchema.check(
+  CatalogDefinitionNameSchema.check(
+    Schema.makeFilter(value => isValidSchemaManifestAppIdentifier(value)
+      ? undefined : "Expected a Convex-compatible app identifier"),
     Schema.makeFilter((value) =>
       isReservedSchemaManifestAppIndexDescriptor(value)
         ? "Expected a developer index descriptor outside the reserved system index namespace"

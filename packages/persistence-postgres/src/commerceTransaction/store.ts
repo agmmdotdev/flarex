@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
+import { isRelationalColumnValue, isRelationalJsonValue as representable } from "flarex-protocol/internal/relational-schema";
 import { isPrivateValueText } from "../frameworkSchema/privateStoredValueShape";
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
@@ -55,11 +55,6 @@ const invalid = () => commerceError("invalidInput");
 const decodeTextNotEqual = Schema.decodeUnknownResult(Schema.Struct({
   kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String,
 }), { onExcessProperty: "error" });
-// Inputs are already detached plain JSON. PostgreSQL text and JSONB must preserve
-// every string and object key exactly across the driver UTF-8 boundary.
-const representable = (value: Json): boolean => typeof value === "string" ? isPrivateValueText(value) :
-  value === null || typeof value !== "object" ? true : Array.isArray(value) ? value.every(representable) :
-  Object.entries(value).every(([key, member]) => isPrivateValueText(key) && representable(member));
 const countWithin = (value: unknown, maximum: number): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= maximum;
 
@@ -196,20 +191,18 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return { total: row.total, maximum: row.maximum, bytes: row.bytes };
   });
   const parameter = (field: RelationalPhysicalColumn, value: Json): Result.Result<SQL, CommerceTransactionError> => {
+    if (!isRelationalColumnValue(field.type === "timestamp with time zone" ? "timestamptz" : field.type, field.nullable, value))
+      return Result.fail(invalid());
     // Physical type names are the captured layout's closed scalar union. Typed
     // NULLs are required in VALUES tables, where PostgreSQL otherwise infers text.
-    if (value === null) return field.nullable ? Result.succeed(sql`cast(null as ${sql.raw(field.type)})`) : Result.fail(invalid());
+    if (value === null) return Result.succeed(sql`cast(null as ${sql.raw(field.type)})`);
     switch (field.type) {
-      case "boolean": return typeof value === "boolean" ? Result.succeed(sql`${value}::boolean`) : Result.fail(invalid());
-      case "text": return isPrivateValueText(value) ? Result.succeed(sql`${value}`) : Result.fail(invalid());
-      case "integer": return typeof value === "number" && Number.isSafeInteger(value) && value >= -2147483648 && value <= 2147483647
-        ? Result.succeed(sql`${value}::integer`) : Result.fail(invalid());
-      case "numeric": return (typeof value === "number" && Number.isFinite(value)) ||
-        (typeof value === "string" && value.length <= 1024 && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/.test(value))
-        ? Result.succeed(sql`${String(value)}::numeric`) : Result.fail(invalid());
+      case "boolean": return Result.succeed(sql`${value}::boolean`);
+      case "text": return Result.succeed(sql`${value}`);
+      case "integer": return Result.succeed(sql`${value}::integer`);
+      case "numeric": return Result.succeed(sql`${String(value)}::numeric`);
       case "jsonb": return Result.succeed(sql`${JSON.stringify(value)}::jsonb`);
-      case "timestamp with time zone": return typeof value === "string" && isCanonicalIsoInstant(value)
-        ? Result.succeed(sql`${value}::timestamptz`) : Result.fail(invalid());
+      case "timestamp with time zone": return Result.succeed(sql`${value}::timestamptz`);
     }
   };
   const parseRead = (input: unknown) => Result.gen(function* () {

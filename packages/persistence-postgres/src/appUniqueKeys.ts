@@ -5,6 +5,7 @@ import {
 } from "@flarex/utils/bytes";
 import { and, eq, or, isNull } from "drizzle-orm";
 import { Effect, Option, Result, Schema } from "effect";
+import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import {
   AppRowIdHexV1Schema,
   appRowIdHexV1FromBytesResult,
@@ -366,7 +367,7 @@ const OwnerPositionsSchema = Schema.Array(
       ),
     ),
   }),
-).check(Schema.makeFilter((value) => value.length <= 32));
+).check(Schema.makeFilter((value) => value.length <= MAX_POINT_COMMIT_MATERIAL_ROWS_V1));
 const decodeOwnerPositionsResult =
   Schema.decodeUnknownResult(OwnerPositionsSchema);
 
@@ -1466,60 +1467,63 @@ export const readAppUniqueKeyOwnersInTransactionEffect = Effect.fn(
     decodeOwnerPositionsResult(input.positions),
   ).pipe(Effect.mapError((cause) => invalid("invalidTransition", cause)));
   if (positions.length === 0) return Object.freeze([]);
-  const rows = yield* persistenceEffect(
-    tx
-      .select()
-      .from(fxAppUniqueKeys)
-      .where(
-        and(
-          eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid),
-          or(
-            ...positions.map((position) =>
-              and(
-                eq(fxAppUniqueKeys.constraintId, position.constraintId),
-                eq(fxAppUniqueKeys.tableId, position.tableId),
-                eq(fxAppUniqueKeys.rowId, appRowIdHexV1ToBytes(position.rowId)),
-              ),
-            ),
-          ),
-        ),
-      )
-      .orderBy(
-        fxAppUniqueKeys.constraintId,
-        fxAppUniqueKeys.tableId,
-        fxAppUniqueKeys.rowId,
-        fxAppUniqueKeys.localeKey,
-      )
-      .limit(positions.length + 1),
-  );
-  if (rows.length > positions.length)
-    return yield* Effect.fail(
-      corruption("owner lookup exceeds its fixed claim bound"),
-    );
   const claims: (AppUniqueKeyClaimV1 & {
     readonly projection: AppUniqueKeyProjectionV1;
   })[] = [];
-  for (const stored of rows) {
-    const rowId = yield* Effect.fromResult(
-      storedField(appRowIdHexV1FromBytesResult(stored.rowId)),
+  for (let offset = 0; offset < positions.length; offset += 32) {
+    const batch = positions.slice(offset, offset + 32);
+    const rows = yield* persistenceEffect(
+      tx
+        .select()
+        .from(fxAppUniqueKeys)
+        .where(
+          and(
+            eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid),
+            or(
+              ...batch.map((position) =>
+                and(
+                  eq(fxAppUniqueKeys.constraintId, position.constraintId),
+                  eq(fxAppUniqueKeys.tableId, position.tableId),
+                  eq(fxAppUniqueKeys.rowId, appRowIdHexV1ToBytes(position.rowId)),
+                ),
+              ),
+            ),
+          ),
+        )
+        .orderBy(
+          fxAppUniqueKeys.constraintId,
+          fxAppUniqueKeys.tableId,
+          fxAppUniqueKeys.rowId,
+          fxAppUniqueKeys.localeKey,
+        )
+        .limit(batch.length + 1),
     );
-    const position = positions.find(
-      (value) =>
-        value.constraintId === stored.constraintId &&
-        value.tableId === stored.tableId &&
-        value.rowId === rowId,
-    );
-    if (!position)
+    if (rows.length > batch.length)
       return yield* Effect.fail(
-        corruption("lookup returned an unrequested owner"),
+        corruption("owner lookup exceeds its fixed claim bound"),
       );
-    claims.push(
-      yield* authenticateStoredClaimEffect(
-        input.scopeId,
-        stored,
-        position.componentCount,
-      ),
-    );
+    for (const stored of rows) {
+      const rowId = yield* Effect.fromResult(
+        storedField(appRowIdHexV1FromBytesResult(stored.rowId)),
+      );
+      const position = batch.find(
+        (value) =>
+          value.constraintId === stored.constraintId &&
+          value.tableId === stored.tableId &&
+          value.rowId === rowId,
+      );
+      if (!position)
+        return yield* Effect.fail(
+          corruption("lookup returned an unrequested owner"),
+        );
+      claims.push(
+        yield* authenticateStoredClaimEffect(
+          input.scopeId,
+          stored,
+          position.componentCount,
+        ),
+      );
+    }
   }
   return Object.freeze(claims);
 });

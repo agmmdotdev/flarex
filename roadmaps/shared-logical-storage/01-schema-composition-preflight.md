@@ -85,7 +85,7 @@ edit them to accept a weakened candidate.
 
 ### Authentication And Persistence
 
-- Trusted backend composition invokes the existing source-verification and
+- Trusted integration composition invokes the existing source-verification and
   compiler owners, checks the contribution digests and candidate closure, then
   requests catalog admission. Caller-supplied producer labels, hashes or copied
   process-local handles are not sufficient authority.

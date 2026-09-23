@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Deferred, Effect, Exit, Fiber, Option } from "effect";
+import { Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
 import { eq } from "drizzle-orm";
 import { commerceHostFixture, type CommerceHostTestFixture } from "./commerceHostFixture";
 import { prepareNeutralCommerceProfile } from "./neutralCommerceProfile";
@@ -9,6 +9,8 @@ import { createFileScopedPostgresFixture } from "./postgresHelpers";
 import { issueRelationalSession, makePostgresRelationalSession, runRelationalSession } from "../src/relationalTransaction/session";
 import { RelationalSessionError } from "../src/relationalTransaction/model";
 import { registerLocalCommerceProfile } from "../src/commerceTransaction/profile";
+import type { CommerceProfile } from "../src/commerceTransaction/profile";
+import type { InstallationBindingReference } from "../src/frameworkSchema/binding/model";
 import { defineCommerceCommand, type CommerceCommandContext } from "../src/commerceTransaction/commands";
 import type { LocalCommerceEventPolicy } from "../src/commerceTransaction/host";
 import { commerceError } from "../src/commerceTransaction/model";
@@ -20,8 +22,10 @@ import { fxSystemFrameworkSchemaAvailabilityHeads as availabilityHeads } from ".
 import * as installationRuntime from "../src/frameworkSchema/installation/runtime";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceContext } from "../src/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../src/atomicCommerce/host";
-import { prepareAtomicCommerceParticipants } from "../src/atomicCommerce/participants";
+import { captureAtomicCommerceParticipants, prepareAtomicCommerceParticipants, type AtomicCommerceParticipantInput } from "../src/atomicCommerce/participants";
 import { commerceInventory } from "./commerceInventory";
+import { readRelationalCommitFactsInTransaction } from "../src/commitPublication/relationalFacts";
+import { assertAtomicProjectionRejectsOtherParticipantCorruption } from "./atomicCommerceFactsScenario";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
@@ -47,7 +51,8 @@ const events: LocalCommerceEventPolicy = {
 };
 let shared: CommerceHostTestFixture;
 let separate: CommerceHostTestFixture;
-let input: AtomicCommerceHostInput<unknown>;
+type PhysicalParticipant = AtomicCommerceParticipantInput & { readonly profile: CommerceProfile; readonly installation: InstallationBindingReference };
+let input: Omit<AtomicCommerceHostInput<unknown>, "participants"> & { participants: readonly PhysicalParticipant[] };
 function required<A>(value: A | undefined): A {
   if (value === undefined) throw new Error("Missing neutral atomic fixture value");
   return value;
@@ -139,7 +144,8 @@ describe("atomic participants sharing physical installation", () => {
         [first, { ...second, installation: { ...second.installation, availabilitySequence: "999" } }],
         // SAFETY: the negative test supplies a forged participant token.
         [{ ...first, participant: {} as typeof first.participant }],
-      ]) expect(await runEffectFailure(prepareAtomicCommerceParticipants(input.database, input.target, participants))).toMatchObject({ reason: "invalidAuthority" });
+      ]) expect(await runEffectFailure(prepareAtomicCommerceParticipants(input.database, input.target,
+        Result.getOrThrow(captureAtomicCommerceParticipants(participants))))).toMatchObject({ reason: "invalidAuthority" });
       expect(prepare).not.toHaveBeenCalled();
     } finally { prepare.mockRestore(); }
   });
@@ -249,4 +255,26 @@ describe("atomic participants sharing physical installation", () => {
     await runEffect(bindings.activate(dataBindingActivationRequest(frame.application.scopeId, frame.application.storageGeneration, "restore-shared-beta", restored.sha256, selected.head)));
     expect(await runEffect(host.run(host.newRequestKey(), empty, null))).toBeNull();
   });
+
+  it("validates another physical installation's facts before projecting the selected one", async () => {
+    const host = await runEffect(makeAtomicCommerceHost(input));
+    try {
+      await runEffect(host.run(host.newRequestKey(), root, "cross-installation-facts"));
+      const commit = (await commerceInventory(shared)).commits.at(-1);
+      if (commit === undefined) throw new Error("Missing neutral atomic commit");
+      const query = { scopeUuid: commit.scopeUuid, commitSeq: commit.commitSeq,
+        installations: [shared, separate].map(fixture => ({
+          installationSha256: fixture.installation.installation.installationSha256,
+          layout: fixture.descriptor.layout,
+        })),
+        selectInstallationSha256: shared.installation.installation.installationSha256 };
+      const db = shared.persistence.drizzle;
+      const selected = await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, query)));
+      expect(selected).toHaveLength(3);
+      await assertAtomicProjectionRejectsOtherParticipantCorruption(db, query,
+        separate.installation.installation.installationSha256);
+      expect(await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, query))))
+        .toEqual(selected);
+    } finally { await runEffect(host.close); }
+  }, 30_000);
 });

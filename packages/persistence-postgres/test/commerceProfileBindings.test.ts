@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { eq } from "drizzle-orm";
 import { commerceHostFixture, type CommerceHostTestFixture } from "./commerceHostFixture";
 import { createRelationalPGliteFixture } from "./relationalPGliteWorkerTestSupport";
@@ -17,7 +17,7 @@ import { fxSystemDataBindingPhysicalLanes } from "../src/frameworkSchema/binding
 import { captureBindingValue, isDataBindingSetFrame } from "../src/frameworkSchema/binding/canonical";
 import { commerceInventory } from "./commerceInventory";
 import { defineAtomicCommerceParticipant } from "../src/atomicCommerce/commands";
-import { prepareAtomicCommerceParticipants } from "../src/atomicCommerce/participants";
+import { captureAtomicCommerceParticipants, prepareAtomicCommerceParticipants } from "../src/atomicCommerce/participants";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
@@ -61,8 +61,8 @@ describe("module-neutral installation profile membership", () => {
       [{ tableId: name, keyId: `${name}.primary` }]))));
     const hosts = await Promise.all(profiles.map(profile => runEffect(makeLocalCommerceHost({ ...fixture.hostInput, profile, commands: registeredCommands }, events))));
     const members = await runEffect(prepareAtomicCommerceParticipants(fixture.persistence.drizzle, fixture.cms.target,
-      profiles.slice(0, 2).map((profile, index) => ({ participant: defineAtomicCommerceParticipant(`independent${index}`),
-        profile, installation: fixture.installation, commands: registeredCommands, validate: events.validate }))));
+      Result.getOrThrow(captureAtomicCommerceParticipants(profiles.slice(0, 2).map((profile, index) => ({ participant: defineAtomicCommerceParticipant(`independent${index}`),
+        profile, installation: fixture.installation, commands: registeredCommands, validate: events.validate }))))));
     expect(members).toHaveLength(2);
     expect(members[0]?.prepared).toBe(members[1]?.prepared);
     const beta = hosts[1]; const betaCommand = commands[1];
@@ -129,6 +129,14 @@ describe("module-neutral installation profile membership", () => {
     const first = { ...binding, installation: { ...binding.installation, installationSha256: "0".repeat(64) }, profiles: eight };
     const second = { ...binding, installation: { ...binding.installation, installationSha256: "f".repeat(64) } };
     expect(isDataBindingSetFrame({ ...fixture.candidate.frame, commerce: [first, second] })).toBe(false);
+    const ordered = [{ ...first, profiles: binding.profiles }, second];
+    expect(isDataBindingSetFrame({ ...fixture.candidate.frame, commerce: ordered })).toBe(true);
+    for (const commerce of [ordered.toReversed(), [ordered[0], ordered[0]],
+      Array.from({ length: 9 }, (_value, index) => ({ ...binding,
+        installation: { ...binding.installation, installationSha256: index.toString(16).repeat(64) } }))]) {
+      expect(await runEffectFailure(captureBindingValue({ ...fixture.candidate.frame, commerce }, isDataBindingSetFrame)))
+        .toMatchObject({ reason: "invalidInput" });
+    }
     let getterCalls = 0;
     const accessor = Object.defineProperty({}, "profileId", { enumerable: true, get: () => { getterCalls++; return descriptor.profileId; } });
     for (const malformed of [

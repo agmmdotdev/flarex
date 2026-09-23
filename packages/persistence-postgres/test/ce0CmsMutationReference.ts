@@ -58,7 +58,7 @@ import {
 } from "./ce0CmsReferencePersistence";
 import { prepareCe0FirstInsertMaterialization } from "./ce0FirstInsertMaterialization";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
-import type { CmsFinalDocumentChange } from "../src/cmsTransaction/documents";
+import type { LogicalDocumentChange } from "../src/logicalDocuments/workingSet";
 import { makeCe0FirstInsertDocuments } from "./ce0FirstInsertDocuments";
 import {
   writeCe0PublicationReference,
@@ -189,7 +189,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
             .filter((policy) => policy.owner === "payload")
             .map((policy) => policy.tableId) ?? [],
         ).pipe(
-          Effect.catchTag("ApplicationParticipantError", (error) =>
+          Effect.catchTag("LogicalDocumentMaterializationError", (error) =>
             Effect.fail(cmsError(error.reason, error.cause)),
           ),
         );
@@ -290,7 +290,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                               state.schema,
                             ).pipe(
                               Effect.catchTag(
-                                "ApplicationParticipantError",
+                                "LogicalDocumentMaterializationError",
                                 (error) =>
                                   Effect.fail(
                                     cmsError(error.reason, error.cause),
@@ -357,7 +357,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                       );
                       const resultSha256 = yield* hash(result.canonicalBytes);
                       yield* lifetime.seal;
-                      let changes: readonly CmsFinalDocumentChange[] = [];
+                      let changes: readonly LogicalDocumentChange[] = [];
                       let receiptCount = 0;
                       if (working !== null) {
                         const closed = yield* working.close();
@@ -371,7 +371,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                               .prepareDelta([], [])
                               .pipe(
                                 Effect.catchTag(
-                                  "ApplicationParticipantError",
+                                  "LogicalDocumentMaterializationError",
                                   (error) =>
                                     Effect.fail(
                                       cmsError(error.reason, error.cause),
@@ -402,7 +402,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
                               .lower(allocation.commitSeq)
                               .pipe(
                                 Effect.catchTag(
-                                  "ApplicationParticipantError",
+                                  "LogicalDocumentMaterializationError",
                                   (error) =>
                                     Effect.fail(
                                       cmsError(error.reason, error.cause),

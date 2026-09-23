@@ -16,7 +16,7 @@ import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 function frame(): DataBindingSetFrame {
   return {
-    format: "flarex.data-binding-set",
+    format: "flarex.data-binding-set", logicalSchema: null,
     application: {
       deploymentId: "test-deployment",
       scopeId: "scope_34000000-0000-4000-8000-000000000001",
@@ -61,6 +61,11 @@ describe("data binding value boundaries", () => {
     ["unknown slot", () => ({ ...frame(), system: null })],
     ["cross-domain slot", () => ({ ...frame(), crossDomainReferences: [{}] })],
     ["missing Application", () => ({ ...frame(), application: null })],
+    ["missing logical selection", () => { const { logicalSchema, ...previous } = frame(); return previous; }],
+    ["invalid logical selection", () => ({ ...frame(), logicalSchema: { schemaVersionId: "logical", manifestSha256: "bad" } })],
+    ["logical digest trailing newline", () => ({ ...frame(), logicalSchema: { schemaVersionId: "logical", manifestSha256: "a".repeat(64) + "\n" } })],
+    ["logical digest trailing carriage return", () => ({ ...frame(), logicalSchema: { schemaVersionId: "logical", manifestSha256: "a".repeat(64) + "\r" } })],
+    ["extra logical authority", () => ({ ...frame(), logicalSchema: { schemaVersionId: "logical", manifestSha256: "a".repeat(64), ready: true } })],
     [
       "generation vocabulary",
       () => ({

@@ -4,7 +4,7 @@ import { applicationSchemaDefinition, applicationTableDefinition, snapshotApplic
 import { applicationIdValidatorJson, applicationObjectValidatorJson, applicationScalarValidatorJson, applicationUnionValidatorJson } from "@flarex/application-schema-definition/validator-json";
 import { decodeRelationDeclarationsV1Result } from "flarex-protocol/internal/relation-declaration-v1";
 import { captureApplicationWritePolicyData, digestApplicationWritePolicyFrame, verifyApplicationWritePolicies,
-  PayloadCollectionSlugSchema, payloadCollectionLogicalName,
+  PayloadCollectionSlugSchema, payloadCollectionLogicalName, payloadUniqueDeclarations,
   type PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 import { SchemaManifestAppTableNameSchema, SchemaManifestAppIndexDescriptorSchema, SchemaManifestAppIndexFieldPathSchema,
   MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS } from "flarex-protocol/schema-manifest";
@@ -190,8 +190,14 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
     Object.freeze({ kind: "table", validator: Object.freeze({ isFlarexValidator: true, json: table.definition.documentType }),
       indexes: Object.freeze(schema.indexes.filter(index => index.tableLogicalName === table.logicalName).map(index => Object.freeze({ name: index.descriptor, fields: index.fields }))) }),
   ]))), relations, writePolicies: verified.policies });
+  const uniqueConstraints = Object.freeze((yield* Effect.forEach(verified.policies.configuration.tables, payloadUniqueDeclarations)).flat());
+  const logicalDefinition = Object.freeze({ kind: "documents" as const, tables: schema.tables, indexes: schema.indexes, uniqueConstraints, relations });
+  const sourceContract = Object.freeze({ sourceKey: "payload" as const, writeProfile: verified.policies.configuration.profile,
+    definition: logicalDefinition,
+    evidence: schemaDefinition.writePolicies, configuration: verified.policies.configuration });
   const compiled = Object.freeze({ configuration: verified.policies.configuration, schemaDefinition,
-    logicalDefinition: Object.freeze({ kind: "documents" as const, tables: schema.tables, indexes: schema.indexes, relations }),
+    logicalDefinition,
+    sourceContract,
     contentIdentity: Object.freeze({ configSha256, provenanceSha256 }),
     // New owned objects on every call; native sanitation cannot mutate compiler evidence.
     createNativeCollections: () => definitions.map(nativeCollection) });

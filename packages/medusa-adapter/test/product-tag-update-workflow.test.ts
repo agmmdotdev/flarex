@@ -5,8 +5,6 @@ import { Deferred, Effect, Exit, Fiber, Result } from "effect";
 import { prepareProductTagUpdateWorkflow, type ProductTagUpdateWorkflowHooks, type ProductTagUpdateResources } from "../src/product-tag-update-workflow";
 import { makeLocalProductCommands } from "../src/product-service";
 import { prepareLocalProductProfile } from "../src/product-profile";
-import { prepareCurrencyProfile } from "../src/currency-contract";
-import { currencyCommands } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { productLocalEventPolicy, productModuleEventPolicy } from "../src/product-local-events";
@@ -23,8 +21,6 @@ import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persi
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { captureBindingValue, isDataBindingSetFrame } from "../../persistence-postgres/src/frameworkSchema/binding/canonical";
 import { commerceBindings } from "../../persistence-postgres/src/frameworkSchema/binding/model";
-import { dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
-import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";
 import type { AtomicWorkflowHostComposition } from "../src/workflow/host";
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -203,25 +199,6 @@ describe("Product-tag updates with selected atomic participants", () => {
     expect(values[0]).toEqual(values[1]); expect(calls).toBe(1);
     expect((await inventory()).data.commits).toHaveLength(before.data.commits.length + 1);
   });
-
-  it("runs a Product-only selection beside Currency while preserving whole-binding replay and missing-member refusal", async () => {
-    await seed("coexisting-update");
-    const host = await assemble(); const key = host.newRequestKey();
-    await runEffect(host.run(key, args("coexisting-update", "before-currency")));
-    const currency = await commerceHostFixture(product.persistence, product.session, prepareCurrencyProfile,
-      [currencyCommands.retrieve], control, undefined, {}, product);
-    const before = await inventory();
-    expect(await runEffectFailure(host.run(key, args("coexisting-update", "before-currency")))).toMatchObject({ reason: "requestConflict" });
-    expect(await inventory()).toEqual(before);
-    expect(await runEffect(host.run(host.newRequestKey(), args("coexisting-update", "alongside-currency")))).toMatchObject([{ value: "alongside-currency" }]);
-    const current = await runEffect(currency.bindings.withCurrent(readAdmittedDataBinding));
-    const candidate = await runEffect(currency.bindings.prepare({ ...currency.candidate.frame,
-      commerce: commerceBindings(currency.candidate.frame).filter(binding => binding.installation.installationSha256 === currency.installation.installation.installationSha256),
-    }));
-    await runEffect(currency.bindings.activate(dataBindingActivationRequest(candidate.frame.application.scopeId, candidate.frame.application.storageGeneration,
-      "update-remove-product", candidate.sha256, current.head)));
-    expect(await runEffectFailure(host.run(host.newRequestKey(), args("coexisting-update")))).toMatchObject({ reason: "bindingChanged" });
-  }, 100_000);
 
   it("rejects empty, excessive, duplicate and forged participant configurations", async () => {
     const participant = defineAtomicCommerceParticipant("product");

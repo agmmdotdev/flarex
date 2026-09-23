@@ -743,6 +743,20 @@
       "when": 1789910589951,
       "tag": "0105_conditional_unique_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1789917080309,
+      "tag": "0106_partial_ordered_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1790139133229,
+      "tag": "0107_logical_source_initialization",
+      "breakpoints": true
     }
   ]
 }

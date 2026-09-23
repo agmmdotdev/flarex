@@ -4,12 +4,19 @@ import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
 import {
   compileAppSchemaCatalogRequirementsV1,
   AppSchemaCatalogCompilationErrorV1,
-  type CompiledAppSchemaCatalogRequirementsV1,
 } from "flarex-protocol/app-schema-catalog";
 import {
   CatalogIndexDefinitionIdSchema,
   type CatalogIndexDefinitionId,
+  type CatalogTableId,
+  type CatalogIndexId,
 } from "flarex-protocol/catalog";
+import { canonicalizeAppIndexPhysicalSpecV1, type CanonicalAppIndexPhysicalSpecV1 } from "flarex-protocol/index-definition";
+import { APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1, type AppOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
+import type { LogicalSchemaCandidate } from "flarex-protocol/internal/logical-schema-candidate";
+import { isLogicalSchemaAdmissionManifest } from "./logicalSchemaAdmissionEvidence";
+import { readLogicalStorageRequirements } from "./logicalStorageDefinitions";
+import { getStableLogicalIndexIdentityByNameEffect } from "./stableLogicalIndexCatalog";
 import {
   INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
   IndexBuildAttemptFenceSchema,
@@ -170,6 +177,7 @@ export class IndexBuildReconciliationCatalogV1Error
       | "manifestInvalid"
       | "publishedProjectionIncomplete"
       | "publishedProjectionContradictory"
+      | "resourceFailure"
       | "definitionLimitExceeded";
     readonly deploymentId: string;
     readonly schemaVersionId: CatalogSchemaVersionId;
@@ -244,12 +252,28 @@ interface PhysicalDefinitionRequirementV1 {
   readonly physicalSpecSha256Hex: AppIndexDefinitionRecord["physicalSpecSha256Hex"];
 }
 
+/** Compare a newly located catalog capability with an authenticated published
+ * requirement. A catalog read made after the snapshot is not authority by itself. */
+export function publishedPhysicalDefinitionMatchesLocated(
+  expected: PhysicalDefinitionRequirementV1,
+  actual: Pick<AppIndexDefinitionRecord, "indexDefinitionId" | "access" | "physicalSpecCodecVersion" | "physicalSpecBytesHex" | "physicalSpecSha256Hex">,
+): boolean {
+  return actual.indexDefinitionId === expected.indexDefinitionId &&
+    actual.access.kind === expected.access.kind &&
+    actual.access.tableId === expected.tableId &&
+    (expected.access.kind !== "developer" ||
+      (actual.access.kind === "developer" && actual.access.logicalIndexId === expected.access.logicalIndexId)) &&
+    actual.physicalSpecCodecVersion === expected.physicalSpecCodecVersion &&
+    actual.physicalSpecBytesHex === expected.physicalSpecBytesHex &&
+    actual.physicalSpecSha256Hex === expected.physicalSpecSha256Hex;
+}
+
 export interface PublishedPhysicalRequirementSnapshotV1 {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly manifestSha256: SchemaManifestSha256;
   /** Exact immutable validator/schema owner retained for scoped consumers. */
-  readonly manifest: SchemaManifestAppSchemaV1;
+  readonly manifest: SchemaManifestAppSchemaV1 | LogicalSchemaCandidate;
   readonly definitions: ReadonlyArray<PhysicalDefinitionRequirementV1>;
 }
 
@@ -415,37 +439,54 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   | ReadAppSchemaVersionIndexBindingError
   | IndexBuildReconciliationCatalogV1Error
 > {
-  const artifact = yield* getSchemaVersionArtifactByIdEffect(
+  let artifact = yield* getSchemaVersionArtifactByIdEffect(
     db,
     input.deploymentId,
     input.schemaVersionId,
   );
   if (artifact === null) return null;
-  const manifest = yield* Effect.fromResult(
-    decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson),
-  ).pipe(Effect.mapError((cause) =>
-    new IndexBuildReconciliationCatalogV1Error({
-      reason: "manifestInvalid",
-      deploymentId: input.deploymentId,
-      schemaVersionId: input.schemaVersionId,
-      detail: "the immutable schema artifact is not an app-schema V1 manifest",
-      cause,
-    })
-  ));
-  const requirements = yield* Effect.tryPromise({
-    try: () => compileAppSchemaCatalogRequirementsV1(manifest),
-    catch: (cause) => cause,
-  }).pipe(Effect.catch((cause) =>
-    cause instanceof AppSchemaCatalogCompilationErrorV1
-      ? Effect.fail(new IndexBuildReconciliationCatalogV1Error({
+  let manifest: SchemaManifestAppSchemaV1 | LogicalSchemaCandidate;
+  let requirements: IndexRequirements;
+  if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
+    const logical = yield* readCandidateIndexRequirements(db, input);
+    artifact = logical.artifact;
+    manifest = logical.manifest;
+    requirements = logical.requirements;
+  } else {
+    manifest = yield* Effect.fromResult(
+      decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson),
+    ).pipe(Effect.mapError((cause) =>
+      new IndexBuildReconciliationCatalogV1Error({
+        reason: "manifestInvalid",
+        deploymentId: input.deploymentId,
+        schemaVersionId: input.schemaVersionId,
+        detail: "the immutable schema artifact is not an app-schema V1 manifest",
+        cause,
+      })
+    ));
+    const appManifest = manifest;
+    requirements = yield* Effect.tryPromise({
+      try: () => compileAppSchemaCatalogRequirementsV1(appManifest),
+      catch: (cause) => cause,
+    // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: protocol - classify the compiler Promise's complete rejection channel and preserve unexpected defects
+    }).pipe(Effect.catch((cause) => {
+      if (!(cause instanceof AppSchemaCatalogCompilationErrorV1)) return Effect.die(cause);
+      if (cause.issue.reason === "canonicalizationFailed") {
+        return typeof DOMException !== "undefined" && cause.cause instanceof DOMException
+          ? Effect.fail(new IndexBuildReconciliationCatalogV1Error({
+            reason: "resourceFailure", deploymentId: input.deploymentId,
+            schemaVersionId: input.schemaVersionId, detail: "index requirement digest unavailable", cause: cause.cause,
+          })) : Effect.die(cause.cause);
+      }
+      return Effect.fail(new IndexBuildReconciliationCatalogV1Error({
         reason: "publishedProjectionContradictory",
         deploymentId: input.deploymentId,
         schemaVersionId: input.schemaVersionId,
         detail: "the immutable app-schema artifact cannot be compiled",
         cause,
-      }))
-      : Effect.die(cause)
-  ));
+      }));
+    }));
+  }
   if (
     requirements.creationTimeIndexes.length +
         requirements.developerIndexes.length > MAX_RECONCILED_DEFINITIONS
@@ -499,16 +540,56 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
     deploymentId: input.deploymentId,
     schemaVersionId: input.schemaVersionId,
     manifestSha256: artifact.manifestSha256,
-    manifest: snapshotSchemaManifestValue(manifest),
+    manifest: manifest.kind === "appSchema" ? snapshotSchemaManifestValue(manifest) : manifest,
     definitions: projectedDefinitions,
   });
   publishedPhysicalRequirementSnapshots.set(snapshot, db);
   return snapshot;
 });
 
+interface IndexRequirements {
+  readonly creationTimeIndexes: readonly Readonly<{ tableId: CatalogTableId; canonical: CanonicalAppIndexPhysicalSpecV1 }>[];
+  readonly developerIndexes: readonly Readonly<{ tableId: CatalogTableId; logicalIndexId: CatalogIndexId; canonical: CanonicalAppIndexPhysicalSpecV1 }>[];
+}
+
+const readCandidateIndexRequirements = Effect.fn("IndexBuildReconciliation.readCandidateRequirements")(function* (
+  db: FlarexMetadataDatabase, input: ReconcilePublishedIndexBuildsV1Input,
+) {
+  const fail = (reason: IndexBuildReconciliationCatalogV1Error["reason"], detail: string, cause?: unknown) =>
+    new IndexBuildReconciliationCatalogV1Error({ ...input, reason, detail, ...(cause === undefined ? {} : { cause }) });
+  const source = yield* readLogicalStorageRequirements(db, input.deploymentId, input.schemaVersionId).pipe(Effect.mapError(cause =>
+    fail(cause._tag === "SchemaVersionArtifactPersistenceError" || cause._tag === "StableTableIdentityPersistenceError" ||
+      (cause._tag === "LogicalSchemaAdmissionEvidenceError" && cause.reason === "resourceFailure") ? "resourceFailure" : "manifestInvalid",
+    "the complete logical source requirements could not be verified", cause)));
+  if (source.evidence.tableBindings.length + source.ordered.length > MAX_RECONCILED_DEFINITIONS) {
+    return yield* Effect.fail(fail("definitionLimitExceeded", `the required physical definition set exceeds ${MAX_RECONCILED_DEFINITIONS}`));
+  }
+  const canonicalize = (spec: AppOrderedIndexPhysicalSpecV1) => Effect.tryPromise({
+    try: () => canonicalizeAppIndexPhysicalSpecV1(spec), catch: cause => cause,
+  // oxlint-disable-next-line flarex/prefer-tagged-effect-recovery -- REVIEW: protocol - classify native canonicalization rejection and preserve unexpected defects
+  }).pipe(Effect.catch(cause => typeof DOMException !== "undefined" && cause instanceof DOMException
+    ? Effect.fail(fail("resourceFailure", "index requirement digest unavailable", cause)) : Effect.die(cause)));
+  const intrinsic = yield* canonicalize(APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1);
+  const developerIndexes = [];
+  for (const declaration of source.ordered) {
+    const index = yield* getStableLogicalIndexIdentityByNameEffect(db, { deploymentId: input.deploymentId,
+      tableId: declaration.tableId, descriptor: declaration.descriptor }).pipe(Effect.mapError(cause =>
+        fail(cause._tag === "StableLogicalIndexIdentityPersistenceError" ? "resourceFailure" : "publishedProjectionContradictory",
+          "the logical index identity could not be verified", cause)));
+    if (index === null) return yield* Effect.fail(fail("publishedProjectionIncomplete", "a required logical index identity is missing"));
+    developerIndexes.push({ tableId: declaration.tableId, logicalIndexId: index.logicalIndexId,
+      canonical: yield* canonicalize(declaration.physicalSpec) });
+  }
+  developerIndexes.sort((left, right) => left.logicalIndexId - right.logicalIndexId);
+  return { artifact: source.artifact, manifest: source.evidence.candidate, requirements: {
+    creationTimeIndexes: source.evidence.tableBindings.map(binding => ({ tableId: binding.tableId, canonical: intrinsic })),
+    developerIndexes,
+  } satisfies IndexRequirements };
+});
+
 function projectExactRequirementsResult(
   input: ReconcilePublishedIndexBuildsV1Input,
-  requirements: CompiledAppSchemaCatalogRequirementsV1,
+  requirements: IndexRequirements,
   definitions: ReadonlyArray<AppIndexDefinitionRecord>,
   bindings: ReadonlyArray<AppSchemaVersionIndexBindingRecord>,
 ): Result.Result<

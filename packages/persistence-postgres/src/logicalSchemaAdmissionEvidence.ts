@@ -6,7 +6,7 @@ import { isJsonObject, type Json } from "flarex-protocol/json";
 import { decodeLogicalSchemaCandidate, logicalTableKey, QualifiedLogicalTableSchema } from "flarex-protocol/internal/logical-schema-candidate";
 
 export class LogicalSchemaAdmissionEvidenceError extends Data.TaggedError("LogicalSchemaAdmissionEvidenceError")<{
-  readonly reason: "storedCorruption";
+  readonly reason: "storedCorruption" | "resourceFailure";
   readonly cause?: unknown;
 }> {}
 
@@ -37,7 +37,7 @@ export const readLogicalSchemaAdmissionEvidence = Effect.fn("LogicalSchemaAdmiss
   const candidate = yield* Effect.fromResult(decodeLogicalSchemaCandidate(admitted.candidate)).pipe(Effect.mapError(cause =>
     new LogicalSchemaAdmissionEvidenceError({ reason: "storedCorruption", cause })));
   yield* verifyLogicalSchemaCandidateDigests(candidate).pipe(Effect.mapError(cause =>
-    new LogicalSchemaAdmissionEvidenceError({ reason: "storedCorruption", cause })));
+    new LogicalSchemaAdmissionEvidenceError({ reason: cause.reason === "digestUnavailable" ? "resourceFailure" : "storedCorruption", cause })));
   const definitions = candidate.sources.flatMap(source => source.bindings.filter(binding => binding.kind === "definition"));
   if (candidate.deploymentId !== deploymentId || admitted.tableBindings.length !== definitions.length ||
       new Set(admitted.tableBindings.map(binding => logicalTableKey(binding.table))).size !== definitions.length ||

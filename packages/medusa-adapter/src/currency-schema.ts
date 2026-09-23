@@ -1,9 +1,7 @@
 import { Effect, Result, Schema } from "effect";
+import { Currency } from "@medusajs/currency/models";
 import { lowerDmlSchema } from "./schema/lower";
 import type { SchemaColumn, SchemaOrigins, SchemaTable } from "./schema/model";
-import {
-  captureRelationalSchemaArtifact,
-} from "@flarex/persistence-postgres/internal/relational-schema-values";
 import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
@@ -115,9 +113,8 @@ export const currencySourceProvenance = {
     "packages/core/utils/src/dml/helpers/entity-builder/create-big-number-properties.ts"],
 } as const;
 
-export const captureCurrencySchema = Effect.fn("MedusaAdapter.captureCurrencySchema")(
-  function* (deploymentId: string, model: CurrencyDmlSource) {
-    const schema = yield* currencySchemaInput(model);
-    return yield* captureRelationalSchemaArtifact({ deploymentId, provenance: currencySourceProvenance, schema });
-  },
-);
+/** Compile the pinned native definition without a deployment or physical layout. */
+export const compileCurrencyDefinition = Effect.fn("MedusaCurrency.compileDefinition")(function* () {
+  const schema = yield* translateCurrencySchema(Currency);
+  return Object.freeze({ schema, provenance: currencySourceProvenance });
+});

@@ -49,10 +49,12 @@ Cover 1/32/33/128 claims, releases and unchanged keys; exact owner/locale/scope
 isolation; swaps; competing destinations and forced hash collisions; missing or
 tombstoned parents; stale authority; duplicate inputs; malformed evidence; and
 later-batch failure rolling back earlier writes. Retain native/CMS and unique
-build regressions on PGlite and ordinary-role PostgreSQL. Exercise
-the native publisher at its existing 32-transition ceiling, and prove that
-33/128-transition native requests remain refused without publication. The
-storage-owner batch tests above this ceiling do not widen native admission.
+build regressions on PGlite and ordinary-role PostgreSQL. The original
+32-transition publisher ceiling is superseded by the shared document budget
+alignment in the [Currency cutover](../shared-logical-storage/10-currency-storage-cutover.md):
+128 aggregate transitions and 256 release/claim actions. Exercise publication
+across statement batches and refusal when multiple constraints exceed that
+aggregate ceiling; statement batching alone does not authorize unbounded work.
 Attribute SQL through the real unique owner and actual materializer; do not reuse the intrinsic-only
 publication benchmark to claim unique-key performance. Require affected
 typecheck, lint, both project reviews and a scoped commit. Wider CE0/CE1

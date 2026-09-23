@@ -10,7 +10,7 @@ import {
   PhysicalDefinitionLifecyclePersistenceError,
 } from "./physicalDefinitionLifecycle";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { readIndexCoverageContextInTransactionEffect, type IndexCoverageContext } from "./indexBuildStates";
+import { publicationModeForTable, readIndexCoverageContextInTransactionEffect, type IndexCoverageContext } from "./indexBuildStates";
 import { decodeUniqueMaintenanceEvidenceResult, verifyUniqueMaintenanceEvidence, hashUniqueMaintenanceEvidence, uniqueMaintenanceFrameBytes,
   UniqueMaintenanceError, type UniqueMaintenanceEvidence, type UniqueMaintenanceFrame } from "./uniqueMaintenanceEvidence";
 import { copyFiniteDate } from "@flarex/utils/dates";
@@ -115,6 +115,8 @@ import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   getScopeClock,
+  lockScopeClockForSnapshotReadInTransactionEffect,
+  ScopeAuthorizationRevocationEpochPersistenceError,
   lockScopeClockForShareInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
   type LockScopeClockForShareError,
@@ -387,7 +389,8 @@ export const prepareAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBu
 /** The caller owns the exact locked clock and accepting target transaction. */
 export const acceptPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.acceptPreparedCatalog")(
   function* (port: AppUniqueConstraintSetEligibilityPortV1, preparation: AppUniqueConstraintSetPreparation,
-    tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) {
+    tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    progressObservation: "fixed" | "concurrentProgress" = "fixed") {
     const state = uniquePreparations.get(preparation);
     if (state === undefined || state.port !== port) return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
     if (state.scopeId !== authority.scopeId || state.scopeId !== clock.scopeId ||
@@ -396,7 +399,7 @@ export const acceptPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstrai
     }
     yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
     if (state.snapshot.members.length === 0) return Object.freeze({ status: "not_required" as const, tableIds: [] as const });
-    return yield* inspectEligibilityWithLockedClock(tx, authority, state.snapshot, state.tableIds, clock, port);
+    return yield* inspectEligibilityWithLockedClock(tx, authority, state.snapshot, state.tableIds, clock, port, undefined, progressObservation);
   },
 );
 const eligibilityEvidencePorts = new WeakMap<
@@ -1332,8 +1335,9 @@ const inspectEligibilityWithLockedClock = Effect.fn(
   clock: ScopeClockRecord,
   port: AppUniqueConstraintSetEligibilityPortV1,
   expectedEvidence?: AppUniqueConstraintSetEligibilityEvidenceV1,
+  progressObservation: "fixed" | "concurrentProgress" = "fixed",
 ) {
-  const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock);
+  const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock, progressObservation);
   const coverageContext = states.some(state => state.maintenance !== null)
     ? yield* readUniqueCoverageContext(tx, clock, snapshot) : undefined;
   const identities: AppUniqueConstraintBuildIdentity[] = [];
@@ -1425,6 +1429,7 @@ const loadSelectedBuildStates = Effect.fn(
   authority: TrustedScopeAuthority,
   snapshot: BuildSnapshot,
   clock: ScopeClockRecord,
+  progressObservation: "fixed" | "concurrentProgress" = "fixed",
 ) {
   if (snapshot.members.length === 0) return Object.freeze([]);
   const rows = yield* queryEffect(
@@ -1442,12 +1447,24 @@ const loadSelectedBuildStates = Effect.fn(
       )
       .orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId)
       .limit(snapshot.members.length + 1)
-      .for("share"),
+      .for(progressObservation === "concurrentProgress" ? "key share" : "share"),
   );
   if (rows.length > snapshot.members.length)
     return yield* Effect.fail(
       stateError(authority, snapshot, "storedStateInvalid"),
     );
+  // A concurrent ordinary publication may have advanced coverage after the
+  // accepting owner captured its snapshot clock. Validate the observed row
+  // against a clock read after the row, while keeping the original snapshot.
+  const observedClock = progressObservation === "concurrentProgress"
+    ? yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId).pipe(Effect.mapError(cause =>
+      cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
+        ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction",
+          retryable: isRetryableSqlTransactionCause(cause.cause instanceof DrizzleQueryError ? cause.cause.cause : cause.cause), cause })
+        : stateError(authority, snapshot, "storedStateInvalid", cause))) : clock;
+  if (observedClock.storageGeneration !== clock.storageGeneration || observedClock.storageGenerationFence !== clock.storageGenerationFence ||
+    observedClock.epoch !== clock.epoch || observedClock.lastCommitSeq < clock.lastCommitSeq)
+    return yield* Effect.fail(stateError(authority, snapshot, "storedStateInvalid"));
   const states: BuildState[] = [];
   for (const row of rows)
     states.push(
@@ -1455,7 +1472,7 @@ const loadSelectedBuildStates = Effect.fn(
         authority,
         snapshot,
         row,
-        clock.lastCommitSeq,
+        observedClock.lastCommitSeq,
       ),
     );
   return Object.freeze(states);
@@ -3192,7 +3209,8 @@ function backfillResult(
   });
 }
 
-/** Selected active definitions alone participate in ordinary document publication. */
+/** Selected definitions use either their active Application maintenance suffix
+ * or explicit coverage under a separately authenticated source binding. */
 export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
   "AppUniqueConstraintBuild.prepareActiveCoverage",
 )(function* (
@@ -3201,6 +3219,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
   schemaVersionId: CatalogSchemaVersionId,
   definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   context: IndexCoverageContext,
+  publicationProfile: import("./indexBuildStates").IndexPublicationProfile,
 ) {
   if (definitions.length === 0) return Object.freeze([]);
   const snapshot = { schemaVersionId, members: definitions };
@@ -3219,7 +3238,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
       )
       .orderBy(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId)
       .limit(definitions.length + 1)
-      .for(context.active === null ? "update" : "share"),
+      .for(publicationProfile === "sourceBound" ? "no key update" : context.active === null ? "update" : "share"),
   );
   if (rows.length !== definitions.length)
     return yield* Effect.fail(stateError(clock, snapshot, "buildMissing"));
@@ -3242,10 +3261,15 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
         value.uniqueConstraintDefinitionId ===
         state.uniqueConstraintDefinitionId,
     )!;
-    if (context.active !== null && state.maintenance === null) {
+    const mode = publicationModeForTable(publicationProfile, definition.tableId);
+    if ((mode === "activeApplication" && context.active !== null && state.maintenance === null) ||
+      (mode === "sourceBound" && state.maintenance !== null) ||
+      (typeof publicationProfile !== "string" && mode === "activeApplication" && context.active === null)) {
       return yield* Effect.fail(stateError(clock, snapshot, "coverageMissing"));
     }
-    if (state.maintenance !== null && (state.maintenance.frame.schemaVersionId !== schemaVersionId ||
+    const maintenanceSchemaVersionId = typeof publicationProfile !== "string" && mode === "activeApplication"
+      ? context.active?.schema.schemaVersionId : schemaVersionId;
+    if (state.maintenance !== null && (state.maintenance.frame.schemaVersionId !== maintenanceSchemaVersionId ||
       state.maintenance.frame.deploymentId !== definition.deploymentId)) {
       return yield* Effect.fail(stateError(clock, snapshot, "storedStateInvalid"));
     }
@@ -3257,7 +3281,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
   return Object.freeze(states);
 });
 
-/** Only the lower-level no-active-head publication profile needs explicit progress. */
+/** Unmaintained definitions advance explicit progress, including source-bound publication. */
 export const advanceUnboundUniqueCoverageInTransactionEffect = Effect.fn(
   "AppUniqueConstraintBuild.advanceUnboundCoverage",
 )(function* (
