@@ -20,12 +20,25 @@ import type { FlarexMetadataDatabase } from "../deployments";
 import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { getAtomicCommerceParticipant, type AtomicCommerceParticipant } from "./commands";
 import { captureParticipantEvents, type ParticipantEventSelection } from "./events";
+import type { LogicalCommerceMutation } from "../commerceTransaction/logicalParticipant";
+import type { Json } from "flarex-protocol/json";
+
+export interface LogicalCommerceCallObservation {
+  readonly commandName: string;
+  readonly mode: "read" | "write";
+  readonly events: readonly Json[];
+  readonly fromAttempt: number;
+  readonly toAttempt: number;
+}
+export type LogicalCommerceEventValidation = (calls: readonly LogicalCommerceCallObservation[],
+  mutations: readonly LogicalCommerceMutation[]) => Effect.Effect<void, ReturnType<typeof commerceError>>;
 
 interface AtomicCommerceParticipantBase {
   readonly participant: AtomicCommerceParticipant;
   readonly commands: readonly CommerceCommand[];
   /** Required for local profiles; all captured messages must match real facts. */
   readonly validate?: LocalCommerceEventPolicy["validate"];
+  readonly validateLogical?: LogicalCommerceEventValidation;
   readonly events?: ParticipantEventSelection;
 }
 export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
@@ -36,7 +49,7 @@ export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0
 
 function captureParticipant(member: AtomicCommerceParticipantInput) {
   return Object.freeze({ participant: member.participant,
-    commands: Object.freeze([...member.commands]), validate: member.validate,
+    commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
     events: captureParticipantEvents(member.events),
     ...(member.logicalStorage === undefined
       ? { kind: "physical" as const, profile: member.profile,
@@ -80,9 +93,11 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     yield* chargeHostPreparation({ name, commandNames: [...commandNames], eventContracts: events?.contracts ?? [] })
       .pipe(Effect.mapError(projectCommerceRequestFailure));
     const common = { participant: member.participant, name, commands,
-      commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate, events };
+      commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate,
+      validateLogical: member.validateLogical, events };
     if (member.kind === "logical") {
-      if (location === undefined || member.validate !== undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      if (location === undefined || member.validate !== undefined || (events !== undefined && member.validateLogical === undefined))
+        return yield* Effect.fail(commerceError("unsupportedProfile"));
       const selection = yield* Effect.fromResult(member.logical);
       const sourceKey = isNonArrayRecord(selection.source) ? selection.source.sourceKey : undefined;
       if (typeof sourceKey !== "string" || logicalSources.has(sourceKey)) return yield* Effect.fail(commerceError("invalidAuthority"));
@@ -103,6 +118,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     const reference = capturedReference.value;
     yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectCommerceRequestFailure));
     const descriptor = yield* requireCommerceProfile(member.profile);
+    if (member.validateLogical !== undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (descriptor.localOnly !== (member.validate !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (!sameBindingValue({ ...descriptor.artifact.identity }, reference.installation.artifact))
       return yield* Effect.fail(commerceError("invalidAuthority"));

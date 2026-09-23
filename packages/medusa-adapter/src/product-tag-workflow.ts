@@ -38,7 +38,7 @@ export const decodeCreatedProductTagHook = (value: unknown) => captureCommerceIn
  * Shared assembly derives every wrapper, participant, graph and event binding. */
 export const prepareProductTagWorkflow = Effect.fn("MedusaWorkflow.prepareProductTags")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule>;
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "physical" | "logical">;
     readonly currency: InstalledWorkflowModule<CurrencyWorkflowModule, "physical" | "logical"> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];

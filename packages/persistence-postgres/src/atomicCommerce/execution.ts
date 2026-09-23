@@ -12,7 +12,8 @@ import { projectCommerceRequestFailure } from "../commerceTransaction/request";
 import type { CommerceAdmission } from "../commerceTransaction/admission";
 import { requireCommerceAdmission } from "../commerceTransaction/admission";
 import { makeCommerceStore, type CommerceRowClosure } from "../commerceTransaction/store";
-import { makeLogicalCommerceParticipant, type LogicalCommerceClosure } from "../commerceTransaction/logicalParticipant";
+import { inspectLogicalCommerceMutations, makeLogicalCommerceParticipant,
+  type LogicalCommerceClosure } from "../commerceTransaction/logicalParticipant";
 import { requireLogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { makeCommerceCommandContext } from "../commerceTransaction/context";
@@ -27,6 +28,7 @@ import {
 } from "./events";
 import type { PreparedAtomicCommerceConfiguration } from "./configuration";
 import type { AtomicCommerceAdmission } from "./admission";
+import type { LogicalCommerceCallObservation } from "./participants";
 import {
   hashAtomicCommerceBytes,
   type CapturedAtomicCommerceRequest,
@@ -138,6 +140,7 @@ function makeAtomicCommerceExecution(
         );
   const contributions: OpenContribution[] = [];
   const logicalWork = new Map<AtomicCommerceAdmission, LogicalWorking>();
+  const logicalCalls = new Map<AtomicCommerceAdmission, LogicalCommerceCallObservation[]>();
   const makeWorking = Effect.fn("AtomicCommerce.makeWorking")(function* (
     admission: AtomicCommerceAdmission, manager: BoundedRequestContext,
   ): Effect.fn.Return<Working, CommerceTransactionError> {
@@ -174,8 +177,15 @@ function makeAtomicCommerceExecution(
             )
               return yield* Effect.fail(commerceError("invalidAuthority"));
             const working: Working = yield* makeWorking(admission, child);
+            const fromAttempt = admission.kind === "logical" && "attemptCount" in working ? working.attemptCount() : undefined;
             const { invoke, events } = makeParticipantInvocation(member, working, lifetime, id, eventCapture);
             const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs);
+            if (fromAttempt !== undefined && "attemptCount" in working) {
+              const calls = logicalCalls.get(admission) ?? [];
+              calls.push(Object.freeze({ commandName: root.name, mode: root.mode, events: Object.freeze([...events]),
+                fromAttempt, toAttempt: working.attemptCount() }));
+              logicalCalls.set(admission, calls);
+            }
             if (admission.kind === "physical") {
               if (!("snapshot" in working)) return yield* Effect.fail(commerceError("invalidAuthority"));
               const rows = working.snapshot();
@@ -238,7 +248,15 @@ function makeAtomicCommerceExecution(
     for (const contribution of contributions) {
       if (contribution.kind === "physical") closed.push({ kind: "physical", admission: contribution.admission,
         closure: yield* contribution.working.close() });
-      else closed.push({ kind: "logical", closure: yield* contribution.working.close() });
+      else {
+        const closure = yield* contribution.working.close();
+        const member = members[admissions.indexOf(contribution.token)];
+        if (member === undefined || member.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
+        if (member.validateLogical !== undefined) yield* member.validateLogical(
+          Object.freeze([...(logicalCalls.get(contribution.token) ?? [])]),
+          yield* inspectLogicalCommerceMutations(closure, lifetime));
+        closed.push({ kind: "logical", closure });
+      }
     }
     const root = closed[0];
     if (root === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));

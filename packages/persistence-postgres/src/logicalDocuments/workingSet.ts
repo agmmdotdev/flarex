@@ -54,6 +54,10 @@ export interface LogicalDocumentAttempt {
   readonly ordinal: number;
   readonly documentId: AppDocumentIdV1;
   readonly operation: "insert" | "patch" | "replace" | "delete";
+  readonly tableId: CatalogTableId;
+  readonly tableName: string;
+  readonly before: CanonicalFlarexValueV1 | null;
+  readonly after: CanonicalFlarexValueV1 | null;
 }
 export interface LogicalDocumentChanges {
   readonly changes: readonly LogicalDocumentChange[];
@@ -273,8 +277,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       }
     }
   });
-  const recordAttempt = (pending: PendingDocument, operation: LogicalDocumentAttempt["operation"]) => {
-    const attempt = Object.freeze({ ordinal: attempts.length, documentId: pending.documentId, operation });
+  const recordAttempt = (pending: PendingDocument, operation: LogicalDocumentAttempt["operation"],
+    after: CanonicalFlarexValueV1 | null) => {
+    const attempt = Object.freeze({ ordinal: attempts.length, documentId: pending.documentId, operation,
+      tableId: pending.tableId, tableName: pending.tableName, before: pending.current, after });
     return lifetime.charge(128).pipe(Result.map(() => {
       pending.attempts.push(attempt.ordinal);
       attempts.push(attempt);
@@ -290,7 +296,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     yield* ensureUnique(pending, document);
     if (!rows.has(pending.documentId) && rows.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
     yield* charge(document.canonicalBytes.byteLength);
-    yield* Effect.fromResult(recordAttempt(pending, operation));
+    yield* Effect.fromResult(recordAttempt(pending, operation, document));
     pending.current = document;
     rows.set(pending.documentId, pending);
     return yield* Effect.fromResult(output(document, true));
@@ -347,7 +353,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     runOperation(context, id, "write", Effect.gen(function* () {
       const { pending } = yield* locate(documentId, tableName);
       if (pending?.current == null) return yield* Effect.fail(error("documentMissing"));
-      yield* Effect.fromResult(recordAttempt(pending, "delete"));
+      yield* Effect.fromResult(recordAttempt(pending, "delete", null));
       pending.deletedValue = pending.current;
       pending.current = null;
     })));
@@ -529,7 +535,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         if (previous !== null) yield* Effect.fromResult(policy.validate(previous, "storedCorruption"));
         if (operation === "delete") {
           if (pending === undefined || previous === null || pending.current === null) return yield* Effect.fail(error("storedCorruption"));
-          yield* Effect.fromResult(recordAttempt(pending, "delete"));
+          yield* Effect.fromResult(recordAttempt(pending, "delete", null));
           pending.deletedValue = pending.current;
           pending.current = null;
           result.push(previous);
@@ -596,7 +602,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
             if (!isNonArrayRecord(value)) return yield* Effect.fail(error("storedCorruption"));
             if (value[foreignKey.source.column] !== entry.key) continue;
             if (!cascade || foreignKey.onDelete !== "cascade") return yield* Effect.fail(error("documentInvalid"));
-            yield* Effect.fromResult(recordAttempt(child, "delete"));
+            yield* Effect.fromResult(recordAttempt(child, "delete", null));
             child.deletedValue = child.current;
             child.current = null;
             if (child.base?.kind === "live") yield* Effect.fromResult(appendKeys(child, child.base.document.value));
@@ -683,5 +689,6 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         lifecycle: (context, operation, keys) => relationalChange(context, id, tableName, operation, keys),
       } satisfies LogicalRelationalStore<Failure>);
     })));
-  return Object.freeze({ documents, relationalFind, relationalChange, relationalTable, close, requirePendingDeletion });
+  return Object.freeze({ documents, relationalFind, relationalChange, relationalTable, close, requirePendingDeletion,
+    attemptCount: () => attempts.length });
 });

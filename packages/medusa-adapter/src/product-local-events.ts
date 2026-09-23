@@ -1,6 +1,8 @@
 import { Effect, Schema } from "effect";
 import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { defaultCommerceResources, type CommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "./commerce-input";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductRuntimeMetadata } from "./product-runtime-metadata";
@@ -18,16 +20,21 @@ const messageSchema = (maximumIds: number) => Schema.Struct({
 
 /** Adapter-owned capture and fact validation, shared by local delivery and
  * durable workflow publication. Neither consumer invents a dummy destination. */
-export function productModuleEventPolicy(descriptor: CommerceProfileState, catalog: ProductRuntimeMetadata): Pick<LocalCommerceEventPolicy, "capture" | "validate"> {
-  const decode = Schema.decodeUnknownEffect(messageSchema(descriptor.resources.eventIds), { onExcessProperty: "error" });
+function productModuleEventCapture(catalog: ProductRuntimeMetadata, resources: CommerceResources) {
+  const decode = Schema.decodeUnknownEffect(messageSchema(resources.eventIds), { onExcessProperty: "error" });
   const capture = Effect.fn("ProductEvents.capture")(function* (input: unknown) {
-    const value = yield* Effect.fromResult(captureCommerceInput(input, descriptor.resources));
+    const value = yield* Effect.fromResult(captureCommerceInput(input, resources));
     const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
     const candidates = catalog.entities.filter(entity => entity !== catalog.assignment);
     if (!candidates.some(entity => entity.eventObject === message.metadata.object &&
       (message.metadata.action === CommonEvents.CREATED ? entity.createdEvent : message.metadata.action === CommonEvents.UPDATED ? entity.updatedEvent : message.metadata.action === CommonEvents.RESTORED ? entity.restoredEvent : entity.deletedEvent) === message.name)) return yield* Effect.fail(commerceError("unadmittedEvent"));
     return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
   });
+  return capture;
+}
+
+export function productModuleEventPolicy(descriptor: CommerceProfileState, catalog: ProductRuntimeMetadata): Pick<LocalCommerceEventPolicy, "capture" | "validate"> {
+  const capture = productModuleEventCapture(catalog, descriptor.resources);
   return { capture,
     validate: Effect.fn("ProductEvents.validate")(function* (events, rows, commandName, lifecycle = []) {
       const internalCategory = ["productInternalCategorycreate", "productInternalCategoryupdate", "productInternalCategorydelete"].includes(commandName);
@@ -128,6 +135,36 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
       if (expected.size !== 0 || observations.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     }),
   };
+}
+
+/** The first logical Product event profile admits exactly native tag creation.
+ * Every emitted ID must be backed by one source-local insert observation. */
+export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata) {
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalTag")(function* (calls, mutations) {
+    if (calls[0]?.commandName !== "productCreatetag" || calls[0].mode !== "write" ||
+      calls[0].fromAttempt !== 0 || calls[0].toAttempt !== mutations.length ||
+      calls.slice(1).some(call => call.mode !== "read" || call.events.length !== 0 ||
+        call.fromAttempt !== mutations.length ||
+        call.toAttempt !== mutations.length))
+      return yield* Effect.fail(commerceError("receiptMismatch"));
+    const expected = new Set<string>();
+    for (const mutation of mutations) {
+      const id = mutation.after?.id;
+      if (mutation.table !== catalog.tag.table.name || mutation.operation !== "insert" ||
+        mutation.before !== null || typeof id !== "string" || expected.has(id))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      expected.add(id);
+    }
+    for (const event of calls[0].events) {
+      const message = yield* capture(event);
+      if (message.name !== catalog.tag.createdEvent || message.metadata.object !== catalog.tag.eventObject ||
+        message.metadata.action !== CommonEvents.CREATED || typeof message.data.id !== "string" ||
+        !expected.delete(message.data.id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+    }
+    if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+  });
+  return { capture, validateLogical };
 }
 
 /** Existing standalone local delivery profile. */

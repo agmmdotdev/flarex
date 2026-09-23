@@ -2,6 +2,7 @@ import { Clock, Effect } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
+import { isJsonObject, type JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
@@ -16,6 +17,13 @@ import { defaultCommerceResources } from "./resources";
 
 declare const closureBrand: unique symbol;
 export interface LogicalCommerceClosure { readonly [closureBrand]: true }
+export interface LogicalCommerceMutation {
+  readonly ordinal: number;
+  readonly table: string;
+  readonly operation: "insert" | "patch" | "replace" | "delete";
+  readonly before: JsonObject | null;
+  readonly after: JsonObject | null;
+}
 interface ClosureState {
   readonly admission: LogicalRelationalAdmission;
   readonly tx: FlarexMetadataTransaction;
@@ -53,7 +61,31 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     return closure;
   });
   return Object.freeze({ store, resources: defaultCommerceResources, close,
+    attemptCount: working.attemptCount,
     table: (context: Parameters<typeof working.relationalTable>[0], table: string) => working.relationalTable(context, id, table) });
+});
+
+/** The atomic root may inspect authenticated in-memory mutations before it
+ * consumes the same closure for publication. This grants no storage handle. */
+export const inspectLogicalCommerceMutations = Effect.fn("LogicalCommerce.inspectMutations")(function* (
+  closure: LogicalCommerceClosure, lifetime: BoundedRequestLifetime<CommerceTransactionError>,
+) {
+  const closed = closures.get(closure);
+  if (closed === undefined || closed.lifetime !== lifetime || !lifetime.isClosing())
+    return yield* Effect.fail(commerceError("invalidAuthority"));
+  const state = yield* requireLogicalRelationalAdmission(closed.admission, closed.tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const names = new Map(state.tables.map(table => [table.tableId, table.localName]));
+  const mutations: LogicalCommerceMutation[] = [];
+  for (const attempt of closed.changes.attempts) {
+    const table = names.get(attempt.tableId);
+    const before = attempt.before?.valueJson ?? null;
+    const after = attempt.after?.valueJson ?? null;
+    if (table === undefined || table !== attempt.tableName ||
+      (before !== null && !isJsonObject(before)) || (after !== null && !isJsonObject(after)))
+      return yield* Effect.fail(commerceError("storedCorruption"));
+    mutations.push(Object.freeze({ ordinal: attempt.ordinal, table, operation: attempt.operation, before, after }));
+  }
+  return Object.freeze(mutations);
 });
 
 /** The root consumes exactly once while the source callback is still live. */

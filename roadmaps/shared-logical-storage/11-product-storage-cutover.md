@@ -119,17 +119,46 @@ seed refuses before writing to the first table. Future nonempty multi-table
 initialization needs its own explicit source/table contract rather than
 inferring a target from table order.
 
-This selected slice reuses the native internal service and shared commerce
+The internal-service slice reuses the native internal service and shared commerce
 settlement because they already own the needed semantics. A Product-only DAL,
 adapter SQL path, partial graph installation or compatibility writer would
 duplicate authority. It changes no durable format or public contract and
-removes no physical Product consumer. The next connected cutover must make
-logical Product's mutation-event validation use shared row identities and
-facts, then select public Product and Product-tag workflow operations. Until
-that validation and the remaining graph paths are proven, the physical Product
-profile remains the named owner of those tests and runtime calls. That retained
+removes no physical Product consumer. The following tag-workflow slice adds
+logical Product mutation-event validation. The physical Product profile remains
+the named owner of other public Product tests and runtime calls until their
+graph, lifecycle and event paths are proven. That retained
 path is removed with the complete Product cutover and an explicit data
 disposition; no production switch is implied by this witness.
+
+## Logical Product Event And Tag-Workflow Slice
+
+The pinned `createProductTagsWorkflow` now runs with logical Product and
+logical Currency under the existing atomic commerce owner. The earlier
+internal-service witness could not admit Product module events because only
+the physical participant could compare messages with row facts. The outer
+workflow event/result check alone cannot establish that a claimed ID was
+actually inserted.
+
+The shared working set now retains bounded before/after observations from its
+validated writes. The logical participant authenticates and projects them by
+selected source. Atomic execution validates the Product module messages before
+the one event/publication closure settles. The Product adapter owns the
+tag-created interpretation; core has no Product names. Its first policy admits
+the native tag-create call followed by optional read-only calls and requires
+every tag insert to match exactly one created message. A forged message ID
+refuses the whole request without a row or event publication. The physical
+fact policy remains for named physical Product callers until their cutover.
+
+The private atomic participant policy now has a logical fact validator beside
+the physical one. A logical event-producing member without that validator is
+refused; Currency remains event-free. Native tag creation, row/event
+correlation, replay and mismatched-event rollback pass on PGlite and
+ordinary-role PostgreSQL. The existing mixed physical Product/logical Currency
+workflow also passes. This is one bounded public Product workflow proof; other
+Product commands, complete graph and lifecycle behavior, Links, two-scope
+isolation and concurrency remain at the gates below. There is no new durable
+format, second settlement path, old Product data migration or production
+switch in this slice.
 
 The physical profile is constructed in `product-schema.ts` and
 `product-profile.ts`. Its active test consumers include the Product runner and

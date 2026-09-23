@@ -1,7 +1,8 @@
 import { Effect, Schema } from "effect";
 import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-sdk";
 import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, type AtomicCommerceHost, type AtomicCommerceHostInput,
-  type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract } from "@flarex/persistence-postgres/internal/commerce-adapter";
+  type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract,
+  type LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareLocalGraph } from "../local-graph/query";
@@ -23,7 +24,8 @@ export interface AtomicWorkflowExecution {
 }
 type InstalledWorkflowModuleBase<Module extends WorkflowModule> = {
   readonly module: Module;
-  readonly moduleEvents?: Pick<LocalCommerceEventPolicy, "capture" | "validate">;
+  readonly moduleEvents?: Readonly<{ capture: LocalCommerceEventPolicy["capture"];
+    validate?: LocalCommerceEventPolicy["validate"]; validateLogical?: LogicalCommerceEventValidation }>;
 };
 export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule,
   Storage extends "physical" | "logical" = "physical"> = InstalledWorkflowModuleBase<Module> & (
@@ -99,7 +101,10 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     const profile = "profile" in binding ? binding.profile : undefined;
     const installation = "installation" in binding ? binding.installation : undefined;
     const moduleEvents = binding.moduleEvents === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(binding.moduleEvents));
-    if (moduleEvents !== undefined && (typeof moduleEvents.capture !== "function" || typeof moduleEvents.validate !== "function")) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    if (moduleEvents !== undefined && (typeof moduleEvents.capture !== "function" || (hasLogicalStorage
+      ? typeof moduleEvents.validateLogical !== "function" || moduleEvents.validate !== undefined
+      : typeof moduleEvents.validate !== "function" || moduleEvents.validateLogical !== undefined)))
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
     const commands = new Set<CommerceCommand>();
     const methodIdentities = [];
     const graphIdentities = [];
@@ -137,7 +142,10 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       }
     }
     const selected = { participant: member.participant, commands: [...commands],
-      ...(moduleEvents === undefined ? {} : { validate: moduleEvents.validate }), ...(moduleContracts.size === 0 ? {} : { events: {
+      ...(hasLogicalStorage
+        ? moduleEvents?.validateLogical === undefined ? {} : { validateLogical: moduleEvents.validateLogical }
+        : moduleEvents?.validate === undefined ? {} : { validate: moduleEvents.validate }),
+      ...(moduleContracts.size === 0 ? {} : { events: {
         contracts: [...moduleContracts.values()],
         select: Effect.fn("Workflow.selectModuleEvent")(function* (message: Json) {
           const token = isJsonObject(message) && typeof message.name === "string" ? moduleContracts.get(message.name) : undefined;

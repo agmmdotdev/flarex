@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
-import { makeLocalProductCommands } from "../src/product-service";
 import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product test driver");
@@ -22,26 +22,7 @@ describe("native internal Product service on shared logical storage", () => {
   }, 120_000);
 
   it("selects the complete Product source for native create, read and one committed replay", async () => {
-    const definition = fixture.productDefinition;
-    if (definition === undefined) throw new Error("Missing Product source");
-    const runtime = await Effect.runPromise(makeLocalProductCommands());
-    const seed = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset",
-      version: 1, rows: [] }, 1_048_576, { invalidInput: () => new Error("Invalid Product seed"),
-        hashFailure: cause => new Error("Product seed hash", { cause }) }));
-    const { hostInput } = fixture;
-    const productHostInput = { ...hostInput,
-      identityAndAccessPolicy: { profile: "logical-product-internal-test" },
-      logicalStorage: { ...hostInput.logicalStorage,
-        source: { sourceKey: "medusa.product", writeProfile: "medusa.product",
-          schema: definition.schema, evidence: definition.provenance },
-        initialization: { stepId: "product-empty", datasetSha256: seed.sha256Hex,
-          expectedRowCount: 0 },
-      },
-      commands: [runtime.commands.internalProductCreate, runtime.commands.internalProductRetrieve,
-        runtime.commands.internalProductList, runtime.commands.internalProductUpdate,
-        runtime.commands.internalProductSoftDelete, runtime.commands.internalProductRestore],
-    };
-    const host = await Effect.runPromise(makeCommerceHost(productHostInput));
+    const { runtime, hostInput: productHostInput, host } = await prepareLogicalProductHost(fixture);
     try {
       const ambiguousRows = [{ id: "not-a-table-discriminated-seed" }];
       const ambiguousSeed = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset",
