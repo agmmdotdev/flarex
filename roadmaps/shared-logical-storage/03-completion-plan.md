@@ -68,9 +68,11 @@ remain distinct from logical schema evolution.
   on both drivers. Selected native Product-tag create, update and delete
   workflows now execute through logical Product rows with module-event/row
   correlation and atomic publication. Tag deletion selects requested roots by
-  indexed ID even beyond the logical request's catalog-wide row bound. Other
-  lifecycle relation traversals, broader Product command selection, graph
-  queries and rich Links still block its runtime cutover.
+  indexed ID even beyond the logical request's catalog-wide row bound. The
+  lifecycle planner now selects declared child and nullable-reference rows by
+  indexed reverse keys, including a selected-image regression beyond the
+  unrelated-row bound. Broader Product command selection, graph queries and
+  rich Links still block its runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key
   selection alone does not enforce or activate Product relationships.

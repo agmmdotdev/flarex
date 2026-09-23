@@ -192,10 +192,9 @@ lifecycle reader: it scanned every tag before filtering a requested ID. The
 Product lifecycle owner now selects root IDs through the shared indexed row
 reader, so deleting one tag still works when the logical tag catalog exceeds
 the 128-identity request bound. The bounded refusal remains for a genuinely
-overlarge selected set. Other Product lifecycle branches still traverse
-related rows using their physical-era table loads; their reverse-index
-selection must replace those loads before those branches move to logical
-Product storage. This slice does not claim general Product lifecycle scale.
+overlarge selected set. The subsequent indexed lifecycle selection below
+covers the related-row loads. Neither slice claims general Product lifecycle
+scale.
 
 The private workflow registration types now admit a selected logical Product
 source. Native no-match updates, pending hook reads, multi-row deletion,
@@ -205,6 +204,32 @@ physical workflow regressions. The physical Product policy and fixtures remain
 for named unmigrated consumers. No second writer, storage fallback, Product-
 specific row query or production activation was added. Broader Product,
 relationship, Link and migration retirement remain at their existing gates.
+
+## Indexed Product Lifecycle Relation Selection
+
+The next connected Product gate is lifecycle traversal beyond the selected
+root. The pinned service must soft-delete and restore owned images, options and
+variants, hard-delete owned rows and pivots, reject a category with active
+children, and detach nullable Product references when deleting a type or
+collection. The existing adapter read whole related tables before filtering;
+one selected Product could therefore fail because another Product had more
+rows than the request's identity bound. The shared relational core already
+admits source-local foreign keys with indexed reverse access. The correct
+replacement is to select each declared reference by its source column and
+parent key, preserving Medusa's cascade/event choice and core's bounded read,
+pending state, FK validation and settlement authority. A new generic scan
+exception or Product-specific SQL would duplicate that owner. Composite or
+unindexed references outside the admitted profile must still refuse.
+
+This slice replaces the lifecycle planner's unqualified category, child and
+Product-reference loads with reverse selections. It keeps the pinned native
+service and physical Product regression surface until the public logical
+Product commands, graph queries and event policy move together. The direct
+logical Product witness places more than one request's worth of unrelated
+images beside a selected image and proves soft-delete/restore touches only
+the selected relationship. The existing physical native lifecycle suite
+remains the behavior witness for graph facts, events, rollback and deletion.
+Review and both database-driver runs are required before this slice closes.
 
 ## Replacement Contract And Breaking Changes
 

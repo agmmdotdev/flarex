@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
 import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
@@ -71,6 +73,43 @@ describe("native internal Product service on shared logical storage", () => {
       expect(await Effect.runPromise(host.read(runtime.commands.internalProductList,
         { filters: { id: input.id }, config: { select: ["id", "title"] } })))
         .toEqual([{ id: input.id, title: "Updated Product" }]);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("cascades one Product image without reading unrelated image rows", async () => {
+    const { runtime, hostInput, host: base } = await prepareLogicalProductHost(fixture);
+    await Effect.runPromise(base.close);
+    const seedImages = defineCommerceCommand("logicalProductSeedImages", "write", Effect.fn("ProductTest.seedImages")(function* (ctx, rows: unknown) {
+      const store = yield* ctx.table("image");
+      return yield* store.write(ctx.manager, "insert", rows);
+    }));
+    const readImage = defineCommerceCommand("logicalProductReadImage", "read", Effect.fn("ProductTest.readImage")(function* (ctx, id) {
+      if (typeof id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
+      const store = yield* ctx.table("image");
+      return yield* store.find(ctx.manager, { take: 1, order: { column: "id", direction: "asc" },
+        predicate: { kind: "in", column: "id", values: [id] } });
+    }));
+    const host = await Effect.runPromise(makeCommerceHost({ ...hostInput,
+      commands: [...hostInput.commands, seedImages, readImage],
+    }));
+    try {
+      await Effect.runPromise(host.initialize([]));
+      for (const id of ["prod_selected", "prod_unrelated"]) await Effect.runPromise(host.run(host.newRequestKey(),
+        runtime.commands.internalProductCreate, { id, title: id, handle: id }));
+      for (let start = 0; start < 130; start += 20) {
+        const rows = Array.from({ length: Math.min(20, 130 - start) }, (_, offset) => {
+          const index = start + offset;
+          return { id: `img_unrelated_${index}`, url: `unrelated-${index}`, product_id: "prod_unrelated" };
+        });
+        await Effect.runPromise(host.run(host.newRequestKey(), seedImages, rows));
+      }
+      await Effect.runPromise(host.run(host.newRequestKey(), seedImages,
+        [{ id: "img_selected", url: "selected", product_id: "prod_selected" }]));
+      await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductSoftDelete, "prod_selected"));
+      expect(await Effect.runPromise(host.read(readImage, "img_selected"))).toMatchObject([{ id: "img_selected", deleted_at: expect.any(String) }]);
+      expect(await Effect.runPromise(host.read(readImage, "img_unrelated_129"))).toMatchObject([{ id: "img_unrelated_129", deleted_at: null }]);
+      await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductRestore, "prod_selected"));
+      expect(await Effect.runPromise(host.read(readImage, "img_selected"))).toMatchObject([{ id: "img_selected", deleted_at: null }]);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 });

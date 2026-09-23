@@ -36,24 +36,35 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
   const keys = (table: Table) => table.columns.some(column => column.primaryKey) ? table.columns.filter(column => column.primaryKey).map(column => column.name)
     : table.foreignKeys.flatMap(key => key.columns);
   const load = Effect.fn("ProductLifecycle.load")(function* (table: Table,
-    selection?: Readonly<{ column: string; values: readonly string[] }>) {
-    const cacheKey = selection === undefined ? table.name : JSON.stringify([table.name, selection.column, selection.values]);
+    selection: Readonly<{ column: string; values: readonly string[] }>) {
+    const cacheKey = JSON.stringify([table.name, selection.column, selection.values]);
     const prior = state.get(cacheKey);
     if (prior !== undefined) return prior;
     const order = keys(table)[0];
     if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const store = yield* getStore(table);
     const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" },
-      ...(selection === undefined ? {} : { predicate: { kind: "in", column: selection.column, values: selection.values } }) });
+      predicate: { kind: "in", column: selection.column, values: selection.values } });
     state.set(cacheKey, rows); return rows;
+  });
+  const loadReferencing = Effect.fn("ProductLifecycle.loadReferencing")(function* (
+    table: Table, columns: readonly string[], row: JsonObject, referencedColumns: readonly string[],
+  ) {
+    if (columns.length !== 1 || referencedColumns.length !== 1) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const column = columns[0]; const referenced = referencedColumns[0];
+    if (column === undefined || referenced === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    const value = row[referenced];
+    if (typeof value !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
+    return yield* load(table, { column, values: [value] });
   });
   // Requested root IDs are admitted by the shared indexed row reader. A
   // one-ID lifecycle call must not depend on the size of the whole catalog.
   const roots = (ids.length === 0 ? [] : yield* load(entity.table, { column: "id", values: ids }))
     .filter(row => typeof row.id === "string" && ids.includes(row.id) && (operation !== "softDelete" || row.deleted_at === null));
   if (entity === catalog.category) {
-    const categories = yield* load(entity.table);
-    if (roots.length !== ids.length || roots.some(row => categories.some(child => child.parent_category_id === row.id && child.deleted_at === null)))
+    if (roots.length !== ids.length) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    for (const root of roots) if ((yield* loadReferencing(entity.table, ["parent_category_id"], root, ["id"]))
+      .some(child => child.deleted_at === null))
       return yield* Effect.fail(commerceError("unsupportedProfile"));
   }
   const planned = new Map<string, Map<string, JsonObject>>();
@@ -64,7 +75,7 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     group.set(identity, row); planned.set(table.name, group);
     if (operation === "delete") {
       for (const child of catalog.tables) for (const fk of child.foreignKeys.filter(fk => fk.referencedTable === table.name && fk.onDelete === "cascade")) {
-        for (const member of (yield* load(child)).filter(value => tupleKey(value, fk.columns) === tupleKey(row, fk.referencedColumns))) yield* visit(child, member);
+        for (const member of yield* loadReferencing(child, fk.columns, row, fk.referencedColumns)) yield* visit(child, member);
       }
     } else {
       for (const relation of table.relationships.filter(relation => relation.cascadeDelete)) {
@@ -72,8 +83,7 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
         if (descriptor?.join.type !== "hasMany") return yield* Effect.fail(commerceError("unsupportedProfile"));
         const child = catalog.tables.find(table => table.name === descriptor.targetTable);
         if (child === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-        const columns = descriptor.join.foreignKeys;
-        for (const member of (yield* load(child)).filter(value => tupleKey(value, columns) === tupleKey(row, descriptor.sourcePrimaryKeys))) yield* visit(child, member);
+        for (const member of yield* loadReferencing(child, descriptor.join.foreignKeys, row, descriptor.sourcePrimaryKeys)) yield* visit(child, member);
       }
     }
   });
@@ -89,9 +99,11 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
       const columns = descriptor.join.foreignKeys;
       if (columns.length !== descriptor.sourcePrimaryKeys.length || columns.some(name => !["type_id", "collection_id"].includes(name)))
         return yield* Effect.fail(commerceError("unsupportedProfile"));
-      const updates = (yield* load(catalog.product.table))
-        .filter(row => roots.some(root => tupleKey(row, columns) === tupleKey(root, descriptor.sourcePrimaryKeys)))
-        .map(row => ({ id: row.id, ...Object.fromEntries(columns.map(name => [name, null])) }));
+      const updates: JsonObject[] = [];
+      for (const root of roots) for (const row of yield* loadReferencing(catalog.product.table, columns, root, descriptor.sourcePrimaryKeys)) {
+        if (typeof row.id !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
+        updates.push({ id: row.id, ...Object.fromEntries(columns.map(name => [name, null])) });
+      }
       if (updates.length) yield* (yield* getStore(catalog.product.table)).write(ctx.manager, "update", updates);
     }
   }
