@@ -19,7 +19,9 @@ export function relationalForeignKeyReverseColumns(table: RelationalTableDefinit
   return Object.freeze(derived);
 }
 
-export function relationalHasIndexedTextPrefix(table: RelationalTableDefinition, columnId: string): boolean {
+/** An admitted scalar equality can use the first column of a declared key or
+ * index. The derived FK reverse path is text-only. */
+export function relationalHasIndexedScalarPrefix(table: RelationalTableDefinition, columnId: string): boolean {
   return table.keys.some(key => key.columns[0]?.columnId === columnId) ||
     table.indexes.some(index => index.predicate === null && index.columns[0]?.columnId === columnId) ||
     relationalForeignKeyReverseColumns(table).some(column => column.columnId === columnId);

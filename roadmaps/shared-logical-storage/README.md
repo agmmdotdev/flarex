@@ -17,7 +17,12 @@ full migration/ownership transitions prerequisites for core completion.
 Status: accepted development-phase architecture replacement; the first
 [candidate-admission slice](./02-candidate-admission.md) is implemented as private metadata admission.
 Selective CMS/Payload ID, unique-key and ordinary-index reads are implemented; selected Medusa
-  Currency, Product, base Pricing, SalesChannel, ShippingProfile and the selected Variant–PriceSet and Product Links and workflows execute through generic rows while other consumers remain physical. SalesChannel name and ShippingProfile type selection use shared exact-text equality access. The owner chooses generic physical storage with logical Application,
+Currency, Product, base Pricing, SalesChannel, ShippingProfile, Variant–PriceSet
+and Product Links workflows execute through generic rows while other consumers
+remain physical. SalesChannel name and ShippingProfile type use shared exact-text
+equality access; SalesChannel `is_disabled` uses a declared Boolean index under
+[its connected selection cutover](./24-sales-channel-boolean-selection.md).
+The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
 

@@ -135,9 +135,10 @@ remain distinct from logical schema evolution.
   retired under the [connected cutover](./23-product-shipping-profile-link-workflow-cutover.md).
   Concurrent same-scope native roots may reach callbacks independently; a
   conflicting settlement reports `writeConflict`, and an explicit retry can
-  attach to the resulting active Link. Boolean-only SalesChannel filtering
-  still uses the bounded complete-set path and remains a selective-index
-  scalability gate.
+  attach to the resulting active Link. Native SalesChannel `is_disabled`
+  filtering now selects a derived shared Boolean index when declared, including
+  updates and soft deletion. A high-match exact count remains resource bounded;
+  this does not establish capacity for arbitrarily large matching sets.
   The selected native ShippingProfile module now compiles to one logical
   source, including active-name uniqueness and derived type equality access.
   Its standalone native service and promoted creation/event bodies use logical

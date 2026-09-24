@@ -1,5 +1,5 @@
 import { Result, Schema } from "effect";
-import { isRelationalColumnValue, relationalHasIndexedTextPrefix,
+import { isRelationalColumnValue, relationalHasIndexedScalarPrefix,
   type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { encodeOrderedIndexComponentsV1, orderedIndexKeyHexV1ToBytes,
   orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
@@ -27,7 +27,7 @@ const decodeEnvelope = Schema.decodeUnknownResult(Envelope, { onExcessProperty: 
 const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" });
 interface Selection {
   readonly column: string;
-  readonly value: string;
+  readonly value: string | boolean;
   readonly nullColumn?: string;
 }
 interface Filter<Failure> {
@@ -69,15 +69,15 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           return yield* Result.fail(error("invalidInput"));
         const keys = new Set(node.values);
         return { select: (requiredNulls: ReadonlySet<string>) => Result.gen(function* () {
-          // Boolean equality is exact but has no indexed selection yet. The
-          // complete-set path remains resource bounded by the shared owner.
-          if (column.type === "boolean") return null;
-          const unconditional = relationalHasIndexedTextPrefix(table, node.column);
+          const unconditional = relationalHasIndexedScalarPrefix(table, node.column);
           const conditional = unconditional ? undefined : table.indexes.find(candidate => candidate.columns[0]?.columnId === node.column &&
             candidate.predicate?.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId));
-          if (!unconditional && conditional === undefined) return yield* Result.fail(error("invalidInput"));
+          if (!unconditional && conditional === undefined) {
+            if (column.type === "boolean") return null;
+            return yield* Result.fail(error("invalidInput"));
+          }
           const nullColumn = conditional?.predicate?.kind === "isNull" ? conditional.predicate.column.columnId : undefined;
-          return [...keys].map(value => ({ column: node.column, value: String(value),
+          return [...keys].map(value => ({ column: node.column, value,
             ...(nullColumn === undefined ? {} : { nullColumn }) }));
         }), requiredNulls: new Set<string>(),
           matches: row => { const value = row[node.column]; return (typeof value === "string" || typeof value === "boolean") && keys.has(value); } };

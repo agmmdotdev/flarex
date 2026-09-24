@@ -417,7 +417,7 @@
     {
       "target": "packages/medusa-adapter/src/sales-channel-schema.ts",
       "classification": "authored",
-      "targetSha256": "bf8668b46b6d325f5de2d48aef9428d72fa529b5a0e1e075482f88c344b3f420"
+      "targetSha256": "aa08517434fa5f0cd704fbe217fe3ec20bf9bfb550b2826de1536def2ed4cb44"
     },
     {
       "target": "packages/medusa-adapter/src/sales-channel-service.ts",
@@ -4180,7 +4180,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-sales-channel-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "302544e9c751bb7f808afa2eaffe5cce7d559100c3f58e03e7c5cb125ddf208b"
+      "targetSha256": "d72dc8846bab4c9056314f9b1b5cd7b927cf079e4002d195238af22ed1bb2db8"
     },
     {
       "target": "packages/medusa-core-flows/src/pricing/steps/create-price-sets.ts",

@@ -44,7 +44,10 @@ export const compileSalesChannelDefinition = Effect.fn("SalesChannel.compileDefi
   const schema = yield* Effect.fromResult(normalizeRelationalSchema({ ...lowered, tables: lowered.tables.map(table => ({
     ...table, indexes: [...table.indexes, { indexId: "sales_channel.name-equality", kind: "textEquality" as const,
       columns: ["name"], predicate: null,
-      origin: { kind: "derived" as const, sourceId: "sales_channel.name-equality" } }],
+      origin: { kind: "derived" as const, sourceId: "sales_channel.name-equality" } },
+      { indexId: "sales_channel.disabled-equality", kind: "btree" as const,
+        columns: ["is_disabled"], predicate: null,
+        origin: { kind: "derived" as const, sourceId: "sales_channel.disabled-equality" } }],
   })) }));
   return Object.freeze({ schema, provenance: salesChannelSourceProvenance });
 });

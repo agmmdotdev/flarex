@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Result } from "effect";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { CommerceTransactionError, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
@@ -444,4 +444,37 @@ describe("native SalesChannel service on shared logical storage", () => {
       expect(await events()).toEqual(afterEvents);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
+
+  it("selects sparse native disabled-channel reads beyond the complete-set bound", async () => {
+    const { host, create, update, remove } = await prepareNativeHost();
+    const reader = await Effect.runPromise(makeCommerceHost(sales.hostInput));
+    try {
+      const unrelated = Array.from({ length: 129 }, (_, index) => ({
+        id: `boolean-unrelated-${index}`, name: `Boolean unrelated ${index}`, is_disabled: false,
+      }));
+      for (let start = 0; start < unrelated.length; start += 32) {
+        await Effect.runPromise(host.run(host.newRequestKey(), create, unrelated.slice(start, start + 32)));
+      }
+      await Effect.runPromise(host.run(host.newRequestKey(), create,
+        { id: "boolean-selected", name: "Boolean selected", is_disabled: true }));
+      const selection = { filters: { is_disabled: true }, config: { select: ["id"], take: 2 } };
+      expect(await Effect.runPromise(reader.read(sales.runtime.count, selection)))
+        .toEqual([[{ id: "boolean-selected" }], 1]);
+      await Effect.runPromise(host.run(host.newRequestKey(), update,
+        { id: "boolean-selected", data: { is_disabled: false } }));
+      expect(await Effect.runPromise(reader.read(sales.runtime.count, selection))).toEqual([[], 0]);
+      await Effect.runPromise(host.run(host.newRequestKey(), update,
+        { id: unrelated[0]!.id, data: { is_disabled: true } }));
+      expect(await Effect.runPromise(reader.read(sales.runtime.count, selection)))
+        .toEqual([[{ id: unrelated[0]!.id }], 1]);
+      await Effect.runPromise(host.run(host.newRequestKey(), remove, [unrelated[0]!.id]));
+      expect(await Effect.runPromise(reader.read(sales.runtime.count, selection))).toEqual([[], 0]);
+      const failure = await Effect.runPromise(Effect.flip(reader.read(sales.runtime.count,
+        { filters: { is_disabled: false }, config: { select: ["id"], take: 2 } })));
+      expect(failure.reason).toBe("rollbackOnly");
+      if (!Cause.isCause(failure.cause)) throw new Error("Missing bounded-read refusal cause");
+      expect(failure.cause.reasons.some(reason => Cause.isFailReason(reason)
+        && reason.error instanceof CommerceTransactionError && reason.error.reason === "limitExceeded")).toBe(true);
+    } finally { await Effect.runPromise(reader.close); await Effect.runPromise(host.close); }
+  }, 180_000);
 });

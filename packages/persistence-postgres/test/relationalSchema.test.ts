@@ -337,7 +337,7 @@ describe("private relational schema values", () => {
     expect(compile({ kind: "isNull", column: "code" }).requiredNulls).toEqual([]);
   });
 
-  it("admits exact Boolean membership with bounded complete-set selection", () => {
+  it("selects exact Boolean membership only through a declared index", () => {
     const base = currencyInput();
     const input = { ...base, tables: base.tables.map(table => ({ ...table, columns: [...table.columns,
       { columnId: "is_disabled", type: "boolean", nullable: false,
@@ -351,6 +351,21 @@ describe("private relational schema values", () => {
       { order: { column: "code", direction: "asc" }, predicate: { kind: "in", column: "is_disabled", values: [true] } },
       10, reason => new Error(reason)));
     expect(query.selections).toBeNull();
+    const indexed = Result.getOrThrow(normalizeRelationalSchema({ ...input, tables: input.tables.map(table => ({
+      ...table, indexes: [...table.indexes, { indexId: "currency.disabled", kind: "btree",
+        columns: ["is_disabled"], predicate: null,
+        origin: derived("currency.disabled-equality") }],
+    })) }));
+    const indexedTable = indexed.tables[0];
+    if (indexedTable === undefined) throw new Error("Missing indexed relational table");
+    const compile = (predicate: unknown) => Result.getOrThrow(compileLogicalRelationalRead(indexedTable,
+      indexed.capabilities, { order: { column: "code", direction: "asc" }, predicate }, 10, reason => new Error(reason)));
+    expect(compile({ kind: "in", column: "is_disabled", values: [true] }).selections)
+      .toEqual([{ column: "is_disabled", value: true }]);
+    expect(compile({ kind: "or", children: [
+      { kind: "in", column: "is_disabled", values: [true] },
+      { kind: "in", column: "is_disabled", values: [false] },
+    ] }).selections).toEqual([{ column: "is_disabled", value: true }, { column: "is_disabled", value: false }]);
     expect(Result.isFailure(compileLogicalRelationalRead(table, schema.capabilities,
       { order: { column: "code", direction: "asc" }, predicate: { kind: "in", column: "is_disabled", values: ["true"] } },
       10, reason => new Error(reason)))).toBe(true);

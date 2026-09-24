@@ -12,7 +12,12 @@ The core logical row/index/constraint and atomic publication owners already exec
 
 Compile the one pinned SalesChannel DML model to a normalized relational definition with source provenance. Admit that source through the existing joint Application/Payload/Medusa composer, with one stable logical table identity and no generated module DDL. Run native create, update, delete and bounded list/count/retrieve through that selected source. Match each native created/updated/deleted message to the exact attempted row ID and operation before publication. Prove defaults, nullable/JSON values, scope isolation, rollback, replay and physical table-count invariance on PGlite and ordinary-role PostgreSQL.
 
-The private standalone SalesChannel host/test selection changes from a physical profile and installation reference to the logical source and initialization receipt. Its native behavior and the two-module Product/SalesChannel atomic witness move to the logical suite; the displaced physical standalone binding fixture is removed. The Product–ShippingProfile router is the remaining named physical SalesChannel consumer, with removal when that workflow moves and any durable-data disposition is approved. No named durable environment is reset or converted. This slice does not activate SalesChannel product relations, arbitrary module methods, a public developer API, advanced populated-data evolution or a fallback engine.
+The private standalone SalesChannel host/test selection changes from a physical profile and installation reference to the logical source and initialization receipt. Its native behavior and the two-module Product/SalesChannel atomic witness move to the logical suite; the displaced physical standalone binding fixture is removed. The Product–ShippingProfile router moved in its [connected cutover](./23-product-shipping-profile-link-workflow-cutover.md). No named durable environment is reset or converted. This slice does not activate SalesChannel product relations, arbitrary module methods, a public developer API, advanced populated-data evolution or a fallback engine.
+
+The native `is_disabled` equality filter later gained a declared shared Boolean
+access path under [indexed Boolean selection](./24-sales-channel-boolean-selection.md).
+Sparse matches can be selected beyond the complete-set bound; large match sets
+still stop at the explicit resource limit.
 
 ## Completion Gates
 
