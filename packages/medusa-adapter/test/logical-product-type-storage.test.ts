@@ -258,44 +258,58 @@ describe("native Product Type on shared logical Product storage", () => {
     }
   }, 180_000);
 
-  it("detaches 128 Products in one Type delete publication and replays its outcome", async () => {
+  it.each([128, 512])("detaches %i Products in one Type delete publication and replays its outcome", async (productCount) => {
     const created = await typeCommand("create");
     const deleted = await typeCommand("delete");
     const rejected = await typeCommand("delete", fixture, product, true);
     const productCreate = await productCreation();
-    const typeId = "ptype_fanout_boundary";
+    const typeId = `ptype_fanout_boundary_${productCount}`;
     try {
       await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
         { id: typeId, value: "Fan-out boundary" }));
       const rowsBeforeProducts = await fixture.persistence.drizzle.select().from(fxAppRowCurrent);
-      for (let batch = 0; batch < 4; batch++) {
+      for (let batch = 0; batch < productCount / 32; batch++) {
         const rows = Array.from({ length: 32 }, (_, index) => ({
-          id: `prod_fanout_${batch * 32 + index}`, title: `Fan-out ${batch * 32 + index}`,
-          handle: `prod-fanout-${batch * 32 + index}`, type_id: typeId,
+          id: `prod_fanout_${productCount}_${batch * 32 + index}`, title: `Fan-out ${batch * 32 + index}`,
+          handle: `prod-fanout-${productCount}-${batch * 32 + index}`, type_id: typeId,
         }));
         expect(await Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root, rows)))
           .toMatchObject(rows);
       }
-      expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toHaveLength(rowsBeforeProducts.length + 128);
+      expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toHaveLength(rowsBeforeProducts.length + productCount);
       const before = await logicalCurrencyInventory(fixture);
       await expect(Effect.runPromise(rejected.host.run(rejected.host.newRequestKey(), rejected.root, [typeId])))
         .rejects.toMatchObject({ reason: "receiptMismatch" });
       expect(await logicalCurrencyInventory(fixture)).toEqual(before);
       const key = deleted.host.newRequestKey();
+      if (productCount === 512 && fixture.observeSql !== undefined) {
+        let stagedFactPages = 0;
+        fixture.observeSql(text => {
+          if (/insert into "fx_system_commit_app_row_change"/i.test(text) && ++stagedFactPages === 4)
+            throw new Error("Injected failure after four staged fact pages");
+        });
+        try {
+          await expect(Effect.runPromise(deleted.host.run(key, deleted.root, [typeId]))).rejects.toThrow();
+        } finally {
+          fixture.observeSql(undefined);
+        }
+        expect(stagedFactPages).toBe(4);
+        expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+      }
       const outcome = await Effect.runPromise(deleted.host.run(key, deleted.root, [typeId]));
       const after = await logicalCurrencyInventory(fixture);
       expect(after.rows).toHaveLength(before.rows.length);
-      expect(after.revisions).toHaveLength(before.revisions.length + 129);
-      expect(after.indexRevisions.length).toBeGreaterThan(before.indexRevisions.length + 128);
-      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 129);
+      expect(after.revisions).toHaveLength(before.revisions.length + productCount + 1);
+      expect(after.indexRevisions.length).toBeGreaterThan(before.indexRevisions.length + productCount);
+      expect(after.rowChanges).toHaveLength(before.rowChanges.length + productCount + 1);
       expect(after.commits).toHaveLength(before.commits.length + 1);
       expect(after.events).toHaveLength(before.events.length + 1);
       const published = after.rowChanges.slice(before.rowChanges.length);
       expect(new Set(published.map(change => change.commitSeq)).size).toBe(1);
-      expect(published.map(change => change.changeOrdinal)).toEqual(Array.from({ length: 129 }, (_, index) => index));
-      for (const index of [0, 31, 32, 63, 64, 95, 96, 127]) {
+      expect(published.map(change => change.changeOrdinal)).toEqual(Array.from({ length: productCount + 1 }, (_, index) => index));
+      for (const index of [0, 31, 32, 63, 64, 95, 96, 127, productCount - 1]) {
         expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
-          { id: `prod_fanout_${index}` }))).toMatchObject({ id: `prod_fanout_${index}`, type_id: null });
+          { id: `prod_fanout_${productCount}_${index}` }))).toMatchObject({ id: `prod_fanout_${productCount}_${index}`, type_id: null });
       }
       expect(await Effect.runPromise(deleted.host.run(key, deleted.root, [typeId]))).toEqual(outcome);
       expect(await logicalCurrencyInventory(fixture)).toEqual(after);
@@ -305,7 +319,7 @@ describe("native Product Type on shared logical Product storage", () => {
       await Effect.runPromise(rejected.host.close);
       await Effect.runPromise(productCreate.host.close);
     }
-  }, 240_000);
+  }, 360_000);
 
   it("includes a Product reference committed while Type deletion awaits settlement", async () => {
     if (driver !== "postgres") return;

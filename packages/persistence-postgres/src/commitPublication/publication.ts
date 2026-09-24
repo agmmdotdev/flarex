@@ -20,12 +20,32 @@ export async function writeScopePublicationPrefix(
   options: ScopePublicationOptions,
   signal?: AbortSignal,
 ): Promise<void> {
+  const writer = await beginScopePublicationPrefix(tx, command, kernel, options, signal, command.rowIntents.length);
+  await writer.appendRows(command.rowIntents, signal);
+  await writer.finish(signal);
+}
+
+/** A provisional header and its facts are visible only inside the owning
+ * transaction. The caller must finish or roll back before that transaction
+ * can settle. This permits trusted page materialization to stream ordered
+ * facts without retaining the complete fan-out in request memory. */
+export async function beginScopePublicationPrefix(
+  tx: AppRowTransaction,
+  command: ScopePublicationContribution,
+  kernel: ScopePublicationKernel,
+  options: ScopePublicationOptions,
+  signal?: AbortSignal,
+  knownChangeCount?: number,
+) {
   signal?.throwIfAborted();
+  if (knownChangeCount !== undefined && (!Number.isSafeInteger(knownChangeCount) || knownChangeCount < 0 || knownChangeCount > 16000))
+    throw corruption("publicationInvariantInvalid");
+  if (knownChangeCount === undefined ? command.rowIntents.length !== 0 : knownChangeCount !== command.rowIntents.length)
+    throw corruption("publicationInvariantInvalid");
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);
   const scopeUuid = kernel.clock.scopeUuid;
   const epochUuid = kernel.clock.epochUuid;
   const commitSeq = kernel.commitSeq;
-  const changeCount = command.rowIntents.length;
   const relationAdjacencyChangeCount =
     kernel.relationAdjacencyChanges.length;
 
@@ -34,7 +54,7 @@ export async function writeScopePublicationPrefix(
       scopeUuid,
       epochUuid,
       commitSeq,
-      changeCount,
+      changeCount: knownChangeCount ?? 0,
       relationAdjacencyChangeCount,
       payloadPreferenceDeletionCount: command.payloadPreferenceDeletionCount ?? 0,
       relationalChangeCount: command.relationalFacts?.length ?? 0,
@@ -46,13 +66,48 @@ export async function writeScopePublicationPrefix(
     requireSinglePublicationWriteResult(header, commitSeq, "commitSeq"),
   );
   await emitTransactionStep(options, command, "commitHeaderWritten");
+  let phase: "ready" | "failed" | "complete" = "ready";
+  let appendedRows = 0;
+  return Object.freeze({
+    appendRows: async (rows: ScopePublicationContribution["rowIntents"], appendSignal?: AbortSignal) => {
+      if (phase !== "ready") throw corruption("publicationInvariantInvalid");
+      phase = "failed";
+      await appendScopePublicationRowChanges(tx, command, kernel, options, rows, appendedRows, appendSignal);
+      appendedRows += rows.length;
+      phase = "ready";
+    },
+    finish: async (finishSignal?: AbortSignal) => {
+      if (phase !== "ready") throw corruption("publicationInvariantInvalid");
+      phase = "failed";
+      await finishScopePublicationPrefix(tx, command, kernel, options, appendedRows,
+        knownChangeCount, relationAdjacencyChangeCount, finishSignal);
+      phase = "complete";
+    },
+  });
+}
 
+async function appendScopePublicationRowChanges(
+  tx: AppRowTransaction,
+  command: ScopePublicationContribution,
+  kernel: ScopePublicationKernel,
+  options: ScopePublicationOptions,
+  rows: ScopePublicationContribution["rowIntents"],
+  firstChangeOrdinal: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
+  if (!Number.isSafeInteger(firstChangeOrdinal) || firstChangeOrdinal < 0 || firstChangeOrdinal + rows.length > 16000)
+    throw corruption("publicationInvariantInvalid");
+  const scopeUuid = kernel.clock.scopeUuid;
+  const epochUuid = kernel.clock.epochUuid;
+  const commitSeq = kernel.commitSeq;
   for (
     let firstOrdinal = 0;
-    firstOrdinal < command.rowIntents.length;
+    firstOrdinal < rows.length;
     firstOrdinal += MAX_COMMIT_CHANGES_PER_STATEMENT
   ) {
-    const batch = command.rowIntents.slice(
+    signal?.throwIfAborted();
+    const batch = rows.slice(
       firstOrdinal,
       firstOrdinal + MAX_COMMIT_CHANGES_PER_STATEMENT,
     );
@@ -61,7 +116,7 @@ export async function writeScopePublicationPrefix(
         scopeUuid,
         epochUuid,
         commitSeq,
-        changeOrdinal: firstOrdinal + batchIndex,
+        changeOrdinal: firstChangeOrdinal + firstOrdinal + batchIndex,
         tableId: rowIntent.tableId,
         rowId: appRowIdHexV1ToBytes(rowIntent.rowId),
       })),
@@ -75,11 +130,40 @@ export async function writeScopePublicationPrefix(
       requireCommitChangeBatchWriteResult(
         changes,
         commitSeq,
-        firstOrdinal,
+        firstChangeOrdinal + firstOrdinal,
         batch.length,
       ),
     );
     await emitTransactionStep(options, command, "commitChangeWritten");
+  }
+}
+
+async function finishScopePublicationPrefix(
+  tx: AppRowTransaction,
+  command: ScopePublicationContribution,
+  kernel: ScopePublicationKernel,
+  options: ScopePublicationOptions,
+  changeCount: number,
+  knownChangeCount: number | undefined,
+  initialAdjacencyChangeCount: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
+  if (!Number.isSafeInteger(changeCount) || changeCount < 0 || changeCount > 16000)
+    throw corruption("publicationInvariantInvalid");
+  const publicationTime = new Date(kernel.publicationTimeMilliseconds);
+  const scopeUuid = kernel.clock.scopeUuid;
+  const epochUuid = kernel.clock.epochUuid;
+  const commitSeq = kernel.commitSeq;
+  if (knownChangeCount !== undefined) {
+    if (changeCount !== knownChangeCount || kernel.relationAdjacencyChanges.length !== initialAdjacencyChangeCount)
+      throw corruption("publicationInvariantInvalid");
+  } else {
+    const header = await sqlCall("writeCommitHeader", () => tx.update(fxSystemCommits)
+      .set({ changeCount, relationAdjacencyChangeCount: kernel.relationAdjacencyChanges.length }).where(and(eq(fxSystemCommits.scopeUuid, scopeUuid),
+        eq(fxSystemCommits.epochUuid, epochUuid), eq(fxSystemCommits.commitSeq, commitSeq)))
+      .returning({ commitSeq: fxSystemCommits.commitSeq }));
+    projectScopePublicationResult(requireSinglePublicationWriteResult(header, commitSeq, "commitSeq"));
   }
 
   for (

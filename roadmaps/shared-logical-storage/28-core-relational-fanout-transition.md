@@ -1,12 +1,12 @@
 # Core relational fan-out transition
 
 Status: bounded same-sequence page materialization, authenticated indexed
-reverse selection, sealed `set null` intent and production logical-commerce
-publication are implemented in the shared core. The selected all-logical
-ProductType and ProductCollection deletion use that path without adapter-side
-Product enumeration. The operation supports up to the declared affected-row,
-byte and time budgets; broader
-relationship transitions and pending reads after a plan remain separate gates.
+reverse selection, sealed `set null` intent and ordered transaction-local
+logical-commerce fact publication are implemented in the shared core. The
+selected all-logical ProductType and ProductCollection deletion use that path
+without adapter-side Product enumeration. The operation supports up to the
+declared affected-row, byte and time budgets; broader relationship transitions,
+larger measured fan-out and pending reads after a plan remain separate gates.
 
 ## Trigger and ownership
 
@@ -45,17 +45,16 @@ before one commit/publication. Keep a separate total affected-row/time/byte
 budget. If that budget is exceeded, roll back the entire operation with a
 capacity error. Do not promise an unbounded single transaction.
 
-The current `LogicalDocumentChanges` arrays and per-request `rows`/`dependencies`
-maps assume every changed identity fits in memory. The implementation preflight
-must choose a bounded transaction-local accumulation or staging representation
-that preserves their validation, retry and recovery semantics; changing only
-the read limit is insufficient. The current point-commit protocol caps one
+The `LogicalDocumentChanges` arrays and per-request `rows`/`dependencies`
+maps assume every command-observed identity fits in memory. The core stages
+ordered derived facts in one transaction; changing only the read limit would
+still be insufficient. The point-commit protocol caps one
 materialization command at 128 rows, while the developer-index action budget is
 256 revisions and `readBoundedCurrentAppRowsInTransactionEffect` caps one read
 at 256 identities. `inspectLogicalCommerceActivity`, contribution validation,
-`prepareDelta` and publication all currently receive complete arrays. A
-replacement must reconcile these coupled limits and consume bounded batches
-under one publication, including exact event/attempt evidence; it must not
+`prepareDelta` receives one complete page; publication consumes ordered derived
+batches without assembling a complete fact array. A larger future budget must
+keep these coupled limits and exact event/attempt evidence aligned; it must not
 merely widen the working-set map. The trusted owner must not hold a transaction
 while calling untrusted code, pausing a workflow or performing remote effects.
 Cross-owner changes require an explicit source-owner policy, so the first
@@ -90,8 +89,8 @@ earlier capped request page as authoritative.
 The shared reverse selector checks a declared nullable same-source FK, an
 enabled current-coverage index and each bounded current row under the scope
 publication lock. Its multi-page Product Type witness reaches 144 references
-without loading the range in one read. The 32-row page and 480-reference
-total leave one of the materializer's 16 pages for the root operation.
+without loading the range in one read. The 32-row page and 2,016-reference
+total leave one of the materializer's 64 pages for the root operation.
 The neutral `set null` operation uses the admitted row normalization policy to
 preserve native fields, set the declared nullable FK to null and update managed
 timestamps. It builds ordinary logical row intents page by page, requires the
@@ -130,15 +129,16 @@ target row has been selected for deletion. It forbids later command reads or
 writes, rejects pending source-row overlays, and authenticates the exact FK and
 root. The publisher consumes the intent before making the Type deletion visible.
 
-The publisher gathers compact derived row identities after lowering all
-bounded pages, enforces the materializer's 512-row/16-page budget and the
-atomic host's fact allowance together, then writes one commit prefix, outcome,
-events and clock advancement. No adapter-supplied affected-row list is accepted.
+The publisher writes compact derived row identities after each lowered page
+inside the same uncommitted transaction, enforces the materializer's
+2,048-row/64-page budget and the atomic host's fact allowance together, then
+finalizes one commit prefix, outcome, events and clock advancement. No
+adapter-supplied affected-row list is accepted.
 
 1. Complete the inventory of logical row, index, unique, revision, attempt,
    dependency, publication and recovery writers that consume a closed working
-   set. The shared materialization page budget is 512 changed identities,
-   16 pages and 4 MiB of final document bytes; the relation-transition owner
+   set. The shared materialization batch budget is 2,048 changed identities,
+   64 pages and 4 MiB of final document bytes; the relation-transition owner
    still needs its separate read, total work, statement and time budget.
 2. Implement and test a neutral declared `set null` transition with indexed
    reverse selection, complete membership, rollback and concurrent insert or
@@ -161,24 +161,34 @@ claim requires bounded multi-shop and hot-tenant measurements.
 
 ## Remaining scale gate
 
-The 480-reference ceiling is an implementation budget, not a claim that native
-Type or Collection deletion is generally scalable. A shop can legitimately
-have more referencing Products. Such a deletion currently refuses atomically;
-the old 128-identity page limitation is fixed, but the larger operation is not
-supported. Do not move this problem into a Medusa-specific loop or describe the
-current bounded witness as unrestricted native parity.
+The former 512-row/16-page publication ceiling no longer governs Type and
+Collection deletion. The shared publisher now inserts a provisional commit
+header after untrusted work has closed, appends each lowered page's ordered
+revision-bound facts inside the same transaction, and finalizes the header,
+event, outcome and clock only after every page succeeds. Its private writer
+enforces contiguous ordinals and one finish; the fact table's foreign and
+unique constraints bind exact revisions and reject duplicate identities.
+Any failure rolls back the provisional header and all pages. Application and
+Payload one-shot commits still use this publisher with their known fact count,
+without an extra header update. The 128-row point materializer and 256-entry
+per-page index-action limits remain unchanged.
 
-Before production-scale parity, measure representative fan-out, row/index/fact
-write amplification, transaction duration, lock contention and recovery cost
-on ordinary-role PostgreSQL, including a hot shop among many scopes. If the
-required synchronous range exceeds the current budget, change the shared
-materialization and publication owners to process more bounded pages with
-resource-accounted transaction-local staging and one atomic outcome. Retain an
-explicit finite transaction budget. If the product requirement exceeds a safe
-single-transaction budget, design a separately approved durable, resumable
-operation with a visibility rule for partially processed references and an
-explicit native-semantic decision; independent commits must not masquerade as
-one atomic Medusa delete. The acceptance witness must cross the old 480-row
-boundary on both drivers, prove full history/index/fact/event consistency and
-rollback after a late failure, and include concurrent reference insertion on
-ordinary-role PostgreSQL.
+The selected native Type path supports a 512-Product deletion and retains
+rollback after several staged fact pages, one event and replayed outcome.
+The current **2,016-reference, 4 MiB read, 30-second scan** limits remain
+operational safety budgets, not general parity or production performance
+claims. A shop can legitimately exceed them; a refusal must remain atomic.
+The materializer's 2,048-row/64-page and 4 MiB final-document budgets, and the
+atomic host's fact allowance, are separate guards. A root with many own changes
+may reach those guards before the reference limit.
+
+Before selecting a larger synchronous budget, measure representative fan-out,
+row/index/fact amplification, transaction duration, lock contention and
+recovery cost on ordinary-role PostgreSQL, including a hot shop among many
+scopes. Extend the shared relation, materialization and publication owners
+only when those measurements support the new budget; do not move overflow to
+a Medusa-specific loop. The same mechanism serves Collection and neutral
+nullable references. If a product requirement exceeds a safe single-transaction
+budget, a separately decided durable, resumable operation needs an explicit
+visibility rule and native-semantic contract. Independently committed pages
+must not masquerade as one atomic Medusa delete.

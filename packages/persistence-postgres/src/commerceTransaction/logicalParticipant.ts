@@ -176,9 +176,10 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
       Effect.fromResult(state.values.validate(change.tableId, change.document)).pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), { discard: true }),
   }, tx, state.authority, clock).pipe(Effect.mapError(projectCommerceRequestFailure));
   const materialize = Effect.fn("LogicalCommerce.materializeContribution")(function* (commitSeq: Parameters<
-    Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>[0]) {
-    const rowIntents: Array<{ tableId: typeof contribution.changes[number]["tableId"];
-      rowId: typeof contribution.changes[number]["rowId"] }> = [];
+    Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>[0],
+    appendRows: (rows: readonly { readonly tableId: typeof contribution.changes[number]["tableId"];
+      readonly rowId: typeof contribution.changes[number]["rowId"] }[]) => Effect.Effect<void, CommerceTransactionError>) {
+    let rowCount = 0;
     const adjacencyChanges: Array<Effect.Success<ReturnType<Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>>[number]> = [];
     for (const intent of closed.changes.setNull) {
       yield* forEachLogicalSetNullPage({ tx, sourceTableId: intent.sourceTableId,
@@ -187,14 +188,16 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
         requireAdmission: admitted, error: logicalCommerceError }, changes => Effect.gen(function* () {
           const delta = yield* core.prepareDelta(changes, changes).pipe(Effect.mapError(projectCommerceRequestFailure));
           adjacencyChanges.push(...yield* delta.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
-          rowIntents.push(...changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+          yield* appendRows(changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+          rowCount += changes.length;
         }));
     }
     const root = yield* core.prepareDelta(contribution.changes, contribution.dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
     adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
+    yield* appendRows(contribution.changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
     if (closed.changes.setNull.length > 0) yield* core.completeBatch().pipe(Effect.mapError(projectCommerceRequestFailure));
-    rowIntents.push(...contribution.changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
-    return Object.freeze({ rowIntents: Object.freeze(rowIntents), adjacencyChanges: Object.freeze(adjacencyChanges) });
+    rowCount += contribution.changes.length;
+    return Object.freeze({ rowCount, adjacencyChanges: Object.freeze(adjacencyChanges) });
   });
   return Object.freeze({ changes: contribution.changes,
     materialize });

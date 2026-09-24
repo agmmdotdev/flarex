@@ -58,7 +58,7 @@ retire physical Product installation or prove general Product readiness.
 The selected delete now seals one declared nullable FK transition and lets
 shared core select referencing Products by index after publication exclusion.
 The core lowers bounded pages at one commit sequence with row, index, history
-and fact maintenance. A 128-Product Type delete succeeds on both drivers;
+and fact maintenance. A 512-Product Type delete succeeds on both drivers;
 exceeding the separate transition budget still refuses atomically. This is
 bounded native parity, not arbitrary fan-out or a performance claim.
 

@@ -22,11 +22,11 @@ import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
 import { prepareLogicalRelationalRows } from "./relationalRows";
 import { selectLogicalIndex } from "./query";
 
-/** Fifteen update pages leave one materialization page for the root operation.
+/** Sixty-three update pages leave one materialization page for the root operation.
  * An extra scan page detects overflow without treating a full page as complete
  * membership. The outer transaction owns rollback. */
 export const logicalReferenceTransitionBudget = Object.freeze({
-  pageRows: 32, affectedRows: 480, totalReadBytes: 4_194_304, scanMilliseconds: 30_000,
+  pageRows: 32, affectedRows: 2016, totalReadBytes: 4_194_304, scanMilliseconds: 30_000,
 });
 
 type LogicalReferenceAdmission = Pick<LogicalRelationalAdmissionState,

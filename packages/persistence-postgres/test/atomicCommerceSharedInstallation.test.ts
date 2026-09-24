@@ -180,6 +180,28 @@ describe("atomic participants sharing physical installation", () => {
     expect(await inventory()).toEqual(before);
   });
 
+  it("rejects a physical-only fan-out above the shared fact allowance atomically", async () => {
+    const bulk = definitions.map(member => defineCommerceCommand(`bulk-${member.name}`, "write", Effect.fn(function* (ctx) {
+      const table = yield* ctx.table(member.name);
+      return yield* table.write(ctx.manager, "insert", Array.from({ length: 65 }, (_, index) => ({
+        id: `over-facts-${member.name}-${index}`, value: 1,
+      })));
+    })));
+    const overFacts = defineAtomicCommerceCommand("overPhysicalFacts", Effect.fn(function* (ctx) {
+      for (const [index, member] of definitions.entries())
+        yield* ctx.call(member.participant, required(bulk[index]), null);
+      return null;
+    }));
+    const participants = input.participants.map((member, index) => ({
+      ...member, commands: [...member.commands, required(bulk[index])],
+    }));
+    const host = await runEffect(makeAtomicCommerceHost({ ...input, participants, commands: [overFacts] }));
+    const before = await inventory();
+    expect(await runEffectFailure(host.run(host.newRequestKey(), overFacts, null)))
+      .toMatchObject({ reason: "limitExceeded" });
+    expect(await inventory()).toEqual(before);
+  });
+
   it("rolls back interruption and serializes concurrent same-key requests", async () => {
     const written = Deferred.makeUnsafe<void>();
     const waiting = defineAtomicCommerceCommand("waitShared", Effect.fn(function* (ctx) {

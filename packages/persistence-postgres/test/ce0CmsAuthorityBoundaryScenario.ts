@@ -485,7 +485,11 @@ export async function ce0CmsAuthorityBoundaryScenario(
           expect(ref.executionCount()).toBe(0);
           expect(readRef.executionCount()).toBe(0);
         } finally {
-          await change.restore();
+          try {
+            await change.restore();
+          } finally {
+            await runEffect(Effect.all([core.close, ref.close, readRef.close], { discard: true }));
+          }
         }
         expect(await inspect()).toEqual(stable);
       }

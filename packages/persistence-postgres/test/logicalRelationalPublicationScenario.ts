@@ -65,8 +65,9 @@ export const logicalRelationalPublicationScenario = Effect.fn("LogicalRelational
   };
   const late = new Error("Injected failure after native rows and outcome were written");
   let lateReached = false;
+  let lateFactReached = false;
   let invoked = 0;
-  const run = (scenario: "success" | "invalid" | "late" | "read") => runEffectTransaction(work => target.drizzle.transaction(work),
+  const run = (scenario: "success" | "invalid" | "late" | "lateFacts" | "read") => runEffectTransaction(work => target.drizzle.transaction(work),
     "Native participant publication", (tx: FlarexMetadataTransaction) => Effect.scoped(Effect.gen(function* () {
       const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, authority.scopeId);
       return yield* prepared.withAdmission(active.selection, tx, resolved.authority, clock, admission => Effect.gen(function* () {
@@ -92,7 +93,10 @@ export const logicalRelationalPublicationScenario = Effect.fn("LogicalRelational
         const closure = yield* working.close();
         const result = yield* Effect.fromResult(canonicalizeJsonOutcome(value));
         yield* finalizeCommerceCommit({ kind: "logical", closure }, lifetime, identity, result, yield* hash(result.canonicalBytes),
-          scenario === "late" ? { afterTransactionStep: async event => { if (event.step === "outcomeWritten") { lateReached = true; throw late; } } } : {});
+          scenario === "late" || scenario === "lateFacts" ? { afterTransactionStep: async event => {
+            if (scenario === "late" && event.step === "outcomeWritten") { lateReached = true; throw late; }
+            if (scenario === "lateFacts" && event.step === "commitChangeWritten") { lateFactReached = true; throw late; }
+          } } : {});
         expect(yield* Effect.result(finalizeCommerceCommit({ kind: "logical", closure }, lifetime, identity, result, yield* hash(result.canonicalBytes))))
           .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
         return result.valueJson;
@@ -100,6 +104,9 @@ export const logicalRelationalPublicationScenario = Effect.fn("LogicalRelational
     })), cause => new Error("Native participant transaction", { cause }));
   const before = yield* inventory;
   expect(yield* Effect.result(run("invalid"))).toMatchObject({ _tag: "Failure", failure: { reason: "rollbackOnly" } });
+  expect(yield* inventory).toEqual(before);
+  expect((yield* Effect.exit(run("lateFacts")))._tag).toBe("Failure");
+  expect(lateFactReached).toBe(true);
   expect(yield* inventory).toEqual(before);
   expect((yield* Effect.exit(run("late")))._tag).toBe("Failure");
   expect(lateReached).toBe(true);
@@ -113,7 +120,7 @@ export const logicalRelationalPublicationScenario = Effect.fn("LogicalRelational
   expect(committed.wakes).toHaveLength(before.wakes.length + 1);
   yield* run("read");
   expect(yield* run("success")).toBe(null);
-  expect(invoked).toBe(3);
+  expect(invoked).toBe(4);
   expect(yield* inventory).toEqual(committed);
 
   if ("pool" in target) {

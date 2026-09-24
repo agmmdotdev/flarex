@@ -26,9 +26,11 @@ export class LogicalDocumentMaterializationError extends Data.TaggedError("Logic
 export const logicalMaterializationError = (reason: LogicalDocumentMaterializationError["reason"], cause?: unknown) =>
   new LogicalDocumentMaterializationError({ reason, ...(cause === undefined ? {} : { cause }) });
 
-/** A bounded multi-page logical command still publishes one commit. These
- * limits bound retained identity evidence independently of the page size. */
-export const logicalMaterializationBatchBudget = Object.freeze({ rows: 512, pages: 16, documentBytes: 4_194_304 });
+/** A bounded multi-page logical command still publishes one commit. The
+ * publisher stages ordered facts in the owning transaction page by page;
+ * this budget bounds the remaining duplicate-detection identities, coverage
+ * callbacks and document work independently of the 128-row page limit. */
+export const logicalMaterializationBatchBudget = Object.freeze({ rows: 2048, pages: 64, documentBytes: 4_194_304 });
 
 /** Source-private kernel inputs from the trusted semantic participant. These
  * are not authority tokens or an admission API. Both semantic gates are required;
