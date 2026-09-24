@@ -682,7 +682,7 @@
     {
       "target": "packages/medusa-adapter/src/product-local-events.ts",
       "classification": "authored",
-      "targetSha256": "561a379889a2d819adc99335dce6a9a08ca743abe4ec35dc9163f8efb648bb63"
+      "targetSha256": "c97b45956b618c77bcddf7361a27d7d298776352bff1b96519672baa2094b0d2"
     },
     {
       "target": "packages/medusa-adapter/src/product-module.ts",
@@ -792,7 +792,7 @@
     {
       "target": "packages/medusa-adapter/src/product-value-profile.ts",
       "classification": "authored",
-      "targetSha256": "747967ebf97b822d5fbb1a16df99b8b81397b71c62517491a734f29308d46c3e"
+      "targetSha256": "992eac5e6dc2e15aa06c8de7ed0a70e99877f4f8f7c2f1d331be2921f8f92a08"
     },
     {
       "target": "packages/medusa-adapter/src/product-variant-images-workflow.ts",
@@ -1004,7 +1004,7 @@
     {
       "target": "packages/medusa-adapter/test/product-options-upstream.test.ts",
       "classification": "authored",
-      "targetSha256": "2152ea0e4097f7f35ee636cafb164e948a00af2506847e60cbcf0ef8ca14755c"
+      "targetSha256": "ce2f681ffcaf01566a2e8cc108a1583740b78ab5b75c1ce525f9e7771c11681f"
     },
     {
       "target": "packages/medusa-adapter/test/product-query.test.ts",
@@ -1140,11 +1140,6 @@
       "target": "packages/medusa-adapter/test/support/product-internal-checks.ts",
       "classification": "authored",
       "targetSha256": "10dee446415d6a9f3087528efb0f5ca81eb456f57e792ca590451ea4e2da86a2"
-    },
-    {
-      "target": "packages/medusa-adapter/test/support/product-option-checks.ts",
-      "classification": "authored",
-      "targetSha256": "3034729812670dddb30f1ecd37874e477deafbf535aa0cb679975bd52bbcca31"
     },
     {
       "target": "packages/medusa-adapter/test/support/product-runner.ts",
@@ -4487,6 +4482,11 @@
       "target": "packages/medusa-adapter/test/logical-product-tag-storage.test.ts",
       "classification": "authored",
       "targetSha256": "ed344e14bbf67d16710f14c2824285c533ee2e1e227ca46bf517f2387600331b"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-product-option-storage.test.ts",
+      "classification": "authored",
+      "targetSha256": "ab46e43bc77013a7f283e7155cab67a68b4ba5680555144bf39bc92ec1a22130"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-type-storage.test.ts",

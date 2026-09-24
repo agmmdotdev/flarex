@@ -13,7 +13,8 @@ The reverse index correctly avoids unrelated Products, but a Type referenced
 by 128 Products already exceeds the working-set identity budget once its Type
 row is included. `limitExceeded` rolls back the command. This is a correctness
 boundary, not general native deletion parity. The same structural limit can
-affect Collection detachment, Product graph cascades and future cross-framework
+affect Collection detachment, Option deletion with many Values and Variant–Value
+pivots, Product graph cascades and future cross-framework
 relationships; fixing only the Type adapter would retain the wrong owner.
 
 The accepted [fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions)
@@ -66,8 +67,9 @@ implementation witness is a module-local nullable reference.
    PGlite and ordinary-role PostgreSQL. Repeat with concurrent reference
    insertion on PostgreSQL.
 4. Apply the same owner to other declared module-local transitions when their
-   existing consumers move. Remove displaced lifecycle loops and any obsolete
-   resource assumptions in the same connected implementation slices.
+   existing consumers move, including Option-owned Value/pivot deletion.
+   Remove displaced lifecycle loops and any obsolete resource assumptions in
+   the same connected implementation slices.
 
 This preflight changes private core contribution and adapter DAL contracts as
 needed. It does not change public Medusa APIs or authorize a data reset. A

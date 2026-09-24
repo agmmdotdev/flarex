@@ -103,7 +103,8 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
         { beforeRead: kind => Effect.sync(() => { reads.push(kind); }) });
         const id = yield* lifetime.begin(lifetime.context);
         const native = rows[0];
-        if (native === undefined || typeof native.code !== "string") throw new Error("Missing native seed row");
+        if (native === undefined || typeof native.code !== "string" || typeof native.name !== "string")
+          throw new Error("Missing native seed row");
         const inserted = yield* working.documents.insert(lifetime.context, id, table.localName,
           { ...native, created_at: "2026-09-21T00:00:00.000Z", updated_at: "2026-09-21T00:00:00.000Z", deleted_at: null });
         expect(inserted._id).not.toBe(native.code);
@@ -114,6 +115,18 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
           { ...row, created_at: "2026-09-21T00:00:00.000Z", updated_at: "2026-09-21T00:00:00.000Z",
             deleted_at: position === 0 ? "2026-09-21T00:00:00.000Z" : null });
         for (const read of nativeReads) expect(yield* working.relationalFind(lifetime.context, id, table.localName, read.query)).toEqual(read.expected);
+        const anchored = { order: { column: "code", direction: "asc" }, predicate: { kind: "and", children: [
+          { kind: "in", column: "code", values: [native.code] }, { kind: "in", column: "name", values: [native.name] },
+        ] } };
+        expect(Result.getOrThrow(compileLogicalRelationalRead(table.definition, selected.schema.capabilities,
+          anchored, 10, failure)).selections).toMatchObject([{ column: "code", value: native.code }]);
+        expect((yield* working.relationalFind(lifetime.context, id, table.localName, anchored)).docs)
+          .toMatchObject([{ code: native.code, name: native.name }]);
+        expect((yield* working.relationalFind(lifetime.context, id, table.localName, { ...anchored,
+          predicate: { kind: "and", children: [
+            { kind: "in", column: "code", values: [native.code] }, { kind: "in", column: "name", values: ["no-match"] },
+          ] },
+        })).docs).toEqual([]);
         expect(reads).toContain("index");
         expect(reads).not.toContain("scan");
         const order = { column: "code", direction: "asc" };
@@ -122,6 +135,8 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
           expect(projection.inspect(invalid)).toMatchObject({ _tag: "Failure", failure: { message: "storedCorruption" } });
         for (const predicate of [
           { kind: "in", column: "name", values: ["foreign"] }, { kind: "isNull", column: "foreign" },
+          { kind: "or", children: [{ kind: "in", column: "code", values: [native.code] },
+            { kind: "in", column: "name", values: [native.name] }] },
           { kind: "in", column: "code", values: [null] },
           { kind: "and", children: Array.from({ length: 65 }, () => ({ kind: "and", children: [] })) },
         ]) expect(Result.isFailure(compileLogicalRelationalRead(table.definition, selected.schema.capabilities, { order, predicate }, 10, failure))).toBe(true);

@@ -25,6 +25,9 @@ equality access; SalesChannel `is_disabled` uses a declared Boolean index under
 Native ProductType CRUD and Product `type_id` references have a selected
 [logical path](./26-product-type-native-cutover.md), while the wider pinned
 Product compatibility runner retains its physical source.
+Native ProductOption/OptionValue operations also have a selected
+[logical path](./27-product-option-native-cutover.md), including the shared
+indexed-conjunction correction; the wider runner remains physical.
 The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.

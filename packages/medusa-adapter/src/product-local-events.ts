@@ -296,6 +296,83 @@ export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
   return { capture, validateLogical };
 }
 
+/** Native Option commands own their Value graph. Hard deletion emits only the
+ * Option root message; create/update/upsert emit each changed entity message. */
+export function productLogicalOptionEventPolicy(catalog: ProductRuntimeMetadata,
+  operation: "create" | "update" | "upsert" | "delete") {
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const commandName = operation === "create" ? "productCreateoption" : operation === "update" ? "productupdateoption"
+    : operation === "upsert" ? "productupsertoption" : "productDeleteoption";
+  const mismatch = () => commerceError("receiptMismatch");
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalOption")(
+    function* (calls, mutations, lifecycle) {
+      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+      if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
+      const options = new Map<string, typeof mutations[number]>();
+      const values = new Map<string, typeof mutations[number]>();
+      const pivots: Array<typeof mutations[number]> = [];
+      const expected = new Set<string>();
+      for (const mutation of mutations) {
+        if (mutation.table === catalog.pivot.table.name) {
+          if (mutation.operation !== "delete" || mutation.before === null || mutation.after !== null)
+            return yield* Effect.fail(mismatch());
+          pivots.push(mutation);
+          continue;
+        }
+        const entity = mutation.table === catalog.option.table.name ? catalog.option
+          : mutation.table === catalog.value.table.name ? catalog.value : undefined;
+        if (entity === undefined) return yield* Effect.fail(mismatch());
+        const before = mutation.before, after = mutation.after;
+        const id = after?.id ?? before?.id;
+        if (typeof id !== "string" || (before !== null && before.id !== id) || (after !== null && after.id !== id))
+          return yield* Effect.fail(mismatch());
+        const group = entity === catalog.option ? options : values;
+        if (group.has(id)) return yield* Effect.fail(mismatch());
+        group.set(id, mutation);
+        if (operation === "delete") {
+          if (mutation.operation !== "delete" || before === null || after !== null)
+            return yield* Effect.fail(mismatch());
+          if (entity === catalog.option) expected.add(`${entity.deletedEvent}:${id}`);
+          continue;
+        }
+        const action = mutation.operation === "insert" && before === null && after?.deleted_at === null ? "created"
+          : (mutation.operation === "patch" || mutation.operation === "replace") &&
+            before !== null && after?.deleted_at === null ? "updated"
+          : mutation.operation === "delete" && entity === catalog.value && before !== null && after === null ? "deleted" : undefined;
+        if (action === undefined || (entity === catalog.option &&
+          (operation === "create" && action !== "created" || operation === "update" && action !== "updated")))
+          return yield* Effect.fail(mismatch());
+        expected.add(`${action === "created" ? entity.createdEvent : action === "updated" ? entity.updatedEvent : entity.deletedEvent}:${id}`);
+      }
+      for (const mutation of values.values()) {
+        const beforeParent = mutation.before?.[catalog.foreignKeys.value];
+        const afterParent = mutation.after?.[catalog.foreignKeys.value];
+        if (mutation.before !== null && (typeof beforeParent !== "string" || !options.has(beforeParent)) ||
+          mutation.after !== null && (typeof afterParent !== "string" || !options.has(afterParent)) ||
+          mutation.before !== null && mutation.after !== null && beforeParent !== afterParent)
+          return yield* Effect.fail(mismatch());
+      }
+      const pivotKeys = new Set<string>();
+      for (const mutation of pivots) {
+        const value = mutation.before?.[catalog.pivot.valueColumn];
+        const variant = mutation.before?.[catalog.pivot.variantColumn];
+        const changedValue = typeof value === "string" ? values.get(value) : undefined;
+        const key = JSON.stringify([variant, value]);
+        if (typeof variant !== "string" || changedValue?.operation !== "delete" || pivotKeys.has(key))
+          return yield* Effect.fail(mismatch());
+        pivotKeys.add(key);
+      }
+      for (const event of emitted) {
+        const message = yield* capture(event);
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+          if (!expected.delete(`${message.name}:${id}`)) return yield* Effect.fail(mismatch());
+        }
+      }
+      if (expected.size !== 0) return yield* Effect.fail(mismatch());
+    });
+  return { capture, validateLogical };
+}
+
 /** Native Collection assignment owns one Collection update and the Product
  * foreign-key changes implied by its final requested membership. */
 export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRuntimeMetadata) {

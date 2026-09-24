@@ -1013,6 +1013,16 @@ command's 128 observed-row budget. Higher fan-out is an atomic capacity
 refusal pending a core-owned resource-aware transition contract. This is one
 selected bounded consumer path, not retirement of the Product physical profile.
 
+The [selected native Option path](./27-product-option-native-cutover.md) now
+executes Option/Value create, parent/child read, count, title update, upsert
+rollback and hard delete on generic Product storage. The Value and
+Variant–Value pivot cascade is correlated with the root-only native delete
+event, including rollback after native work and replay. Shared query planning
+uses the Product parent index for a `product_id` plus residual `title` filter;
+an unindexed standalone text selection still refuses. The physical-only
+Option boundary fixture is removed. The broader physical Product runner and
+high-fan-out resource gate remain named obligations.
+
 Keep native Product DML, service, repository, event and workflow semantics at
 the Medusa boundary. Replace the physical layout/profile/installation reference
 and `CommerceCommandContext.table` backing for the selected Product source with

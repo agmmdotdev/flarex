@@ -49,6 +49,9 @@ export function compileProductValueProfile(catalog: {
   const updateData = new Map(Object.values(catalog).filter(entity => entity !== catalog.assignment).map(entity => [entity.table.name,
     commerceRowDecoder([...commandScalars(entity).filter(name => name !== "id"), ...(entity === catalog.option ? ["values"] : entity === catalog.variant ? ["options"] : entity === catalog.category ? ["parent_category_id"] : [])], "unsupportedProfile"),
   ]));
+  const optionUpdateData = updateData.get(catalog.option.table.name);
+  if (optionUpdateData !== undefined) updateData.set(catalog.option.table.name, input => optionUpdateData(input).pipe(Result.flatMap(value =>
+    value.values === undefined ? Result.succeed(value) : decodeOptionValues(value.values).pipe(Result.map(() => value)))));
   const collectionScalar = commerceRowDecoder(commandScalars(catalog.collection), "unsupportedProfile");
   const collectionUpdate = commerceRowDecoder([...commandScalars(catalog.collection).filter(name => name !== "id"), "product_ids"], "unsupportedProfile");
   const createChildren = {
@@ -126,6 +129,7 @@ export function compileProductValueProfile(catalog: {
       const ids = new Set<string>();
       for (const row of inputs) {
         const value = yield* decode(row);
+        if (table === catalog.option.table.name && value.values !== undefined) yield* decodeOptionValues(value.values);
         if (table === catalog.collection.table.name && value.product_ids !== undefined) yield* decodeIds(value.product_ids);
         const id = yield* decodeId(value.id);
         if (id !== undefined) {
@@ -171,6 +175,7 @@ export function compileProductValueProfile(catalog: {
       if (inputs.length > 256) return yield* Result.fail(commerceError("limitExceeded"));
       for (const row of inputs) {
         const value = yield* decode(row);
+        if (table === catalog.option.table.name && value.values !== undefined) yield* decodeOptionValues(value.values);
         if (table === catalog.collection.table.name && value.product_ids !== undefined) yield* decodeIds(value.product_ids);
         yield* decodeId(value.id);
       }

@@ -30,9 +30,14 @@ interface Selection {
   readonly value: string | boolean;
   readonly nullColumn?: string;
 }
+interface SelectionPlan {
+  /** null needs another indexed conjunct, or an admitted bounded full-set read. */
+  readonly selections: readonly Selection[] | null;
+  readonly unindexedText: boolean;
+}
 interface Filter<Failure> {
   /** null denotes no indexed selection; an empty list matches no rows. */
-  readonly select: (requiredNulls: ReadonlySet<string>) => Result.Result<readonly Selection[] | null, Failure>;
+  readonly select: (requiredNulls: ReadonlySet<string>) => Result.Result<SelectionPlan, Failure>;
   /** Every matching row has these null fields, including across OR branches. */
   readonly requiredNulls: ReadonlySet<string>;
   readonly matches: (row: JsonObject) => boolean;
@@ -68,24 +73,22 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
             node.values.some(value => !isRelationalColumnValue(column.type, false, value)))
           return yield* Result.fail(error("invalidInput"));
         const keys = new Set(node.values);
-        return { select: (requiredNulls: ReadonlySet<string>) => Result.gen(function* () {
+        return { select: (requiredNulls: ReadonlySet<string>) => {
           const unconditional = relationalHasIndexedScalarPrefix(table, node.column);
           const conditional = unconditional ? undefined : table.indexes.find(candidate => candidate.columns[0]?.columnId === node.column &&
             candidate.predicate?.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId));
-          if (!unconditional && conditional === undefined) {
-            if (column.type === "boolean") return null;
-            return yield* Result.fail(error("invalidInput"));
-          }
+          if (!unconditional && conditional === undefined)
+            return Result.succeed({ selections: null, unindexedText: column.type === "text" });
           const nullColumn = conditional?.predicate?.kind === "isNull" ? conditional.predicate.column.columnId : undefined;
-          return [...keys].map(value => ({ column: node.column, value,
-            ...(nullColumn === undefined ? {} : { nullColumn }) }));
-        }), requiredNulls: new Set<string>(),
+          return Result.succeed({ selections: [...keys].map(value => ({ column: node.column, value,
+            ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
+        }, requiredNulls: new Set<string>(),
           matches: row => { const value = row[node.column]; return (typeof value === "string" || typeof value === "boolean") && keys.has(value); } };
       }
       if (node.kind === "isNull") {
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
         if (column === undefined) return yield* Result.fail(error("invalidInput"));
-        return { select: () => Result.succeed(column.nullable ? null : []),
+        return { select: () => Result.succeed({ selections: column.nullable ? null : [], unindexedText: false }),
           requiredNulls: column.nullable ? new Set([node.column]) : new Set<string>(),
           matches: row => row[node.column] === null };
       }
@@ -93,7 +96,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
         if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.value))
           return yield* Result.fail(error("invalidInput"));
-        return { select: () => Result.succeed(null), requiredNulls: new Set<string>(),
+        return { select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(),
           matches: row => typeof row[node.column] === "string" && row[node.column] !== node.value };
       }
       const children: Filter<Failure>[] = [];
@@ -108,19 +111,22 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
       return { select: (inheritedNulls: ReadonlySet<string>) => Result.gen(function* () {
         const available = node.kind === "and" ? new Set([...inheritedNulls, ...requiredNulls]) : inheritedNulls;
         let selections: readonly Selection[] | null = node.kind === "and" ? null : [];
+        let unindexedText = false;
         for (const child of children) {
           const candidate = yield* child.select(available);
+          unindexedText ||= candidate.unindexedText;
           if (node.kind === "and") {
-            if (candidate !== null && (selections === null || candidate.length < selections.length)) selections = candidate;
-          } else selections = selections === null || candidate === null ? null : [...selections, ...candidate];
+            if (candidate.selections !== null && (selections === null || candidate.selections.length < selections.length)) selections = candidate.selections;
+          } else selections = selections === null || candidate.selections === null ? null : [...selections, ...candidate.selections];
         }
-        return selections;
+        return { selections, unindexedText };
       }), requiredNulls,
         matches: row => node.kind === "and" ? children.every(child => child.matches(row)) : children.some(child => child.matches(row)) };
     });
     const filter = yield* visit(query.predicate ?? { kind: "and", children: [] }, 0);
     const planned = yield* filter.select(new Set());
-    const selections = planned === null ? null : Object.freeze([...new Map(planned.map(selection =>
+    if (planned.selections === null && planned.unindexedText) return yield* Result.fail(error("invalidInput"));
+    const selections = planned.selections === null ? null : Object.freeze([...new Map(planned.selections.map(selection =>
       [JSON.stringify([selection.column, selection.value, selection.nullColumn ?? null]), selection] as const)).values()]);
     return Object.freeze({ key, selections,
       requiredNulls: Object.freeze([...filter.requiredNulls]),

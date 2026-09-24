@@ -150,6 +150,17 @@ remain distinct from logical schema evolution.
   confinement. The Type-only physical boundary fixture is retired under the
   [selected Type cutover](./26-product-type-native-cutover.md); the broader
   Product compatibility runner still uses physical storage for unported methods.
+  A selected native ProductOption service path now creates, reads, updates,
+  upserts and deletes Options with owned Values on the same generic Product
+  source. The [Option cutover](./27-product-option-native-cutover.md) retains
+  exact native event and Value/pivot cascade semantics, and moves its
+  physical-only boundary witness to logical two-shop and rollback tests.
+  The shared relational planner now selects an indexed scalar equality conjunct before applying
+  an unindexed text residual, while a lone unindexed text or unanchored OR
+  branch still refuses. A null-only index as a residual-query anchor remains
+  a core planner gate: compilation must prove the actual index before admission.
+  The full Product runner remains physical for other
+  unported methods.
   The current 128-identity logical working set cannot complete a native Type
   delete with high Product-reference fan-out. Core must own an indexed,
   resource-accounted atomic relationship transition as specified in the
