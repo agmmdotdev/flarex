@@ -685,6 +685,56 @@ the indexed-ID change. Its request/query composition and resource accounting
 must be corrected at their owner before using that workflow as a cutover or
 scale witness; raising the limit locally would only hide the missing bound.
 
+## Native Collection Assignment Workflow Preflight
+
+The pinned `batchLinkProductsToCollectionWorkflow` reads one Collection's
+complete Product membership, removes requested IDs, appends additions, then
+calls `updateProductCollections`. Its service updates the Collection and
+disassociates or associates Products through the selected membership
+repository. These are native business rules; the adapter must retain them.
+The prior Collection root and indexed membership slice supplies logical
+targets and bounded selection, but the existing composed relationship host
+still selects physical Product storage and its logical event policy does not
+admit one call with both Collection and Product row transitions.
+
+Admit the pinned Collection child as a selected atomic workflow over the
+complete logical Product source. Authenticate each successful call's immutable
+input/result and charged mutation range: read calls change nothing; the
+Collection update call may change its selected Collection row and only the
+Product rows implied by the requested final membership, with no unrelated
+scalar changes. Match native Collection and Product update messages exactly
+to those row attempts; no event, mutation, second transaction, adapter SQL or
+extra query may be fabricated to complete a receipt. The core keeps target
+existence, scope confinement, bounded complete selection, settlement, replay
+and publication. An oversized selected Collection must refuse rather than
+apply a partial membership list.
+
+This adds a selected workflow binding and private logical receipt policy; it
+does not change the durable schema or a public Medusa DTO. The physical
+relationship host remains for the named Category and combined-workflow
+consumers until they move. Prove native add/remove/move/no-op behavior,
+pending and committed membership, exact events, replay, missing target and
+forged unrelated Product/Collection rejection on PGlite and ordinary-role
+PostgreSQL. Compare existing physical relationship failures with their
+committed baseline without claiming that host passed. Typecheck, lint and both
+reviews gate this slice. The combined Category workflow, large-member capacity,
+two-shop logical workflow, rich Links and general Product serving readiness
+remain later gates.
+
+The selected native Collection child now runs against logical Product storage.
+Its one Collection update and Product membership changes are matched to the
+captured call, mutation attempts and exact native module messages. Pending and
+committed graph reads, replay, empty input, duplicate additions and the native
+add/remove overlap rule execute without a second transaction. A no-op request
+for a missing Collection returns null without inventing a failed native write.
+Selection still completes beside 260 unrelated Products, while 257 selected
+members refuse with a retained limit cause and no partial mutation. Missing
+Collection rollback on a requested change and forged
+unrelated Collection/Product or scalar changes leave rows and events unchanged.
+The existing physical composed relationship host remains for Category behavior
+and the combined root; its recorded statement-ceiling failure is not a logical
+workflow failure or evidence of a complete relationship cutover.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

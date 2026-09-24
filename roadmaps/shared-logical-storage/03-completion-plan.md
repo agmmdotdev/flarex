@@ -95,7 +95,9 @@ remain distinct from logical schema evolution.
   input/result matched to bounded logical row attempts. A selected native
   Collection root and Product creation with its declared Collection reference
   now use the same logical source. Requested Collection-member IDs use shared
-  indexed selection beyond unrelated Product rows. Independent child
+  indexed selection beyond unrelated Product rows. The pinned Collection
+  assignment child now executes its native membership updates and pending
+  graph read on that source, with call/mutation/event correlation. Independent child
   commands and other Product workflows remain outside this selected admission.
   General bounded population/overflow, broader Product commands and
   relationship queries, and rich Links still block runtime cutover.

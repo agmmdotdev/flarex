@@ -242,6 +242,82 @@ export function productLogicalCollectionCreateEventPolicy(catalog: ProductRuntim
   return productLogicalEntityEventPolicy(catalog, catalog.collection, "productCreatecollection", "created");
 }
 
+/** Native Collection assignment owns one Collection update and the Product
+ * foreign-key changes implied by its final requested membership. */
+export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRuntimeMetadata) {
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const decodeInput = Schema.decodeUnknownEffect(Schema.Struct({ id: EventId,
+    data: Schema.Struct({ product_ids: Schema.Array(EventId).check(Schema.isMaxLength(256)) }),
+  }), { onExcessProperty: "error" });
+  const decodeResult = Schema.decodeUnknownEffect(Schema.StructWithRest(
+    Schema.Struct({ id: EventId }), [Schema.Record(Schema.String, Schema.Json)]),
+  { onExcessProperty: "error" });
+  const mismatch = () => commerceError("receiptMismatch");
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCollectionMembership")(
+    function* (calls, mutations, lifecycle) {
+      if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
+      let cursor = 0;
+      let writes = 0;
+      for (const call of calls) {
+        if (call.fromAttempt !== cursor || call.toAttempt < cursor || call.toAttempt > mutations.length)
+          return yield* Effect.fail(mismatch());
+        const attempts = mutations.slice(cursor, call.toAttempt);
+        if (attempts.some((mutation, index) => mutation.ordinal !== cursor + index))
+          return yield* Effect.fail(mismatch());
+        cursor = call.toAttempt;
+        if (call.mode === "read") {
+          if (attempts.length !== 0 || call.events.length !== 0) return yield* Effect.fail(mismatch());
+          continue;
+        }
+        if (++writes !== 1 || call.commandName !== "productupdatecollection") return yield* Effect.fail(mismatch());
+        const input = yield* decodeInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const result = yield* decodeResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        if (result.id !== input.id) return yield* Effect.fail(mismatch());
+        const selected = new Set(input.data.product_ids);
+        const expected = new Set<string>();
+        let collectionUpdates = 0;
+        for (const mutation of attempts) {
+          const before = mutation.before, after = mutation.after;
+          if ((mutation.operation !== "patch" && mutation.operation !== "replace") || before === null || after === null ||
+            before.id !== after.id || typeof after.id !== "string" ||
+            before.deleted_at !== null || after.deleted_at !== null) return yield* Effect.fail(mismatch());
+          const collection = mutation.table === catalog.collection.table.name;
+          const product = mutation.table === catalog.product.table.name;
+          if (!collection && !product) return yield* Effect.fail(mismatch());
+          if (collection && (++collectionUpdates !== 1 || after.id !== input.id)) return yield* Effect.fail(mismatch());
+          if (product && !(after.collection_id === input.id && selected.has(after.id) ||
+            before.collection_id === input.id && after.collection_id === null && !selected.has(after.id)))
+            return yield* Effect.fail(mismatch());
+          const allowed = product ? new Set(["collection_id", "updated_at"]) : new Set(["updated_at"]);
+          const unchanged = (key: string) => !allowed.has(key);
+          const keys = Object.keys(before).filter(unchanged);
+          if (keys.length !== Object.keys(after).filter(unchanged).length || keys.some(key => {
+            const left = before[key], right = after[key];
+            return right === undefined || left === undefined || !jsonEqual(left, right);
+          })) return yield* Effect.fail(mismatch());
+          const entity = collection ? catalog.collection : catalog.product;
+          const identity = entity.updatedEvent + ":" + after.id;
+          if (expected.has(identity)) return yield* Effect.fail(mismatch());
+          expected.add(identity);
+        }
+        if (collectionUpdates !== 1) return yield* Effect.fail(mismatch());
+        for (const event of call.events) {
+          const message = yield* capture(event);
+          if (message.metadata.action !== CommonEvents.UPDATED ||
+            ![catalog.collection.updatedEvent, catalog.product.updatedEvent].includes(message.name))
+            return yield* Effect.fail(mismatch());
+          const entity = message.name === catalog.collection.updatedEvent ? catalog.collection : catalog.product;
+          if (message.metadata.object !== entity.eventObject) return yield* Effect.fail(mismatch());
+          for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+            if (!expected.delete(message.name + ":" + id)) return yield* Effect.fail(mismatch());
+        }
+        if (expected.size !== 0) return yield* Effect.fail(mismatch());
+      }
+      if (cursor !== mutations.length) return yield* Effect.fail(mismatch());
+    });
+  return { capture, validateLogical };
+}
+
 /** The native Product create command owns every inserted entity and its
  * variant/value pivot. No other command or Product table is admitted here. */
 export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata) {
