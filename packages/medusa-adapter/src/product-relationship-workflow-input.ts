@@ -6,7 +6,16 @@ import { defineWorkflowMethod } from "./workflow/module";
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
 const Ids = Schema.Array(Id).check(Schema.isMaxLength(256));
 export const ProductMembershipChange = Schema.Struct({ id: Id, add: Schema.optionalKey(Ids), remove: Schema.optionalKey(Ids) });
-export const ProductRelationshipsInput = Schema.Struct({ collection: ProductMembershipChange, category: ProductMembershipChange });
+/** The pinned Category step concatenates add and remove before one bounded list. */
+export const ProductCategoryMembershipInput = ProductMembershipChange.check(Schema.makeFilter(value =>
+  (value.add?.length ?? 0) + (value.remove?.length ?? 0) <= 256
+    ? undefined : "At most 256 selected Product IDs"));
+export const ProductRelationshipsInput = Schema.Struct({ collection: ProductMembershipChange,
+  category: ProductCategoryMembershipInput }).check(Schema.makeFilter(value => {
+  const selected = new Set([...(value.collection.add ?? []), ...(value.collection.remove ?? []),
+    ...(value.category.add ?? []), ...(value.category.remove ?? [])]);
+  return selected.size <= 256 ? undefined : "Product relationship graph selection exceeds 256 IDs";
+}));
 const Identity = Schema.Struct({ id: Id });
 const IdRows = Schema.Array(Identity).check(Schema.isMaxLength(256));
 export const ProductRelationshipsOutput = Schema.Struct({
@@ -18,17 +27,21 @@ const CategoryListFilters = Schema.Struct({ id: Ids });
 const CategoryListConfig = Schema.Struct({ select: Schema.Tuple([Schema.Literal("id")]),
   relations: Schema.Tuple([Schema.Literal("categories")]), take: Schema.Literal(256) });
 const decodeListArguments = commerceDecoder(Schema.Tuple([CategoryListFilters, CategoryListConfig]), "invalidInput");
-const decodeRetrieveArguments = commerceDecoder(Schema.Tuple([Id,
-  Schema.Struct({ select: Schema.Tuple([Schema.Literal("id"), Schema.Literal("products.id")]), relations: Schema.Tuple([Schema.Literal("products")]) }),
-]), "invalidInput");
+const CollectionRetrieveConfig = Schema.Struct({ select: Schema.Tuple([Schema.Literal("id"), Schema.Literal("products.id")]),
+  relations: Schema.Tuple([Schema.Literal("products")]) });
+const decodeRetrieveArguments = commerceDecoder(Schema.Tuple([Id, CollectionRetrieveConfig]), "invalidInput");
 export const ProductRelationshipUpsertRows = Schema.Array(Schema.Struct({ id: Id, category_ids: Ids })).check(Schema.isMaxLength(256));
 const decodeUpsertArguments = commerceDecoder(Schema.Tuple([ProductRelationshipUpsertRows]), "invalidInput");
-const decodeUpdateArguments = commerceDecoder(Schema.Tuple([Id, Schema.Struct({ product_ids: Ids })]), "invalidInput");
+const CollectionUpdateData = Schema.Struct({ product_ids: Ids });
+const decodeUpdateArguments = commerceDecoder(Schema.Tuple([Id, CollectionUpdateData]), "invalidInput");
 // Existing service serialization may include additional checked Product fields.
 const Row = Schema.StructWithRest(Identity, [Schema.Record(Schema.String, Schema.Json)]);
 export const ProductRelationshipResultRows = Schema.Array(Row).check(Schema.isMaxLength(256));
 const decodeRows = commerceDecoder(ProductRelationshipResultRows, "storedCorruption");
 const decodeRow = commerceDecoder(Row, "storedCorruption");
+export const ProductRelationshipCollectionReadCall = Schema.Struct({ id: Id, config: CollectionRetrieveConfig });
+export const ProductRelationshipCollectionWriteCall = Schema.Struct({ id: Id, data: CollectionUpdateData });
+export const ProductRelationshipCollectionWriteResult = Row;
 export const ProductRelationshipCategoryProducts = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id,
   categories: Schema.Array(Row).check(Schema.isMaxLength(256)),
 }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(256));
@@ -37,9 +50,10 @@ export const ProductRelationshipCategoryListCall = Schema.Struct({
   filters: CategoryListFilters,
   config: CategoryListConfig,
 });
-const decodeCollection = commerceDecoder(Schema.StructWithRest(Schema.Struct({ id: Id,
+export const ProductRelationshipCollectionReadResult = Schema.StructWithRest(Schema.Struct({ id: Id,
   products: Schema.Array(Row).check(Schema.isMaxLength(256)),
-}), [Schema.Record(Schema.String, Schema.Json)]), "storedCorruption");
+}), [Schema.Record(Schema.String, Schema.Json)]);
+const decodeCollection = commerceDecoder(ProductRelationshipCollectionReadResult, "storedCorruption");
 
 /** Relation-only method contracts over the existing Product commands. The
  * compatibility method name does not grant arbitrary Product creation/update. */

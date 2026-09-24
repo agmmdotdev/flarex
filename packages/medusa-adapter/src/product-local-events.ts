@@ -9,6 +9,8 @@ import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductEntityMetadata, ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { VariantImagePairs, decodeVariantThumbnailUpdate } from "./product-variant-workflow-input";
 import { ProductRelationshipCategoryListCall, ProductRelationshipCategoryProducts,
+  ProductRelationshipCollectionReadCall, ProductRelationshipCollectionReadResult,
+  ProductRelationshipCollectionWriteCall, ProductRelationshipCollectionWriteResult,
   ProductRelationshipResultRows, ProductRelationshipUpsertRows } from "./product-relationship-workflow-input";
 
 
@@ -248,18 +250,17 @@ export function productLogicalCollectionCreateEventPolicy(catalog: ProductRuntim
  * foreign-key changes implied by its final requested membership. */
 export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const decodeInput = Schema.decodeUnknownEffect(Schema.Struct({ id: EventId,
-    data: Schema.Struct({ product_ids: Schema.Array(EventId).check(Schema.isMaxLength(256)) }),
-  }), { onExcessProperty: "error" });
-  const decodeResult = Schema.decodeUnknownEffect(Schema.StructWithRest(
-    Schema.Struct({ id: EventId }), [Schema.Record(Schema.String, Schema.Json)]),
-  { onExcessProperty: "error" });
+  const decodeInput = Schema.decodeUnknownEffect(ProductRelationshipCollectionWriteCall, { onExcessProperty: "error" });
+  const decodeResult = Schema.decodeUnknownEffect(ProductRelationshipCollectionWriteResult, { onExcessProperty: "error" });
+  const decodeReadInput = Schema.decodeUnknownEffect(ProductRelationshipCollectionReadCall, { onExcessProperty: "error" });
+  const decodeReadResult = Schema.decodeUnknownEffect(ProductRelationshipCollectionReadResult, { onExcessProperty: "error" });
   const mismatch = () => commerceError("receiptMismatch");
   const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCollectionMembership")(
-    function* (calls, mutations, lifecycle) {
+    function* (calls, mutations, lifecycle, observedRows) {
       if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
       let cursor = 0;
       let writes = 0;
+      let prior: { readonly id: string; readonly members: ReadonlySet<string> } | undefined;
       for (const call of calls) {
         if (call.fromAttempt !== cursor || call.toAttempt < cursor || call.toAttempt > mutations.length)
           return yield* Effect.fail(mismatch());
@@ -269,12 +270,21 @@ export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRu
         cursor = call.toAttempt;
         if (call.mode === "read") {
           if (attempts.length !== 0 || call.events.length !== 0) return yield* Effect.fail(mismatch());
+          if (call.commandName === "productCollectionretrieve") {
+            if (prior !== undefined || writes !== 0) return yield* Effect.fail(mismatch());
+            const input = yield* decodeReadInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+            const result = yield* decodeReadResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+            const ids = result.products.map(row => row.id);
+            if (result.id !== input.id || new Set(ids).size !== ids.length) return yield* Effect.fail(mismatch());
+            prior = { id: input.id, members: new Set(ids) };
+          }
           continue;
         }
-        if (++writes !== 1 || call.commandName !== "productupdatecollection") return yield* Effect.fail(mismatch());
+        if (++writes !== 1 || call.commandName !== "productupdatecollection" || prior === undefined)
+          return yield* Effect.fail(mismatch());
         const input = yield* decodeInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
         const result = yield* decodeResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        if (result.id !== input.id) return yield* Effect.fail(mismatch());
+        if (result.id !== input.id || input.id !== prior.id) return yield* Effect.fail(mismatch());
         const selected = new Set(input.data.product_ids);
         const expected = new Set<string>();
         let collectionUpdates = 0;
@@ -303,6 +313,20 @@ export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRu
           expected.add(identity);
         }
         if (collectionUpdates !== 1) return yield* Effect.fail(mismatch());
+        const changedProducts = new Set(attempts.filter(mutation => mutation.table === catalog.product.table.name)
+          .map(mutation => mutation.after?.id));
+        for (const id of prior.members) if (!selected.has(id) && !changedProducts.has(id))
+          return yield* Effect.fail(mismatch());
+        const finalProducts = new Set<string>();
+        for (const observation of observedRows) {
+          if (observation.table !== catalog.product.table.name) continue;
+          const row = observation.row;
+          if (typeof row.id !== "string" || row.deleted_at !== null) continue;
+          if (row.collection_id === input.id) finalProducts.add(row.id);
+          if (selected.has(row.id) && !changedProducts.has(row.id)) return yield* Effect.fail(mismatch());
+        }
+        if (finalProducts.size !== [...selected].filter(id => changedProducts.has(id)).length ||
+          [...finalProducts].some(id => !selected.has(id))) return yield* Effect.fail(mismatch());
         for (const event of call.events) {
           const message = yield* capture(event);
           if (message.metadata.action !== CommonEvents.UPDATED ||
@@ -315,7 +339,8 @@ export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRu
         }
         if (expected.size !== 0) return yield* Effect.fail(mismatch());
       }
-      if (cursor !== mutations.length) return yield* Effect.fail(mismatch());
+      if (cursor !== mutations.length || (prior === undefined ? writes !== 0 : writes !== 1))
+        return yield* Effect.fail(mismatch());
     });
   return { capture, validateLogical };
 }
@@ -444,6 +469,36 @@ export function productLogicalCategoryMembershipEventPolicy(catalog: ProductRunt
         return yield* Effect.fail(mismatch());
     });
   return { capture, validateLogical };
+}
+
+/** The native composed root executes Collection before Category. Rebase only
+ * trusted attempt ordinals; each child still validates its exact call range. */
+export function productLogicalRelationshipsEventPolicy(catalog: ProductRuntimeMetadata) {
+  const collection = productLogicalCollectionMembershipEventPolicy(catalog);
+  const category = productLogicalCategoryMembershipEventPolicy(catalog);
+  const collectionCommands = new Set(["productCollectionretrieve", "productupdatecollection"]);
+  const categoryCommands = new Set(["productlist", "productUpsert"]);
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalRelationships")(
+    function* (calls, mutations, lifecycle, observedRows) {
+      let categoryStart = calls.length;
+      for (const [index, call] of calls.entries()) {
+        if (collectionCommands.has(call.commandName)) {
+          if (categoryStart !== calls.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+        } else if (categoryCommands.has(call.commandName)) {
+          if (categoryStart === calls.length) categoryStart = index;
+        } else if (call.mode !== "read") return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+      const boundary = categoryStart === calls.length ? mutations.length : calls[categoryStart]?.fromAttempt;
+      if (boundary === undefined || boundary < 0 || boundary > mutations.length)
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      yield* collection.validateLogical(calls.slice(0, categoryStart), mutations.slice(0, boundary), lifecycle, observedRows);
+      const categoryCalls = calls.slice(categoryStart).map(call => ({ ...call,
+        fromAttempt: call.fromAttempt - boundary, toAttempt: call.toAttempt - boundary }));
+      const categoryMutations = mutations.slice(boundary).map(mutation => ({ ...mutation,
+        ordinal: mutation.ordinal - boundary }));
+      yield* category.validateLogical(categoryCalls, categoryMutations, lifecycle, observedRows);
+    });
+  return { capture: collection.capture, validateLogical };
 }
 
 /** The native Product create command owns every inserted entity and its

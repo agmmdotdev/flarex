@@ -731,16 +731,15 @@ Selection still completes beside 260 unrelated Products, while 257 selected
 members refuse with a retained limit cause and no partial mutation. Missing
 Collection rollback on a requested change and forged
 unrelated Collection/Product or scalar changes leave rows and events unchanged.
-The existing physical composed relationship host remains for Category behavior
-and the combined root; its recorded statement-ceiling failure is not a logical
-workflow failure or evidence of a complete relationship cutover.
+At this checkpoint the composed relationship root still used physical Product
+storage; the later combined-root cutover below replaces that binding.
 
 ## Native Category Membership Cutover Preflight
 
 The pinned Category child selects requested Product IDs and calls `upsertProducts`
 with each Product's final `category_ids`; removal wins when an ID occurs in both
-lists. The existing combined relationship host still selects physical Product
-storage. Its earlier statement-ceiling failure is a separate physical-host gate,
+lists. At this preflight the combined relationship host selected physical Product
+storage. Its earlier statement-ceiling failure was a separate physical-host gate,
 not a reason to change Medusa's membership rule or raise storage limits.
 
 Move this existing child to the selected logical Product source before cutting
@@ -750,8 +749,8 @@ Correlate the immutable call input/result and charged mutation range; read calls
 must be mutation- and event-free. Core continues to own scoped row identity,
 foreign-key targets, resource bounds, atomic settlement and replay. Do not add
 adapter SQL, a second transaction or physical fallback. The physical combined
-host remains a named consumer until its two-child receipt and pending reads
-move together.
+host was retained until its two-child receipt and pending reads moved together
+in the combined-root cutover below.
 
 This changes the selected internal workflow binding and event policy, not a
 public Medusa DTO or durable schema. Prove add/remove/overlap/no-op, selected
@@ -773,9 +772,73 @@ update events.
 Native add/remove, remove-wins overlap, empty and missing-Product behavior,
 pending graph reads, replay, missing-target rollback and forged extra, omitted
 or stale pivot and scalar refusal are covered. The 256-ID combined-input bound
-refuses oversized requests at admission. The physical combined host is retained
-for its named two-child consumer; its statement-limit baseline remains a
-separate gate.
+refuses oversized requests at admission. The combined root is addressed by the
+following cutover; its earlier physical statement-limit baseline does not
+establish the logical root's resource use.
+
+## Combined Relationship Root Cutover Preflight
+
+The native composed root runs Collection assignment, then Category membership,
+then reads pending Product and Collection relations. Both children now have
+selected logical Product witnesses, but the composed host and its test fixture
+still select the generated physical Product profile. The physical host's
+statement-65 failure is recorded above; it cannot be treated as evidence that
+the logical root succeeds or as permission to raise a limit without accounting.
+
+Move the composed root and its behavioral tests to one selected logical Product
+source. Reuse the two child receipts under one ordered participant call stream:
+each read and write belongs to exactly one child, charged mutation ranges must
+remain closed and ordered, and no cross-child event or mutation may be hidden.
+The Collection receipt must first prove its requested final membership against
+the authenticated prior read and final rows, just as the Category receipt now
+does. The root keeps native child order, same-root pending graph reads, replay,
+rollback-only failure and one publication authority. The Category child's
+combined add/remove bound must apply at root input admission; the root's final
+Product graph selection must also fit its 256-row result bound. No parallel
+physical binding, second transaction or adapter SQL is admitted.
+
+This breaks the private relationship host's physical installation/profile
+input and migrates the physical-only relationship fixture and assertions.
+Other physical Product consumers remain named in this roadmap until their own
+cutovers and durable-data disposition. Preserve native add/remove/overlap,
+missing Product and no-op behavior; prove one atomic event/fact batch, pending
+and committed reads, replay identity, late failure/output refusal rollback,
+selected-set overflow, forged omission/extra-row refusal and ordinary-role
+PostgreSQL contention. Measure whether the default logical request allowance
+can finish a minimal composition. If it cannot, trace the charged operations
+and correct the bounded shared owner or select a justified profile with an
+explicit resource contract; do not merely increase a limit to make the test
+green. Typecheck, both reviews, PGlite/PostgreSQL validation, displaced-test
+cleanup and one scoped commit gate the slice.
+
+The minimal logical composition reaches the default 64-call lifetime and
+refuses with the retained `limitExceeded` cause. The atomic root already has
+an explicit, identity-bound `requestCallLimit`, but configuration also takes
+the minimum of that value and every participant descriptor. Logical
+participants currently receive a synthetic default descriptor with 64 calls;
+it is not an installed resource profile. This makes the root's explicit
+bounded selection ineffective. Keep physical installed-profile caps, and let
+the trusted atomic root's decoded 1–4096 call allowance govern logical
+participants. Select a measured allowance for this composed workflow only;
+the ordinary omitted limit remains 64 and other resource/deadline limits do
+not change. Prove default refusal, selected completion and replay-policy
+identity on both storage drivers before accepting the core correction.
+
+The combined root now selects the logical Product source and composes the
+Collection and Category receipts under one ordered call stream. Its private
+physical host binding and physical-only workflow test fixture are displaced;
+the logical fixture owns the native relationship behavior and refusal proofs.
+The atomic owner keeps the ordinary 64-call default, while this named workflow
+selects an explicit 128-call allowance authenticated in request identity and no longer capped by a
+logical source's synthetic descriptor. Installed physical participant profiles
+still cap a mixed root. Other physical Product consumers and their removal
+gates remain in this roadmap; this cutover does not remove their tables.
+On ordinary-role PostgreSQL, competing logical roots can overlap: one commits
+while an earlier root is paused, and the stale root refuses with `writeConflict`
+without publishing a partial batch. Retrying its failed key against the new
+snapshot preserves both Collection and Category memberships. This is the
+logical source's optimistic conflict contract; the displaced physical test's
+lock-wait assertion is not its concurrency contract.
 
 ## Replacement Contract And Breaking Changes
 

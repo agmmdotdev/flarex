@@ -1,13 +1,22 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Cause, Effect, Result } from "effect";
+import { Cause, Effect, Result, Schema } from "effect";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
+import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { productLogicalCategoryCreateEventPolicy, productLogicalCategoryMembershipEventPolicy,
   productLogicalCollectionCreateEventPolicy, productLogicalCollectionMembershipEventPolicy,
-  productLogicalCreateEventPolicy } from "../src/product-local-events";
+  productLogicalCreateEventPolicy, productLogicalRelationshipsEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductCollectionMembershipWorkflow } from "../src/product-collection-workflow";
 import { prepareProductCategoryMembershipWorkflow } from "../src/product-category-workflow";
+import { prepareProductRelationshipsWorkflow, productRelationshipsWorkflow } from "../src/product-relationships-workflow";
+import { ProductRelationshipsInput, ProductRelationshipsOutput } from "../src/product-relationship-workflow-input";
+import { prepareWorkflowResources } from "../src/workflow/resources";
+import { prepareAtomicWorkflowHost } from "../src/workflow/host";
+import { internalModuleWorkflowEvents } from "../src/workflow/events";
+import { defineWorkflowMethod, defineWorkflowModule, workflowMethodDefinition,
+  workflowModuleDefinition } from "../src/workflow/module";
+import { commerceDecoder } from "../src/commerce-decoder";
 import { findCollectionMembershipProducts } from "../src/product-collection-membership";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
@@ -106,8 +115,92 @@ async function prepareCategoryMembershipHost(catalog: Awaited<ReturnType<typeof 
   }));
 }
 
+async function prepareRelationshipsHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
+  return Effect.runPromise(prepareProductRelationshipsWorkflow({
+    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+      moduleEvents: productLogicalRelationshipsEventPolicy(catalog) } },
+    revision: createHash("sha256").update("logical-product-relationships").digest("hex"),
+    subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
+  }));
+}
+
+async function prepareDefaultBudgetRelationshipsHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
+  const resources = Result.getOrThrow(prepareWorkflowResources({ product: { module: product.runtime.workflow,
+    methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
+  } }, true));
+  return Effect.runPromise(prepareAtomicWorkflowHost({
+    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+      moduleEvents: productLogicalRelationshipsEventPolicy(catalog) } },
+    revision: createHash("sha256").update("logical-product-relationships-default-budget").digest("hex"),
+    subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
+    workflow: { name: "productRelationships", resources, prepared: Result.getOrThrow(productRelationshipsWorkflow.prepare()),
+      input: ProductRelationshipsInput, output: ProductRelationshipsOutput, events: internalModuleWorkflowEvents },
+  }));
+}
+
+async function prepareRelationshipScenario(prefix: string) {
+  const { catalog, host: create } = await prepareCreationHost();
+  const collection = await prepareCollectionCreationHost(catalog);
+  const category = await prepareCategoryCreationHost(catalog);
+  const relationships = await prepareRelationshipsHost(catalog);
+  await Effect.runPromise(collection.host.run(collection.host.newRequestKey(), collection.root, [
+    { id: `${prefix}-target`, title: `${prefix} Target Collection` },
+    { id: `${prefix}-other`, title: `${prefix} Other Collection` },
+  ]));
+  await Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root,
+    { id: `${prefix}-category`, name: `${prefix} Target Category` }));
+  await Effect.runPromise(create.run(create.newRequestKey(), { products: [
+    { id: `${prefix}-add`, title: `${prefix} Add Product`, collection_id: `${prefix}-other` },
+    { id: `${prefix}-remove`, title: `${prefix} Remove Product`, collection_id: `${prefix}-target`,
+      category_ids: [`${prefix}-category`] },
+    { id: `${prefix}-keep`, title: `${prefix} Keep Product`, collection_id: `${prefix}-target` },
+  ] }));
+  const input = { collection: { id: `${prefix}-target`, add: [`${prefix}-add`], remove: [`${prefix}-remove`] },
+    category: { id: `${prefix}-category`, add: [`${prefix}-add`], remove: [`${prefix}-remove`] } };
+  const close = async () => {
+    await Effect.runPromise(create.close);
+    await Effect.runPromise(collection.host.close);
+    await Effect.runPromise(category.host.close);
+    await Effect.runPromise(relationships.close);
+  };
+  return { catalog, create, collection, category, relationships, input, close };
+}
+
+async function prepareObservedRelationshipsHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"],
+  mode: "lateFailure" | "invalidOutput" | "pause", onObserve?: () => Promise<void>) {
+  const resources = Result.getOrThrow(prepareWorkflowResources({ product: { module: product.runtime.workflow,
+    methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
+  } }, true));
+  const definition = createWorkflow(`observed-logical-relationships-${mode}`,
+    (input: WorkflowData<typeof ProductRelationshipsInput.Type>) => {
+      const related = productRelationshipsWorkflow.runAsStep({ input });
+      const observe = createStep(`after-logical-relationships-${mode}`, resources.callback(async (value: unknown) => {
+        if (mode === "lateFailure") throw new Error("Late relationship observer failure");
+        if (mode === "pause") await onObserve?.();
+        return value;
+      }));
+      return new WorkflowResponse(observe(related));
+    });
+  return Effect.runPromise(prepareAtomicWorkflowHost({
+    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition, requestCallLimit: 128 }) },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+      moduleEvents: productLogicalRelationshipsEventPolicy(catalog) } },
+    revision: createHash("sha256").update(`logical-relationships-${mode}`).digest("hex"),
+    subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
+    workflow: { name: `observedRelationships${mode}`, resources,
+      prepared: Result.getOrThrow(definition.prepare()), input: ProductRelationshipsInput,
+      output: mode === "invalidOutput" ? Schema.Null : ProductRelationshipsOutput,
+      events: internalModuleWorkflowEvents },
+  }));
+}
+
 async function prepareForgedCollectionMembershipHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"],
-  forged: "collectionScalar" | "productScalar" | "foreignCollection" | "foreignProduct" | "repeatValid") {
+  forged: "collectionScalar" | "productScalar" | "foreignCollection" | "foreignProduct" | "repeatValid" | "omission") {
   const policy = productLogicalCollectionMembershipEventPolicy(catalog);
   const participant = defineAtomicCommerceParticipant("product");
   const command = defineCommerceCommand("productupdatecollection", "write", Effect.fn("ProductTest.forgedMembership")(function* (ctx, input) {
@@ -132,11 +225,13 @@ async function prepareForgedCollectionMembershipHost(catalog: Awaited<ReturnType
     }
     return { id };
   }));
-  const root = defineAtomicCommerceCommand("forgedCollectionMembership", (ctx, input) => forged === "repeatValid"
-    ? Effect.gen(function* () {
-      yield* ctx.call(participant, command, input);
-      return yield* ctx.call(participant, command, input);
-    }) : ctx.call(participant, command, input));
+  const root = defineAtomicCommerceCommand("forgedCollectionMembership", (ctx, input) => Effect.gen(function* () {
+    yield* ctx.call(participant, product.runtime.commands.retrieveCollection, {
+      id: "pcol_members_target", config: { select: ["id", "products.id"], relations: ["products"] },
+    });
+    if (forged === "repeatValid") yield* ctx.call(participant, command, input);
+    return yield* ctx.call(participant, command, input);
+  }));
   const revision = createHash("sha256").update(`forged-collection-membership-${forged}`).digest("hex");
   const contracts = new Map([catalog.collection.updatedEvent, catalog.product.updatedEvent].map(name =>
     [name, defineCommerceEventContract({ name, revision, internal: true, decode: policy.capture })] as const));
@@ -147,7 +242,7 @@ async function prepareForgedCollectionMembershipHost(catalog: Awaited<ReturnType
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
     identityAndAccessPolicy: { profile: `forged-collection-membership-${forged}` },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-      commands: [command], validateLogical: policy.validateLogical, events: selected }],
+      commands: [product.runtime.commands.retrieveCollection, command], validateLogical: policy.validateLogical, events: selected }],
     commands: [root], events: { producerRevision: revision, contracts: selected.contracts,
       subscribers: [{ id: "forged-collection-membership", revision: "a".repeat(64) }],
       validate: events => events.some(event => !event.internal)
@@ -311,7 +406,7 @@ describe("native Product creation on shared logical storage", () => {
       }))).rejects.toMatchObject({ reason: "rollbackOnly" });
       expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
       expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
-      for (const mode of ["collectionScalar", "productScalar", "foreignCollection", "foreignProduct", "repeatValid"] as const) {
+      for (const mode of ["collectionScalar", "productScalar", "foreignCollection", "foreignProduct", "repeatValid", "omission"] as const) {
         const forged = await prepareForgedCollectionMembershipHost(catalog, mode);
         try {
           await expect(Effect.runPromise(forged.host.run(forged.host.newRequestKey(), forged.root, {
@@ -642,6 +737,290 @@ describe("native Product creation on shared logical storage", () => {
     } finally {
       await Effect.runPromise(create.close);
       await Effect.runPromise(category.host.close);
+    }
+  }, 120_000);
+
+  it("settles native Collection and Category children with one pending logical relationship result", async () => {
+    const { catalog, host: create } = await prepareCreationHost();
+    const collection = await prepareCollectionCreationHost(catalog);
+    const category = await prepareCategoryCreationHost(catalog);
+    const ordinary = await prepareDefaultBudgetRelationshipsHost(catalog);
+    const relationships = await prepareRelationshipsHost(catalog);
+    try {
+      await Effect.runPromise(collection.host.run(collection.host.newRequestKey(), collection.root, [
+        { id: "pcol_combined_target", title: "Combined Target" },
+        { id: "pcol_combined_other", title: "Combined Other" },
+      ]));
+      await Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root,
+        { id: "pcat_combined_target", name: "Combined Target" }));
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [
+        { id: "prod_combined_add", title: "Combined Add", collection_id: "pcol_combined_other" },
+        { id: "prod_combined_remove", title: "Combined Remove", collection_id: "pcol_combined_target",
+          category_ids: ["pcat_combined_target"] },
+        { id: "prod_combined_keep", title: "Combined Keep", collection_id: "pcol_combined_target" },
+      ] }));
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const input = { collection: { id: "pcol_combined_target", add: ["prod_combined_add"],
+        remove: ["prod_combined_remove"] },
+      category: { id: "pcat_combined_target", add: ["prod_combined_add"], remove: ["prod_combined_remove"] } };
+      const ordinaryExit = await Effect.runPromise(Effect.result(ordinary.run(ordinary.newRequestKey(), input)));
+      if (!Result.isFailure(ordinaryExit)) throw new Error("Expected default composed-workflow limit");
+      expect(ordinaryExit.failure.reason).toBe("rollbackOnly");
+      if (!Cause.isCause(ordinaryExit.failure.cause)) throw new Error("Missing bounded refusal cause");
+      expect(ordinaryExit.failure.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+        reason.error !== null && typeof reason.error === "object" && "reason" in reason.error &&
+        reason.error.reason === "limitExceeded")).toBe(true);
+      const key = relationships.newRequestKey();
+      const result = await Effect.runPromise(relationships.run(key, input));
+      expect(result.products).toMatchObject([
+        { id: "prod_combined_add", collection_id: "pcol_combined_target",
+          categories: [{ id: "pcat_combined_target" }] },
+        { id: "prod_combined_remove", collection_id: null, categories: [] },
+      ]);
+      expect(result.collections[0]?.products.map(row => row.id).sort())
+        .toEqual(["prod_combined_add", "prod_combined_keep"]);
+      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      expect(afterEvents.slice(beforeEvents.length).map(row => row.envelope.contract).sort()).toEqual([
+        catalog.collection.updatedEvent, ...Array(5).fill(catalog.product.updatedEvent),
+      ].sort());
+      expect(new Set(afterEvents.slice(beforeEvents.length).map(row => row.commitSeq)).size).toBe(1);
+      expect(await Effect.runPromise(relationships.run(key, input))).toEqual(result);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(collection.host.close);
+      await Effect.runPromise(category.host.close);
+      await Effect.runPromise(ordinary.close);
+      await Effect.runPromise(relationships.close);
+    }
+  }, 120_000);
+
+  it("keeps the distinct native overlap rules, no-ops and missing Product selection", async () => {
+    const scenario = await prepareRelationshipScenario("rel_overlap");
+    try {
+      const overlap = await Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), {
+        collection: { id: "rel_overlap-target", add: ["rel_overlap-remove"], remove: ["rel_overlap-remove"] },
+        category: { id: "rel_overlap-category", add: ["rel_overlap-remove"], remove: ["rel_overlap-remove"] },
+      }));
+      expect(overlap.products).toEqual([{ id: "rel_overlap-remove", collection_id: "rel_overlap-target", categories: [] }]);
+      expect(overlap.collections[0]?.products.map(row => row.id).sort())
+        .toEqual(["rel_overlap-keep", "rel_overlap-remove"]);
+      const beforeNoOpEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      expect(await Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), {
+        collection: { id: "missing-collection" }, category: { id: "missing-category" },
+      }))).toEqual({ products: [], collections: [] });
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeNoOpEvents);
+      const missing = await Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), {
+        collection: { id: "rel_overlap-target", add: ["missing-product"] },
+        category: { id: "rel_overlap-category", add: ["missing-product"] },
+      }));
+      expect(missing.products).toEqual([]);
+      expect(missing.collections[0]?.products.map(row => row.id).sort())
+        .toEqual(["rel_overlap-keep", "rel_overlap-remove"]);
+    } finally { await scenario.close(); }
+  }, 120_000);
+
+  it("rolls back both native children when the later Category or earlier Collection target is missing", async () => {
+    const scenario = await prepareRelationshipScenario("rel_rollback");
+    try {
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      for (const input of [
+        { ...scenario.input, category: { id: "missing-category", add: ["rel_rollback-add"] } },
+        { ...scenario.input, collection: { id: "missing-collection", add: ["rel_rollback-add"] } },
+      ]) {
+        await expect(Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), input)))
+          .rejects.toMatchObject({ reason: "rollbackOnly" });
+        expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+        expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      }
+    } finally { await scenario.close(); }
+  }, 120_000);
+
+  it("refuses an oversized composed relationship selection before either child executes", async () => {
+    const scenario = await prepareRelationshipScenario("rel_bound");
+    try {
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      for (const input of [
+        { ...scenario.input, category: { id: "rel_bound-category",
+          add: Array(130).fill("rel_bound-add"), remove: Array(130).fill("rel_bound-remove") } },
+        { collection: { id: "rel_bound-target", add: Array.from({ length: 256 }, (_, i) => `selected_${i}`) },
+          category: { id: "rel_bound-category", add: ["rel_bound-add"] } },
+      ]) {
+        await expect(Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), input)))
+          .rejects.toMatchObject({ reason: "invalidInput" });
+      }
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+    } finally { await scenario.close(); }
+  }, 120_000);
+
+  it("reads every selected Product beyond the default page in the composed workflow", async () => {
+    const { catalog, host: create } = await prepareCreationHost();
+    const category = await prepareCategoryCreationHost(catalog);
+    const relationships = await prepareRelationshipsHost(catalog);
+    const ids = Array.from({ length: 16 }, (_, index) => `rel_page_${index.toString().padStart(2, "0")}`);
+    try {
+      await Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root,
+        { id: "rel_page_category", name: "Relationship Page Category" }));
+      for (let offset = 0; offset < ids.length; offset += 4)
+        await Effect.runPromise(create.run(create.newRequestKey(), {
+          products: ids.slice(offset, offset + 4).map(id => ({ id, title: id })),
+        }));
+      const result = await Effect.runPromise(relationships.run(relationships.newRequestKey(), {
+        collection: { id: "absent-page-collection" }, category: { id: "rel_page_category", add: ids },
+      }));
+      expect(result.products.map(row => row.id).sort()).toEqual(ids);
+      expect(result.products.every(row => row.categories.length === 1 &&
+        row.categories[0]?.id === "rel_page_category")).toBe(true);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(category.host.close);
+      await Effect.runPromise(relationships.close);
+    }
+  }, 120_000);
+
+  it("rejects malformed relationship inputs before publishing", async () => {
+    const scenario = await prepareRelationshipScenario("rel_invalid");
+    try {
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      for (const input of [null, { ...scenario.input, scopeId: "foreign" },
+        { ...scenario.input, collection: { id: "rel_invalid-target", add: [12] } }]) {
+        await expect(Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(),
+          // @ts-expect-error malformed external input exercises runtime decoding
+          input))).rejects.toMatchObject({ reason: "invalidInput" });
+      }
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+    } finally { await scenario.close(); }
+  }, 120_000);
+
+  it("rolls back both logical children after a late parent failure or invalid output", async () => {
+    const scenario = await prepareRelationshipScenario("rel_late");
+    const late = await prepareObservedRelationshipsHost(scenario.catalog, "lateFailure");
+    const invalid = await prepareObservedRelationshipsHost(scenario.catalog, "invalidOutput");
+    try {
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      await expect(Effect.runPromise(late.run(late.newRequestKey(), scenario.input))).rejects.toBeDefined();
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      await expect(Effect.runPromise(invalid.run(invalid.newRequestKey(), scenario.input)))
+        .rejects.toMatchObject({ reason: "storedCorruption" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+    } finally {
+      await Effect.runPromise(late.close);
+      await Effect.runPromise(invalid.close);
+      await scenario.close();
+    }
+  }, 120_000);
+
+  it("binds relation-only method events into replay identity", async () => {
+    const scenario = await prepareRelationshipScenario("rel_identity");
+    try {
+      const key = scenario.relationships.newRequestKey();
+      await Effect.runPromise(scenario.relationships.run(key, scenario.input));
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const original = workflowMethodDefinition(product.runtime.workflow.methods.updateProductCollections);
+      const source = workflowModuleDefinition(product.runtime.workflow);
+      const upsert = workflowMethodDefinition(product.runtime.workflow.methods.upsertProducts);
+      if (original === undefined || source === undefined || upsert === undefined)
+        throw new Error("Missing Product workflow method contract");
+      expect(Result.isFailure(upsert.input([[{ id: "rel_identity-add", title: "Not admitted" }]]))).toBe(true);
+      const narrowed = Result.getOrThrow(defineWorkflowMethod({ command: original.command,
+        arguments: commerceDecoder(Schema.Array(Schema.Json), "invalidInput"),
+        encode: value => Result.getOrThrow(original.input(value)), output: original.output,
+        moduleEvents: [scenario.catalog.collection.updatedEvent],
+      }));
+      const replacement = Result.getOrThrow(defineWorkflowModule({ name: "product", source: source.source,
+        methods: { ...product.runtime.workflow.methods, updateProductCollections: narrowed }, graph: source.graph }));
+      const resources = Result.getOrThrow(prepareWorkflowResources({ product: { module: replacement,
+        methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
+      } }, true));
+      const changed = await Effect.runPromise(prepareAtomicWorkflowHost({
+        execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+          prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition, requestCallLimit: 128 }) },
+        modules: { product: { module: replacement, logicalStorage: product.hostInput.logicalStorage,
+          moduleEvents: productLogicalRelationshipsEventPolicy(scenario.catalog) } },
+        revision: createHash("sha256").update("logical-product-relationships").digest("hex"),
+        subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
+        workflow: { name: "productRelationships", resources, prepared: Result.getOrThrow(productRelationshipsWorkflow.prepare()),
+          input: ProductRelationshipsInput, output: ProductRelationshipsOutput, events: internalModuleWorkflowEvents },
+      }));
+      try {
+        await expect(Effect.runPromise(changed.run(key, scenario.input)))
+          .rejects.toMatchObject({ reason: "requestConflict" });
+        expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+        expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+      } finally { await Effect.runPromise(changed.close); }
+    } finally { await scenario.close(); }
+  }, 120_000);
+
+  it.skipIf(driver !== "postgres")("retries a stale composed relationship update without losing either membership", async () => {
+    const scenario = await prepareRelationshipScenario("rel_competing");
+    let release: () => void = () => undefined;
+    let reached: () => void = () => undefined;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { reached = resolve; });
+    const first = await prepareObservedRelationshipsHost(scenario.catalog, "pause", async () => {
+      reached();
+      await waiting;
+    });
+    const firstInput = { collection: { id: "rel_competing-target", add: ["rel_competing-add"] },
+      category: { id: "rel_competing-category", add: ["rel_competing-add"] } };
+    const secondInput = { collection: { id: "rel_competing-target", add: ["rel_competing-remove"] },
+      category: { id: "rel_competing-category", add: ["rel_competing-keep"] } };
+    const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+    const firstKey = first.newRequestKey();
+    const firstRun = Effect.runPromise(first.run(firstKey, firstInput));
+    let secondRun: Promise<unknown> | undefined;
+    try {
+      try {
+        await Promise.race([entered, firstRun]);
+        secondRun = Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), secondInput));
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([secondRun, new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("Competing logical workflow did not finish")), 8_000);
+          })]);
+        } finally { if (timer !== undefined) clearTimeout(timer); }
+      } finally { release(); }
+      await expect(firstRun).rejects.toMatchObject({ reason: "writeConflict" });
+      const afterConflict = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      expect(new Set(afterConflict.slice(beforeEvents.length).map(row => row.commitSeq)).size).toBe(1);
+      await Effect.runPromise(first.run(firstKey, firstInput));
+      const afterRetry = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      expect(new Set(afterRetry.slice(beforeEvents.length).map(row => row.commitSeq)).size).toBe(2);
+      const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+        commands: [product.runtime.commands.retrieveCollection, product.runtime.commands.retrieve],
+      }));
+      try {
+        const collection = await Effect.runPromise(read.read(product.runtime.commands.retrieveCollection, {
+          id: "rel_competing-target", config: { select: ["id", "products.id"], relations: ["products"] },
+        }));
+        expect(collection).toMatchObject({ products: expect.arrayContaining([
+          expect.objectContaining({ id: "rel_competing-add" }),
+          expect.objectContaining({ id: "rel_competing-keep" }),
+          expect.objectContaining({ id: "rel_competing-remove" }),
+        ]) });
+        for (const id of ["rel_competing-add", "rel_competing-keep", "rel_competing-remove"]) {
+          const row = await Effect.runPromise(read.read(product.runtime.commands.retrieve, {
+            id, config: { select: ["id", "categories.id"], relations: ["categories"] },
+          }));
+          expect(row).toMatchObject({ categories: expect.arrayContaining([
+            expect.objectContaining({ id: "rel_competing-category" }),
+          ]) });
+        }
+      } finally { await Effect.runPromise(read.close); }
+    } finally {
+      release();
+      await Promise.allSettled([firstRun, ...(secondRun === undefined ? [] : [secondRun])]);
+      await Effect.runPromise(first.close);
+      await scenario.close();
     }
   }, 120_000);
 });

@@ -58,7 +58,7 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
   readonly subscribers?: AtomicCommerceEvents["subscribers"];
-  /** Trusted composition only; the atomic owner validates and caps this by every profile. */
+  /** Trusted composition only; the atomic owner validates it and caps it by installed physical profiles. */
   readonly requestCallLimit?: number;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));

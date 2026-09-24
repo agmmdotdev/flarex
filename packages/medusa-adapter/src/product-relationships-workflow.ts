@@ -33,7 +33,7 @@ export const productRelationshipsWorkflow = createWorkflow("update-product-relat
 
 export const prepareProductRelationshipsWorkflow = Effect.fn("MedusaWorkflow.prepareProductRelationships")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical"> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {
@@ -45,7 +45,8 @@ export const prepareProductRelationshipsWorkflow = Effect.fn("MedusaWorkflow.pre
     methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
   } }, true));
   const prepared = yield* Effect.fromResult(productRelationshipsWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
-  return yield* prepareAtomicWorkflowHost({ ...options, modules, workflow: { name: "productRelationships", resources, prepared,
+  return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: 128,
+    workflow: { name: "productRelationships", resources, prepared,
     input: ProductRelationshipsInput, output: ProductRelationshipsOutput, events: internalModuleWorkflowEvents,
   } });
 });

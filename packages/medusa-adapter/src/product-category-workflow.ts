@@ -4,7 +4,7 @@ import { batchLinkProductsToCategoryWorkflow } from "@medusajs/core-flows/produc
 import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { ProductMembershipChange } from "./product-relationship-workflow-input";
+import { ProductCategoryMembershipInput } from "./product-relationship-workflow-input";
 import type { ProductWorkflowModule } from "./product-workflow-module";
 import { captureWorkflowRecord } from "./workflow/configuration";
 import { prepareWorkflowResources } from "./workflow/resources";
@@ -12,10 +12,6 @@ import { internalModuleWorkflowEvents } from "./workflow/events";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "./workflow/host";
 
 const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-/** The pinned step concatenates add and remove before its one bounded list. */
-export const ProductCategoryMembershipInput = ProductMembershipChange.check(Schema.makeFilter(value =>
-  (value.add?.length ?? 0) + (value.remove?.length ?? 0) <= 256
-    ? undefined : "At most 256 selected Product IDs"));
 export const ProductCategoryMembershipOutput = Schema.Array(Schema.Struct({
   id: Id, categories: Schema.Array(Schema.Struct({ id: Id })).check(Schema.isMaxLength(256)),
 })).check(Schema.isMaxLength(256));

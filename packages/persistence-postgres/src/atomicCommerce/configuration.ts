@@ -26,7 +26,7 @@ export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfigurat
   readonly participants: readonly AtomicCommerceParticipantInput[];
   readonly commands: readonly AtomicCommerceCommand[];
   readonly events?: AtomicCommerceEvents;
-  /** Trusted root selection, capped by every participant. Omission selects 64
+  /** Trusted root selection, capped by installed physical participant profiles. Omission selects 64
    * calls and remains identity-distinct from an explicit limit. */
   readonly requestCallLimit?: number;
 }
@@ -111,7 +111,11 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   );
   const limits = {
     ...commerceLimits,
-    calls: Math.min(callLimit, ...members.map((member) => member.descriptor.resources.calls)),
+    // A logical source has no installed resource profile. Its synthetic
+    // descriptor carries ordinary defaults, not a cap on the trusted root's
+    // explicit, identity-bound call allowance. Physical profiles do cap it.
+    calls: Math.min(callLimit, ...members.filter(member => member.kind === "physical")
+      .map(member => member.descriptor.resources.calls)),
     commandBytes: Math.min(
       commerceLimits.commandBytes,
       ...members.map((member) => member.descriptor.resources.commandBytes),
