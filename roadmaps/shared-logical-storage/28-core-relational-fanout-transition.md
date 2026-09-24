@@ -11,7 +11,8 @@ before removing the Type. On the selected logical source,
 logical participant retains at most 128 observed identities per command.
 The reverse index correctly avoids unrelated Products, but a Type referenced
 by 128 Products already exceeds the working-set identity budget once its Type
-row is included. `limitExceeded` rolls back the command. This is a correctness
+row is included. The outer request reports `rollbackOnly` with the original
+`limitExceeded` cause, and no partial storage change is permitted. This is a correctness
 boundary, not general native deletion parity. The same structural limit can
 affect Collection detachment, Option deletion with many Values and Variant–Value
 pivots, Product graph cascades and future cross-framework

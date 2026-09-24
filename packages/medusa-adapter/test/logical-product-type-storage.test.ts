@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Cause, Effect, Result } from "effect";
 import { productLogicalCreateEventPolicy, productLogicalTypeEventPolicy } from "../src/product-local-events";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
@@ -13,6 +13,7 @@ import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
@@ -213,4 +214,38 @@ describe("native Product Type on shared logical Product storage", () => {
       await Effect.runPromise(otherProduct.host.close);
     }
   }, 180_000);
+
+  it("keeps a high-fan-out Type delete atomic at the current core capacity boundary", async () => {
+    const created = await typeCommand("create");
+    const deleted = await typeCommand("delete");
+    const productCreate = await productCreation();
+    const typeId = "ptype_fanout_boundary";
+    try {
+      await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
+        { id: typeId, value: "Fan-out boundary" }));
+      const rowsBeforeProducts = await fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+      for (let batch = 0; batch < 4; batch++) {
+        const rows = Array.from({ length: 32 }, (_, index) => ({
+          id: `prod_fanout_${batch * 32 + index}`, title: `Fan-out ${batch * 32 + index}`,
+          handle: `prod-fanout-${batch * 32 + index}`, type_id: typeId,
+        }));
+        expect(await Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root, rows)))
+          .toMatchObject(rows);
+      }
+      expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toHaveLength(rowsBeforeProducts.length + 128);
+      const before = await logicalCurrencyInventory(fixture);
+      const outcome = await Effect.runPromise(Effect.result(deleted.host.run(deleted.host.newRequestKey(), deleted.root, [typeId])));
+      if (!Result.isFailure(outcome)) throw new Error("Expected bounded Type deletion refusal");
+      expect(outcome.failure.reason).toBe("rollbackOnly");
+      if (!Cause.isCause(outcome.failure.cause)) throw new Error("Missing bounded refusal cause");
+      expect(outcome.failure.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+        reason.error !== null && typeof reason.error === "object" && "reason" in reason.error &&
+        reason.error.reason === "limitExceeded")).toBe(true);
+      expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+    } finally {
+      await Effect.runPromise(created.host.close);
+      await Effect.runPromise(deleted.host.close);
+      await Effect.runPromise(productCreate.host.close);
+    }
+  }, 240_000);
 });
