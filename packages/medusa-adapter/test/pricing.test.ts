@@ -29,6 +29,10 @@ beforeAll(async () => {
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
 describe("native Pricing base-price admission", () => {
+  it("keeps PriceList structural while admitting only base-price writes", () => {
+    expect(fixture.descriptor.structuralTables).toEqual(["price_list"]);
+    expect(fixture.descriptor.tables.map(table => table.tableId).sort()).toEqual(["price", "price_rule", "price_set"]);
+  });
   it("creates scalar, array and empty inputs with exact pairs and native nested events", async () => {
     const result = await runEffect(fixture.host.run(fixture.host.newRequestKey(), commands.create, { id: "exact", prices: [
       { id: "exact-price", title: "Exact", currency_code: "USD", amount: "123.4567890123456789", min_quantity: null, rules: { region_id: "region" } },

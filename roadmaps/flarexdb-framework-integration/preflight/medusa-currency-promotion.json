@@ -702,7 +702,7 @@
     {
       "target": "packages/medusa-adapter/src/product-local-events.ts",
       "classification": "authored",
-      "targetSha256": "889c9ea273455f25860b823330255aecd79c53b991b80a3c06110a27af15a2da"
+      "targetSha256": "74aff3ac961e35961c66aaed0a9047925c51c59fcf85aea9dfdd9c9c845aa2c5"
     },
     {
       "target": "packages/medusa-adapter/src/product-module.ts",
@@ -4190,7 +4190,7 @@
     {
       "target": "packages/medusa-adapter/src/product-variant-pricing-workflow.ts",
       "classification": "authored",
-      "targetSha256": "777d65d638b42a89a494f51762919882a693fdd7d722732e8dedadea1cc15e6a"
+      "targetSha256": "875b4ffb093c211a03b1a9dd640282ff6d398d7d45d5fe4a60fc4c802d3a557b"
     },
     {
       "target": "packages/medusa-adapter/src/variant-pricing-link-service.ts",
@@ -4200,12 +4200,12 @@
     {
       "target": "packages/medusa-adapter/test/pricing.test.ts",
       "classification": "authored",
-      "targetSha256": "184646a0f6e394b510e33796ba0a9c55021ccf9cc9c816fc12ce35be4f3f544a"
+      "targetSha256": "8e96ae6c1c1d795f5457c9a064207ed0d2b94704061417bf8105189060360f26"
     },
     {
-      "target": "packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts",
+      "target": "packages/medusa-adapter/test/variant-pricing-link-lifecycle-physical.test.ts",
       "classification": "authored",
-      "targetSha256": "979beff20677ac75914d80ada98f201e23a3956ceac9c052420b20cfc3703af9"
+      "targetSha256": "bd99d9d7b6d8193ab87c66e4ec1ea108e9040981dd57403f1f732661606f92ce"
     },
     {
       "target": "packages/medusa-core-flows/src/pricing/steps/create-price-sets.ts",
@@ -4482,6 +4482,11 @@
       "target": "packages/medusa-adapter/test/logical-product-lifecycle-storage.test.ts",
       "classification": "authored",
       "targetSha256": "dc59684e097271897493f2b443d682011b9b1ac4dea6a776c5e5dc376180619c"
+    },
+    {
+      "target": "packages/medusa-adapter/test/logical-product-variant-pricing-workflow.test.ts",
+      "classification": "authored",
+      "targetSha256": "cd8b7b0102fe9b1b4e545b2035005732a87ffb49e13484cdb4b0805ef6fc9563"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-service.test.ts",

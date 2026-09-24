@@ -255,7 +255,7 @@ schema dependency resolution with the existence of each referenced record.
 | Strong local cross-framework reference | Enforce admitted target existence, ownership, cardinality and deletion/restore rules atomically within the supported placement. |
 
 The current [Link compiler](../packages/medusa-adapter/src/link-schema.ts) emits
-no endpoint foreign keys. [Native Link conformance](../packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts)
+no endpoint foreign keys. [Native Link conformance](../packages/medusa-adapter/test/variant-pricing-link-lifecycle-physical.test.ts)
 includes cardinality/restore scenarios without created endpoint records.
 Stronger target-existence enforcement for a native Link must therefore be named
 as an intentional behavior change, with creation-order, missing-target,

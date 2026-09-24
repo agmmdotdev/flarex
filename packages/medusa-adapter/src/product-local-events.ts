@@ -566,6 +566,67 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
   return { capture, validateLogical };
 }
 
+/** Native standalone Variant creation inserts Variant rows and silent
+ * option-value pivots. The service reads Product options before assigning
+ * values; bind those observations to each new Variant's Product. */
+export function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMetadata) {
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalVariantCreate")(
+    function* (calls, mutations, lifecycle, observedRows) {
+      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productCreatevariant");
+      if (lifecycle.length !== 0 || mutations.some((mutation, index) => mutation.ordinal !== index))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      const variants = new Map<string, JsonObject>();
+      const pivots: JsonObject[] = [];
+      for (const mutation of mutations) {
+        const row = mutation.after;
+        if (mutation.operation !== "insert" || mutation.before !== null || row === null)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (mutation.table === catalog.variant.table.name) {
+          if (typeof row.id !== "string" || typeof row[catalog.foreignKeys.variant] !== "string" ||
+            row.deleted_at !== null || variants.has(row.id))
+            return yield* Effect.fail(commerceError("receiptMismatch"));
+          variants.set(row.id, row);
+        } else if (mutation.table === catalog.pivot.table.name) pivots.push(row);
+        else return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+      if (variants.size === 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const options = new Map<string, JsonObject>();
+      const values = new Map<string, JsonObject>();
+      for (const observation of observedRows) {
+        const row = observation.row;
+        if (typeof row.id !== "string" || row.deleted_at !== null) continue;
+        if (observation.table === catalog.option.table.name) options.set(row.id, row);
+        if (observation.table === catalog.value.table.name) values.set(row.id, row);
+      }
+      const seen = new Set<string>();
+      for (const row of pivots) {
+        const variantId = row[catalog.pivot.variantColumn];
+        const valueId = row[catalog.pivot.valueColumn];
+        const variant = typeof variantId === "string" ? variants.get(variantId) : undefined;
+        const value = typeof valueId === "string" ? values.get(valueId) : undefined;
+        const optionId = value?.[catalog.foreignKeys.value];
+        const option = typeof optionId === "string" ? options.get(optionId) : undefined;
+        const identity = JSON.stringify([variantId, valueId]);
+        if (variant === undefined || value === undefined || option === undefined ||
+          option[catalog.foreignKeys.option] !== variant[catalog.foreignKeys.variant] || seen.has(identity))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        seen.add(identity);
+      }
+      const expected = new Set(variants.keys());
+      for (const event of emitted) {
+        const message = yield* capture(event);
+        if (message.name !== catalog.variant.createdEvent || message.metadata.object !== catalog.variant.eventObject ||
+          message.metadata.action !== CommonEvents.CREATED)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+          if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    });
+  return { capture, validateLogical };
+}
+
 /** A native Product update owns its root, direct children and declared
  * tag/category memberships. Core authenticates rows and FK targets; this
  * policy binds every transition and silent pivot to the root's native event. */

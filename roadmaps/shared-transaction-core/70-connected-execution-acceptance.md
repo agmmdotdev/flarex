@@ -133,7 +133,7 @@ proves arbitrary framework support or hosted behavior.
 | Retention lease/floor races, rollback and uncertain publication | `retainedHistoryFloorObservation.postgres.test.ts`; `committedPointOutcome.postgres.test.ts`; retained-history maintenance |
 | Fresh prepared-state refusal including unchanged-digest tamper | `cmsPreparedHost.test.ts`; `frameworkInstallationRuntime.postgres.test.ts`; reference authority scenarios |
 | Bounded host ownership, capacity, close, draining and replay refusal | `cmsHostLifetime.test.ts`; prepared-host runtime and admission scenarios |
-| Existing commerce snapshot, maximum Pricing graph and composite settlement | `commerceSnapshot.postgres.test.ts`; `product-variant-pricing-workflow.test.ts`; `currency-announcement.test.ts` |
+| Existing commerce snapshot, maximum Pricing graph and composite settlement | `commerceSnapshot.postgres.test.ts`; `logical-product-variant-pricing-workflow.test.ts`; `currency-announcement.test.ts` |
 | Physical rollback/cancellation/uncertain outcomes and replay without callback repetition | Native system, Pricing, reference mutation settlement and CMS deadline witnesses |
 | Honest bounded request comparison and load accounting | Paired scalar measurement; `cmsExecutionLoadScenario.ts`; exact `cmsLoadDeadline.test.ts` error-boundary witnesses |
 

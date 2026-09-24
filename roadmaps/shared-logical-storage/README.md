@@ -57,8 +57,8 @@ into core. Runtime optimization follows this storage decision.
 - Existing [ordered-index database tests](../../packages/persistence-postgres/test/orderedIndexKeyCodec.postgres.test.ts),
   [index repository tests](../../packages/persistence-postgres/test/appIndexEntries.postgres.test.ts),
   [Payload collection contracts](../../packages/payload-adapter/test/collections.test.ts)
-  and [connected Variant/Pricing workflow](../../packages/medusa-adapter/test/product-variant-pricing-workflow.test.ts)
-  are regression inputs, not tests of the unimplemented target.
+  and [connected Variant/Pricing workflow](../../packages/medusa-adapter/test/logical-product-variant-pricing-workflow.test.ts)
+  provide regression inputs for remaining query and cutover gates.
 - [Medusa adoption](../flarexdb-framework-integration/06-medusa-adoption.md),
   [Payload adoption](../flarexdb-framework-integration/07-payload-adoption.md),
   [native foundation](../flarexdb-foundation/README.md),

@@ -103,8 +103,15 @@ remain distinct from logical schema evolution.
   metadata into a shared logical source beside Product and base Pricing. Its
   native attach step creates the rich Link row, reads it pending and committed,
   authenticates its attached event and preserves active endpoint cardinality,
-  rollback, replay and two-shop isolation. The physical multi-module workflow,
-  explicit-ID Link replacement and lifecycle operations remain named consumers
+  rollback, replay and two-shop isolation. The existing native
+  Product–Variant–Pricing workflow now selects Product, base Pricing and Link
+  logical sources in one atomic root. Its Variant/option-value pivot receipt,
+  maximum 32-row graph, exact prices, missing-root/option refusal, late rollback,
+  replay, two-shop isolation and uncertain settlement have two-driver proofs.
+  The [connected workflow cutover](./16-product-variant-pricing-workflow-cutover.md)
+  moves the cancellation and event-pump witnesses to the logical suite and
+  retains a focused physical fixture only for unmigrated Link lifecycle.
+  Explicit-ID Link replacement and lifecycle operations remain named consumers
   under the [Link cutover](./15-variant-pricing-link-cutover.md).
   General bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
