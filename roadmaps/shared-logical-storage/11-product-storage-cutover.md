@@ -420,9 +420,9 @@ The selected logical host admits one native Product root update with its
 tag/category membership changes and authenticates the root event against
 those row transitions. The larger-catalog witness uses 260 unrelated Product
 rows and 260 unrelated tag memberships while updating one Product. General
-Product update shapes that mutate variant-option links or variant-image
-assignments still need their own logical event admission and end-to-end cutover;
-the physical profile remains their named consumer.
+At that checkpoint, Product update shapes that mutate variant-option links or
+variant-image assignments still needed their own logical event admission and
+end-to-end cutover; the physical profile remained their named consumer.
 Bounded selections may still refuse when the selected set or predicate itself
 exceeds the core resource contract.
 
@@ -538,9 +538,51 @@ with an unchanged Option parent or an Option replaced in the same request.
 The policy uses the declared parent keys, exact native events and observed
 ancestry to reject a foreign-owned Value even when a matching event is forged.
 Pending and committed graph reads, replay and rollback pass on PGlite and
-ordinary-role PostgreSQL. Independent Option/Value commands, variant-option
-links and variant-image assignments remain outside this selected admission;
-the physical Product profile remains for their named consumers.
+ordinary-role PostgreSQL. At that checkpoint independent Option/Value commands,
+variant-option links and variant-image assignments remained outside this
+selected admission; the physical Product profile remained for their named
+consumers.
+
+## Native Product Variant-Option Link Preflight
+
+The pinned `updateProducts` service can replace a Variant's selected OptionValue
+through its `variants[].options` input. The shared graph planner already writes
+the DML-declared Variant/Value pivot, validates each selected Value against the
+Variant's Product, and maintains pending reads. The current Product update
+receipt still refuses that pivot because it has no native pivot event. This
+leaves a native Product update branch on the physical profile despite the
+authenticated final-row ancestry added above.
+
+Admit pivot insert and delete attempts in the selected Product update only
+when their declared Variant and Value endpoints, and the Value's Option parent,
+belong to its updated root. Use immutable source-confined observations for
+unchanged active rows and authenticated before/after attempts for changed or
+removed endpoints. Preserve exact native events for entity transitions; the
+pivot is silent under Medusa's own event contract. Do not introduce adapter SQL,
+another transaction, a Product-only core path, or implicit permission to mutate
+an endpoint. Reuse the existing internal validator callback; no public API,
+durable schema, or format change is needed. Independent Variant/Option commands,
+variant-image assignments, rich Links and general Product cutover remain gated.
+
+Prove a native Product update that moves a Variant between two Values of its
+unchanged Option, pending and committed `variants.options` reads, exact events,
+replay, wrong-Product reference refusal and rollback after a forged foreign
+pivot with a matching root event. Exercise PGlite and ordinary-role PostgreSQL,
+the prior Product/Option/Variant regressions, typecheck, lint and both required
+reviews. The physical Product profile remains for its named unmigrated consumers;
+this slice removes only the selected pivot refusal, with no storage-path cleanup
+until the rest of that profile's consumers and durable-data disposition move.
+
+The selected native Product update now admits silent Variant/OptionValue pivot
+replacement. Its receipt proves both endpoints and the Value's Option parent
+against the updated Product, using final ancestry for inserts and authenticated
+prior ancestry for deletes. A Variant can move between Values of an unchanged
+Option, or to a newly created Value in the same update, while Medusa emits its
+exact root and child events. Pending and committed relation reads, replay,
+wrong-Product native refusal and forged foreign-Value and foreign-Variant
+rollback pass on PGlite and ordinary-role PostgreSQL. Independent child
+commands, variant-image assignments and the other named physical Product
+consumers remain gated.
 
 ## Replacement Contract And Breaking Changes
 

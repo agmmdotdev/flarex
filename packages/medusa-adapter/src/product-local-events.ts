@@ -319,6 +319,7 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
     const seen = new Set<string>();
     const childAttempts: Array<{ mutation: typeof mutations[number]; entity: ProductEntityMetadata; owner: string }> = [];
     const valueAttempts: Array<typeof mutations[number]> = [];
+    const variantOptionAttempts: Array<typeof mutations[number]> = [];
     for (const mutation of mutations) {
       if (mutation.table === catalog.product.table.name) {
         const before = mutation.before, after = mutation.after;
@@ -332,6 +333,7 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       const child = children.get(mutation.table);
       if (child !== undefined) { childAttempts.push({ mutation, ...child }); continue; }
       if (mutation.table === catalog.value.table.name) { valueAttempts.push(mutation); continue; }
+      if (mutation.table === catalog.pivot.table.name) { variantOptionAttempts.push(mutation); continue; }
       const pivot = pivots.get(mutation.table);
       const row = mutation.operation === "insert" ? mutation.after : mutation.operation === "delete" ? mutation.before : null;
       const productId = row?.[pivot?.productColumn ?? ""];
@@ -349,13 +351,8 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       return yield* Effect.fail(commerceError("receiptMismatch"));
     const expected = new Set([catalog.product.updatedEvent + ":" + root]);
     const childIds = new Set<string>();
-    const ownedOptions = new Set<string>();
-    for (const observation of observedRows) {
-      if (observation.table !== catalog.option.table.name) continue;
-      const row = observation.row;
-      if (row[catalog.foreignKeys.option] === root && row.deleted_at === null && typeof row.id === "string")
-        ownedOptions.add(row.id);
-    }
+    const finalOptions = new Set<string>(), previousOptions = new Set<string>();
+    const finalVariants = new Set<string>(), previousVariants = new Set<string>();
     for (const { mutation, entity, owner } of childAttempts) {
       const before = mutation.before, after = mutation.after;
       const row = mutation.operation === "delete" ? before : after;
@@ -368,9 +365,29 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       if (!valid || row === null || typeof row.id !== "string" || row[owner] !== root ||
         childIds.has(entity.table.name + ":" + row.id)) return yield* Effect.fail(commerceError("receiptMismatch"));
       childIds.add(entity.table.name + ":" + row.id);
-      if (entity === catalog.option) ownedOptions.add(row.id);
+      if (entity === catalog.option) {
+        if (before !== null) previousOptions.add(row.id);
+        if (after !== null) finalOptions.add(row.id);
+      }
+      if (entity === catalog.variant) {
+        if (before !== null) previousVariants.add(row.id);
+        if (after !== null) finalVariants.add(row.id);
+      }
       expected.add(eventName + ":" + row.id);
     }
+    for (const observation of observedRows) {
+      const row = observation.row;
+      if (typeof row.id !== "string" || row.deleted_at !== null) continue;
+      if (observation.table === catalog.option.table.name && row[catalog.foreignKeys.option] === root) {
+        finalOptions.add(row.id);
+        if (!childIds.has(catalog.option.table.name + ":" + row.id)) previousOptions.add(row.id);
+      }
+      if (observation.table === catalog.variant.table.name && row[catalog.foreignKeys.variant] === root) {
+        finalVariants.add(row.id);
+        if (!childIds.has(catalog.variant.table.name + ":" + row.id)) previousVariants.add(row.id);
+      }
+    }
+    const finalValues = new Set<string>(), previousValues = new Set<string>();
     for (const mutation of valueAttempts) {
       const before = mutation.before, after = mutation.after;
       const row = mutation.operation === "delete" ? before : after;
@@ -381,12 +398,36 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
           : before !== null && after !== null && before.id === after.id &&
             before[catalog.foreignKeys.value] === after[catalog.foreignKeys.value] &&
             before.deleted_at === null && after.deleted_at === null;
-      const optionId = row?.[catalog.foreignKeys.value];
-      if (!valid || row === null || typeof row.id !== "string" || typeof optionId !== "string" ||
-        !ownedOptions.has(optionId) || childIds.has(catalog.value.table.name + ":" + row.id))
+      const beforeOption = before?.[catalog.foreignKeys.value], afterOption = after?.[catalog.foreignKeys.value];
+      if (!valid || row === null || typeof row.id !== "string" ||
+        (before !== null && (typeof beforeOption !== "string" || !previousOptions.has(beforeOption))) ||
+        (after !== null && (typeof afterOption !== "string" || !finalOptions.has(afterOption))) ||
+        childIds.has(catalog.value.table.name + ":" + row.id))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       childIds.add(catalog.value.table.name + ":" + row.id);
+      if (before !== null) previousValues.add(row.id);
+      if (after !== null) finalValues.add(row.id);
       expected.add(eventName + ":" + row.id);
+    }
+    for (const observation of observedRows) {
+      if (observation.table !== catalog.value.table.name) continue;
+      const row = observation.row, optionId = row[catalog.foreignKeys.value];
+      if (row.deleted_at !== null || typeof row.id !== "string" || typeof optionId !== "string") continue;
+      if (finalOptions.has(optionId)) finalValues.add(row.id);
+      if (!childIds.has(catalog.value.table.name + ":" + row.id) && previousOptions.has(optionId))
+        previousValues.add(row.id);
+    }
+    for (const mutation of variantOptionAttempts) {
+      const row = mutation.operation === "insert" ? mutation.after : mutation.operation === "delete" ? mutation.before : null;
+      const variantId = row?.[catalog.pivot.variantColumn], valueId = row?.[catalog.pivot.valueColumn];
+      const identity = JSON.stringify([mutation.table, variantId, valueId]);
+      const ownedVariants = mutation.operation === "insert" ? finalVariants : previousVariants;
+      const ownedValues = mutation.operation === "insert" ? finalValues : previousValues;
+      if (row === null || (mutation.operation === "insert" ? mutation.before !== null : mutation.after !== null) ||
+        typeof variantId !== "string" || typeof valueId !== "string" ||
+        !ownedVariants.has(variantId) || !ownedValues.has(valueId) || seen.has(identity))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      seen.add(identity);
     }
     const allowedEvents = new Map([
       [catalog.product.updatedEvent, { object: catalog.product.eventObject, action: CommonEvents.UPDATED }],

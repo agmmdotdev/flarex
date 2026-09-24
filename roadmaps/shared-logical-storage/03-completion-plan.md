@@ -88,8 +88,9 @@ remain distinct from logical schema evolution.
   Selected native Product updates also admit direct Image and Variant
   replacement and Option/OptionValue replacement; unchanged Option ownership
   is authenticated through bounded pending row observations from the shared
-  working set. Independent child commands and variant relationships remain
-  outside this selected admission.
+  working set. The same selected update admits a Variant/OptionValue link
+  replacement with authenticated ancestry. Independent child commands and
+  variant-image assignments remain outside this selected admission.
   General bounded population/overflow, broader Product commands and
   relationship queries, and rich Links still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
