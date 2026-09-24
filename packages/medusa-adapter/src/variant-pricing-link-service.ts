@@ -6,7 +6,7 @@ import type { CommerceCommandContext } from "@flarex/persistence-postgres/intern
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureVariantPricingLinkMetadata } from "./product-variant-pricing-schema";
 import { prepareLinkService } from "./link-service";
-import { linkEventPolicy } from "./link-events";
+import { linkEventPolicy, linkLogicalAttachEventPolicy } from "./link-events";
 import { withCommerceService } from "./commerce-service-bridge";
 import { commerceServiceCommands } from "./service-commands";
 import { commerceDecoder } from "./commerce-decoder";
@@ -53,5 +53,6 @@ export const prepareVariantPricingLink = Effect.fn("VariantPricingLink.prepare")
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links, output: decodeCreated, moduleEvents: [native.entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: native.serviceName, profile: "medusa.variant-pricing.link-workflow" }, methods: { create: method }, graph, refusedMethods: ["dismiss", "delete", "restore", "list"] }));
   const eventPolicy = (descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]) => linkEventPolicy("product_variant_price_set", native.serviceName, native.entityName, descriptor, deliver);
-  return { create, count, commands: [create, count], workflow, graph, eventPolicy, withService: use };
+  const logicalAttachEventPolicy = () => linkLogicalAttachEventPolicy("product_variant_price_set", native.serviceName, native.entityName);
+  return { create, count, commands: [create, count], workflow, graph, eventPolicy, logicalAttachEventPolicy, withService: use };
 });

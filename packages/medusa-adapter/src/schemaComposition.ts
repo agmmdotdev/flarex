@@ -7,6 +7,7 @@ import { compilePayloadCollections } from "@flarex/payload-adapter/internal/coll
 import { compileProductDefinition } from "./product-definition";
 import { compileCurrencyDefinition } from "./currency-schema";
 import { compilePricingDefinition } from "./pricing-schema";
+import { compileVariantPricingLinkDefinition } from "./product-variant-pricing-schema";
 import type {
   ApplicationAnalysisAuthority,
   ApplicationAnalysisRepository,
@@ -22,7 +23,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing"])));
+const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink"])));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
   payloadCollections: Schema.Unknown,
@@ -34,7 +35,7 @@ const Request = Schema.Struct({
 }).annotate(strict);
 
 export class SchemaCompositionError extends Data.TaggedError("SchemaCompositionError")<{
-  readonly reason: "invalidRequest" | "unanalyzedApplication" | "mixedApplicationPolicy" | "unsupportedPlacement";
+  readonly reason: "invalidRequest" | "unanalyzedApplication" | "mixedApplicationPolicy" | "unsupportedPlacement" | "missingModuleDependency";
   readonly cause?: unknown;
 }> {}
 
@@ -48,7 +49,7 @@ export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
-  readonly medusaModules: readonly ("product" | "currency" | "pricing")[];
+  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink")[];
 }) {
   const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
     storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
@@ -58,6 +59,9 @@ export function makeSchemaComposer(configuration: {
   const selectedModules = decodeModules([...configuration.medusaModules]);
   return Effect.fn("SchemaComposition.compose")(function* (request: unknown) {
     const modules = yield* Effect.fromResult(selectedModules).pipe(Effect.mapError(cause => new SchemaCompositionError({ reason: "invalidRequest", cause })));
+    if (modules.includes("variantPricingLink") && (!modules.includes("product") || !modules.includes("pricing"))) {
+      return yield* Effect.fail(new SchemaCompositionError({ reason: "missingModuleDependency" }));
+    }
     const config = yield* Schema.decodeUnknownEffect(Request)(request).pipe(
       Effect.mapError(cause => new SchemaCompositionError({ reason: "invalidRequest", cause })),
     );
@@ -126,6 +130,15 @@ export function makeSchemaComposer(configuration: {
         definition: { kind: "relational", schema: pricing.schema },
         bindings: pricing.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
           table: { namespace: "medusa", logicalName: `${pricing.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      }));
+    }
+    if (modules.includes("variantPricingLink")) {
+      const link = yield* compileVariantPricingLinkDefinition();
+      medusaSources.push(yield* captureLogicalSchemaSource({
+        key: "medusa.link.productVariantPriceSet", owner: "medusa", writeProfile: "medusa.link.productVariantPriceSet",
+        evidence: link.provenance, definition: { kind: "relational", schema: link.schema },
+        bindings: link.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${link.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
       }));
     }
     const views: LogicalSchemaSource[] = [];

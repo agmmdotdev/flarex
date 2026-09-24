@@ -2,6 +2,60 @@ import { Effect, Schema } from "effect";
 import type { CommerceProfileState, LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
+import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+
+/** Selected new-attach Link receipt. The non-key event ID comes from each
+ * attempted row, never from a final-row reread. Replacement needs its own gate. */
+export function linkLogicalAttachEventPolicy(tableName: string, serviceName: string, entityName: string) {
+  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const decode = Schema.decodeUnknownEffect(Schema.Struct({ name: Schema.Literal(entityName + ".attached"),
+    metadata: Schema.Struct({ source: Schema.Literal(serviceName), object: Schema.Literal(entityName), action: Schema.Literal("attached") }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1),
+      Schema.isMaxLength(defaultCommerceResources.eventIds))]) }),
+  }), { onExcessProperty: "error" });
+  const capture = Effect.fn("LinkEvents.captureLogicalAttach")(function* (input: unknown) {
+    return (yield* decode(yield* Effect.fromResult(captureCommerceInput(input, defaultCommerceResources)))
+      .pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)))) satisfies Json;
+  });
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("LinkEvents.validateLogicalAttach")(
+    function* (calls, mutations, lifecycle) {
+      if (lifecycle.length !== 0 || mutations.some((mutation, index) => mutation.ordinal !== index))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      let cursor = 0;
+      let writes = 0;
+      let emitted: readonly Json[] = [];
+      for (const call of calls) {
+        if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (call.mode === "read") {
+          if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+          continue;
+        }
+        if (++writes !== 1 || call.commandName !== "linkCreate" || call.toAttempt !== mutations.length)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        cursor = call.toAttempt;
+        emitted = call.events;
+      }
+      if (cursor !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const expected = new Set<string>();
+      for (const mutation of mutations) {
+        const row = mutation.after;
+        const id = row?.id;
+        if (mutation.table !== tableName || mutation.operation !== "insert" || mutation.before !== null ||
+          row === null || typeof id !== "string" || typeof row.variant_id !== "string" || typeof row.price_set_id !== "string" ||
+          row.deleted_at !== null || expected.has(id))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        expected.add(id);
+      }
+      for (const event of emitted) {
+        const message = yield* capture(event);
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+          if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    });
+  return { capture, validateLogical };
+}
 
 /** Authenticate native non-key event IDs from operation-local storage evidence,
  * never from a final-row reread: a later attach may already have replaced ID. */

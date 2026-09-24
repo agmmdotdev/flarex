@@ -12,7 +12,7 @@
     {
       "target": "packages/medusa-adapter/src/link-events.ts",
       "classification": "authored",
-      "targetSha256": "ce2213f0fd979926423635cfb3f8042df4143940c8b1c737060a3ffea1de200f"
+      "targetSha256": "27f3554cc32b246797f8291ba3598044dcab4a8c0f3dce719514586f3b43bdb2"
     },
     {
       "target": "packages/medusa-adapter/src/link-repository.ts",
@@ -4185,7 +4185,7 @@
     {
       "target": "packages/medusa-adapter/src/product-variant-pricing-schema.ts",
       "classification": "authored",
-      "targetSha256": "ea51fc2db80ec288f7b262bae8a4cb7cc8b7593f52cb41f2c6b3d441deab8b1e"
+      "targetSha256": "510e000fdccbd4022eee985ca14f51e474eac106f657083c555091c349477a05"
     },
     {
       "target": "packages/medusa-adapter/src/product-variant-pricing-workflow.ts",
@@ -4195,7 +4195,7 @@
     {
       "target": "packages/medusa-adapter/src/variant-pricing-link-service.ts",
       "classification": "authored",
-      "targetSha256": "d5a4962ab67dd41cec47a2aa360c2ef16ed66422e854e9ce1128d5a17e10aeb5"
+      "targetSha256": "2088c3d9d15e7399db96abeb8bc2fc8928a4a9fcbe506603a51c742981f810f6"
     },
     {
       "target": "packages/medusa-adapter/test/pricing.test.ts",
@@ -4409,6 +4409,11 @@
       "targetSha256": "5b097c816f47036f7980e9e1012b8fc65b21f215dd27f07e50b06397b54a75d9"
     },
     {
+      "target": "packages/medusa-adapter/test/logical-variant-pricing-link.test.ts",
+      "classification": "authored",
+      "targetSha256": "7084201b77cc5a9067b96aa2ebfcbdbb713c8b14c6b0980a2f6215aa01f03af6"
+    },
+    {
       "target": "packages/medusa-adapter/test/support/logical-category-currency-fixture.ts",
       "classification": "authored",
       "targetSha256": "4375a70b3c54a6f599d49f8c18d446fbbbfa3a9731cb755cdc09fb6cdd3cfb1f"
@@ -4416,7 +4421,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "94f13775b07a6d46108c1d9802ee5aec9fb4d8f85e2d1e534b0e961fff63c9c0"
+      "targetSha256": "89a451d8d3a126675b20db968367154c2f4b63b95ae3ede1415c5c031ae0548d"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",
@@ -4429,14 +4434,19 @@
       "targetSha256": "16ab30feba30db0b27699a3cdc4d0610494f3b97472d6118282ca643f34a7848"
     },
     {
+      "target": "packages/medusa-adapter/test/support/logical-variant-pricing-link-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "b1791b22d759127bdd96984098b4169c15dbb856afb918c5c188d8574fb8b803"
+    },
+    {
       "target": "packages/medusa-adapter/src/schemaComposition.ts",
       "classification": "authored",
-      "targetSha256": "cdda46303f562b90a1efa726b9dbd7c36b07af947312273aab374d24165955d6"
+      "targetSha256": "4424629247f2c7d76527ed7f49bf4bc9a250ab477dc7bf36ab0cf74b626f1e03"
     },
     {
       "target": "packages/medusa-adapter/test/schemaComposition.test.ts",
       "classification": "authored",
-      "targetSha256": "353cf340b99bd6738ab2f60ccfb2cca027ce9e445e4440787dc62f93f6c721c4"
+      "targetSha256": "305cb84b5c40171bab35a1a54893e3e5d9512ea079c15edd6a671d552ba61af5"
     },
     {
       "target": "packages/medusa-adapter/test/logicalSchemaBindings.test.ts",

@@ -45,7 +45,7 @@ remain distinct from logical schema evolution.
   [The decimal contract](./06-exact-decimal-indexes.md) preserves source text and
   uses existing shared index bytes. This is an ordered-value prerequisite;
   calculated Pricing and commerce cutover remain.
-- Existing Medusa models still use physical relational artifacts and installation
+- Remaining Medusa consumers still use physical relational artifacts and installation
   evidence. Exact numeric presentation, native Links and current workflow tests
   are replacement obligations, not generic query proofs.
   The connected [Currency cutover](./10-currency-storage-cutover.md) is in progress;
@@ -99,8 +99,15 @@ remain distinct from logical schema evolution.
   assignment child now executes its native membership updates and pending
   graph read on that source, with call/mutation/event correlation. Independent child
   commands and other Product workflows remain outside this selected admission.
+  The selected Variant–PriceSet stored Link now compiles from pinned native
+  metadata into a shared logical source beside Product and base Pricing. Its
+  native attach step creates the rich Link row, reads it pending and committed,
+  authenticates its attached event and preserves active endpoint cardinality,
+  rollback, replay and two-shop isolation. The physical multi-module workflow,
+  explicit-ID Link replacement and lifecycle operations remain named consumers
+  under the [Link cutover](./15-variant-pricing-link-cutover.md).
   General bounded population/overflow, broader Product commands and
-  relationship queries, and rich Links still block runtime cutover.
+  relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key
   selection alone does not enforce or activate Product relationships.

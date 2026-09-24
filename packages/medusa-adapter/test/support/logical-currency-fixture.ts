@@ -49,6 +49,7 @@ import { compileCurrencyDefinition } from "../../src/currency-schema";
 import { currencyInitialization } from "../../src/currency-contract";
 import { compileProductDefinition } from "../../src/product-definition";
 import { compilePricingDefinition } from "../../src/pricing-schema";
+import { compileVariantPricingLinkDefinition } from "../../src/product-variant-pricing-schema";
 import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from "../../src/currency-service";
 
 type LogicalCurrencyResource =
@@ -59,6 +60,7 @@ type LogicalCurrencyResource =
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
   includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
+  includeVariantPricingLink?: boolean;
 }> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
   | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
 
@@ -78,6 +80,7 @@ export interface LogicalCurrencyFixture {
   readonly initialization: Effect.Success<ReturnType<typeof currencyInitialization>>;
   readonly productDefinition: Effect.Success<ReturnType<typeof compileProductDefinition>> | undefined;
   readonly pricingDefinition: Effect.Success<ReturnType<typeof compilePricingDefinition>> | undefined;
+  readonly variantPricingLinkDefinition: Effect.Success<ReturnType<typeof compileVariantPricingLinkDefinition>> | undefined;
   readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
   readonly observeSql?: (observer: ((text: string) => Promise<void> | void) | undefined) => void;
 }
@@ -121,7 +124,8 @@ export async function logicalCurrencyFixture(
     const prepared = yield* makeSchemaComposer({ deploymentId: application.deploymentId,
       authority: application.authority, applicationAnalyses: makeApplicationAnalysisRepository(target.drizzle),
       medusaModules: ["currency", ...(options?.includeProduct === true ? ["product" as const] : []),
-        ...(options?.includePricing === true ? ["pricing" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
+        ...(options?.includePricing === true ? ["pricing" as const] : []),
+        ...(options?.includeVariantPricingLink === true ? ["variantPricingLink" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
         payloadViews: [], extensions: [] });
@@ -133,6 +137,7 @@ export async function logicalCurrencyFixture(
     const definition = yield* compileCurrencyDefinition();
     const productDefinition = options?.includeProduct === true ? yield* compileProductDefinition() : undefined;
     const pricingDefinition = options?.includePricing === true ? yield* compilePricingDefinition() : undefined;
+    const variantPricingLinkDefinition = options?.includeVariantPricingLink === true ? yield* compileVariantPricingLinkDefinition() : undefined;
     const initialization = yield* currencyInitialization();
     const schemaVersionId = decodeCatalogSchemaVersionId("live-logical-currency");
     const controlSession = pair.kind === "postgres"
@@ -172,12 +177,15 @@ export async function logicalCurrencyFixture(
       }
       if (!enabled) throw new Error("Logical Currency index did not become ready");
     }
-    yield* reconcileAppUniqueConstraintSetBuildV1Effect(ports,
+    const uniqueSet = yield* reconcileAppUniqueConstraintSetBuildV1Effect(ports,
       { deploymentId: application.deploymentId, schemaVersionId });
+    if (uniqueSet.status !== "reconciled") throw new Error("Logical Currency unique set was not declared");
     let uniqueEnabled = false;
-    for (let step = 0; step < 128; step++) {
+    // Each definition needs finite build transitions; the fixture must not
+    // misclassify a larger composed schema as an incomplete core build.
+    for (let step = 0; step < (uniqueSet.definitionCount + 1) * 4; step++) {
       const build = yield* advanceAppUniqueConstraintSetBackfillV1Effect(ports,
-        { deploymentId: application.deploymentId, schemaVersionId, pageSize: 10 });
+        { deploymentId: application.deploymentId, schemaVersionId, pageSize: 16 });
       if (build.lifecycle === "enabled" && build.uniqueConstraintDefinitionId === null) { uniqueEnabled = true; break; }
     }
     if (!uniqueEnabled) throw new Error("Logical Currency unique set did not become ready");
@@ -212,7 +220,7 @@ export async function logicalCurrencyFixture(
     yield* host.initialize(initialization.rows);
     return { resource: pair, application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource,
-      productDefinition, pricingDefinition, physicalTablesBeforeCandidate,
+      productDefinition, pricingDefinition, variantPricingLinkDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());
 }

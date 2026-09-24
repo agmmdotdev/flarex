@@ -160,6 +160,16 @@ async function witness(
       { name: "product_page", sourceKey: "medusa.product", source: { table: productTable, field: "handle" }, target: { table, field: "title" }, policy: "strongReference", onTargetDelete: "restrict" },
     ],
   };
+  const linkWithoutEndpoints = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses,
+    medusaModules: ["variantPricingLink"] });
+  expect(await Effect.runPromise(Effect.result(linkWithoutEndpoints({ ...request, extensions: [] })))).toMatchObject({
+    _tag: "Failure", failure: { reason: "missingModuleDependency" },
+  });
+  const linkWithoutPricing = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses,
+    medusaModules: ["product", "variantPricingLink"] });
+  expect(await Effect.runPromise(Effect.result(linkWithoutPricing({ ...request, extensions: [] })))).toMatchObject({
+    _tag: "Failure", failure: { reason: "missingModuleDependency" },
+  });
   // A purported producer definition is not accepted as a compilation request.
   expect(await Effect.runPromise(Effect.result(compose({ ...request, medusaSchema: {} })))).toMatchObject({ _tag: "Failure" });
   const prepared = await Effect.runPromise(compose(request));
