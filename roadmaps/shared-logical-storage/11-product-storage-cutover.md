@@ -1023,9 +1023,10 @@ also runs native create, update and mixed upsert with root event receipts,
 shared list/count/retrieve and active-handle uniqueness. The native
 explicit-ID `product_ids` create, update and upsert commands now join that
 logical path through the [Collection membership cutover](./32-product-collection-membership-service-cutover.md),
-with Product change/event receipts and a 20-member replacement proof. Auto-ID
-membership creation and other unported Product methods still retain the
-physical compatibility runner. The
+with Product change/event receipts and a 20-member replacement proof. Generated-ID
+membership creation and mixed upsert now use the
+[result-bound logical receipt](./33-product-collection-generated-id-membership-cutover.md);
+other unported Product methods still retain the physical compatibility runner. The
 [selected native Option path](./27-product-option-native-cutover.md) now
 executes Option/Value create, parent/child read, count, title update, upsert
 rollback and hard delete on generic Product storage. The Value and

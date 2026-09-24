@@ -59,10 +59,12 @@ describe("native Collection service on shared logical Product storage", () => {
     const participant = defineAtomicCommerceParticipant("product");
     const root = defineAtomicCommerceCommand(`native${operation}${pendingRead ? "PendingRead" : ""}`, (ctx, input) =>
       pendingRead ? Effect.gen(function* () {
-        if (!isJsonObject(input) || typeof input.id !== "string") return yield* Effect.fail(commerceError("invalidInput"));
+        if (!isJsonObject(input)) return yield* Effect.fail(commerceError("invalidInput"));
         const written = yield* ctx.call(participant, native, input);
+        const id = typeof input.id === "string" ? input.id : isJsonObject(written) ? written.id : undefined;
+        if (typeof id !== "string") return yield* Effect.fail(commerceError("receiptMismatch"));
         const read = yield* ctx.call(participant, selectedProduct.runtime.commands.retrieveCollection,
-          { id: input.id, config: { select: ["title", "products.id"], relations: ["products"] } });
+          { id, config: { select: ["title", "products.id"], relations: ["products"] } });
         return { written, read };
       }) : ctx.call(participant, native, input));
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
@@ -186,9 +188,6 @@ describe("native Collection service on shared logical Product storage", () => {
       expect(after.events.slice(beforeMembership.events.length).map(event => event.envelope.contract).sort())
         .toEqual([catalog.collection.createdEvent, catalog.product.updatedEvent].sort());
       expect(after.rowChanges.length).toBeGreaterThan(before.rowChanges.length);
-      await expect(Effect.runPromise(createCollection.host.run(createCollection.host.newRequestKey(), createCollection.root,
-        { title: "Auto ID remains outside this host", product_ids: [] })))
-        .rejects.toMatchObject({ reason: "receiptMismatch" });
       expect(await logicalCurrencyInventory(fixture)).toEqual(after);
     } finally {
       await Effect.runPromise(createCollection.host.close);
@@ -197,6 +196,83 @@ describe("native Collection service on shared logical Product storage", () => {
       await Effect.runPromise(createProduct.host.close);
     }
   }, 120_000);
+
+  it("binds generated Collection IDs and mixed upsert memberships to native results", async () => {
+    const create = await command("createCollection", fixture, product, false, true);
+    const createMany = await command("createCollection");
+    const rejected = await command("createCollection", fixture, product, true);
+    const upsert = await command("upsertCollection");
+    const createProduct = await command("createProduct");
+    const reads = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [...product.hostInput.commands, product.runtime.commands.retrieveCollection],
+    }));
+    const member = "prod_generated_collection_member", otherMember = "prod_generated_collection_other";
+    try {
+      await Effect.runPromise(createProduct.host.run(createProduct.host.newRequestKey(), createProduct.root,
+        [{ id: member, title: "Generated member" }, { id: otherMember, title: "Other generated member" }]));
+      const before = await logicalCurrencyInventory(fixture);
+      const input = { title: "Generated Collection", handle: "generated-collection", product_ids: [member] };
+      await expect(Effect.runPromise(rejected.host.run(rejected.host.newRequestKey(), rejected.root, input)))
+        .rejects.toMatchObject({ reason: "receiptMismatch" });
+      expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+
+      const key = create.host.newRequestKey();
+      const value = await Effect.runPromise(create.host.run(key, create.root, input));
+      if (!isJsonObject(value) || value.written === undefined || !isJsonObject(value.written) || typeof value.written.id !== "string")
+        throw new Error("Missing generated Collection ID");
+      const firstId = value.written.id;
+      expect(value.read).toMatchObject({ id: firstId, products: [{ id: member }] });
+      const afterCreate = await logicalCurrencyInventory(fixture);
+      expect(afterCreate.rowChanges).toHaveLength(before.rowChanges.length + 2);
+      expect(afterCreate.events.slice(before.events.length).map(event => event.envelope.contract).sort())
+        .toEqual([catalog.collection.createdEvent, catalog.product.updatedEvent].sort());
+      expect(await Effect.runPromise(create.host.run(key, create.root, input))).toEqual(value);
+      expect(await logicalCurrencyInventory(fixture)).toEqual(afterCreate);
+
+      const mixed = [{ title: "Generated in upsert", handle: "generated-upsert", product_ids: [member] },
+        { id: firstId, product_ids: [] }];
+      const upserted = await Effect.runPromise(upsert.host.run(upsert.host.newRequestKey(), upsert.root, mixed));
+      if (!Array.isArray(upserted) || upserted.length !== 2) throw new Error("Missing mixed-upsert results");
+      const second = upserted[0];
+      if (second === undefined || !isJsonObject(second) || typeof second.id !== "string")
+        throw new Error("Missing mixed-upsert Collection ID");
+      const secondId = second.id;
+      expect(upserted[1]).toMatchObject({ id: firstId });
+      expect(await Effect.runPromise(reads.read(product.runtime.commands.retrieveCollection,
+        { id: secondId, config: { select: ["id", "products.id"], relations: ["products"] } })))
+        .toMatchObject({ id: secondId, products: [{ id: member }] });
+      expect(await Effect.runPromise(reads.read(product.runtime.commands.retrieveCollection,
+        { id: firstId, config: { select: ["id", "products.id"], relations: ["products"] } })))
+        .toMatchObject({ id: firstId, products: [] });
+      const afterUpsert = await logicalCurrencyInventory(fixture);
+      expect(afterUpsert.commits).toHaveLength(afterCreate.commits.length + 1);
+      expect(afterUpsert.events.slice(afterCreate.events.length).map(event => event.envelope.contract).sort())
+        .toEqual([catalog.collection.createdEvent, catalog.collection.updatedEvent, catalog.product.updatedEvent].sort());
+
+      const pair = await Effect.runPromise(createMany.host.run(createMany.host.newRequestKey(), createMany.root,
+        [{ title: "Generated pair A", handle: "generated-pair-a", product_ids: [member] },
+          { title: "Generated pair B", handle: "generated-pair-b", product_ids: [otherMember] }]));
+      const firstPair = Array.isArray(pair) ? pair[0] : undefined;
+      const secondPair = Array.isArray(pair) ? pair[1] : undefined;
+      if (!Array.isArray(pair) || pair.length !== 2 || firstPair === undefined || secondPair === undefined ||
+        !isJsonObject(firstPair) || !isJsonObject(secondPair))
+        throw new Error("Missing generated Collection pair");
+      const firstPairId = firstPair.id, secondPairId = secondPair.id;
+      if (typeof firstPairId !== "string" || typeof secondPairId !== "string" || firstPairId === secondPairId)
+        throw new Error("Invalid generated Collection pair");
+      for (const { id, productId } of [{ id: firstPairId, productId: member }, { id: secondPairId, productId: otherMember }])
+        expect(await Effect.runPromise(reads.read(product.runtime.commands.retrieveCollection,
+          { id, config: { select: ["id", "products.id"], relations: ["products"] } })))
+          .toMatchObject({ id, products: [{ id: productId }] });
+    } finally {
+      await Effect.runPromise(create.host.close);
+      await Effect.runPromise(createMany.host.close);
+      await Effect.runPromise(rejected.host.close);
+      await Effect.runPromise(upsert.host.close);
+      await Effect.runPromise(createProduct.host.close);
+      await Effect.runPromise(reads.close);
+    }
+  }, 180_000);
 
   it("replaces, moves and clears 20 native Collection members in shared logical storage", async () => {
     const created = await command("createCollection");
@@ -313,6 +389,23 @@ describe("native Collection service on shared logical Product storage", () => {
         .toMatchObject({ title: "First shop", collection_id: null });
       expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductRetrieve, { id: member })))
         .toMatchObject({ title: "Second shop", collection_id: id });
+      const firstAuto = await Effect.runPromise(firstCreate.host.run(firstCreate.host.newRequestKey(), firstCreate.root,
+        { title: "Auto", handle: "shared-auto-membership", product_ids: [member] }));
+      const secondAuto = await Effect.runPromise(secondCreate.host.run(secondCreate.host.newRequestKey(), secondCreate.root,
+        { title: "Auto", handle: "shared-auto-membership", product_ids: [member] }));
+      if (!isJsonObject(firstAuto) || typeof firstAuto.id !== "string" ||
+        !isJsonObject(secondAuto) || typeof secondAuto.id !== "string")
+        throw new Error("Missing shop-local generated Collection IDs");
+      expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve, { id: member })))
+        .toMatchObject({ collection_id: firstAuto.id });
+      expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductRetrieve, { id: member })))
+        .toMatchObject({ collection_id: secondAuto.id });
+      await Effect.runPromise(firstUpdate.host.run(firstUpdate.host.newRequestKey(), firstUpdate.root,
+        { id: firstAuto.id, data: { product_ids: [] } }));
+      expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve, { id: member })))
+        .toMatchObject({ collection_id: null });
+      expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductRetrieve, { id: member })))
+        .toMatchObject({ collection_id: secondAuto.id });
     } finally {
       await Effect.runPromise(firstCreate.host.close);
       await Effect.runPromise(secondCreate.host.close);
@@ -400,6 +493,86 @@ describe("native Collection service on shared logical Product storage", () => {
       fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0,
     }], [{ ordinal: 0, table: catalog.collection.table.name, operation: "patch",
       before, after: { ...before, title: "After" } }], [], [], []))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+  });
+
+  it("rejects a generated-ID membership receipt with a mismatched native result", async () => {
+    const policy = productLogicalCollectionCreateEventPolicy(catalog);
+    const id = "pcol_generated_receipt", member = "prod_generated_receipt";
+    const beforeProduct = { id: member, title: "Member", collection_id: null, deleted_at: null };
+    const mutations = [{ ordinal: 0, table: catalog.collection.table.name, operation: "insert" as const,
+      before: null, after: { id, title: "Created", deleted_at: null } },
+    { ordinal: 1, table: catalog.product.table.name, operation: "patch" as const,
+      before: beforeProduct, after: { ...beforeProduct, collection_id: id } }];
+    const events = [
+      { name: catalog.collection.createdEvent,
+        metadata: { source: Modules.PRODUCT, object: catalog.collection.eventObject, action: CommonEvents.CREATED }, data: { id } },
+      { name: catalog.product.updatedEvent,
+        metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject, action: CommonEvents.UPDATED }, data: { id: member } },
+    ];
+    const call = { commandName: "productCreatecollection", mode: "write" as const,
+      input: { title: "Created", product_ids: [member] }, result: { id }, events,
+      fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0 };
+    await Effect.runPromise(policy.validateLogical([call], mutations, [], [], []));
+    expect(await Effect.runPromise(Effect.result(policy.validateLogical(
+      [{ ...call, result: { id: "pcol_wrong_result" } }], mutations, [], [], []))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+    expect(await Effect.runPromise(Effect.result(policy.validateLogical(
+      [{ ...call, events: events.slice(0, 1), toAttempt: 1 }], mutations.slice(0, 1), [], [], []))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+  });
+
+  it("binds generated Collection result order and mixed upsert root kinds to row facts", async () => {
+    const policy = productLogicalCollectionCreateEventPolicy(catalog);
+    const roots = ["pcol_generated_first", "pcol_generated_second"] as const;
+    const mutations = roots.map((id, ordinal) => ({ ordinal, table: catalog.collection.table.name,
+      operation: "insert" as const, before: null,
+      after: { id, title: ordinal === 0 ? "First" : "Second", deleted_at: null } }));
+    const events = roots.map(id => ({ name: catalog.collection.createdEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.collection.eventObject, action: CommonEvents.CREATED },
+      data: { id } }));
+    const firstEvent = events[0];
+    const firstMutation = mutations[0];
+    if (firstEvent === undefined || firstMutation === undefined)
+      throw new Error("missing generated Collection receipt");
+    const call = { commandName: "productCreatecollection", mode: "write" as const,
+      input: [{ title: "First", product_ids: [] }, { title: "Second", product_ids: [] }],
+      result: roots.map(id => ({ id })), events,
+      fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0 };
+    await Effect.runPromise(policy.validateLogical([call], mutations, [], [], []));
+    const secondMutation = mutations[1];
+    if (secondMutation === undefined) throw new Error("missing second generated Collection receipt");
+    await Effect.runPromise(policy.validateLogical([call], [
+      { ...secondMutation, ordinal: 0 }, { ...firstMutation, ordinal: 1 },
+    ], [], [], []));
+    expect(await Effect.runPromise(Effect.result(policy.validateLogical(
+      [{ ...call, result: [...call.result].reverse() }], mutations, [], [], []))))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+
+    const mixed = productLogicalCollectionUpsertEventPolicy(catalog);
+    const explicitId = "pcol_explicit_update";
+    const mixedCall = { ...call, commandName: "productupsertcollection",
+      input: [{ title: "First", product_ids: [] }, { id: explicitId, title: "Updated" }],
+      result: [{ id: roots[0] }, { id: explicitId }],
+      events: [firstEvent, { name: catalog.collection.updatedEvent,
+        metadata: { source: Modules.PRODUCT, object: catalog.collection.eventObject, action: CommonEvents.UPDATED },
+        data: { id: explicitId } }] };
+    const before = { id: explicitId, title: "Before", deleted_at: null };
+    const valid = [firstMutation, { ordinal: 1, table: catalog.collection.table.name,
+      operation: "patch" as const, before, after: { ...before, title: "Updated" } }];
+    await Effect.runPromise(mixed.validateLogical([mixedCall], valid, [], [], []));
+    const forged = [{ ordinal: 0, table: catalog.collection.table.name,
+      operation: "patch" as const,
+      before: { id: roots[0], title: "Before", deleted_at: null }, after: firstMutation.after },
+    { ordinal: 1, table: catalog.collection.table.name, operation: "insert" as const,
+      before: null, after: { id: explicitId, title: "Updated", deleted_at: null } }];
+    const forgedEvents = [{ ...firstEvent, name: catalog.collection.updatedEvent,
+      metadata: { ...firstEvent.metadata, action: CommonEvents.UPDATED } },
+    { name: catalog.collection.createdEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.collection.eventObject, action: CommonEvents.CREATED },
+      data: { id: explicitId } }];
+    expect(await Effect.runPromise(Effect.result(mixed.validateLogical(
+      [{ ...mixedCall, events: forgedEvents }], forged, [], [], []))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 

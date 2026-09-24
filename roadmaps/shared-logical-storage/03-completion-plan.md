@@ -173,8 +173,10 @@ remain distinct from logical schema evolution.
   now use the same logical Product source and an exact Collection/Product
   receipt, including a 20-member replacement and two-shop proof in the
   [Collection membership cutover](./32-product-collection-membership-service-cutover.md).
-  Auto-ID membership creation, more complex membership batches and other
-  unported Product methods remain with the named physical compatibility runner;
+  Generated-ID Collection creation and mixed upsert membership now use the
+  [native result-bound logical receipt](./33-product-collection-generated-id-membership-cutover.md).
+  More complex membership batches and other unported Product methods remain
+  with the named physical compatibility runner;
   other relationship kinds still need their own coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.

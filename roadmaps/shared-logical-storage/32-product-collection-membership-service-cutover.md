@@ -1,8 +1,9 @@
 # Native Collection membership service cutover
 
 Status: selected explicit-ID native Collection membership path implemented on
-shared logical Product storage. Auto-ID membership creation and broader Product
-operations remain with the named physical compatibility runner.
+shared logical Product storage. Generated-ID creation and mixed upsert have
+since moved under the [result-bound cutover](./33-product-collection-generated-id-membership-cutover.md).
+Broader Product operations remain with the named physical compatibility runner.
 
 ## Connected outcome and owners
 
@@ -69,12 +70,12 @@ replay, rejected receipt rollback and colliding IDs in two shops. The displaced
 20-member physical boundary case is removed; original native Collection cases
 remain in the physical runner until their own selected logical replacements.
 
-This selection still rejects membership creation without an explicit
-Collection ID, because the authenticated input cannot name its root before
-Medusa generates one. Native auto-ID membership and more complex multi-root
-membership batches need a separate connected cutover or a justified native
-contract change. The physical runner remains for those cases and other
-unported Product methods; it is not a fallback for this selected logical path.
+At this checkpoint, this selection rejected membership creation without an
+explicit Collection ID because the authenticated input could not name its root
+before Medusa generated one. The later result-bound cutover admits generated-ID
+creation and mixed upsert. More complex multi-root membership batches and other
+unported Product methods retain the physical runner; it is not a fallback for
+the selected logical paths.
 Replacing membership beyond the shared complete indexed-read budget currently
 refuses atomically; the 129-member witness prevents a partial detach from
 appearing successful. General high-fan-out replacement needs a core-owned

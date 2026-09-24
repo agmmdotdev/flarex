@@ -260,19 +260,56 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
       if (operation === "update" && (updateId === undefined || !isJsonObject(write.result) || write.result.id !== updateId))
         return yield* Effect.fail(mismatch());
       const requested = operation === "update" ? [write.input] : Array.isArray(write.input) ? write.input : [write.input];
+      const createdRequests = operation === "create" ? requested : operation === "upsert"
+        ? requested.filter(item => isJsonObject(item) && typeof item.id !== "string") : [];
+      const createdCount = createdRequests.length;
+      const updatedIds = operation === "upsert" ? new Set(requested.flatMap(item =>
+        isJsonObject(item) && typeof item.id === "string" ? [item.id] : [])) : new Set<string>();
+      const generatedMembership = operation !== "update" && requested.some(item =>
+        isJsonObject(item) && typeof item.id !== "string" && Object.hasOwn(item, "product_ids"));
+      const resultRows = generatedMembership
+        ? Array.isArray(write.result) ? write.result : [write.result] : [];
+      const returnedIds = new Set<string>();
+      if (generatedMembership) {
+        if (resultRows.length !== requested.length) return yield* Effect.fail(mismatch());
+        for (const row of resultRows) {
+          if (!isJsonObject(row) || typeof row.id !== "string" || row.id.length === 0 || returnedIds.has(row.id))
+            return yield* Effect.fail(mismatch());
+          returnedIds.add(row.id);
+        }
+        if (operation === "create") {
+          for (const [index, item] of requested.entries()) {
+            const returned = resultRows[index];
+            if (!isJsonObject(item) || typeof item.id === "string" && (!isJsonObject(returned) || returned.id !== item.id))
+              return yield* Effect.fail(mismatch());
+          }
+        } else {
+          if (resultRows.slice(createdCount).length !== updatedIds.size ||
+            resultRows.slice(createdCount).some(row => !isJsonObject(row) || typeof row.id !== "string" || !updatedIds.has(row.id)))
+            return yield* Effect.fail(mismatch());
+        }
+      }
       const memberships = new Map<string, ReadonlySet<string>>();
-      for (const item of requested) {
+      let createdOrdinal = 0;
+      for (const [index, item] of requested.entries()) {
         if (!isJsonObject(item)) return yield* Effect.fail(mismatch());
+        const generatedOrdinal = typeof item.id === "string" ? undefined : createdOrdinal++;
         const row = operation === "update" ? item.data : item;
         if (row === undefined || !isJsonObject(row) || !Object.hasOwn(row, "product_ids")) continue;
         const ids = row.product_ids;
-        if (typeof item.id !== "string" || !Array.isArray(ids) ||
-          ids.some(id => typeof id !== "string") || memberships.has(item.id))
+        const result = operation === "upsert" ? resultRows[generatedOrdinal ?? -1] : resultRows[index];
+        const rootId = typeof item.id === "string" ? item.id : isJsonObject(result) ? result.id : undefined;
+        if (typeof rootId !== "string" || !Array.isArray(ids) ||
+          ids.some(id => typeof id !== "string") || memberships.has(rootId))
           return yield* Effect.fail(mismatch());
-        memberships.set(item.id, new Set(ids));
+        memberships.set(rootId, new Set(ids));
       }
       const expected = new Set<string>();
       const roots = new Set<string>();
+      const createdRoots: string[] = [];
+      const createdRootRows = new Map<string, JsonObject>();
+      const updatedRoots: string[] = [];
+      const attachedByRoot = new Map<string, Set<string>>();
       for (const mutation of mutations) {
         const { before, after } = mutation;
         const created = mutation.operation === "insert" && before === null && after?.deleted_at === null;
@@ -295,6 +332,11 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
             memberships.has(before.collection_id) && after.collection_id === null &&
             !memberships.get(before.collection_id)?.has(after.id);
           if (!attached && !detached) return yield* Effect.fail(mismatch());
+          if (attached && typeof after.collection_id === "string") {
+            const members = attachedByRoot.get(after.collection_id) ?? new Set<string>();
+            members.add(after.id);
+            attachedByRoot.set(after.collection_id, members);
+          }
           const identity = catalog.product.updatedEvent + ":" + after.id;
           if (expected.has(identity)) return yield* Effect.fail(mismatch());
           expected.add(identity);
@@ -303,12 +345,36 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
         if (mutation.table !== catalog.collection.table.name ||
           operation === "create" && !created || operation === "update" && (!updated || after.id !== updateId) || roots.has(after.id))
           return yield* Effect.fail(mismatch());
+        if (generatedMembership && !returnedIds.has(after.id)) return yield* Effect.fail(mismatch());
         roots.add(after.id);
+        (created ? createdRoots : updatedRoots).push(after.id);
+        if (created) createdRootRows.set(after.id, after);
         const identity = (created ? catalog.collection.createdEvent : catalog.collection.updatedEvent) + ":" + after.id;
         if (expected.has(identity)) return yield* Effect.fail(mismatch());
         expected.add(identity);
       }
       for (const root of memberships.keys()) if (!roots.has(root)) return yield* Effect.fail(mismatch());
+      if (generatedMembership && roots.size !== returnedIds.size) return yield* Effect.fail(mismatch());
+      if (generatedMembership && (createdRoots.length !== createdCount || updatedRoots.length !== updatedIds.size ||
+        updatedRoots.some(id => !updatedIds.has(id)))) return yield* Effect.fail(mismatch());
+      if (generatedMembership) for (const [index, input] of createdRequests.entries()) {
+        const returned = resultRows[index];
+        const stored = isJsonObject(returned) && typeof returned.id === "string"
+          ? createdRootRows.get(returned.id) : undefined;
+        if (!isJsonObject(input) || !isJsonObject(returned) || stored === undefined ||
+          returned.id !== stored.id) return yield* Effect.fail(mismatch());
+        for (const field of ["title", "handle", "metadata"] as const) {
+          if (!Object.hasOwn(input, field)) continue;
+          const supplied = input[field], persisted = stored[field];
+          if (supplied === undefined || persisted === undefined || !jsonEqual(supplied, persisted))
+            return yield* Effect.fail(mismatch());
+        }
+      }
+      for (const root of createdRoots) {
+        const selected = memberships.get(root);
+        if (selected !== undefined && ((attachedByRoot.get(root)?.size ?? 0) !== selected.size ||
+          [...selected].some(id => !attachedByRoot.get(root)?.has(id)))) return yield* Effect.fail(mismatch());
+      }
       if (operation === "update" && (updateId === undefined || !roots.has(updateId)))
         return yield* Effect.fail(mismatch());
       for (const event of emitted) {
