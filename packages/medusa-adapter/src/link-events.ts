@@ -5,25 +5,28 @@ import { captureCommerceInput } from "./commerce-input";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 
-/** Selected new-attach Link receipt. The non-key event ID comes from each
- * attempted row, never from a final-row reread. Replacement needs its own gate. */
-export function linkLogicalAttachEventPolicy(tableName: string, serviceName: string, entityName: string) {
+/** The selected Link receipt binds native events to attempted rows or an
+ * authenticated unchanged-restore observation, never a final-row reread. */
+export function linkLogicalEventPolicy(tableName: string, serviceName: string, entityName: string) {
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-  const decode = Schema.decodeUnknownEffect(Schema.Struct({ name: Schema.Literal(entityName + ".attached"),
-    metadata: Schema.Struct({ source: Schema.Literal(serviceName), object: Schema.Literal(entityName), action: Schema.Literal("attached") }),
+  const decode = Schema.decodeUnknownEffect(Schema.Struct({ name: Schema.String,
+    metadata: Schema.Struct({ source: Schema.Literal(serviceName), object: Schema.Literal(entityName), action: Schema.Literals(["attached", "detached"]) }),
     data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1),
       Schema.isMaxLength(defaultCommerceResources.eventIds))]) }),
   }), { onExcessProperty: "error" });
-  const capture = Effect.fn("LinkEvents.captureLogicalAttach")(function* (input: unknown) {
-    return (yield* decode(yield* Effect.fromResult(captureCommerceInput(input, defaultCommerceResources)))
-      .pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)))) satisfies Json;
+  const capture = Effect.fn("LinkEvents.captureLogical")(function* (input: unknown) {
+    const message = yield* decode(yield* Effect.fromResult(captureCommerceInput(input, defaultCommerceResources)))
+      .pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
+    if (message.name !== entityName + "." + message.metadata.action)
+      return yield* Effect.fail(commerceError("unadmittedEvent"));
+    return message satisfies Json;
   });
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("LinkEvents.validateLogicalAttach")(
-    function* (calls, mutations, lifecycle) {
-      if (lifecycle.length !== 0 || mutations.some((mutation, index) => mutation.ordinal !== index))
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("LinkEvents.validateLogical")(
+    function* (calls, mutations, lifecycle, observedRows) {
+      if (mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       let cursor = 0;
-      let writes = 0;
+      let command: "linkCreate" | "linkDismiss" | "linkRestore" | undefined;
       let emitted: readonly Json[] = [];
       for (const call of calls) {
         if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -31,28 +34,70 @@ export function linkLogicalAttachEventPolicy(tableName: string, serviceName: str
           if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
           continue;
         }
-        if (++writes !== 1 || call.commandName !== "linkCreate" || call.toAttempt !== mutations.length)
+        if (command !== undefined || (call.commandName !== "linkCreate" && call.commandName !== "linkDismiss" && call.commandName !== "linkRestore")
+          || call.toAttempt !== mutations.length)
           return yield* Effect.fail(commerceError("receiptMismatch"));
+        command = call.commandName;
         cursor = call.toAttempt;
         emitted = call.events;
       }
-      if (cursor !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-      const expected = new Set<string>();
+      if (cursor !== mutations.length || (command === undefined && (mutations.length !== 0 || lifecycle.length !== 0)))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      const expected: string[] = [];
+      const expectedAction = command === "linkDismiss" ? "detached" : "attached";
       for (const mutation of mutations) {
         const row = mutation.after;
         const id = row?.id;
-        if (mutation.table !== tableName || mutation.operation !== "insert" || mutation.before !== null ||
+        if (mutation.table !== tableName ||
+          (command === "linkCreate" ? mutation.operation !== "insert" && mutation.operation !== "patch"
+            : mutation.operation !== "patch") ||
+          (mutation.operation === "insert" ? mutation.before !== null : mutation.before === null) ||
           row === null || typeof id !== "string" || typeof row.variant_id !== "string" || typeof row.price_set_id !== "string" ||
-          row.deleted_at !== null || expected.has(id))
+          (command === "linkDismiss" ? typeof row.deleted_at !== "string" : row.deleted_at !== null) ||
+          (mutation.before !== null && (mutation.before.variant_id !== row.variant_id || mutation.before.price_set_id !== row.price_set_id)))
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        expected.add(id);
+        expected.push(id);
+      }
+      if (command === "linkCreate" && lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (command !== "linkCreate") {
+        const seen = new Set<number>();
+        for (const change of lifecycle) {
+          if (change.table !== tableName || change.operation !== (command === "linkDismiss" ? "softDelete" : "restore") ||
+            typeof change.key.variant_id !== "string" || typeof change.key.price_set_id !== "string" ||
+            Object.keys(change.key).length !== 2 ||
+            (command === "linkDismiss" ? change.beforeDeletedAt !== null || typeof change.afterDeletedAt !== "string"
+              : change.afterDeletedAt !== null || (change.attemptOrdinal !== null && typeof change.beforeDeletedAt !== "string")))
+            return yield* Effect.fail(commerceError("receiptMismatch"));
+          if (change.attemptOrdinal === null) {
+            if (command !== "linkRestore" || change.beforeDeletedAt !== null) return yield* Effect.fail(commerceError("receiptMismatch"));
+            const matches = observedRows.filter(observation => observation.table === tableName &&
+              observation.row.variant_id === change.key.variant_id && observation.row.price_set_id === change.key.price_set_id &&
+              observation.row.deleted_at === null && typeof observation.row.id === "string");
+            const id = matches[0]?.row.id;
+            if (matches.length !== 1 || typeof id !== "string")
+              return yield* Effect.fail(commerceError("receiptMismatch"));
+            expected.push(id);
+            continue;
+          }
+          const mutation = mutations[change.attemptOrdinal];
+          if (mutation === undefined || seen.has(change.attemptOrdinal) || mutation.after === null || mutation.before === null ||
+            mutation.after.variant_id !== change.key.variant_id || mutation.after.price_set_id !== change.key.price_set_id ||
+            mutation.before.deleted_at !== change.beforeDeletedAt || mutation.after.deleted_at !== change.afterDeletedAt)
+            return yield* Effect.fail(commerceError("receiptMismatch"));
+          seen.add(change.attemptOrdinal);
+        }
+        if (seen.size !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
       }
       for (const event of emitted) {
         const message = yield* capture(event);
-        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
-          if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (message.metadata.action !== expectedAction) return yield* Effect.fail(commerceError("receiptMismatch"));
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+          const index = expected.indexOf(id);
+          if (index === -1) return yield* Effect.fail(commerceError("receiptMismatch"));
+          expected.splice(index, 1);
+        }
       }
-      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (expected.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     });
   return { capture, validateLogical };
 }

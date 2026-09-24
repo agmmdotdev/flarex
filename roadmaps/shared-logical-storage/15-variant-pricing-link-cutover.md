@@ -41,8 +41,8 @@ shared endpoint indexes; merely admitting the definition is insufficient.
 This breaks the private Link storage selection and fixture constructor for
 this selected consumer. The native workflow/public DTO and event names do not
 change. The connected Product–Variant–Pricing workflow now selects logical
-storage; a focused physical fixture retains Link dismiss/restore behavior until
-that lifecycle contract moves. The generalized physical Link fixture remains
+storage; the selected Variant–PriceSet Link now executes dismiss/restore on
+logical storage as well. The generalized physical Link fixture remains
 for its other named consumers. This slice does not
 drop their physical tables or invent an existing-data conversion.
 
@@ -53,9 +53,10 @@ logical Product, base Pricing and this Link source in one atomic root, with the
 [connected proof](./16-product-variant-pricing-workflow-cutover.md). The Link's
 separate cardinality race and the workflow's missing Product/option refusal,
 rollback, replay, two-shop isolation and uncertain outcome have ordinary-role
-PostgreSQL witnesses. Migrate explicit-ID attach/replacement, Link
-dismiss/restore and other existing Link consumers, including restore/cardinality
-races; remove
+PostgreSQL witnesses. The selected Link's dismissed-pair explicit-ID replacement,
+dismiss/restore and restore/cardinality race now have a connected
+[logical lifecycle proof](./17-variant-pricing-link-lifecycle-cutover.md). Migrate
+other existing Link consumers and remove
 physical profiles, installation evidence and DDL only after their named
 consumers and data obligations are resolved. Advanced populated-data evolution
 remains under the deferred migration contract.

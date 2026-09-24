@@ -61,7 +61,7 @@ const modules = (connected: Connected) => ({
   pricing: { module: connected.pricing.runtime.workflow, logicalStorage: connected.pricing.hostInput.logicalStorage,
     moduleEvents: pricingLogicalCreateEventPolicy() },
   link: { module: connected.link.runtime.workflow, logicalStorage: connected.link.hostInput.logicalStorage,
-    moduleEvents: connected.link.runtime.logicalAttachEventPolicy() },
+    moduleEvents: connected.link.runtime.logicalEventPolicy() },
 });
 
 async function prepareConnectedHost(connected: Connected, selectedExecution: AtomicWorkflowExecution = execution(connected),

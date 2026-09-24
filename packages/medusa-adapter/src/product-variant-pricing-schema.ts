@@ -32,8 +32,12 @@ export const variantPricingLinkSourceProvenance = Object.freeze({
  * source intentionally has no endpoint FK: the pinned definition has none. */
 export const compileVariantPricingLinkDefinition = Effect.fn("VariantPricingLink.compileDefinition")(function* () {
   const metadata = yield* captureVariantPricingLinkMetadata();
-  const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema([metadata.frame],
-    "commerce.link.variant-pricing", variantPricingLinkOrigins)));
+  const lowered = lowerDmlSchema([metadata.frame], "commerce.link.variant-pricing", variantPricingLinkOrigins);
+  const schema = yield* Effect.fromResult(normalizeRelationalSchema({ ...lowered, tables: lowered.tables.map(table => ({
+    ...table, indexes: [...table.indexes, { indexId: "product_variant_price_set.restore-by-price-set",
+      kind: "btree" as const, columns: ["price_set_id"], predicate: null,
+      origin: { kind: "derived" as const, sourceId: "link.product_variant_price_set.restore-by-price-set" } }],
+  })) }));
   return Object.freeze({ schema, provenance: variantPricingLinkSourceProvenance });
 });
 

@@ -39,8 +39,8 @@ assumption that Product Variant commands are usable only through physical
 profiles. No public Medusa DTO or event contract changes. The obsolete combined
 physical workflow fixture is removed after moving its cancellation, event-pump,
 revision-conflict, generated-ID and rollback witnesses to the logical suite.
-The exact Link dismiss/restore/cardinality witness remains in a focused physical
-fixture until those lifecycle commands select logical storage. The physical
+The exact Link dismiss/restore/cardinality witness has moved to the
+[logical lifecycle cutover](./17-variant-pricing-link-lifecycle-cutover.md). The physical
 Pricing profile remains a named base-price consumer, including PriceList's
 structural-only role. No named durable environment is reset or converted in
 this slice.

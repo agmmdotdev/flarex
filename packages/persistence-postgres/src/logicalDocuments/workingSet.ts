@@ -575,6 +575,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
           continue;
         }
         let supplied = inputRow;
+        // Native relational upsert reactivates a soft-deleted row on key
+        // conflict. Keep that behavior with the shared logical row owner.
+        if (operation === "upsert" && previous !== null && policy.deletedAt !== undefined)
+          supplied = { ...inputRow, [policy.deletedAt]: null };
         if (operation === "softDelete" || operation === "restore") {
           if (policy.deletedAt === undefined || previous === null) return yield* Effect.fail(error("invalidInput"));
           supplied = { ...inputRow, [policy.deletedAt]: operation === "restore" ? null : yield* transactionTime };
