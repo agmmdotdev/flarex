@@ -158,3 +158,27 @@ This preflight changes private core contribution and adapter DAL contracts as
 needed. It does not change public Medusa APIs or authorize a data reset. A
 Capacity refusal remains explicit above the declared budget; a performance
 claim requires bounded multi-shop and hot-tenant measurements.
+
+## Remaining scale gate
+
+The 480-reference ceiling is an implementation budget, not a claim that native
+Type or Collection deletion is generally scalable. A shop can legitimately
+have more referencing Products. Such a deletion currently refuses atomically;
+the old 128-identity page limitation is fixed, but the larger operation is not
+supported. Do not move this problem into a Medusa-specific loop or describe the
+current bounded witness as unrestricted native parity.
+
+Before production-scale parity, measure representative fan-out, row/index/fact
+write amplification, transaction duration, lock contention and recovery cost
+on ordinary-role PostgreSQL, including a hot shop among many scopes. If the
+required synchronous range exceeds the current budget, change the shared
+materialization and publication owners to process more bounded pages with
+resource-accounted transaction-local staging and one atomic outcome. Retain an
+explicit finite transaction budget. If the product requirement exceeds a safe
+single-transaction budget, design a separately approved durable, resumable
+operation with a visibility rule for partially processed references and an
+explicit native-semantic decision; independent commits must not masquerade as
+one atomic Medusa delete. The acceptance witness must cross the old 480-row
+boundary on both drivers, prove full history/index/fact/event consistency and
+rollback after a late failure, and include concurrent reference insertion on
+ordinary-role PostgreSQL.
