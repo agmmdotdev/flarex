@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Result } from "effect";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
-import { productLogicalCollectionCreateEventPolicy, productLogicalCollectionMembershipEventPolicy,
+import { productLogicalCategoryCreateEventPolicy, productLogicalCategoryMembershipEventPolicy,
+  productLogicalCollectionCreateEventPolicy, productLogicalCollectionMembershipEventPolicy,
   productLogicalCreateEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductCollectionMembershipWorkflow } from "../src/product-collection-workflow";
+import { prepareProductCategoryMembershipWorkflow } from "../src/product-category-workflow";
 import { findCollectionMembershipProducts } from "../src/product-collection-membership";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
@@ -69,6 +71,38 @@ async function prepareCollectionMembershipHost(catalog: Awaited<ReturnType<typeo
       moduleEvents: productLogicalCollectionMembershipEventPolicy(catalog) } },
     revision: createHash("sha256").update("logical-product-collection-membership").digest("hex"),
     subscribers: [{ id: "logical-product-collection-membership", revision: "a".repeat(64) }],
+  }));
+}
+
+async function prepareCategoryCreationHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
+  const policy = productLogicalCategoryCreateEventPolicy(catalog);
+  const participant = defineAtomicCommerceParticipant("product");
+  const root = defineAtomicCommerceCommand("productCategoryCreateRoot", (ctx, input) =>
+    ctx.call(participant, product.runtime.commands.createCategories, input));
+  const revision = createHash("sha256").update("logical-product-category-create").digest("hex");
+  const contract = defineCommerceEventContract({ name: catalog.category.createdEvent, revision,
+    internal: true, decode: policy.capture });
+  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+    identityAndAccessPolicy: { profile: "logical-product-category-create" },
+    participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+      commands: [product.runtime.commands.createCategories], validateLogical: policy.validateLogical,
+      events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
+    commands: [root], events: { producerRevision: revision, contracts: [contract],
+      subscribers: [{ id: "logical-product-category-create", revision: "a".repeat(64) }],
+      validate: events => events.some(event => !event.internal)
+        ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
+  }));
+  return { host, root };
+}
+
+async function prepareCategoryMembershipHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
+  return Effect.runPromise(prepareProductCategoryMembershipWorkflow({
+    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+      moduleEvents: productLogicalCategoryMembershipEventPolicy(catalog) } },
+    revision: createHash("sha256").update("logical-product-category-membership").digest("hex"),
+    subscribers: [{ id: "logical-product-category-membership", revision: "a".repeat(64) }],
   }));
 }
 
@@ -490,6 +524,124 @@ describe("native Product creation on shared logical storage", () => {
       await Effect.runPromise(collection.host.close);
       await Effect.runPromise(membership.close);
       await Effect.runPromise(seedHost.close);
+    }
+  }, 120_000);
+
+  it("runs native Category membership over logical Product rows and pivots", async () => {
+    const { catalog, host: create } = await prepareCreationHost();
+    const category = await prepareCategoryCreationHost(catalog);
+    const membership = await prepareCategoryMembershipHost(catalog);
+    try {
+      await Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root,
+        { id: "pcat_logical_members", name: "Logical Members" }));
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [
+        { id: "prod_category_remove", title: "Remove Category", category_ids: ["pcat_logical_members"] },
+        { id: "prod_category_add", title: "Add Category" },
+      ] }));
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const input = { id: "pcat_logical_members", add: ["prod_category_add"], remove: ["prod_category_remove"] };
+      const key = membership.newRequestKey();
+      const result = await Effect.runPromise(membership.run(key, input));
+      expect(result).toEqual([
+        { id: "prod_category_add", categories: [{ id: "pcat_logical_members" }] },
+        { id: "prod_category_remove", categories: [] },
+      ]);
+      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
+        .toEqual([catalog.product.updatedEvent, catalog.product.updatedEvent]);
+      expect(await Effect.runPromise(membership.run(key, input))).toEqual(result);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      const overlap = await Effect.runPromise(membership.run(membership.newRequestKey(), {
+        id: "pcat_logical_members", add: ["prod_category_add"], remove: ["prod_category_add"],
+      }));
+      expect(overlap).toEqual([{ id: "prod_category_add", categories: [] }]);
+      expect(await Effect.runPromise(membership.run(membership.newRequestKey(),
+        { id: "pcat_logical_members" }))).toEqual([]);
+      expect(await Effect.runPromise(membership.run(membership.newRequestKey(),
+        { id: "pcat_logical_members", add: ["prod_category_missing"] }))).toEqual([]);
+      const beforeInvalidRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeInvalidEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      await expect(Effect.runPromise(membership.run(membership.newRequestKey(), {
+        id: "pcat_logical_members", add: Array(130).fill("prod_category_add"),
+        remove: Array(130).fill("prod_category_add"),
+      }))).rejects.toMatchObject({ reason: "invalidInput" });
+      await expect(Effect.runPromise(membership.run(membership.newRequestKey(), {
+        id: "pcat_category_missing", add: ["prod_category_add"],
+      }))).rejects.toMatchObject({ reason: "rollbackOnly" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeInvalidRows);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeInvalidEvents);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(category.host.close);
+      await Effect.runPromise(membership.close);
+    }
+  }, 120_000);
+
+  it("rejects Category membership receipts with omitted links, unrelated scalars or pivot rows", async () => {
+    const { catalog, host: create } = await prepareCreationHost();
+    const category = await prepareCategoryCreationHost(catalog);
+    try {
+      await Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root,
+        { id: "pcat_category_forged", name: "Forged Category Target" }));
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [
+        { id: "prod_category_forged", title: "Original Title" },
+        { id: "prod_category_stale", title: "Stale Category", category_ids: ["pcat_category_forged"] },
+      ] }));
+      const relation = catalog.queryRelations.get(catalog.product.table.name)?.get("categories");
+      if (relation?.join.type !== "manyToMany") throw new Error("Missing Category pivot");
+      const pivotTable = relation.join.pivotTable;
+      const productColumn = relation.join.sourceColumns[0], categoryColumn = relation.join.targetColumns[0];
+      if (productColumn === undefined || categoryColumn === undefined) throw new Error("Invalid Category pivot");
+      for (const mode of ["scalar", "pivot", "omission", "stalePivot", "rootless"] as const) {
+        const policy = productLogicalCategoryMembershipEventPolicy(catalog);
+        const participant = defineAtomicCommerceParticipant("product");
+        const id = mode === "stalePivot" ? "prod_category_stale" : "prod_category_forged";
+        const command = defineCommerceCommand("productUpsert", "write", Effect.fn("ProductTest.forgedCategoryMembership")(
+          function* (ctx) {
+            if (mode !== "rootless") yield* (yield* ctx.table(catalog.product.table.name)).write(ctx.manager, "update", [{
+              id, ...(mode === "scalar" ? { title: "Forged Title" } : { updated_at: new Date().toISOString() }),
+            }]);
+            if (mode === "pivot") yield* (yield* ctx.table(pivotTable)).write(ctx.manager, "insert", [{
+              [productColumn]: id, [categoryColumn]: "pcat_category_forged",
+            }]);
+            if (mode !== "rootless") yield* ctx.captureLocalEvent({ name: catalog.product.updatedEvent,
+              metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject, action: CommonEvents.UPDATED },
+              data: { id } });
+            return [{ id }];
+          }));
+        const root = defineAtomicCommerceCommand(`forgedCategoryMembership${mode}`, (ctx, input) =>
+          Effect.gen(function* () {
+            yield* ctx.call(participant, product.runtime.commands.list, {
+              filters: { id: [id] }, config: { select: ["id"], relations: ["categories"], take: 256 },
+            });
+            return yield* ctx.call(participant, command, input);
+          }));
+        const revision = createHash("sha256").update(`forged-category-membership-${mode}`).digest("hex");
+        const contract = defineCommerceEventContract({ name: catalog.product.updatedEvent, revision,
+          internal: true, decode: policy.capture });
+        const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+          identityAndAccessPolicy: { profile: `forged-category-membership-${mode}` },
+          participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+            commands: [product.runtime.commands.list, command], validateLogical: policy.validateLogical,
+            events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
+          commands: [root], events: { producerRevision: revision, contracts: [contract],
+            subscribers: [{ id: "forged-category-membership", revision: "a".repeat(64) }],
+            validate: events => events.some(event => !event.internal)
+              ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
+        }));
+        try {
+          const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+          const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+          await expect(Effect.runPromise(host.run(host.newRequestKey(), root,
+            [{ id, category_ids: mode === "omission" ? ["pcat_category_forged"] : [] }])))
+            .rejects.toMatchObject({ reason: "receiptMismatch" });
+          expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+          expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
+        } finally { await Effect.runPromise(host.close); }
+      }
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(category.host.close);
     }
   }, 120_000);
 });

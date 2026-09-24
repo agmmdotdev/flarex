@@ -8,6 +8,8 @@ import { captureCommerceInput } from "./commerce-input";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductEntityMetadata, ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { VariantImagePairs, decodeVariantThumbnailUpdate } from "./product-variant-workflow-input";
+import { ProductRelationshipCategoryListCall, ProductRelationshipCategoryProducts,
+  ProductRelationshipResultRows, ProductRelationshipUpsertRows } from "./product-relationship-workflow-input";
 
 
 const EventId = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -314,6 +316,132 @@ export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRu
         if (expected.size !== 0) return yield* Effect.fail(mismatch());
       }
       if (cursor !== mutations.length) return yield* Effect.fail(mismatch());
+    });
+  return { capture, validateLogical };
+}
+
+/** The pinned Category child upserts selected Products with final category IDs.
+ * A Product event owns its timestamp update; category pivot rows are silent. */
+export function productLogicalCategoryMembershipEventPolicy(catalog: ProductRuntimeMetadata) {
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const decodeInput = Schema.decodeUnknownEffect(ProductRelationshipUpsertRows, { onExcessProperty: "error" });
+  const decodeResult = Schema.decodeUnknownEffect(ProductRelationshipResultRows, { onExcessProperty: "error" });
+  const decodeListInput = Schema.decodeUnknownEffect(ProductRelationshipCategoryListCall, { onExcessProperty: "error" });
+  const decodeListResult = Schema.decodeUnknownEffect(ProductRelationshipCategoryProducts, { onExcessProperty: "error" });
+  const mismatch = () => commerceError("receiptMismatch");
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCategoryMembership")(
+    function* (calls, mutations, lifecycle, observedRows) {
+      if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
+      const pivot = (yield* productMembershipPivots(catalog))[1];
+      if (pivot === undefined) return yield* Effect.fail(mismatch());
+      let cursor = 0;
+      let writes = 0;
+      let prior: Map<string, Set<string>> | undefined;
+      for (const call of calls) {
+        if (call.fromAttempt !== cursor || call.toAttempt < cursor || call.toAttempt > mutations.length)
+          return yield* Effect.fail(mismatch());
+        const attempts = mutations.slice(cursor, call.toAttempt);
+        if (attempts.some((mutation, index) => mutation.ordinal !== cursor + index))
+          return yield* Effect.fail(mismatch());
+        cursor = call.toAttempt;
+        if (call.mode === "read") {
+          if (attempts.length !== 0 || call.events.length !== 0) return yield* Effect.fail(mismatch());
+          if (call.commandName === "productlist") {
+            if (prior !== undefined || writes !== 0) return yield* Effect.fail(mismatch());
+            const input = yield* decodeListInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+            const result = yield* decodeListResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+            const requested = new Set(input.filters.id);
+            prior = new Map();
+            for (const row of result) {
+              if (!requested.has(row.id) || prior.has(row.id)) return yield* Effect.fail(mismatch());
+              const categories = row.categories.map(category => category.id);
+              if (new Set(categories).size !== categories.length) return yield* Effect.fail(mismatch());
+              prior.set(row.id, new Set(categories));
+            }
+          }
+          continue;
+        }
+        if (++writes !== 1 || call.commandName !== "productUpsert" || prior === undefined)
+          return yield* Effect.fail(mismatch());
+        const input = yield* decodeInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const result = yield* decodeResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const selected = new Map(input.map(row => [row.id, new Set(row.category_ids)]));
+        if (selected.size !== input.length || result.length !== input.length ||
+          new Set(result.map(row => row.id)).size !== result.length ||
+          result.some(row => !selected.has(row.id)) || selected.size !== prior.size)
+          return yield* Effect.fail(mismatch());
+        const expected = new Set<string>();
+        const expectedPivots = new Set<string>();
+        for (const [id, final] of selected) {
+          const before = prior.get(id);
+          if (before === undefined) return yield* Effect.fail(mismatch());
+          for (const categoryId of before) if (!final.has(categoryId))
+            expectedPivots.add(JSON.stringify(["delete", id, categoryId]));
+          for (const categoryId of final) if (!before.has(categoryId))
+            expectedPivots.add(JSON.stringify(["insert", id, categoryId]));
+        }
+        for (const mutation of attempts) {
+          const before = mutation.before, after = mutation.after;
+          if (mutation.table === catalog.product.table.name) {
+            if ((mutation.operation !== "patch" && mutation.operation !== "replace") ||
+              before === null || after === null || before.id !== after.id ||
+              typeof after.id !== "string" || !selected.has(after.id) ||
+              before.deleted_at !== null || after.deleted_at !== null || expected.has(after.id))
+              return yield* Effect.fail(mismatch());
+            const keys = Object.keys(before).filter(key => key !== "updated_at");
+            if (keys.length !== Object.keys(after).filter(key => key !== "updated_at").length ||
+              keys.some(key => before[key] === undefined || after[key] === undefined || !jsonEqual(before[key], after[key])))
+              return yield* Effect.fail(mismatch());
+            expected.add(after.id);
+            continue;
+          }
+          const row = mutation.operation === "insert" ? after : mutation.operation === "delete" ? before : null;
+          const productId = row?.[pivot.productColumn], categoryId = row?.[pivot.targetColumn];
+          const final = typeof productId === "string" ? selected.get(productId) : undefined;
+          if (mutation.table !== pivot.table || row === null ||
+            (mutation.operation === "insert" ? before !== null : after !== null) ||
+            typeof categoryId !== "string" || final === undefined ||
+            (mutation.operation === "insert" ? !final.has(categoryId) : final.has(categoryId)))
+            return yield* Effect.fail(mismatch());
+          if (!expectedPivots.delete(JSON.stringify([mutation.operation, productId, categoryId])))
+            return yield* Effect.fail(mismatch());
+        }
+        for (const mutation of attempts) {
+          if (mutation.table === pivot.table) {
+            const row = mutation.operation === "insert" ? mutation.after : mutation.before;
+            const productId = row?.[pivot.productColumn];
+            if (typeof productId !== "string" || !expected.has(productId))
+              return yield* Effect.fail(mismatch());
+          }
+        }
+        for (const event of call.events) {
+          const message = yield* capture(event);
+          if (message.name !== catalog.product.updatedEvent || message.metadata.object !== catalog.product.eventObject ||
+            message.metadata.action !== CommonEvents.UPDATED) return yield* Effect.fail(mismatch());
+          for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+            if (!expected.delete(id)) return yield* Effect.fail(mismatch());
+        }
+        if (expected.size !== 0 || expectedPivots.size !== 0 ||
+          attempts.filter(mutation => mutation.table === catalog.product.table.name).length !== selected.size)
+          return yield* Effect.fail(mismatch());
+        const final = new Map([...selected.keys()].map(id => [id, new Set<string>()]));
+        for (const observation of observedRows) {
+          if (observation.table !== pivot.table) continue;
+          const productId = observation.row[pivot.productColumn];
+          const categoryId = observation.row[pivot.targetColumn];
+          const categories = typeof productId === "string" ? final.get(productId) : undefined;
+          if (categories === undefined) continue;
+          if (typeof categoryId !== "string" || categories.has(categoryId)) return yield* Effect.fail(mismatch());
+          categories.add(categoryId);
+        }
+        for (const [id, categories] of final) {
+          const requested = selected.get(id);
+          if (requested === undefined || categories.size !== requested.size ||
+            [...categories].some(categoryId => !requested.has(categoryId))) return yield* Effect.fail(mismatch());
+        }
+      }
+      if (cursor !== mutations.length || (prior === undefined ? writes !== 0 : writes !== 1))
+        return yield* Effect.fail(mismatch());
     });
   return { capture, validateLogical };
 }

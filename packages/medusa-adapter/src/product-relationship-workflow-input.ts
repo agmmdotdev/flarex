@@ -14,21 +14,29 @@ export const ProductRelationshipsOutput = Schema.Struct({
   collections: Schema.Array(Schema.Struct({ id: Id, products: IdRows })).check(Schema.isMaxLength(256)),
 });
 
-const decodeListArguments = commerceDecoder(Schema.Tuple([Schema.Struct({ id: Ids }),
-  Schema.Struct({ select: Schema.Tuple([Schema.Literal("id")]), relations: Schema.Tuple([Schema.Literal("categories")]), take: Schema.Literal(256) }),
-]), "invalidInput");
+const CategoryListFilters = Schema.Struct({ id: Ids });
+const CategoryListConfig = Schema.Struct({ select: Schema.Tuple([Schema.Literal("id")]),
+  relations: Schema.Tuple([Schema.Literal("categories")]), take: Schema.Literal(256) });
+const decodeListArguments = commerceDecoder(Schema.Tuple([CategoryListFilters, CategoryListConfig]), "invalidInput");
 const decodeRetrieveArguments = commerceDecoder(Schema.Tuple([Id,
   Schema.Struct({ select: Schema.Tuple([Schema.Literal("id"), Schema.Literal("products.id")]), relations: Schema.Tuple([Schema.Literal("products")]) }),
 ]), "invalidInput");
-const decodeUpsertArguments = commerceDecoder(Schema.Tuple([Schema.Array(Schema.Struct({ id: Id, category_ids: Ids })).check(Schema.isMaxLength(256))]), "invalidInput");
+export const ProductRelationshipUpsertRows = Schema.Array(Schema.Struct({ id: Id, category_ids: Ids })).check(Schema.isMaxLength(256));
+const decodeUpsertArguments = commerceDecoder(Schema.Tuple([ProductRelationshipUpsertRows]), "invalidInput");
 const decodeUpdateArguments = commerceDecoder(Schema.Tuple([Id, Schema.Struct({ product_ids: Ids })]), "invalidInput");
 // Existing service serialization may include additional checked Product fields.
 const Row = Schema.StructWithRest(Identity, [Schema.Record(Schema.String, Schema.Json)]);
-const decodeRows = commerceDecoder(Schema.Array(Row).check(Schema.isMaxLength(256)), "storedCorruption");
+export const ProductRelationshipResultRows = Schema.Array(Row).check(Schema.isMaxLength(256));
+const decodeRows = commerceDecoder(ProductRelationshipResultRows, "storedCorruption");
 const decodeRow = commerceDecoder(Row, "storedCorruption");
-const decodeCategoryProducts = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id,
+export const ProductRelationshipCategoryProducts = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id,
   categories: Schema.Array(Row).check(Schema.isMaxLength(256)),
-}), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(256)), "storedCorruption");
+}), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(256));
+const decodeCategoryProducts = commerceDecoder(ProductRelationshipCategoryProducts, "storedCorruption");
+export const ProductRelationshipCategoryListCall = Schema.Struct({
+  filters: CategoryListFilters,
+  config: CategoryListConfig,
+});
 const decodeCollection = commerceDecoder(Schema.StructWithRest(Schema.Struct({ id: Id,
   products: Schema.Array(Row).check(Schema.isMaxLength(256)),
 }), [Schema.Record(Schema.String, Schema.Json)]), "storedCorruption");

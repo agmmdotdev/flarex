@@ -735,6 +735,48 @@ The existing physical composed relationship host remains for Category behavior
 and the combined root; its recorded statement-ceiling failure is not a logical
 workflow failure or evidence of a complete relationship cutover.
 
+## Native Category Membership Cutover Preflight
+
+The pinned Category child selects requested Product IDs and calls `upsertProducts`
+with each Product's final `category_ids`; removal wins when an ID occurs in both
+lists. The existing combined relationship host still selects physical Product
+storage. Its earlier statement-ceiling failure is a separate physical-host gate,
+not a reason to change Medusa's membership rule or raise storage limits.
+
+Move this existing child to the selected logical Product source before cutting
+over the combined root. Admit only the captured `productUpsert` call's selected
+Products, their category pivot changes, and exact native Product update events.
+Correlate the immutable call input/result and charged mutation range; read calls
+must be mutation- and event-free. Core continues to own scoped row identity,
+foreign-key targets, resource bounds, atomic settlement and replay. Do not add
+adapter SQL, a second transaction or physical fallback. The physical combined
+host remains a named consumer until its two-child receipt and pending reads
+move together.
+
+This changes the selected internal workflow binding and event policy, not a
+public Medusa DTO or durable schema. Prove add/remove/overlap/no-op, selected
+Product confinement, pivot and event mismatch refusal, pending and committed
+reads, replay, rollback, and ordinary-role PostgreSQL as well as PGlite.
+Bound the new Category root's combined add/remove selection to the pinned
+single-read limit, so an oversized request refuses before the child begins.
+If the pinned upsert service makes an additional owned mutation, identify its
+native cause and extend the receipt narrowly; do not generalize it into
+arbitrary Product update admission. Typecheck, lint, reviews and cleanup gate
+the slice. Combined Collection/Category cutover, physical-profile retirement
+and many-shop scale remain separate gates.
+
+The pinned Category child now runs on selected logical Product storage. Its
+receipt compares the native selected read with the upsert's final IDs, requires
+each selected Product timestamp transition, proves each required pivot insert
+or delete, checks the authenticated final membership and matches exact Product
+update events.
+Native add/remove, remove-wins overlap, empty and missing-Product behavior,
+pending graph reads, replay, missing-target rollback and forged extra, omitted
+or stale pivot and scalar refusal are covered. The 256-ID combined-input bound
+refuses oversized requests at admission. The physical combined host is retained
+for its named two-child consumer; its statement-limit baseline remains a
+separate gate.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at
