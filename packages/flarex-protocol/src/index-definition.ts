@@ -283,7 +283,9 @@ function encodeCanonicalPhysicalSpec(
     `"kind":"appOrdered",` +
     `"maxEncodedKeyBytes":2048,` +
     `"orderedFields":[${fields}],` +
-    (spec.predicate === undefined ? "" : `"predicate":{"field":${encodeJsonString(spec.predicate.field)},"kind":"fieldIsNull"},`) +
+    (spec.predicate === undefined ? "" : spec.predicate.kind === "fieldIsNull"
+      ? `"predicate":{"field":${encodeJsonString(spec.predicate.field)},"kind":"fieldIsNull"},`
+      : `"predicate":{"kind":"fieldIsNullAndTextEquals","nullField":${encodeJsonString(spec.predicate.nullField)},"textField":${encodeJsonString(spec.predicate.textField)},"value":${encodeJsonString(spec.predicate.value)}},`) +
     `"specVersion":1,` +
     `"tieBreaker":{"byteLength":16,"kind":"separateRowIdentity"}}`
   );

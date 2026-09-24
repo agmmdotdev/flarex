@@ -38,6 +38,13 @@ export function appDocumentPathIsNull(document: CanonicalFlarexValueV1, path: st
   return readCanonicalDocumentPath(document.value, path) === null;
 }
 
+export function appDocumentPathEqualsText(document: CanonicalFlarexValueV1, path: string, value: string): boolean {
+  if (!isCanonicalFlarexRuntimeObjectV1(document.value)) {
+    throw new TypeError("Expected a canonical application document object.");
+  }
+  return readCanonicalDocumentPath(document.value, path) === value;
+}
+
 function readCanonicalDocumentPath(
   root: Readonly<Record<string, CanonicalFlarexRuntimeValueV1>>,
   path: string,

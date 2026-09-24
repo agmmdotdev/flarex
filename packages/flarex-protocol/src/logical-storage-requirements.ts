@@ -57,13 +57,20 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
         // Relational integers are bounded to int32, stored with canonical zero,
         // and use exact float64 ordered components. Timestamps are canonical UTC millisecond
         // instants, whose fixed-width ISO text has the same chronological order.
-        // Null-only membership has no representation ambiguity.
+        // Predicate membership uses the same canonical null and text values
+        // that relational validation admits for these columns.
         if (declaration.columns.some(column => {
           const type = table.columns.find(field => field.identity.columnId === column.columnId)?.type;
           const nullOnly = predicate?.kind === "isNull" && predicate.column.columnId === column.columnId;
           return column.columnId.includes(".") || (!nullOnly && type !== "text" && type !== "boolean" &&
             type !== "integer" && type !== "timestamptz" && type !== "numeric");
-        }) || (predicate !== null && (predicate.kind !== "isNull" || predicate.column.columnId.includes(".")))) {
+        }) || (predicate !== null && (predicate.kind === "isNull"
+          ? predicate.column.columnId.includes(".")
+          : predicate.kind === "isNullAndTextEquals"
+            ? predicate.nullColumn.columnId.includes(".") || predicate.textColumn.columnId.includes(".") ||
+              table.columns.find(column => column.identity.columnId === predicate.nullColumn.columnId)?.nullable !== true ||
+              table.columns.find(column => column.identity.columnId === predicate.textColumn.columnId)?.type !== "text"
+            : true))) {
           return yield* Result.fail(failure(source));
         }
         const decimalFields = declaration.columns.filter(column =>
@@ -73,7 +80,10 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
         }).pipe(Result.mapError(cause => failure(source, cause)));
         const physicalSpec = yield* decodeAppOrderedIndexPhysicalSpecV1Result({
           ...lowerAppDeveloperOrderedIndexPhysicalSpecV1(logical),
-          ...(predicate === null ? {} : { predicate: { kind: "fieldIsNull", field: predicate.column.columnId } }),
+          ...(predicate === null ? {} : predicate.kind === "isNull"
+            ? { predicate: { kind: "fieldIsNull" as const, field: predicate.column.columnId } }
+            : { predicate: { kind: "fieldIsNullAndTextEquals" as const,
+              nullField: predicate.nullColumn.columnId, textField: predicate.textColumn.columnId, value: predicate.value } }),
         }).pipe(Result.mapError(cause => failure(source, cause)));
         const descriptor = yield* decodeName(declaration.name).pipe(Result.mapError(cause => failure(source, cause)));
         requirements.push({ localName: table.identity.tableId, descriptor, physicalSpec });

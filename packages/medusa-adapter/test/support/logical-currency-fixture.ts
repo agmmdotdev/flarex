@@ -48,6 +48,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { compileCurrencyDefinition } from "../../src/currency-schema";
 import { currencyInitialization } from "../../src/currency-contract";
 import { compileProductDefinition } from "../../src/product-definition";
+import { compilePricingDefinition } from "../../src/pricing-schema";
 import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from "../../src/currency-service";
 
 type LogicalCurrencyResource =
@@ -57,7 +58,7 @@ type LogicalCurrencyResource =
 
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
-  includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean;
+  includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
 }> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
   | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
 
@@ -76,6 +77,7 @@ export interface LogicalCurrencyFixture {
   readonly service: ReturnType<typeof makeCurrencyService>;
   readonly initialization: Effect.Success<ReturnType<typeof currencyInitialization>>;
   readonly productDefinition: Effect.Success<ReturnType<typeof compileProductDefinition>> | undefined;
+  readonly pricingDefinition: Effect.Success<ReturnType<typeof compilePricingDefinition>> | undefined;
   readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
   readonly observeSql?: (observer: ((text: string) => Promise<void> | void) | undefined) => void;
 }
@@ -118,7 +120,8 @@ export async function logicalCurrencyFixture(
   return Effect.runPromise(Effect.fn("LogicalCurrencyFixture.prepare")(function* () {
     const prepared = yield* makeSchemaComposer({ deploymentId: application.deploymentId,
       authority: application.authority, applicationAnalyses: makeApplicationAnalysisRepository(target.drizzle),
-      medusaModules: options?.includeProduct === true ? ["currency", "product"] : ["currency"] })({ applicationCandidateId: application.active.basis.candidateId,
+      medusaModules: ["currency", ...(options?.includeProduct === true ? ["product" as const] : []),
+        ...(options?.includePricing === true ? ["pricing" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
         payloadViews: [], extensions: [] });
@@ -129,6 +132,7 @@ export async function logicalCurrencyFixture(
       definition: nativeApplication.definition, evidence: nativeApplication.evidence });
     const definition = yield* compileCurrencyDefinition();
     const productDefinition = options?.includeProduct === true ? yield* compileProductDefinition() : undefined;
+    const pricingDefinition = options?.includePricing === true ? yield* compilePricingDefinition() : undefined;
     const initialization = yield* currencyInitialization();
     const schemaVersionId = decodeCatalogSchemaVersionId("live-logical-currency");
     const controlSession = pair.kind === "postgres"
@@ -208,7 +212,7 @@ export async function logicalCurrencyFixture(
     yield* host.initialize(initialization.rows);
     return { resource: pair, application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource,
-      productDefinition, physicalTablesBeforeCandidate,
+      productDefinition, pricingDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());
 }

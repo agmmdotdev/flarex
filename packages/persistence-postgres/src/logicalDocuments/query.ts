@@ -29,7 +29,9 @@ export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppInde
     for (const definition of definitions) {
       if (definition.access.kind !== "developer" || definition.access.tableId !== tableId) continue;
       const membership = definition.physicalSpec.predicate;
-      if (membership !== undefined && where[membership.field] !== null) continue;
+      if (membership !== undefined && !(membership.kind === "fieldIsNull"
+        ? where[membership.field] === null
+        : where[membership.nullField] === null && where[membership.textField] === membership.value)) continue;
       const expressions: OrderedIndexRangeExpressionV1[] = [];
       let fields = 0;
       for (const field of definition.physicalSpec.orderedFields) {

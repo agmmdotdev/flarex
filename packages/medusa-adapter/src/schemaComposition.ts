@@ -6,6 +6,7 @@ import {
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
 import { compileProductDefinition } from "./product-definition";
 import { compileCurrencyDefinition } from "./currency-schema";
+import { compilePricingDefinition } from "./pricing-schema";
 import type {
   ApplicationAnalysisAuthority,
   ApplicationAnalysisRepository,
@@ -21,7 +22,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency"])));
+const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing"])));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
   payloadCollections: Schema.Unknown,
@@ -47,7 +48,7 @@ export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
-  readonly medusaModules: readonly ("product" | "currency")[];
+  readonly medusaModules: readonly ("product" | "currency" | "pricing")[];
 }) {
   const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
     storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
@@ -115,6 +116,16 @@ export function makeSchemaComposer(configuration: {
         definition: { kind: "relational", schema: currency.schema },
         bindings: currency.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
           table: { namespace: "medusa", logicalName: `${currency.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      }));
+    }
+    if (modules.includes("pricing")) {
+      const pricing = yield* compilePricingDefinition();
+      medusaSources.push(yield* captureLogicalSchemaSource({
+        key: "medusa.pricing.base", owner: "medusa", writeProfile: "medusa.pricing.base",
+        evidence: pricing.provenance,
+        definition: { kind: "relational", schema: pricing.schema },
+        bindings: pricing.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${pricing.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
       }));
     }
     const views: LogicalSchemaSource[] = [];

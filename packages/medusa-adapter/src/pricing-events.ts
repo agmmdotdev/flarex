@@ -3,6 +3,10 @@ import type { CommerceProfileState, LocalCommerceEventPolicy } from "@flarex/per
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { scalarEventPolicy } from "./scalar-events";
 import { captureCommerceInput } from "./commerce-input";
+import { CommonEvents, Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
+import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
 
 /** Reuse scalar fact authentication for each member of the native create graph. */
 export function pricingEventPolicy(descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]): LocalCommerceEventPolicy {
@@ -26,4 +30,63 @@ export function pricingEventPolicy(descriptor: CommerceProfileState, deliver: Lo
     }
     for (const [table, policy] of policies) yield* policy.validate(groups.get(table) ?? [], rows.filter(row => row.tableId === table), command);
   }) };
+}
+
+/** The selected native base-price command writes only PriceSet, Price and
+ * PriceRule rows. Core owns FK/unique settlement; this receipt owns the exact
+ * module messages corresponding to the ordered attempted inserts. */
+export function pricingLogicalCreateEventPolicy() {
+  const tables = new Set(["price_set", "price", "price_rule"]);
+  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const decode = Schema.decodeUnknownEffect(Schema.Struct({ name: Schema.String,
+    metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.String,
+      action: Schema.Literal(CommonEvents.CREATED) }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1),
+      Schema.isMaxLength(defaultCommerceResources.eventIds))]) }),
+  }), { onExcessProperty: "error" });
+  const capture = Effect.fn("PricingEvents.captureLogical")(function* (input: unknown) {
+    const value = yield* Effect.fromResult(captureCommerceInput(input, defaultCommerceResources));
+    const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
+    if (!tables.has(message.metadata.object) || message.name !== buildModuleResourceEventName({
+      prefix: Modules.PRICING, objectName: message.metadata.object, action: CommonEvents.CREATED,
+    })) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
+  });
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("PricingEvents.validateLogicalCreate")(
+    function* (calls, mutations, lifecycle) {
+      if (lifecycle.length !== 0 || mutations.some((mutation, index) => mutation.ordinal !== index))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      let cursor = 0;
+      let writes = 0;
+      let emitted: readonly Json[] = [];
+      for (const call of calls) {
+        if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (call.mode === "read") {
+          if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+          continue;
+        }
+        if (++writes !== 1 || call.commandName !== "pricingCreate" || call.toAttempt !== mutations.length)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        cursor = call.toAttempt;
+        emitted = call.events;
+      }
+      if (cursor !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const expected = new Set<string>();
+      for (const mutation of mutations) {
+        const id = mutation.after?.id;
+        const identity = mutation.table + ":" + id;
+        if (!tables.has(mutation.table) || mutation.operation !== "insert" || mutation.before !== null ||
+          typeof id !== "string" || mutation.after?.deleted_at !== null || expected.has(identity))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        expected.add(identity);
+      }
+      for (const event of emitted) {
+        const message = yield* capture(event);
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+          if (!expected.delete(message.metadata.object + ":" + id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        }
+      }
+      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    });
+  return { capture, validateLogical };
 }

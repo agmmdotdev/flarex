@@ -128,7 +128,8 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
         yield* lifetime.seal;
         const closed = yield* working.close();
         expect(closed.changes).toHaveLength(3);
-        expect(closed.indexReads.some(read => read.definition.physicalSpec.predicate?.field === "deleted_at"))
+        expect(closed.indexReads.some(read => read.definition.physicalSpec.predicate?.kind === "fieldIsNull" &&
+          read.definition.physicalSpec.predicate.field === "deleted_at"))
           .toBe(true);
         expect(closed.indexReads.some(read => read.definition.physicalSpec.predicate === undefined &&
           read.definition.physicalSpec.orderedFields[0]?.kind === "documentPath" &&

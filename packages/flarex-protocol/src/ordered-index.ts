@@ -97,9 +97,13 @@ export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
     "by_id",
   ]),
   orderedFields: AppOrderedIndexPhysicalFieldsV1Schema,
-  predicate: Schema.optionalKey(Schema.Struct({
-    kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema,
-  }).annotate(StrictStructOptions)),
+  predicate: Schema.optionalKey(Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("fieldIsNull"), field: SchemaManifestAppIndexFieldPathSchema }),
+    Schema.Struct({ kind: Schema.Literal("fieldIsNullAndTextEquals"),
+      nullField: SchemaManifestAppIndexFieldPathSchema,
+      textField: SchemaManifestAppIndexFieldPathSchema,
+      value: Schema.String.check(Schema.isLengthBetween(1, 256)) }),
+  ]).annotate(StrictStructOptions)),
   tieBreaker: Schema.Struct({
     kind: Schema.Literal("separateRowIdentity"),
     byteLength: Schema.Literal(ORDERED_INDEX_ROW_ID_BYTES_V1),
@@ -894,7 +898,8 @@ function validateAppOrderedIndexPhysicalSpecV1(
   spec: {
     readonly accessPath: "developer" | "by_creation_time" | "by_id";
     readonly orderedFields: ReadonlyArray<AppOrderedIndexPhysicalFieldV1>;
-    readonly predicate?: Readonly<{ kind: "fieldIsNull"; field: string }>;
+    readonly predicate?: Readonly<{ kind: "fieldIsNull"; field: string } |
+      { kind: "fieldIsNullAndTextEquals"; nullField: string; textField: string; value: string }>;
   },
 ): string | undefined {
   if (spec.accessPath !== "developer" && spec.predicate !== undefined) return "Intrinsic indexes cannot have a predicate";

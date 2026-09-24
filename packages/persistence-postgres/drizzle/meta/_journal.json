@@ -757,6 +757,13 @@
       "when": 1790139133229,
       "tag": "0107_logical_source_initialization",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1790234183051,
+      "tag": "0108_ordered_index_text_predicate",
+      "breakpoints": true
     }
   ]
 }

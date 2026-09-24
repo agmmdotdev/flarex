@@ -37,7 +37,7 @@ import {
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
 import type { ReadSchemaVersionArtifactError } from "./schemaVersionArtifacts";
-import { appDocumentPathIsNull, lowerAppDocumentOrderedFieldValuesV1 } from
+import { appDocumentPathEqualsText, appDocumentPathIsNull, lowerAppDocumentOrderedFieldValuesV1 } from
   "./appDocumentOrderedFieldValuesV1";
 
 export interface LocateAppDeveloperIndexDefinitionsV1Input {
@@ -154,7 +154,10 @@ export function lowerAppDeveloperIndexKeyV1(
       throw new TypeError("Expected a located developer index definition.");
     }
     const predicate = definition.physicalSpec.predicate;
-    if (predicate !== undefined && !appDocumentPathIsNull(document, predicate.field)) return Result.succeed(null);
+    if (predicate !== undefined && !(predicate.kind === "fieldIsNull"
+      ? appDocumentPathIsNull(document, predicate.field)
+      : appDocumentPathIsNull(document, predicate.nullField) &&
+        appDocumentPathEqualsText(document, predicate.textField, predicate.value))) return Result.succeed(null);
     const values: OrderedIndexComponentV1[] = [];
     const documentFields = definition.physicalSpec.orderedFields.filter(
       (field): field is Extract<typeof field, { readonly kind: "documentPath" }> =>

@@ -606,10 +606,21 @@ export const fxControlIndexDefinitions = pgTable(
           and (not (${table.physicalSpecJson} ? 'predicate') or (
             ${table.accessKind} = 'developer'
             and jsonb_typeof(${table.physicalSpecJson} -> 'predicate') = 'object'
-            and ((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'field') = '{}'::jsonb
-            and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNull'
-            and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'field') = 'string'
-            and length(${table.physicalSpecJson} -> 'predicate' ->> 'field') > 0
+            and (
+              (((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'field') = '{}'::jsonb
+                and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNull'
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'field') = 'string'
+                and length(${table.physicalSpecJson} -> 'predicate' ->> 'field') > 0)
+              or
+              (((${table.physicalSpecJson} -> 'predicate') - 'kind' - 'nullField' - 'textField' - 'value') = '{}'::jsonb
+                and ${table.physicalSpecJson} -> 'predicate' ->> 'kind' = 'fieldIsNullAndTextEquals'
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'nullField') = 'string'
+                and length(${table.physicalSpecJson} -> 'predicate' ->> 'nullField') > 0
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'textField') = 'string'
+                and length(${table.physicalSpecJson} -> 'predicate' ->> 'textField') > 0
+                and jsonb_typeof(${table.physicalSpecJson} -> 'predicate' -> 'value') = 'string'
+                and length(${table.physicalSpecJson} -> 'predicate' ->> 'value') between 1 and 256)
+            )
           ))
         ) is true
       `,
