@@ -229,7 +229,7 @@ Baseline commands for the source paths inspected here:
 pnpm --filter @flarex/application-schema-definition exec vitest run test/ApplicationSchema.test.ts
 pnpm --filter flarex-protocol exec vitest run test/app-schema-catalog.test.ts
 pnpm --filter @flarex/payload-adapter exec vitest run test/collections.test.ts
-pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.config.ts test/product-schema.test.ts test/shared-schema.test.ts test/sales-channel-schema.test.ts
+pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.config.ts test/product-schema.test.ts test/shared-schema.test.ts test/logical-sales-channel-storage.test.ts
 ```
 
 Approval requested: implement this shared candidate-admission contract with its

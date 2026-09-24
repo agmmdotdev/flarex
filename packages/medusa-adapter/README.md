@@ -83,15 +83,15 @@ list-and-count. Native code owns normalization, scalar/array results, metadata
 merging and error messages; the adapter admits bounded inputs and authenticates
 native events against complete command row facts before local delivery.
 
-`prepareLocalSalesChannelProfile` prepares one configured Product + Sales Channel
-schema containing all fourteen endpoint tables, but grants only Sales Channel
-table access. Product's separately authorized profile can read its own endpoint
-through the same installation. The shared compiler decoder lives in
-`src/schema/compiled.ts`; no second schema grammar or core module branch exists.
+The selected Sales Channel definition compiles from its native model into a
+scoped logical source. Product and Sales Channel share the generic storage
+families while retaining separate source admission. The promoted native service
+suite uses this source and the shared atomic event owner. The shared compiler
+decoder lives in `src/schema/compiled.ts`.
 
 Run `pnpm --filter @flarex/medusa-adapter test:sales-channel:upstream` for all
 fourteen preserved native integration cases, with their original thirty-second
-case deadline. `test:sales-channel` covers the configured schema, confined
+case deadline. `test:sales-channel` covers logical schema admission, confined
 bindings, defaults/metadata, replay, input refusal, event rollback, service
 lifetime and the two preserved static-manifest cases. Set
 `FLAREX_TEST_DRIVER=postgres` and `FLAREX_POSTGRES_DATABASE_URL` for the same

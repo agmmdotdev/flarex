@@ -337,6 +337,25 @@ describe("private relational schema values", () => {
     expect(compile({ kind: "isNull", column: "code" }).requiredNulls).toEqual([]);
   });
 
+  it("admits exact Boolean membership with bounded complete-set selection", () => {
+    const base = currencyInput();
+    const input = { ...base, tables: base.tables.map(table => ({ ...table, columns: [...table.columns,
+      { columnId: "is_disabled", type: "boolean", nullable: false,
+        default: { kind: "booleanLiteral", value: false },
+        origin: authored("packages/modules/currency/src/models/currency.ts#currency.is_disabled") }],
+    })) };
+    const schema = Result.getOrThrow(normalizeRelationalSchema(input));
+    const table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing relational table");
+    const query = Result.getOrThrow(compileLogicalRelationalRead(table, schema.capabilities,
+      { order: { column: "code", direction: "asc" }, predicate: { kind: "in", column: "is_disabled", values: [true] } },
+      10, reason => new Error(reason)));
+    expect(query.selections).toBeNull();
+    expect(Result.isFailure(compileLogicalRelationalRead(table, schema.capabilities,
+      { order: { column: "code", direction: "asc" }, predicate: { kind: "in", column: "is_disabled", values: ["true"] } },
+      10, reason => new Error(reason)))).toBe(true);
+  });
+
   it("gives relational integer signed zero one stored, ordered and unique value", () => {
     const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
     const table = schema.tables[0];

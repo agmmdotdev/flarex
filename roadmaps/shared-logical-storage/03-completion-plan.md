@@ -124,10 +124,13 @@ remain distinct from logical schema evolution.
   foreign keys; active-pair uniqueness, lifecycle and native event receipts
   use shared logical storage. The displaced standalone physical Link profile
   and fixture are retired under the [connected cutover](./20-product-sales-channel-link-workflow-cutover.md).
-  The native SalesChannel compatibility runner and Product–ShippingProfile
-  router still select a physical endpoint schema containing
-  `product_sales_channel`. Their removal gates are their own logical cutovers;
-  this Link source does not silently convert those consumers.
+  The promoted native SalesChannel compatibility runner now uses the selected
+  logical source; its standalone generated Product/SalesChannel installation is
+  retired under the [runner cutover](./21-sales-channel-native-runner-cutover.md).
+  The Product–ShippingProfile router still selects a physical endpoint schema
+  containing `product_sales_channel`; its removal gate is its Link/workflow
+  cutover. Boolean-only SalesChannel filtering currently uses the bounded
+  complete-set path and remains a selective-index scalability gate.
   General bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

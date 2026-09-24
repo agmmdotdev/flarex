@@ -417,7 +417,7 @@
     {
       "target": "packages/medusa-adapter/src/sales-channel-schema.ts",
       "classification": "authored",
-      "targetSha256": "1caf5057b5c312ad851bb97d48f220745de688b232b00bb181c1aaa65c0ddf9c"
+      "targetSha256": "bf8668b46b6d325f5de2d48aef9428d72fa529b5a0e1e075482f88c344b3f420"
     },
     {
       "target": "packages/medusa-adapter/src/sales-channel-service.ts",
@@ -430,19 +430,14 @@
       "targetSha256": "f7d835f2ea3583d0a6fd314e1fb9102b978c38d92a5b71d8716bfc485e799dae"
     },
     {
-      "target": "packages/medusa-adapter/test/sales-channel-schema.test.ts",
-      "classification": "authored",
-      "targetSha256": "b4a01691eb3dd202a201d8a9d2d1c2aba0e26f4b3367d29671e7730cd3539f04"
-    },
-    {
       "target": "packages/medusa-adapter/test/support/sales-channel-runner.ts",
       "classification": "authored",
-      "targetSha256": "21cb10ff63adc09179cb6918ad3d66eb3bd6b666f0a5e5d268f5dcca9eacc242"
+      "targetSha256": "cf91c2ebc5933a2ca5b0b24bd09ab6ad866e12b83f1711cd49fe4662e9b04c3c"
     },
     {
       "target": "packages/medusa-adapter/vitest.sales-channel.config.ts",
       "classification": "authored",
-      "targetSha256": "e5e5dabb03c78f135e2d88896bad3d825dfe463d9c06b5291fbc9a55c28418de"
+      "targetSha256": "5e3be6e63c288ed67ea17e1781fc8aa6b1ed8ee3edfb5796656d4913cc9f33e2"
     },
     {
       "target": "packages/medusa-adapter/vitest.sales-channel-upstream.config.ts",
@@ -487,7 +482,7 @@
     {
       "target": "packages/medusa-adapter/README.md",
       "classification": "authored",
-      "targetSha256": "2382a769d8be5fbc06f13b84257047ba4156236b36199e540b0d6592b22738ee"
+      "targetSha256": "6b827099e3bd1b043c45b8a0255ea5e568c2b01b19c668b0c248ec6e0c07bed8"
     },
     {
       "target": "packages/medusa-adapter/package.json",

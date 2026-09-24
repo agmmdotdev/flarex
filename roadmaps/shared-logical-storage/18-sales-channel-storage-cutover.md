@@ -1,6 +1,6 @@
 # SalesChannel Logical Storage Cutover
 
-Status: implemented under the approved shared-storage completion goal. The Product–SalesChannel Link and its composed workflow moved in the [connected cutover](./20-product-sales-channel-link-workflow-cutover.md). The native SalesChannel compatibility runner and Product–ShippingProfile router remain physical consumers.
+Status: implemented under the approved shared-storage completion goal. The Product–SalesChannel Link and its composed workflow moved in the [connected cutover](./20-product-sales-channel-link-workflow-cutover.md). The native compatibility runner moved in the [runner cutover](./21-sales-channel-native-runner-cutover.md); the Product–ShippingProfile router remains a physical consumer.
 
 ## Contract And Evidence
 
@@ -12,7 +12,7 @@ The core logical row/index/constraint and atomic publication owners already exec
 
 Compile the one pinned SalesChannel DML model to a normalized relational definition with source provenance. Admit that source through the existing joint Application/Payload/Medusa composer, with one stable logical table identity and no generated module DDL. Run native create, update, delete and bounded list/count/retrieve through that selected source. Match each native created/updated/deleted message to the exact attempted row ID and operation before publication. Prove defaults, nullable/JSON values, scope isolation, rollback, replay and physical table-count invariance on PGlite and ordinary-role PostgreSQL.
 
-The private standalone SalesChannel host/test selection changes from a physical profile and installation reference to the logical source and initialization receipt. Its native behavior and the two-module Product/SalesChannel atomic witness move to the logical suite; the displaced physical standalone binding fixture is removed. Physical schemas containing SalesChannel remain for the named native compatibility runner and Product–ShippingProfile router, with removal when those consumers move and any durable-data disposition is approved. No named durable environment is reset or converted. This slice does not activate SalesChannel product relations, arbitrary module methods, a public developer API, advanced populated-data evolution or a fallback engine.
+The private standalone SalesChannel host/test selection changes from a physical profile and installation reference to the logical source and initialization receipt. Its native behavior and the two-module Product/SalesChannel atomic witness move to the logical suite; the displaced physical standalone binding fixture is removed. The Product–ShippingProfile router is the remaining named physical SalesChannel consumer, with removal when that workflow moves and any durable-data disposition is approved. No named durable environment is reset or converted. This slice does not activate SalesChannel product relations, arbitrary module methods, a public developer API, advanced populated-data evolution or a fallback engine.
 
 ## Completion Gates
 

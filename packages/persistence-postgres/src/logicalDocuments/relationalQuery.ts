@@ -18,7 +18,8 @@ const Envelope = Schema.Struct({
 });
 const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(["and", "or"]), children: Schema.Array(Schema.Unknown) }),
-  Schema.Struct({ kind: Schema.Literal("in"), column: Schema.String, values: Schema.Array(Schema.String) }),
+  Schema.Struct({ kind: Schema.Literal("in"), column: Schema.String,
+    values: Schema.Array(Schema.Union([Schema.String, Schema.Boolean])) }),
   Schema.Struct({ kind: Schema.Literal("isNull"), column: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String }),
 ]);
@@ -63,19 +64,23 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         operands += node.values.length;
         if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
-        if (column?.type !== "text" || node.values.some(value => !isRelationalColumnValue("text", false, value)))
+        if (column === undefined || (column.type !== "text" && column.type !== "boolean") ||
+            node.values.some(value => !isRelationalColumnValue(column.type, false, value)))
           return yield* Result.fail(error("invalidInput"));
         const keys = new Set(node.values);
         return { select: (requiredNulls: ReadonlySet<string>) => Result.gen(function* () {
+          // Boolean equality is exact but has no indexed selection yet. The
+          // complete-set path remains resource bounded by the shared owner.
+          if (column.type === "boolean") return null;
           const unconditional = relationalHasIndexedTextPrefix(table, node.column);
           const conditional = unconditional ? undefined : table.indexes.find(candidate => candidate.columns[0]?.columnId === node.column &&
             candidate.predicate?.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId));
           if (!unconditional && conditional === undefined) return yield* Result.fail(error("invalidInput"));
           const nullColumn = conditional?.predicate?.kind === "isNull" ? conditional.predicate.column.columnId : undefined;
-          return [...keys].map(value => ({ column: node.column, value,
+          return [...keys].map(value => ({ column: node.column, value: String(value),
             ...(nullColumn === undefined ? {} : { nullColumn }) }));
         }), requiredNulls: new Set<string>(),
-          matches: row => { const value = row[node.column]; return typeof value === "string" && keys.has(value); } };
+          matches: row => { const value = row[node.column]; return (typeof value === "string" || typeof value === "boolean") && keys.has(value); } };
       }
       if (node.kind === "isNull") {
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);

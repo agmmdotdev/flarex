@@ -1,6 +1,6 @@
 # Product–SalesChannel Link And Workflow Cutover
 
-Status: implemented under the approved shared-storage completion goal. The native SalesChannel compatibility runner and Product–ShippingProfile router retain separate physical profiles and removal gates.
+Status: implemented under the approved shared-storage completion goal. The native SalesChannel compatibility runner has moved to logical storage; the Product–ShippingProfile router retains a physical profile and removal gate.
 
 ## Before Cutover And Owner
 
@@ -12,7 +12,7 @@ The selected Variant–PriceSet Link proves that native Link methods can use the
 
 Compile the checked Product–SalesChannel Link into one scoped relational logical source. Compose it only when both endpoint modules are selected. Keep its native Link service/router and workflow steps, binding all three participants to their selected logical sources under one atomic owner. Require exact row/lifecycle-to-event receipts per native call based on the admitted endpoint columns. Test active-pair uniqueness, two attaches in one root with both event IDs, reattach ID replacement, soft delete/restore, bounded pending and committed reads, rollback and replay, two-shop isolation, and physical table-count invariance on PGlite and ordinary-role PostgreSQL. Retain no endpoint foreign key or cross-source hydration claim that the pinned definition does not provide.
 
-This breaks the private physical Link profile and physical workflow fixture. Migrate their behavioral witnesses to logical hosts and delete the displaced generated-schema helpers, physical fixture, exports, and stale documentation. The Product–ShippingProfile router in `product-link-service.ts` still selects a physical `product_sales_channel` Link through `prepareProductShippingProfileSchema`; retire that generated table when the Product–ShippingProfile Link/workflow cutover moves this named consumer. The native SalesChannel compatibility runner has its own logical cutover gate. No durable named environment is reset or converted in this slice. This work does not activate arbitrary Medusa modules, advanced populated-data evolution, public developer APIs, or hosted deployment.
+This breaks the private physical Link profile and physical workflow fixture. Migrate their behavioral witnesses to logical hosts and delete the displaced generated-schema helpers, physical fixture, exports, and stale documentation. The Product–ShippingProfile router in `product-link-service.ts` still selects a physical `product_sales_channel` Link through `prepareProductShippingProfileSchema`; retire that generated table when the Product–ShippingProfile Link/workflow cutover moves this named consumer. The native SalesChannel compatibility runner has moved under its [own cutover](./21-sales-channel-native-runner-cutover.md). No durable named environment is reset or converted in this slice. This work does not activate arbitrary Medusa modules, advanced populated-data evolution, public developer APIs, or hosted deployment.
 
 ## Completion Gate
 
