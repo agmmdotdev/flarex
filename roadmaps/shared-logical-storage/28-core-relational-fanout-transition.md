@@ -1,8 +1,9 @@
 # Core relational fan-out transition
 
 Status: accepted design correction; bounded same-sequence page materialization
-exists in the shared core. Indexed reverse selection, sealed transition intent,
-publication integration and native Type cutover remain pending under the standing
+and authenticated, indexed reverse-reference page selection exist in the shared
+core. Neutral `set null` application, sealed transition intent, publication
+integration and native Type cutover remain pending under the standing
 shared-storage goal. The selected ProductType delete remains safely bounded.
 
 ## Trigger and ownership
@@ -87,6 +88,14 @@ root deletion and publishing one outcome. A late page, validation, or
 publication failure rolls back all pages. This ordering keeps a complete
 membership decision at the actual settlement point rather than treating an
 earlier capped request page as authoritative.
+
+The shared reverse selector checks a declared nullable same-source FK, an
+enabled current-coverage index and each bounded current row under the scope
+publication lock. Its multi-page Product Type witness reaches 144 references
+without loading the range in one read. The 32-row page and 480-reference
+total leave one of the materializer's 16 pages for the root operation.
+Selection alone does not authorize the
+root delete or guarantee that derived changes have settled.
 
 Use a bounded total affected-row, byte, statement and time budget independent
 of the page size. Keep at most one decoded page and its materialization state

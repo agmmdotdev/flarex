@@ -30,6 +30,7 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
   fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { validateLogicalDocumentChanges } from "../src/logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization } from "../src/logicalDocuments/materialization";
+import { forEachLogicalReferencePage } from "../src/logicalDocuments/referencePages";
 
 /** Whole-candidate Product index coverage and native row/FK execution through
  * the shared working set. The committed cases materialize row deltas; full
@@ -125,7 +126,10 @@ export const productForeignKeyScenario: (
     const variant = { id: "variant_fk", product_id: "prod_fk", title: "Variant FK" };
     if (scenario === "childFirst" || scenario === "missing" || scenario === "persist") {
       yield* (yield* table("product_variant")).write(lifetime.context, "insert", [variant]);
-      if (scenario !== "missing") yield* (yield* table("product")).write(lifetime.context, "insert", [product]);
+      if (scenario === "persist")
+        yield* (yield* table("product_type")).write(lifetime.context, "insert", [{ id: "batch_type", value: "Batch Type" }]);
+      if (scenario !== "missing") yield* (yield* table("product")).write(lifetime.context, "insert",
+        [{ ...product, ...(scenario === "persist" ? { type_id: "batch_type" } : {}) }]);
     } else if (scenario === "cascade") {
       yield* (yield* table("product")).write(lifetime.context, "insert", [product]);
       yield* (yield* table("product_variant")).write(lifetime.context, "insert", [variant]);
@@ -165,7 +169,8 @@ export const productForeignKeyScenario: (
       expect(closed).toMatchObject({ _tag: "Success" });
       if (closed._tag === "Success") {
         expect(scenario === "cascade" || scenario === "selfCascade" ? closed.success.noFinalRows.length :
-          closed.success.changes.length).toBe(scenario === "selfCascade" ? 3 : scenario === "unchangedParent" ? 1 : 2);
+          closed.success.changes.length).toBe(scenario === "selfCascade" || scenario === "persist" ? 3 :
+            scenario === "unchangedParent" ? 1 : 2);
         if (scenario === "replacement") expect(closed.success.noFinalRows).toHaveLength(1);
         if (scenario === "unchangedParent") {
           expect(closed.success.attempts.map(attempt => attempt.tableName)).toEqual(["product_variant"]);
@@ -256,7 +261,8 @@ export const productForeignKeyScenario: (
       const products = yield* working.relationalTable(lifetime.context, id, "product");
       yield* products.write(lifetime.context, "insert", Array.from({ length: 16 }, (_, ordinal) => {
         const number = page * 16 + ordinal;
-        return { id: `batch_product_${number}`, handle: `batch-product-${number}`, title: `Batch ${number}` };
+        return { id: `batch_product_${number}`, handle: `batch-product-${number}`,
+          title: `Batch ${number}`, type_id: "batch_type" };
       }));
       batches.push(working.close());
     }
@@ -286,7 +292,9 @@ export const productForeignKeyScenario: (
     yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
       .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("statementFailure", cause));
   })));
-  expect((yield* Effect.result(runBatches(true)))._tag).toBe("Failure");
+  const failedBatches = yield* Effect.result(runBatches(true));
+  expect(failedBatches._tag, JSON.stringify(failedBatches)).toBe("Failure");
+  if (!lateReached) throw new Error(`Batch failed before late point: ${JSON.stringify(failedBatches)}`);
   expect(lateReached).toBe(true);
   expect(yield* inventory).toEqual(beforeBatches);
   yield* runBatches(false);
@@ -314,4 +322,19 @@ export const productForeignKeyScenario: (
     expect(afterBatches.uniqueBuilds.find(build => build.uniqueConstraintDefinitionId === definition.uniqueConstraintDefinitionId)?.coveredThroughCommitSeq)
       .toBe(committedSeq);
   }
+  const referenced = new Set<string>();
+  const typeTableId = nativeTables.find(table => table.logicalName === "product_type")?.tableId;
+  if (typeTableId === undefined) throw new Error("Missing Product Type table identity");
+  const references = { scopeId, tables: nativeTables,
+    indexes: selectedIndexes.filter(index => index.access.kind === "developer"),
+    sourceTableId: productTableId, sourceColumn: "type_id",
+    targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type",
+    requireAdmission: Effect.void, error: failure } as const;
+  const count = yield* transact(tx => forEachLogicalReferencePage({ tx, ...references },
+    rows => Effect.sync(() => { for (const row of rows) referenced.add(row.rowId); })));
+  expect(count).toBe(144);
+  expect(referenced.size).toBe(144);
+  const undeclared = yield* Effect.result(transact(tx => forEachLogicalReferencePage({ tx, ...references,
+    sourceColumn: "handle" }, () => Effect.void)));
+  expect(undeclared).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
 });

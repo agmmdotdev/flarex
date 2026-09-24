@@ -4,7 +4,7 @@ import type { RelationalTableDefinition } from "flarex-protocol/internal/relatio
 import type { LogicalDocumentFailure } from "./model";
 
 export interface LogicalRelationalForeignKey {
-  readonly source: Readonly<{ tableId: CatalogTableId; name: string; column: string }>;
+  readonly source: Readonly<{ tableId: CatalogTableId; name: string; column: string; nullable: boolean }>;
   readonly target: Readonly<{ tableId: CatalogTableId; name: string; column: string }>;
   readonly onDelete: "noAction" | "cascade";
 }
@@ -29,16 +29,18 @@ export function prepareLogicalRelationalForeignKeys<Failure>(
           table.relational.identity.lineageId === definition.identity.lineageId &&
           table.relational.identity.tableId === to?.tableId);
         const primary = target?.relational?.keys.find(key => key.kind === "primary");
+        const sourceColumn = definition.columns.find(column => column.identity.columnId === from?.columnId);
         if (constraint.sourceColumns.length !== 1 || constraint.targetColumns.length !== 1 || from === undefined || to === undefined ||
           from.tableId !== definition.identity.tableId || from.owner !== definition.identity.owner ||
           from.lineageId !== definition.identity.lineageId || target === undefined ||
-          definition.columns.find(column => column.identity.columnId === from.columnId)?.type !== "text" ||
+          sourceColumn?.type !== "text" ||
           target.relational?.columns.find(column => column.identity.columnId === to.columnId)?.type !== "text" ||
           primary?.columns.length !== 1 || primary.columns[0]?.columnId !== to.columnId ||
           constraint.onDelete === "restrict" || constraint.onUpdate !== "noAction")
           return yield* Result.fail(error("invalidInput"));
         bindings.push(Object.freeze({
-          source: Object.freeze({ tableId: source.tableId, name: source.logicalName, column: from.columnId }),
+          source: Object.freeze({ tableId: source.tableId, name: source.logicalName, column: from.columnId,
+            nullable: sourceColumn.nullable }),
           target: Object.freeze({ tableId: target.tableId, name: target.logicalName, column: to.columnId }),
           onDelete: constraint.onDelete,
         }));
