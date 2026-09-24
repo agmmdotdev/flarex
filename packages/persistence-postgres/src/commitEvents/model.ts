@@ -1,6 +1,6 @@
 import { Data, Schema } from "effect";
 
-export const commitEventLimits = Object.freeze({ messages: 64, subscribers: 8, bytes: 65_536, batch: 64, leaseMs: 30_000, attempts: 5 });
+export const commitEventLimits = Object.freeze({ messages: 256, subscribers: 8, bytes: 65_536, batch: 64, leaseMs: 30_000, attempts: 5 });
 export const EventRevision = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));
 export const EventName = Schema.String.check(Schema.isPattern(/^[a-zA-Z][a-zA-Z0-9._-]{0,127}$/));
 export const EventSubscriber = Schema.Struct({ id: EventName, revision: EventRevision });

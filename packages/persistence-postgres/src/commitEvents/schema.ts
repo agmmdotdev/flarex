@@ -15,7 +15,7 @@ export const fxSystemCommitEvents = pgTable("fx_system_commit_event", {
   primaryKey({ columns: [table.scopeUuid, table.epochUuid, table.commitSeq, table.eventOrdinal] }),
   foreignKey({ name: "fx_commit_event_header_fk", columns: [table.scopeUuid, table.epochUuid, table.commitSeq],
     foreignColumns: [fxSystemCommits.scopeUuid, fxSystemCommits.epochUuid, fxSystemCommits.commitSeq] }).onDelete("restrict").onUpdate("restrict"),
-  check("fx_commit_event_values_check", sql`${table.eventOrdinal} between 0 and 63 and jsonb_typeof(${table.envelope}) = 'object' and octet_length(${table.envelope}::text) <= 131072`),
+  check("fx_commit_event_values_check", sql`${table.eventOrdinal} between 0 and 255 and jsonb_typeof(${table.envelope}) = 'object' and octet_length(${table.envelope}::text) <= 131072`),
 ]);
 
 /** Delivery evidence is a projection of an existing committed event, never an enqueue API. */

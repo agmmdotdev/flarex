@@ -22,6 +22,7 @@ import { TransactionIdentityAccessPolicySha256V1Schema } from "flarex-protocol/t
 import { commerceIdentityEvidence } from "../commerceTransaction/request";
 import { hashAtomicCommerceBytes } from "./request";
 import { chargeHostPreparation } from "../preparedHostRuntime";
+import { commitEventLimits } from "../commitEvents/model";
 
 export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfiguration<Failure> {
   readonly participants: readonly AtomicCommerceParticipantInput[];
@@ -30,9 +31,14 @@ export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfigurat
   /** Trusted root selection, capped by installed physical participant profiles. Omission selects 64
    * calls and remains identity-distinct from an explicit limit. */
   readonly requestCallLimit?: number;
+  /** Trusted root event selection. Omission keeps the ordinary 64-message
+   * budget; physical participants retain their installed profile ceiling. */
+  readonly requestEventLimit?: number;
 }
 
 const decodeCallLimit = Schema.decodeUnknownEffect(CommerceCallLimit);
+const decodeEventLimit = Schema.decodeUnknownEffect(Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: commitEventLimits.messages })));
 
 /** Captured host configuration, with no request-local state or settlement capability. */
 export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
@@ -44,6 +50,7 @@ export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
   readonly eventPolicy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>> | undefined;
   readonly identityDigest: typeof TransactionIdentityAccessPolicySha256V1Schema.Type;
   readonly limits: RequestLimits;
+  readonly eventLimit: number;
   readonly factLimit: number;
   readonly owner: object;
 }
@@ -68,8 +75,12 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   const policyInput = captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes);
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const selectedCallLimit = input.requestCallLimit;
+  const selectedEventLimit = input.requestEventLimit;
   const callLimit = yield* decodeCallLimit(
     selectedCallLimit === undefined ? commerceLimits.calls : selectedCallLimit,
+  ).pipe(Effect.mapError((cause) => commerceError("unsupportedProfile", cause)));
+  const eventLimit = yield* decodeEventLimit(
+    selectedEventLimit === undefined ? defaultCommerceResources.eventMessages : selectedEventLimit,
   ).pipe(Effect.mapError((cause) => commerceError("unsupportedProfile", cause)));
   const allowed = new Set(selectedCommands);
   const names = new Set<string>();
@@ -106,6 +117,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     events: eventPolicy?.identity ?? null,
     participantEvents: eventPolicy === undefined ? [] : participantEvents,
     requestCallLimit: selectedCallLimit === undefined ? null : callLimit,
+    ...(selectedEventLimit === undefined ? {} : { requestEventLimit: eventLimit }),
   }, commerceLimits.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
     yield* hashAtomicCommerceBytes(identity.canonicalBytes),
@@ -127,8 +139,11 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ? logicalMaterializationBatchBudget.rows : defaultCommerceResources.facts;
   const factLimit = Math.min(transitionFacts,
     ...members.filter(member => member.kind === "physical").map(member => member.descriptor.resources.facts));
+  const admittedEventLimit = Math.min(eventLimit,
+    ...members.filter(member => member.kind === "physical").map(member => member.descriptor.resources.eventMessages));
   const owner = Object.freeze({ hostId: Symbol("atomic.commerce.host") });
-  yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, limits, factLimit })
+  yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, limits, factLimit,
+    eventLimit: admittedEventLimit })
     .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
   return {
     database,
@@ -142,6 +157,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     eventPolicy,
     identityDigest,
     limits,
+    eventLimit: admittedEventLimit,
     factLimit,
     owner,
   };

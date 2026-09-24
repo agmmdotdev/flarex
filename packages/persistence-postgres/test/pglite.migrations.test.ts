@@ -154,6 +154,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_framework_schema_target_namespace",
       "fx_system_idempotency",
       "fx_system_index_build_state",
+      "fx_system_logical_source_initialization",
       "fx_system_physical_definition_lifecycle",
       "fx_system_point_mutation_redelivery_scheduler",
       "fx_system_relational_physical_name_assignment",

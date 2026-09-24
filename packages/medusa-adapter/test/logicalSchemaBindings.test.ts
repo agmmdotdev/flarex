@@ -33,7 +33,8 @@ import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postg
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../persistence-postgres/src/atomicCommerce/host";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
-import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
+import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
+import { commitEventsDigest } from "../../persistence-postgres/src/commitEvents/digest";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
 import { preparedHostTestRuntime, openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "../../persistence-postgres/test/preparedHostRuntimeTestSupport";
 import { makePreparedHostRuntime, retainPreparedHost } from "../../persistence-postgres/src/preparedHostRuntime";
@@ -43,7 +44,7 @@ import { RelationalSessionError } from "../../persistence-postgres/src/relationa
 import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
 import { fxSystemLogicalSourceInitializations } from "../../persistence-postgres/src/logicalStorageInitialization";
 import { runDrizzleStatementEffect } from "../../persistence-postgres/src/drizzleStatementEffect";
-import { fxAppRowCurrent, fxSystemIdempotency } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxSystemCommits, fxSystemIdempotency } from "../../persistence-postgres/src/schema";
 import { CommitSeqSchema, projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
 
 const options = { runtimeHostIdentity: "flarex.test/logical-binding", compatibilityDate: "2026-09-20" };
@@ -242,11 +243,20 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
         return yield* ctx.refuse(commerceError("invalidInput"));
       }));
       const contract = defineCommerceEventContract({ name: "currency.logical-proof", revision: "a".repeat(64), internal: false,
-        decode: () => Effect.succeed({ code: "lpa" }) });
+        decode: value => typeof value === "object" && value !== null && "code" in value && typeof value.code === "string"
+          ? Effect.succeed({ code: value.code }) : Effect.fail(commerceError("invalidInput")) });
       const announce = defineAtomicCommerceCommand("logicalCurrencyEvent", ctx => Effect.gen(function* () {
         const value = yield* ctx.call(currencyParticipant, currencyCommands.retrieve, { code: "lpa" });
         yield* ctx.emit(contract, { code: "lpa" });
         return value;
+      }));
+      const manyEvents = defineAtomicCommerceCommand("logicalCurrencyManyEvents", ctx => Effect.gen(function* () {
+        for (let index = 0; index < 129; index++) yield* ctx.emit(contract, { code: `event-${index}` });
+        return null;
+      }));
+      const tooManyEvents = defineAtomicCommerceCommand("logicalCurrencyTooManyEvents", ctx => Effect.gen(function* () {
+        for (let index = 0; index < 257; index++) yield* ctx.emit(contract, { code: `overflow-${index}` });
+        return null;
       }));
       yield* Effect.acquireUseRelease(makeAtomicCommerceHost({ ...hostInput,
         participants: [{ participant: currencyParticipant,
@@ -254,10 +264,12 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
             stepId: initialization.stepId, datasetSha256: initialization.datasetSha256,
             expectedRowCount: initialization.expectedRowCount } },
           commands: [currencyAnnouncementWrite, currencyCommands.retrieve] }],
-        commands: [pair, lateFailure, announce],
+        commands: [pair, lateFailure, announce, manyEvents, tooManyEvents],
+        requestCallLimit: 512, requestEventLimit: 256,
         events: { producerRevision: "a".repeat(64), contracts: [contract],
           subscribers: [{ id: "logical-currency", revision: "a".repeat(64) }],
-          validate: events => events.length <= 1 ? Effect.void : Effect.fail(commerceError("unadmittedEvent")) },
+          validate: events => events.length <= 1 || events.length === 129
+            ? Effect.void : Effect.fail(commerceError("unadmittedEvent")) },
       }), atomic => Effect.gen(function* () {
         const beforeRows = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
           cause => new Error("Atomic logical Currency before rows", { cause }));
@@ -278,6 +290,31 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
         expect(yield* atomic.run(eventKey, announce, null)).toMatchObject({ code: "lpa" });
         expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEvents),
           cause => new Error("Atomic logical Currency events", { cause }))).toHaveLength(beforeEvents.length + 1);
+        const manyKey = atomic.newRequestKey();
+        expect(yield* atomic.run(manyKey, manyEvents, null)).toBeNull();
+        const publishedEvents = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEvents),
+          cause => new Error("Atomic logical Currency many events", { cause }));
+        const batch = publishedEvents.filter(row => row.envelope.group === manyKey).toSorted((a, b) => a.eventOrdinal - b.eventOrdinal);
+        expect(batch).toHaveLength(129);
+        expect(batch.map(row => row.eventOrdinal)).toEqual(Array.from({ length: 129 }, (_, index) => index));
+        expect(batch.map(row => row.envelope.message)).toEqual(Array.from({ length: 129 }, (_, index) => ({ code: `event-${index}` })));
+        const batchCommit = batch[0]?.commitSeq;
+        if (batchCommit === undefined) throw new Error("Missing many-event commit");
+        const headers = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommits),
+          cause => new Error("Atomic logical Currency many-event header", { cause }));
+        expect(headers.find(row => row.commitSeq === batchCommit)).toMatchObject({
+          eventCount: 129, eventSha256: yield* commitEventsDigest(batch.map(row => row.envelope)),
+        });
+        const deliveries = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEventDeliveries),
+          cause => new Error("Atomic logical Currency many-event deliveries", { cause }));
+        expect(deliveries.filter(row => row.commitSeq === batchCommit)).toHaveLength(129);
+        expect(yield* atomic.run(manyKey, manyEvents, null)).toBeNull();
+        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEvents),
+          cause => new Error("Atomic logical Currency replay events", { cause }))).toHaveLength(publishedEvents.length);
+        expect(yield* Effect.result(atomic.run(atomic.newRequestKey(), tooManyEvents, null)))
+          .toMatchObject({ _tag: "Failure", failure: { reason: "limitExceeded" } });
+        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEvents),
+          cause => new Error("Atomic logical Currency overflow events", { cause }))).toHaveLength(publishedEvents.length);
         expect(yield* Effect.result(atomic.run(atomic.newRequestKey(), lateFailure, null)))
           .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
         expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),

@@ -19,7 +19,6 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { makeCommerceCommandContext } from "../commerceTransaction/context";
 import { getCommerceCommand, type CommerceCommand } from "../commerceTransaction/commands";
 import { finalizeCommerceCommit } from "../commerceTransaction/publication";
-import { defaultCommerceResources } from "../commerceTransaction/resources";
 import type { AtomicCommerceContext } from "./commands";
 import {
   makeAtomicEventCapture,
@@ -37,7 +36,7 @@ import {
 
 type ExecutionConfiguration = Pick<
   PreparedAtomicCommerceConfiguration<never>,
-  "members" | "eventPolicy" | "limits" | "factLimit" | "owner"
+  "members" | "eventPolicy" | "limits" | "eventLimit" | "factLimit" | "owner"
 >;
 type CommerceContribution = Readonly<{ kind: "physical"; admission: CommerceAdmission; closure: CommerceRowClosure }> |
   Readonly<{ kind: "logical"; closure: LogicalCommerceClosure }>;
@@ -133,10 +132,7 @@ function makeAtomicCommerceExecution(
           lifetime,
           key,
           eventPolicy,
-          Math.min(
-            defaultCommerceResources.eventMessages,
-            ...members.map((member) => member.descriptor.resources.eventMessages),
-          ),
+          configuration.eventLimit,
         );
   const contributions: OpenContribution[] = [];
   const logicalWork = new Map<AtomicCommerceAdmission, LogicalWorking>();

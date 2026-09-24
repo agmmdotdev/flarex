@@ -1,8 +1,9 @@
 # Core-owned Collection membership replacement
 
 Status: focused preflight under the standing shared-storage completion approval.
-The existing 129-member native update remains an atomic capacity refusal until
-the connected core/native cutover and both-driver proof pass.
+The bounded shared-event prerequisite is implemented; the 129-member native
+Collection update remains an atomic capacity refusal until the connected
+core/native replacement and both-driver proof pass.
 
 ## Trigger and ownership
 
@@ -22,6 +23,17 @@ larger or paging core materialization alone cannot fix the native heap and
 working-set boundary. The service owns the meaning and ordering of replacement;
 Flarex owns complete scoped selection, row/index/history/fact maintenance,
 resource budgets, concurrency exclusion, and one settlement.
+
+The selected 20-member witness publishes one Product `updated` event per
+affected Product. The ordinary root event budget is 64 messages. The bounded
+shared-event prerequisite permits an explicit trusted root selection of up to
+256 messages, capped by any installed physical participant profile, and pages
+publication within one transaction. The 129-member replacement must select
+that budget at its trusted host and prove its native event count. Do not
+coalesce native per-Product events merely to fit a ceiling; event count, bytes,
+digest, delivery rows and the outer fact budget are independent resource
+dimensions. Delivery claim cost and hot-shop lock time at higher fan-out still
+need measurement before scale claims.
 
 ## Recommended contract and breaks
 
@@ -60,6 +72,16 @@ authenticate the root, desired IDs, declared FK, events and any updated
 Collection result. A later failure rolls back every page and event. Keep a
 separate total affected-row, byte, statement and time budget; a page boundary
 never defines successful completion.
+
+The selected event boundary is after native execution has sealed and before
+the event buffer closes. Under the shared scope lock, core can select the
+complete bounded affected identity set, then let the admitted module event
+policy capture the original per-Product event shape. Settlement must verify
+that the identities it actually lowers match this locked selection. No
+untrusted callback runs after the lock. Extend the shared event-message budget
+only with an explicit measured total budget and paged/validated persistence as
+needed; increasing the Collection adapter's allowance cannot override the
+shared 256-message ceiling or physical profile limits.
 
 This breaks private Collection repository/service and logical intent/event
 contracts. It does not change native public Collection inputs/results, generic
