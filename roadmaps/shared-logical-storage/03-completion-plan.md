@@ -165,8 +165,9 @@ remain distinct from logical schema evolution.
   The selected native Type delete now uses the core-owned indexed,
   resource-accounted atomic `set null` transition specified in the
   [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions).
-  It remains bounded by total transition resources, and other relationship
-  kinds still need their own coherent cutovers. General
+  The selected native Collection delete uses the same owner for
+  `Product.collection_id`. Both remain bounded by total transition resources;
+  other relationship kinds still need their own coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

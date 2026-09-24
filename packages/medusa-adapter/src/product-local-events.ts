@@ -246,21 +246,23 @@ export function productLogicalCollectionCreateEventPolicy(catalog: ProductRuntim
   return productLogicalEntityEventPolicy(catalog, catalog.collection, "productCreatecollection", "created");
 }
 
-/** Native Type writes stay on Product's logical source. Its hard delete may
- * detach nullable Product.type_id references before removing the Type row. */
-export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
-  operation: "create" | "update" | "delete") {
-  if (operation !== "delete") return productLogicalEntityEventPolicy(catalog, catalog.type,
-    operation === "create" ? "productCreatetype" : "productupdatetype",
-    operation === "create" ? "created" : "updated");
+export function productLogicalCollectionDeleteEventPolicy(catalog: ProductRuntimeMetadata) {
+  return productLogicalNullableReferenceDeleteEventPolicy(catalog, catalog.collection,
+    "collection_id", "productDeletecollection");
+}
+
+/** The event belongs to the deleted native root; Product detachment is a
+ * declared core effect rather than an adapter-supplied mutation receipt. */
+function productLogicalNullableReferenceDeleteEventPolicy(catalog: ProductRuntimeMetadata,
+  target: ProductEntityMetadata, referenceColumn: "type_id" | "collection_id", commandName: string) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalTypeDelete")(
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalReferenceDelete")(
     function* (calls, mutations, lifecycle, _observedRows, setNull) {
-      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productDeletetype");
+      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
       if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
       const deleted = new Set<string>();
       for (const mutation of mutations) {
-        if (mutation.table === catalog.type.table.name && mutation.operation === "delete" &&
+        if (mutation.table === target.table.name && mutation.operation === "delete" &&
           mutation.after === null && typeof mutation.before?.id === "string" &&
           !deleted.has(mutation.before.id)) {
           deleted.add(mutation.before.id);
@@ -269,12 +271,12 @@ export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
         return yield* Effect.fail(commerceError("receiptMismatch"));
       }
       if (setNull.length !== deleted.size || new Set(setNull.map(intent => intent.targetKey)).size !== setNull.length ||
-        setNull.some(intent => intent.sourceTable !== catalog.product.table.name || intent.sourceColumn !== "type_id" ||
-          intent.targetTable !== catalog.type.table.name || intent.targetColumn !== "id" || !deleted.has(intent.targetKey)))
+        setNull.some(intent => intent.sourceTable !== catalog.product.table.name || intent.sourceColumn !== referenceColumn ||
+          intent.targetTable !== target.table.name || intent.targetColumn !== "id" || !deleted.has(intent.targetKey)))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       for (const event of emitted) {
         const message = yield* capture(event);
-        if (message.name !== catalog.type.deletedEvent || message.metadata.object !== catalog.type.eventObject ||
+        if (message.name !== target.deletedEvent || message.metadata.object !== target.eventObject ||
           message.metadata.action !== CommonEvents.DELETED) return yield* Effect.fail(commerceError("receiptMismatch"));
         for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
           if (!deleted.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -283,6 +285,16 @@ export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
       if (deleted.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     });
   return { capture, validateLogical };
+}
+
+/** Native Type writes stay on Product's logical source. Its hard delete may
+ * detach nullable Product.type_id references before removing the Type row. */
+export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
+  operation: "create" | "update" | "delete") {
+  if (operation !== "delete") return productLogicalEntityEventPolicy(catalog, catalog.type,
+    operation === "create" ? "productCreatetype" : "productupdatetype",
+    operation === "create" ? "created" : "updated");
+  return productLogicalNullableReferenceDeleteEventPolicy(catalog, catalog.type, "type_id", "productDeletetype");
 }
 
 /** Native Option commands own their Value graph. Hard deletion emits only the

@@ -1007,13 +1007,19 @@ The [selected native Type path](./26-product-type-native-cutover.md) now
 executes ProductType create/read/update/delete and Product `type_id` references
 on generic Product storage. Its old physical-only boundary fixture is removed;
 the pinned full Product compatibility runner remains physical for named
-unported operations. Type deletion preserves the native nullable Product
-detachment before the shared FK checks final state, within the logical
-command's 128 observed-row budget. Higher fan-out is an atomic capacity
-refusal pending a core-owned resource-aware transition contract. This is one
-selected bounded consumer path, not retirement of the Product physical profile.
+unported operations. Type deletion preserves native nullable Product
+detachment before the shared FK checks final state through the bounded
+[core fan-out transition](./28-core-relational-fanout-transition.md). Core
+pages the scoped reference index and settles Product changes with the root
+deletion in one publication. Work beyond the explicit transition resource
+budget still refuses atomically. This is one selected bounded consumer path,
+not retirement of the Product physical profile.
 
-The [selected native Option path](./27-product-option-native-cutover.md) now
+The selected native Collection delete now detaches its nullable Product
+references through the shared bounded [core fan-out transition](./28-core-relational-fanout-transition.md),
+with a two-driver native high-reference, replay, rollback and two-shop witness.
+The physical Product compatibility runner remains for its named unported
+methods. The [selected native Option path](./27-product-option-native-cutover.md) now
 executes Option/Value create, parent/child read, count, title update, upsert
 rollback and hard delete on generic Product storage. The Value and
 Variant–Value pivot cascade is correlated with the root-only native delete

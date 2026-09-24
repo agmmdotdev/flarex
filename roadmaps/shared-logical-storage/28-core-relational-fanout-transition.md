@@ -3,8 +3,9 @@
 Status: bounded same-sequence page materialization, authenticated indexed
 reverse selection, sealed `set null` intent and production logical-commerce
 publication are implemented in the shared core. The selected all-logical
-ProductType deletion uses that path without adapter-side Product enumeration. It
-supports up to the declared affected-row, byte and time budgets; broader
+ProductType and ProductCollection deletion use that path without adapter-side
+Product enumeration. The operation supports up to the declared affected-row,
+byte and time budgets; broader
 relationship transitions and pending reads after a plan remain separate gates.
 
 ## Trigger and ownership
@@ -113,7 +114,8 @@ row identities for the publication prefix, and rejects unadmitted intents.
 The Type event validator authenticates the root event and sealed intent; core
 derives the Product changes from committed rows and the declared nullable FK.
 
-The selected Type command performs no Product read after requesting detach.
+The selected Type and Collection delete commands perform no Product read after
+requesting detach.
 Before exposing this operation to a command that does, core must provide
 correct pending-read and pending-index visibility for the planned transition;
 silently returning the pre-transition Product is not allowed. Preserve the
@@ -146,8 +148,9 @@ events and clock advancement. No adapter-supplied affected-row list is accepted.
    null detach, row/index/history/fact consistency, event/outcome replay,
    two-shop isolation and rejected receipt rollback on both drivers, plus
    overlapping reference insertion on ordinary-role PostgreSQL.
-4. Apply the same owner to other declared module-local transitions when their
-   existing consumers move, including Option-owned Value/pivot deletion.
+4. The selected Collection delete also uses the same nullable-reference owner;
+   other declared module-local transitions, including Option-owned Value/pivot
+   deletion, remain future cutovers.
    Remove displaced lifecycle loops and any obsolete resource assumptions in
    the same connected implementation slices.
 
