@@ -417,7 +417,7 @@
     {
       "target": "packages/medusa-adapter/src/sales-channel-events.ts",
       "classification": "authored",
-      "targetSha256": "a9729de470534259d882d837da506ed0d40b7062e419fb2d91a065acc4ad5dfb"
+      "targetSha256": "cbd661f72766ac897a9a65cf418f4b04ee2268754f7c0ea8b6f8766fab63f15e"
     },
     {
       "target": "packages/medusa-adapter/src/sales-channel-repository.ts",
@@ -427,22 +427,17 @@
     {
       "target": "packages/medusa-adapter/src/sales-channel-schema.ts",
       "classification": "authored",
-      "targetSha256": "a446ac71f09bc9c32cf93b2747d4ec52da73ae36d3f7822c620df8ab5b660a4b"
+      "targetSha256": "458447c92389eb58095d44bcfa4611e790facbb3d6650079e2677837c3a0204c"
     },
     {
       "target": "packages/medusa-adapter/src/sales-channel-service.ts",
       "classification": "authored",
-      "targetSha256": "d7a6455e45f6aa4855f4c5d19acda2c1f1c9439e2c0cff3791807580b0d6640a"
+      "targetSha256": "f8c87f1eb57f8172327fa6e0c52fbad486a5d8f1e11471143ae85c57eeba3d7e"
     },
     {
       "target": "packages/medusa-adapter/src/schema/compiled.ts",
       "classification": "authored",
       "targetSha256": "f7d835f2ea3583d0a6fd314e1fb9102b978c38d92a5b71d8716bfc485e799dae"
-    },
-    {
-      "target": "packages/medusa-adapter/test/sales-channel-binding.test.ts",
-      "classification": "authored",
-      "targetSha256": "0defa723920f0a0a579cff98fdd6ec40a488db80726e2fa71a3b224e0ee88d4a"
     },
     {
       "target": "packages/medusa-adapter/test/sales-channel-schema.test.ts",
@@ -457,7 +452,7 @@
     {
       "target": "packages/medusa-adapter/vitest.sales-channel.config.ts",
       "classification": "authored",
-      "targetSha256": "5eb9ca4628a202b6eb8f8bd77d530e15205823b2bbb3a9c48138742d7c281fa1"
+      "targetSha256": "e5e5dabb03c78f135e2d88896bad3d825dfe463d9c06b5291fbc9a55c28418de"
     },
     {
       "target": "packages/medusa-adapter/vitest.sales-channel-upstream.config.ts",
@@ -3418,7 +3413,7 @@
     {
       "target": "packages/medusa-adapter/src/scalar-events.ts",
       "classification": "authored",
-      "targetSha256": "d2f2fd86d01b06a1e84209e6db3676892e1365ff07321819b2a251fc7a5311ce"
+      "targetSha256": "527285c77dcee0f52e5f1e01b16e1d054a660d8cff5a25bf5562c9d5423d14f3"
     },
     {
       "target": "packages/medusa-adapter/src/scalar-repository.ts",
@@ -4208,6 +4203,11 @@
       "targetSha256": "75b3336e1d67e60c80b59c79bea7313a879bb81d237cf3f5bc03b5965422886c"
     },
     {
+      "target": "packages/medusa-adapter/test/logical-sales-channel-storage.test.ts",
+      "classification": "authored",
+      "targetSha256": "473b69b10fc13f7eca5fe2e07167a23efc0f15afa3363636dfc61a5b6f89f9f7"
+    },
+    {
       "target": "packages/medusa-core-flows/src/pricing/steps/create-price-sets.ts",
       "source": "third_party/medusa/upstream/packages/core/core-flows/src/pricing/steps/create-price-sets.ts",
       "classification": "workflowFork",
@@ -4421,7 +4421,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "89a451d8d3a126675b20db968367154c2f4b63b95ae3ede1415c5c031ae0548d"
+      "targetSha256": "4873777c3728926bba7b89365fd8595db51f2fe95ff98875a63102fdb38a10a0"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",
@@ -4434,6 +4434,11 @@
       "targetSha256": "16ab30feba30db0b27699a3cdc4d0610494f3b97472d6118282ca643f34a7848"
     },
     {
+      "target": "packages/medusa-adapter/test/support/logical-sales-channel-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "471171dd908f9f04b1fd045bf7ed175ec3c586ac13481cf61b34b7c74f8a6260"
+    },
+    {
       "target": "packages/medusa-adapter/test/support/logical-variant-pricing-link-fixture.ts",
       "classification": "authored",
       "targetSha256": "b1791b22d759127bdd96984098b4169c15dbb856afb918c5c188d8574fb8b803"
@@ -4441,7 +4446,7 @@
     {
       "target": "packages/medusa-adapter/src/schemaComposition.ts",
       "classification": "authored",
-      "targetSha256": "4424629247f2c7d76527ed7f49bf4bc9a250ab477dc7bf36ab0cf74b626f1e03"
+      "targetSha256": "6d9985a8b5774db16dc567e5af63ec90a5d2c305ab6c1567b746ebbb289b9f0a"
     },
     {
       "target": "packages/medusa-adapter/test/schemaComposition.test.ts",

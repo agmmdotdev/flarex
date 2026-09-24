@@ -371,7 +371,7 @@ function decodeIndex(
       brandIndexId,
     );
     const kind = fields.at(1);
-    if (kind !== "btree" && kind !== "uniqueBtree") {
+    if (kind !== "btree" && kind !== "uniqueBtree" && kind !== "textEquality") {
       return yield* unsupported(`${path}.kind`, fields.at(1));
     }
     const columns = yield* decodeLocalColumnIdentities(
@@ -816,6 +816,10 @@ function validateRelationalSchema(
           columns,
           `${tablePath}.indexes[${index.identity.indexId}].columns`,
         );
+        if (index.kind === "textEquality" && (index.columns.length !== 1 || index.predicate !== null ||
+          columns.get(index.columns[0]!.columnId)?.type !== "text")) {
+          return yield* Result.fail(RelationalSchemaError.invalidInput(`${tablePath}.indexes[${index.identity.indexId}]`));
+        }
         if (index.predicate !== null) {
           yield* requireColumn(
             columns,

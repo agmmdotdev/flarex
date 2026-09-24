@@ -15,7 +15,7 @@ import { commerceServiceCommands } from "./service-commands";
 import { commerceDecoder } from "./commerce-decoder";
 import { captureCommerceInput } from "./commerce-input";
 import { prepareSalesChannelRepository } from "./sales-channel-repository";
-import { salesChannelEventPolicy } from "./sales-channel-events";
+import { salesChannelEventPolicy, salesChannelLogicalEventPolicy } from "./sales-channel-events";
 import { captureSalesChannelMetadata } from "./sales-channel-schema";
 import { QueryLimit, QueryOffset } from "./query-decoder";
 
@@ -117,7 +117,7 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     return { create, update, delete: remove, list, count, retrieve, graph, workflow,
       commands: [create, update, remove, list, count, retrieve],
       withService: module.use,
-      eventPolicy: salesChannelEventPolicy,
+      eventPolicy: salesChannelEventPolicy, logicalEventPolicy: salesChannelLogicalEventPolicy,
     };
   }));
 });

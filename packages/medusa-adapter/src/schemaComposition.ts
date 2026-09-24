@@ -8,6 +8,7 @@ import { compileProductDefinition } from "./product-definition";
 import { compileCurrencyDefinition } from "./currency-schema";
 import { compilePricingDefinition } from "./pricing-schema";
 import { compileVariantPricingLinkDefinition } from "./product-variant-pricing-schema";
+import { compileSalesChannelDefinition } from "./sales-channel-schema";
 import type {
   ApplicationAnalysisAuthority,
   ApplicationAnalysisRepository,
@@ -23,7 +24,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink"])));
+const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel"])));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
   payloadCollections: Schema.Unknown,
@@ -49,7 +50,7 @@ export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
-  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink")[];
+  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink" | "salesChannel")[];
 }) {
   const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
     storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
@@ -120,6 +121,16 @@ export function makeSchemaComposer(configuration: {
         definition: { kind: "relational", schema: currency.schema },
         bindings: currency.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
           table: { namespace: "medusa", logicalName: `${currency.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      }));
+    }
+    if (modules.includes("salesChannel")) {
+      const channel = yield* compileSalesChannelDefinition();
+      medusaSources.push(yield* captureLogicalSchemaSource({
+        key: "medusa.salesChannel", owner: "medusa", writeProfile: "medusa.salesChannel",
+        evidence: channel.provenance,
+        definition: { kind: "relational", schema: channel.schema },
+        bindings: channel.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${channel.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
       }));
     }
     if (modules.includes("pricing")) {

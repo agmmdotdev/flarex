@@ -1,6 +1,8 @@
 import {
   ORDERED_INDEX_MISSING_V1,
+  orderedIndexValueForAppFieldV1,
   orderedIndexValueFromFlarexValueV1,
+  type AppOrderedIndexDocumentPathV1,
   type OrderedIndexComponentV1,
 } from "flarex-protocol/ordered-index";
 import {
@@ -12,17 +14,19 @@ import {
 /** Package-local lowering shared by ordered developer and unique definitions. */
 export function lowerAppDocumentOrderedFieldValuesV1(
   document: CanonicalFlarexValueV1,
-  orderedFields: ReadonlyArray<string>,
+  orderedFields: ReadonlyArray<string | AppOrderedIndexDocumentPathV1>,
 ): ReadonlyArray<OrderedIndexComponentV1> {
   const root = document.value;
   if (!isCanonicalFlarexRuntimeObjectV1(root)) {
     throw new TypeError("Expected a canonical application document object.");
   }
-  return Object.freeze(orderedFields.map((path) => {
+  return Object.freeze(orderedFields.map((field) => {
+    const path = typeof field === "string" ? field : field.path;
     const value = readCanonicalDocumentPath(root, path);
     return value === MISSING_DOCUMENT_PATH
       ? ORDERED_INDEX_MISSING_V1
-      : orderedIndexValueFromFlarexValueV1(value);
+      : typeof field === "string" ? orderedIndexValueFromFlarexValueV1(value)
+        : orderedIndexValueForAppFieldV1(field, value);
   }));
 }
 

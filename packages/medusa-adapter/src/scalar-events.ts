@@ -3,6 +3,26 @@ import { CommonEvents, buildModuleResourceEventName } from "@medusajs/framework/
 import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
+import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
+import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+
+function scalarCapture(source: string, tableName: string,
+  resources: typeof defaultCommerceResources, spanName: string) {
+  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
+  const decode = Schema.decodeUnknownEffect(Schema.Struct({ name: Schema.String,
+    metadata: Schema.Struct({ source: Schema.Literal(source), object: Schema.Literal(tableName),
+      action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED]) }),
+    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1),
+      Schema.isMaxLength(resources.eventIds))]) }),
+  }), { onExcessProperty: "error" });
+  return Effect.fn(spanName)(function* (input: unknown) {
+    const value = yield* Effect.fromResult(captureCommerceInput(input, resources));
+    const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
+    if (message.name !== buildModuleResourceEventName({ prefix: source, objectName: tableName,
+      action: message.metadata.action })) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
+  });
+}
 
 /** Native module messages must match the selected command's complete row facts.
  * This authenticates local delivery only; it does not grant outbox authority. */
@@ -10,19 +30,7 @@ export function scalarEventPolicy(source: string, tableName: string,
   commands: Readonly<{ insert: string; update?: string; delete?: string }>, descriptor: CommerceProfileState,
   deliver: LocalCommerceEventPolicy["deliver"],
 ): LocalCommerceEventPolicy {
-  const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-  const decode = Schema.decodeUnknownEffect(Schema.Struct({
-    name: Schema.String,
-    metadata: Schema.Struct({ source: Schema.Literal(source), object: Schema.Literal(tableName),
-      action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED]) }),
-    data: Schema.Struct({ id: Schema.Union([Id, Schema.Array(Id).check(Schema.isMinLength(1), Schema.isMaxLength(descriptor.resources.eventIds))]) }),
-  }), { onExcessProperty: "error" });
-  const capture = Effect.fn("ScalarEvents.capture")(function* (input: unknown) {
-    const value = yield* Effect.fromResult(captureCommerceInput(input, descriptor.resources));
-    const message = yield* decode(value).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
-    if (message.name !== buildModuleResourceEventName({ prefix: source, objectName: tableName, action: message.metadata.action })) return yield* Effect.fail(commerceError("unadmittedEvent"));
-    return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
-  });
+  const capture = scalarCapture(source, tableName, descriptor.resources, "ScalarEvents.capture");
   return { capture, deliver,
     validate: Effect.fn("ScalarEvents.validate")(function* (events, rows, command, lifecycle = []) {
       if (lifecycle.length) return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -48,4 +56,61 @@ export function scalarEventPolicy(source: string, tableName: string,
       if (expected.size) return yield* Effect.fail(commerceError("receiptMismatch"));
     }),
   };
+}
+
+/** Authenticate one native scalar command against its exact logical row
+ * attempts. Physical row-key decoding remains with the retained profile. */
+export function scalarLogicalEventPolicy(source: string, tableName: string,
+  commands: Readonly<{ insert: string; update?: string; delete?: string }>) {
+  const capture = scalarCapture(source, tableName, defaultCommerceResources, "ScalarEvents.captureLogical");
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ScalarEvents.validateLogical")(
+    function* (calls, mutations, lifecycle) {
+      if (lifecycle.length !== 0 || mutations.some((mutation, index) => mutation.ordinal !== index))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      let cursor = 0;
+      let command: string | undefined;
+      let emitted: readonly Json[] = [];
+      for (const call of calls) {
+        if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (call.mode === "read") {
+          if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+          continue;
+        }
+        if (command !== undefined || !Object.values(commands).includes(call.commandName)
+          || call.toAttempt !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+        command = call.commandName;
+        cursor = call.toAttempt;
+        emitted = call.events;
+      }
+      if (cursor !== mutations.length || (command === undefined && mutations.length !== 0))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      const expected = new Set<string>();
+      for (const mutation of mutations) {
+        const operation = mutation.operation;
+        if (operation !== "insert" && operation !== "patch" && operation !== "delete")
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        const action = operation === "insert" ? CommonEvents.CREATED
+          : operation === "patch" ? CommonEvents.UPDATED : CommonEvents.DELETED;
+        const expectedCommand = operation === "insert" ? commands.insert
+          : operation === "patch" ? commands.update : commands.delete;
+        const row = operation === "delete" ? mutation.before : mutation.after;
+        const id = row?.id;
+        const identity = action + ":" + id;
+        if (mutation.table !== tableName || command !== expectedCommand || typeof id !== "string" || expected.has(identity) ||
+          (operation === "insert" ? mutation.before !== null || mutation.after?.deleted_at !== null
+            : operation === "patch" ? mutation.before === null || mutation.before.id !== id || mutation.after?.deleted_at !== null
+              : mutation.after !== null || mutation.before === null))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        expected.add(identity);
+      }
+      for (const event of emitted) {
+        const message = yield* capture(event);
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+          if (!expected.delete(message.metadata.action + ":" + id))
+            return yield* Effect.fail(commerceError("receiptMismatch"));
+        }
+      }
+      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    });
+  return { capture, validateLogical };
 }

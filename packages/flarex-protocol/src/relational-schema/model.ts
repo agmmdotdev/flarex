@@ -159,7 +159,7 @@ export type RelationalIndexPredicate =
 
 export type RelationalIndexDefinition = Readonly<{
   readonly identity: RelationalIndexIdentity;
-  readonly kind: "btree" | "uniqueBtree";
+  readonly kind: "btree" | "uniqueBtree" | "textEquality";
   readonly columns: readonly RelationalColumnIdentity[];
   readonly predicate: RelationalIndexPredicate;
   readonly origin: RelationalDefinitionOrigin;
@@ -261,4 +261,3 @@ export type RelationalSchema = Readonly<{
   readonly tables: readonly RelationalTableDefinition[];
   readonly capabilities: readonly RelationalPersistenceCapability[];
 }> & JsonObject;
-

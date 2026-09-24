@@ -165,7 +165,7 @@ export function lowerAppDeveloperIndexKeyV1(
     );
     const loweredDocumentValues = lowerAppDocumentOrderedFieldValuesV1(
       document,
-      documentFields.map((field) => field.path),
+      documentFields,
     );
     let documentFieldIndex = 0;
     for (const field of definition.physicalSpec.orderedFields) {

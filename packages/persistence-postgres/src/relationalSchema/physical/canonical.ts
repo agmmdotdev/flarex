@@ -786,7 +786,7 @@ function lowerTable(
         identity: copyIndexIdentity(index.identity),
         table: copyTableIdentity(table.identity),
         name: yield* required(indexNames, indexIdentityKey(index.identity)),
-        kind: physicalIndexKind(index.kind),
+        kind: yield* physicalIndexKind(index.kind),
         columns: Object.freeze(physicalColumns),
         predicate,
       }));
@@ -1089,11 +1089,13 @@ function physicalKeyKind(
 
 function physicalIndexKind(
   kind: RelationalTableDefinition["indexes"][number]["kind"],
-): RelationalPhysicalIndex["kind"] {
+): Result.Result<RelationalPhysicalIndex["kind"], RelationalPhysicalValueError> {
   switch (kind) {
     case "btree":
     case "uniqueBtree":
-      return kind;
+      return Result.succeed(kind);
+    case "textEquality":
+      return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     default:
       return unreachablePhysicalVocabulary(kind);
   }
@@ -1302,6 +1304,8 @@ function indexCapabilityId(
       return "relational-schema.index.uniqueBtree";
     case "btree":
       return "relational-schema.index.btree";
+    case "textEquality":
+      return "relational-schema.index.textEquality";
     default:
       return unreachablePhysicalVocabulary(kind);
   }

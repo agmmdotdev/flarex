@@ -1,7 +1,9 @@
 import { Option, Result, Schema } from "effect";
 import { FlarexValueCodecV1Error } from "flarex-protocol/value";
 import { compileAppOrderedIndexBoundsV1, encodeOrderedIndexComponentsV1, orderedIndexValueFromFlarexValueV1,
-  InvalidOrderedIndexRangeV1Error, OrderedIndexKeyTooLargeError, type OrderedIndexRangeExpressionV1 } from "flarex-protocol/ordered-index";
+  orderedIndexValueForAppFieldV1,
+  InvalidOrderedIndexRangeV1Error, OrderedIndexCodecV1InputError, OrderedIndexKeyTooLargeError,
+  type OrderedIndexRangeExpressionV1 } from "flarex-protocol/ordered-index";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import type { LogicalDocumentFailure } from "./model";
@@ -36,9 +38,10 @@ export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppInde
       let fields = 0;
       for (const field of definition.physicalSpec.orderedFields) {
         // A decimal suffix does not invalidate an earlier native scalar prefix.
-        if (field.kind !== "documentPath" || field.path.includes(".") || field.valueFormat !== undefined) break;
+        if (field.kind !== "documentPath" || field.path.includes(".") || field.valueFormat === "exactDecimal") break;
         const predicate = where[field.path];
         if (predicate === undefined) break;
+        if (field.valueFormat === "sha256TextV1" && isLogicalRange(predicate)) break;
         fields++;
         if (isLogicalRange(predicate)) {
           for (const op of ["gt", "gte", "lt", "lte"] as const) if (Object.hasOwn(predicate, op)) {
@@ -47,7 +50,7 @@ export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppInde
           }
           break;
         }
-        expressions.push({ op: "eq", field, value: orderedIndexValueFromFlarexValueV1(predicate) });
+        expressions.push({ op: "eq", field, value: orderedIndexValueForAppFieldV1(field, predicate) });
       }
       if (fields > 0 && (Option.isNone(selected) || fields > selected.value.fields)) selected = Option.some({ definition, expressions, fields });
     }
@@ -59,7 +62,8 @@ export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppInde
     return Option.some(Object.freeze({ definition: chosen.definition, bounds,
       identity: JSON.stringify([chosen.definition.indexDefinitionId, bounds.startInclusive ?? null, bounds.endExclusive ?? null]) }));
   }, catch: cause => {
-    if (cause instanceof InvalidOrderedIndexRangeV1Error || cause instanceof OrderedIndexKeyTooLargeError || cause instanceof FlarexValueCodecV1Error) return error("invalidInput", cause);
+    if (cause instanceof InvalidOrderedIndexRangeV1Error || cause instanceof OrderedIndexCodecV1InputError ||
+      cause instanceof OrderedIndexKeyTooLargeError || cause instanceof FlarexValueCodecV1Error) return error("invalidInput", cause);
     throw cause;
   } });
 }

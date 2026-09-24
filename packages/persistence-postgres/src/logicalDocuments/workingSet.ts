@@ -1,6 +1,7 @@
 import { Effect, Option, Result, Schema } from "effect";
 import { eq, sql } from "drizzle-orm";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result,
   type AppDocumentIdV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -482,7 +483,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     for (const where of selections) for (const row of yield* selectCandidates(tableName, where, true)) {
       if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
     }
-    const matched: { document: JsonObject; order: string; documentId: AppDocumentIdV1 }[] = [];
+    const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1 }[] = [];
     for (const row of selected.values()) {
       if (row.current === null) continue;
       const document = yield* Effect.fromResult(output(row.current, true));
@@ -490,7 +491,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       if (inspected.matches) matched.push({ document, order: inspected.order, documentId: row.documentId });
     }
     matched.sort((left, right) => {
-      const ordered = (left.order < right.order ? -1 : left.order > right.order ? 1 : 0) * (query.direction === "asc" ? 1 : -1);
+      const ordered = compareBytesLexicographically(left.order, right.order) * (query.direction === "asc" ? 1 : -1);
       return ordered || left.documentId.localeCompare(right.documentId);
     });
     const docs: JsonObject[] = [];

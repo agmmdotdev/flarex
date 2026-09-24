@@ -1,7 +1,8 @@
 import { Result, Schema } from "effect";
 import { isRelationalColumnValue, relationalHasIndexedTextPrefix,
   type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
-import { encodeOrderedIndexComponentsV1, orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
+import { encodeOrderedIndexComponentsV1, orderedIndexKeyHexV1ToBytes,
+  orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
 import type { JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure } from "./model";
 import { prepareLogicalRelationalRowValues, relationalTextIdentity } from "./relationalRows";
@@ -19,6 +20,7 @@ const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(["and", "or"]), children: Schema.Array(Schema.Unknown) }),
   Schema.Struct({ kind: Schema.Literal("in"), column: Schema.String, values: Schema.Array(Schema.String) }),
   Schema.Struct({ kind: Schema.Literal("isNull"), column: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String }),
 ]);
 const decodeEnvelope = Schema.decodeUnknownResult(Envelope, { onExcessProperty: "error" });
 const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" });
@@ -82,6 +84,13 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           requiredNulls: column.nullable ? new Set([node.column]) : new Set<string>(),
           matches: row => row[node.column] === null };
       }
+      if (node.kind === "textNotEqual") {
+        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.value))
+          return yield* Result.fail(error("invalidInput"));
+        return { select: () => Result.succeed(null), requiredNulls: new Set<string>(),
+          matches: row => typeof row[node.column] === "string" && row[node.column] !== node.value };
+      }
       const children: Filter<Failure>[] = [];
       for (const child of node.children) children.push(yield* visit(child, depth + 1));
       const requiredNulls = new Set<string>(node.kind === "or" ? children[0]?.requiredNulls ?? [] : []);
@@ -118,7 +127,13 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         yield* validate(native, "storedCorruption");
         const value = row[query.order.column];
         if (!isRelationalColumnValue(orderColumn.type, false, value ?? null)) return yield* Result.fail(error("storedCorruption"));
-        const order = yield* Result.try({ try: () => encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(value)]),
+        // Compare complete UTF-8 bytes for native text order. JS code-unit
+        // order differs for supplementary characters; neither path needs a
+        // bounded ordered-index key for in-memory row sorting.
+        if (orderColumn.type === "text" && typeof value === "string")
+          return { matches: filter.matches(row), order: new TextEncoder().encode(value) };
+        const order = yield* Result.try({ try: () => orderedIndexKeyHexV1ToBytes(
+          encodeOrderedIndexComponentsV1([orderedIndexValueFromFlarexValueV1(value)])),
           catch: cause => { if (cause instanceof OrderedIndexKeyTooLargeError) return error("limitExceeded", cause); throw cause; } });
         return { matches: filter.matches(row), order };
       }),

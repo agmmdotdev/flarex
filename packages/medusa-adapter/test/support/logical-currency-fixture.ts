@@ -50,6 +50,7 @@ import { currencyInitialization } from "../../src/currency-contract";
 import { compileProductDefinition } from "../../src/product-definition";
 import { compilePricingDefinition } from "../../src/pricing-schema";
 import { compileVariantPricingLinkDefinition } from "../../src/product-variant-pricing-schema";
+import { compileSalesChannelDefinition } from "../../src/sales-channel-schema";
 import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from "../../src/currency-service";
 
 type LogicalCurrencyResource =
@@ -61,6 +62,7 @@ type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidO
 type LogicalCurrencyFixtureOptions = Readonly<{
   includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
   includeVariantPricingLink?: boolean;
+  includeSalesChannel?: boolean;
 }> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
   | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
 
@@ -81,6 +83,7 @@ export interface LogicalCurrencyFixture {
   readonly productDefinition: Effect.Success<ReturnType<typeof compileProductDefinition>> | undefined;
   readonly pricingDefinition: Effect.Success<ReturnType<typeof compilePricingDefinition>> | undefined;
   readonly variantPricingLinkDefinition: Effect.Success<ReturnType<typeof compileVariantPricingLinkDefinition>> | undefined;
+  readonly salesChannelDefinition: Effect.Success<ReturnType<typeof compileSalesChannelDefinition>> | undefined;
   readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
   readonly observeSql?: (observer: ((text: string) => Promise<void> | void) | undefined) => void;
 }
@@ -125,7 +128,8 @@ export async function logicalCurrencyFixture(
       authority: application.authority, applicationAnalyses: makeApplicationAnalysisRepository(target.drizzle),
       medusaModules: ["currency", ...(options?.includeProduct === true ? ["product" as const] : []),
         ...(options?.includePricing === true ? ["pricing" as const] : []),
-        ...(options?.includeVariantPricingLink === true ? ["variantPricingLink" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
+        ...(options?.includeVariantPricingLink === true ? ["variantPricingLink" as const] : []),
+        ...(options?.includeSalesChannel === true ? ["salesChannel" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
         payloadViews: [], extensions: [] });
@@ -138,6 +142,7 @@ export async function logicalCurrencyFixture(
     const productDefinition = options?.includeProduct === true ? yield* compileProductDefinition() : undefined;
     const pricingDefinition = options?.includePricing === true ? yield* compilePricingDefinition() : undefined;
     const variantPricingLinkDefinition = options?.includeVariantPricingLink === true ? yield* compileVariantPricingLinkDefinition() : undefined;
+    const salesChannelDefinition = options?.includeSalesChannel === true ? yield* compileSalesChannelDefinition() : undefined;
     const initialization = yield* currencyInitialization();
     const schemaVersionId = decodeCatalogSchemaVersionId("live-logical-currency");
     const controlSession = pair.kind === "postgres"
@@ -220,7 +225,7 @@ export async function logicalCurrencyFixture(
     yield* host.initialize(initialization.rows);
     return { resource: pair, application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource,
-      productDefinition, pricingDefinition, variantPricingLinkDefinition, physicalTablesBeforeCandidate,
+      productDefinition, pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());
 }

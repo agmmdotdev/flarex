@@ -114,6 +114,14 @@ remain distinct from logical schema evolution.
   now run through generic rows, with a bounded all-row restore lookup and
   native event receipts. The displaced focused physical lifecycle fixture is
   retired under the [Link lifecycle cutover](./17-variant-pricing-link-lifecycle-cutover.md).
+  Native SalesChannel create/update/delete and bounded reads are implemented on
+  a joint logical source. Its unrestricted name selection uses the
+  [shared exact-equality index](./19-unrestricted-text-equality-index.md), not
+  an ordered whole-text key. The standalone physical binding fixture and
+  Product/SalesChannel atomic composition witness move together in this cutover.
+  The Product–SalesChannel stored Link and composed workflow still select their
+  physical profiles and retain a separate cutover gate in the
+  [SalesChannel slice](./18-sales-channel-storage-cutover.md).
   General bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

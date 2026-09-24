@@ -47,10 +47,12 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
     }
     for (const table of source.definition.schema.tables) {
       const declarations = [
-        ...table.keys.map(key => ({ name: `key/${key.identity.keyId}`, columns: key.columns, predicate: null })),
-        ...table.indexes.map(index => ({ name: `index/${index.identity.indexId}`, columns: index.columns, predicate: index.predicate })),
+        ...table.keys.map(key => ({ name: `key/${key.identity.keyId}`, columns: key.columns, predicate: null,
+          kind: "btree" as const })),
+        ...table.indexes.map(index => ({ name: `index/${index.identity.indexId}`, columns: index.columns, predicate: index.predicate,
+          kind: index.kind })),
         ...relationalForeignKeyReverseColumns(table).map(column => ({ name: `fk-reverse/${column.columnId}`,
-          columns: [column], predicate: null })),
+          columns: [column], predicate: null, kind: "btree" as const })),
       ];
       for (const declaration of declarations) {
         const predicate = declaration.predicate;
@@ -78,8 +80,11 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
         const logical = yield* decodeIndex({ kind: "developerOrdered", specVersion: 1,
           fields: declaration.columns.map(column => column.columnId), ...(decimalFields.length === 0 ? {} : { decimalFields }),
         }).pipe(Result.mapError(cause => failure(source, cause)));
+        const lowered = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logical);
         const physicalSpec = yield* decodeAppOrderedIndexPhysicalSpecV1Result({
-          ...lowerAppDeveloperOrderedIndexPhysicalSpecV1(logical),
+          ...lowered,
+          ...(declaration.kind === "textEquality" ? { orderedFields: lowered.orderedFields.map(field =>
+            field.kind === "documentPath" ? { ...field, valueFormat: "sha256TextV1" as const } : field) } : {}),
           ...(predicate === null ? {} : predicate.kind === "isNull"
             ? { predicate: { kind: "fieldIsNull" as const, field: predicate.column.columnId } }
             : { predicate: { kind: "fieldIsNullAndTextEquals" as const,

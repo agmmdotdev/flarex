@@ -33,6 +33,8 @@ import {
   orderedIndexBytesV1FromBytes,
   orderedIndexBytesV1ToBytes,
   orderedIndexCreationTimeV1,
+  orderedIndexValueForAppFieldV1,
+  orderedIndexValueFromFlarexValueV1,
   orderedIndexBoundHexV1FromBytes,
   orderedIndexBoundHexV1ToBytes,
   orderedIndexFloat64FromBitsV1,
@@ -59,6 +61,40 @@ import {
 } from "../src/ordered-index";
 
 describe("ordered index physical contract v1", () => {
+  it("keeps unrestricted text equality selective without granting text ranges", () => {
+    const ordinary = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logicalSpec("name"));
+    const spec = decodeAppOrderedIndexPhysicalSpecV1({ ...ordinary,
+      orderedFields: [{ kind: "documentPath", path: "name", valueFormat: "sha256TextV1" },
+        { kind: "systemCreationTime" }] });
+    const field = spec.orderedFields[0]!;
+    const first = "a".repeat(2_047);
+    const second = `${"a".repeat(2_046)}b`;
+    const encoded = (value: string) => encodeAppOrderedIndexKeyV1({ spec,
+      values: [orderedIndexValueForAppFieldV1(field, value), orderedIndexCreationTimeV1(1)] });
+    expect(() => orderedIndexValueFromFlarexValueV1(first)).toThrow(OrderedIndexKeyTooLargeError);
+    expect(encoded(first)).not.toBe(encoded(second));
+    const values = decodeAppOrderedIndexKeyV1({ spec, encodedKey: encoded(first) });
+    expect(encodeAppOrderedIndexKeyV1({ spec, values })).toBe(encoded(first));
+    const bounds = compileAppOrderedIndexBoundsV1({ spec, expressions: [
+      { op: "eq", field, value: orderedIndexValueForAppFieldV1(field, first) },
+    ] });
+    expect(orderedIndexPositionInBoundsV1(position(encoded(first), 1), bounds)).toBe(true);
+    expect(orderedIndexPositionInBoundsV1(position(encoded(second), 1), bounds)).toBe(false);
+    expect(() => compileAppOrderedIndexBoundsV1({ spec, expressions: [
+      { op: "gte", field, value: orderedIndexValueForAppFieldV1(field, first) },
+    ] })).toThrow();
+    expect(() => encodeAppOrderedIndexKeyV1({ spec, values: [
+      { kind: "string", value: "\ud800" }, orderedIndexCreationTimeV1(1),
+    ] })).toThrow(OrderedIndexCodecV1InputError);
+    let accessorReads = 0;
+    const accessor = { kind: "string" as const, get value() { accessorReads++; return first; } };
+    expect(() => encodeAppOrderedIndexKeyV1({ spec, values: [accessor, orderedIndexCreationTimeV1(1)] }))
+      .toThrow(OrderedIndexCodecV1InputError);
+    expect(() => compileAppOrderedIndexBoundsV1({ spec, expressions: [
+      { op: "eq", field, value: accessor },
+    ] })).toThrow(OrderedIndexCodecV1InputError);
+    expect(accessorReads).toBe(0);
+  });
   it("lowers developer and intrinsic access paths without changing the logical spec", () => {
     const logical = logicalSpec("status", "createdBy");
     const physical = lowerAppDeveloperOrderedIndexPhysicalSpecV1(logical);

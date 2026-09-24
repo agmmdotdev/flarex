@@ -105,6 +105,7 @@
   "dependencies": {
     "@flarex/time": "workspace:*",
     "@flarex/utils": "workspace:*",
+    "@noble/hashes": "2.4.0",
     "effect": "catalog:"
   },
   "devDependencies": {

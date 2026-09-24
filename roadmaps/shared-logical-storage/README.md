@@ -16,8 +16,8 @@ full migration/ownership transitions prerequisites for core completion.
 
 Status: accepted development-phase architecture replacement; the first
 [candidate-admission slice](./02-candidate-admission.md) is implemented as private metadata admission.
-Selective CMS/Payload ID, unique-key and ordinary-index reads are implemented; generic Medusa
-row execution and later gates remain pending. The owner chooses generic physical storage with logical Application,
+Selective CMS/Payload ID, unique-key and ordinary-index reads are implemented; selected Medusa
+  Currency, Product, base Pricing, SalesChannel and selected Link consumers execute through generic rows while other consumers remain physical. SalesChannel name selection uses shared exact-text equality access. The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
 
@@ -132,8 +132,8 @@ implementation.
 
 ## Known Gaps And Limitations
 
-- Generic Medusa schema/index/query translation and mutation materialization do
-  not exist as a proven replacement of the physical relational path.
+- Generic Medusa schema/index/query translation and mutation materialization are
+  proved for selected sources, not yet the complete replacement of the physical relational path.
 - Core actual-null predicates and null-distinct unique participation are
   [implemented](./08-conditional-unique-constraints.md). Native Medusa predicate
   translation, end-to-end decimal/null semantics and rich Link constraints remain.

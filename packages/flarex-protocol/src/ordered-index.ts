@@ -4,6 +4,7 @@ import {
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Result, Schema } from "effect";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { decodeExactDecimalOrderBytes, encodeExactDecimalOrderBytes, ExactDecimalError } from "./exact-decimal";
 
 import {
@@ -64,7 +65,7 @@ export const ORDERED_INDEX_KEY_CODEC_VERSION_V1 =
 export const AppOrderedIndexDocumentPathV1Schema = Schema.Struct({
   kind: Schema.Literal("documentPath"),
   path: SchemaManifestAppIndexFieldPathSchema,
-  valueFormat: Schema.optionalKey(Schema.Literal("exactDecimal")),
+  valueFormat: Schema.optionalKey(Schema.Literals(["exactDecimal", "sha256TextV1"])),
 }).annotate(StrictStructOptions);
 export type AppOrderedIndexDocumentPathV1 =
   typeof AppOrderedIndexDocumentPathV1Schema.Type;
@@ -493,9 +494,40 @@ export function orderedIndexValueFromFlarexValueV1(
   return ordered;
 }
 
+/** Equality-only projection admits complete canonical text beyond ordered-key
+ * limits. The physical field format commits this digest algorithm. */
+export function orderedIndexValueForAppFieldV1(
+  field: AppOrderedIndexPhysicalFieldV1, value: unknown,
+): OrderedIndexValueV1 {
+  if (field.kind !== "documentPath" || field.valueFormat !== "sha256TextV1" || value === null)
+    return orderedIndexValueFromFlarexValueV1(value);
+  const normalized = normalizeFlarexValueV1(value).value;
+  if (typeof normalized !== "string") throw invalidValue("$value", "text equality field requires text");
+  return Object.freeze({ kind: "string", value: normalized });
+}
+
+const TEXT_EQUALITY_DIGEST_DOMAIN_V1 = new TextEncoder().encode("Flarex/text-equality/sha256/v1\0");
+
+function textEqualityDigestV1(value: string): Uint8Array {
+  const text = new TextEncoder().encode(value);
+  const input = new Uint8Array(TEXT_EQUALITY_DIGEST_DOMAIN_V1.length + text.length);
+  input.set(TEXT_EQUALITY_DIGEST_DOMAIN_V1);
+  input.set(text, TEXT_EQUALITY_DIGEST_DOMAIN_V1.length);
+  return sha256(input);
+}
+
 /** The authenticated field owns projection; a query operand supplies only a value. */
 function projectOrderedIndexFieldValue(field: AppOrderedIndexPhysicalFieldV1, value: OrderedIndexComponentV1): OrderedIndexComponentV1 {
-  if (field.kind !== "documentPath" || field.valueFormat !== "exactDecimal") return value;
+  if (field.kind !== "documentPath" || field.valueFormat === undefined) return value;
+  if (field.valueFormat === "sha256TextV1") {
+    validateVariantDataObject(value, "$value");
+    if (value.kind === "null" || value.kind === "missing") return value;
+    if (value.kind === "bytes" && orderedIndexBytesV1ToBytes(value).length === 32) return value;
+    if (value.kind !== "string") throw invalidValue("$value", "text equality field requires text");
+    if (typeof value.value !== "string" || !isWellFormedUnicode(value.value))
+      throw invalidValue("$value", "text equality field requires well-formed Unicode");
+    return orderedIndexBytesV1FromBytes(textEqualityDigestV1(value.value));
+  }
   // Validate the tagged input before inspecting its properties.
   encodeOrderedIndexComponentsV1([value]);
   if (value.kind === "null" || value.kind === "missing") return value;
@@ -729,6 +761,10 @@ export function decodeAppOrderedIndexKeyV1(input: {
   validateCreationTimeComponents(spec, values);
   return Object.freeze(values.map((value, index) => {
     const field = spec.orderedFields[index]!;
+    if (field.kind === "documentPath" && field.valueFormat === "sha256TextV1" &&
+      value.kind !== "null" && value.kind !== "missing" &&
+      (value.kind !== "bytes" || orderedIndexBytesV1ToBytes(value).length !== 32))
+      throw invalidValue("$key", "text equality index component must contain a SHA-256 digest");
     if (field.kind !== "documentPath" || field.valueFormat !== "exactDecimal" || value.kind === "null" || value.kind === "missing") return value;
     if (value.kind !== "bytes") throw invalidValue("$key", "decimal index component must contain projected bytes");
     return Result.match(decodeExactDecimalOrderBytes(orderedIndexBytesV1ToBytes(value)), {
@@ -811,6 +847,9 @@ export function compileAppOrderedIndexBoundsV1(input: {
       });
     }
     validateRangeValue(expectedField, expression.value, equalities.length);
+    if (expectedField.kind === "documentPath" && expectedField.valueFormat === "sha256TextV1" && expression.op !== "eq") {
+      throw invalidValue(`$expressions[${index}].op`, "text equality field only supports equality");
+    }
     const projectedValue = projectOrderedIndexFieldValue(expectedField, expression.value);
     if (expression.op === "eq") {
       if (lower !== undefined || upper !== undefined) {
