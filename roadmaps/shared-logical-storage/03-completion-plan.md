@@ -127,15 +127,22 @@ remain distinct from logical schema evolution.
   The promoted native SalesChannel compatibility runner now uses the selected
   logical source; its standalone generated Product/SalesChannel installation is
   retired under the [runner cutover](./21-sales-channel-native-runner-cutover.md).
-  The Product–ShippingProfile router still selects a physical endpoint schema
-  containing `product_sales_channel`; its removal gate is its Link/workflow
-  cutover. Boolean-only SalesChannel filtering currently uses the bounded
-  complete-set path and remains a selective-index scalability gate.
+  The Product–ShippingProfile router now selects one logical Product Links
+  source containing the selected SalesChannel and ShippingProfile stored Link
+  definitions. The four-participant native workflow uses shared rows, pending
+  graph reads, event receipts and one atomic publication. Its former
+  seventeen-table physical installer, profiles and workflow fixture are
+  retired under the [connected cutover](./23-product-shipping-profile-link-workflow-cutover.md).
+  Concurrent same-scope native roots may reach callbacks independently; a
+  conflicting settlement reports `writeConflict`, and an explicit retry can
+  attach to the resulting active Link. Boolean-only SalesChannel filtering
+  still uses the bounded complete-set path and remains a selective-index
+  scalability gate.
   The selected native ShippingProfile module now compiles to one logical
   source, including active-name uniqueness and derived type equality access.
   Its standalone native service and promoted creation/event bodies use logical
-  rows, while the composed Product–ShippingProfile workflow remains a physical
-  consumer under the [module cutover](./22-shipping-profile-module-cutover.md).
+  rows; the composed workflow now uses the same selected logical source under
+  the [module cutover](./22-shipping-profile-module-cutover.md).
   General bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

@@ -6,7 +6,7 @@ import type { CommerceHost } from "../../../persistence-postgres/src/commerceTra
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
 interface LogicalProductSalesChannelLinkHostFixture {
-  readonly definition: NonNullable<LogicalCurrencyFixture["productSalesChannelLinkDefinition"]>;
+  readonly definition: NonNullable<LogicalCurrencyFixture["productLinksDefinition"]>;
   readonly runtime: Effect.Success<ReturnType<typeof prepareProductSalesChannelLink>>;
   readonly hostInput: LogicalCommerceHostInput<unknown>;
   readonly host: CommerceHost;
@@ -14,7 +14,7 @@ interface LogicalProductSalesChannelLinkHostFixture {
 
 /** The pinned native stored Link borrows one selected logical source. */
 export async function prepareLogicalProductSalesChannelLinkHost(currency: LogicalCurrencyFixture): Promise<LogicalProductSalesChannelLinkHostFixture> {
-  const definition = currency.productSalesChannelLinkDefinition;
+  const definition = currency.productLinksDefinition;
   if (definition === undefined) throw new Error("Missing Product–SalesChannel Link source");
   const runtime = await Effect.runPromise(prepareProductSalesChannelLink());
   const seed = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset",
@@ -23,7 +23,7 @@ export async function prepareLogicalProductSalesChannelLinkHost(currency: Logica
   const hostInput = { ...currency.hostInput,
     identityAndAccessPolicy: { profile: "logical-product-sales-channel-link-internal-test" },
     logicalStorage: { ...currency.hostInput.logicalStorage,
-      source: { sourceKey: "medusa.link.productSalesChannel", writeProfile: "medusa.link.productSalesChannel",
+      source: { sourceKey: "medusa.productLinks", writeProfile: "medusa.productLinks",
         schema: definition.schema, evidence: definition.provenance },
       initialization: { stepId: "product-sales-channel-link-empty", datasetSha256: seed.sha256Hex, expectedRowCount: 0 },
     }, commands: runtime.commands,

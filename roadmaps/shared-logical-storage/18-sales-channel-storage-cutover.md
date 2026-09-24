@@ -1,6 +1,6 @@
 # SalesChannel Logical Storage Cutover
 
-Status: implemented under the approved shared-storage completion goal. The Product–SalesChannel Link and its composed workflow moved in the [connected cutover](./20-product-sales-channel-link-workflow-cutover.md). The native compatibility runner moved in the [runner cutover](./21-sales-channel-native-runner-cutover.md); the Product–ShippingProfile router remains a physical consumer.
+Status: implemented under the approved shared-storage completion goal. The Product–SalesChannel Link and its composed workflow moved in the [connected cutover](./20-product-sales-channel-link-workflow-cutover.md). The native compatibility runner moved in the [runner cutover](./21-sales-channel-native-runner-cutover.md); the Product–ShippingProfile router moved in its [connected cutover](./23-product-shipping-profile-link-workflow-cutover.md).
 
 ## Contract And Evidence
 

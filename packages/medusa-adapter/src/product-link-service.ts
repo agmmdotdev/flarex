@@ -1,14 +1,12 @@
 import { Effect, Result, Schema } from "effect";
 import { Link } from "@medusajs/modules-sdk/link";
 import type { FindConfig } from "@medusajs/types";
-import { registerLocalCommerceProfile, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-link-schema";
 import { captureProductShippingProfileLinkMetadata } from "./product-shipping-profile-link-schema";
 import { prepareLinkService } from "./link-service";
-import { selectedLinkEventPolicy } from "./link-events";
-import { prepareProductShippingProfileSchema } from "./product-shipping-profile-schema";
+import { selectedLinkLogicalEventPolicy } from "./link-events";
 import { withCommerceService } from "./commerce-service-bridge";
 import { commerceServiceCommands } from "./service-commands";
 import { commerceDecoder } from "./commerce-decoder";
@@ -47,6 +45,10 @@ const decodeSalesRead = commerceDecoder(Schema.Struct({ filters: Schema.optional
 const decodeShippingRead = commerceDecoder(Schema.Struct({ filters: Schema.optionalKey(Schema.Struct({
   product_id: Schema.optionalKey(IdFilter), shipping_profile_id: Schema.optionalKey(IdFilter), id: Schema.optionalKey(IdFilter),
 })), config: Schema.optionalKey(Config) }), "invalidInput");
+const decodeShippingEndpoint = commerceDecoder(Schema.Union([
+  Schema.Struct({ product: Schema.Struct({ product_id: Ids }) }),
+  Schema.Struct({ fulfillment: Schema.Struct({ shipping_profile_id: Ids }) }),
+]), "unsupportedProfile");
 
 /** One native Link router and borrowed owner for the two named Product links.
  * Native routing owns associations; callers never register tables or services. */
@@ -74,6 +76,8 @@ export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(functi
       Effect.map(value => structuredClone(value)), Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error))));
   const create = commands.write("linkCreate", prepare(decodeLinks), ({ link }, input) => link.create(input));
   const dismiss = commands.write("linkDismiss", prepare(decodeLinks), ({ link }, input) => link.dismiss(input));
+  const restoreShipping = commerceServiceCommands(shipping.use).write("linkRestore", prepare(decodeShippingEndpoint),
+    async ({ link, context, cascade }, input) => cascade(await link.restore(input, context)));
   const countSales = commands.read("productSalesChannelLinkCount", prepare(decodeSalesRead), ({ sales, context }, args) =>
     sales.listAndCount(args.filters, args.config as FindConfig<unknown> | undefined, context));
   const countShipping = commands.read("productShippingProfileLinkCount", prepare(decodeShippingRead), ({ shipping, context }, args) =>
@@ -85,29 +89,17 @@ export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(functi
       { model: shipping.entityName, command: countShipping, table: shipping.prepared.table, paths: [], orderable: ["product_id"], uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount },
     ],
   };
-  const eventPolicy = (descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]) => selectedLinkEventPolicy([
-    { tableName: "product_sales_channel", serviceName: sales.serviceName, entityName: sales.entityName },
-    { tableName: "product_shipping_profile", serviceName: shipping.serviceName, entityName: shipping.entityName },
-  ], descriptor, deliver);
+  const logicalEventPolicy = () => selectedLinkLogicalEventPolicy([
+    { tableName: "product_sales_channel", serviceName: sales.serviceName, entityName: sales.entityName,
+      endpoints: ["product_id", "sales_channel_id"] },
+    { tableName: "product_shipping_profile", serviceName: shipping.serviceName, entityName: shipping.entityName,
+      endpoints: ["product_id", "shipping_profile_id"] },
+  ]);
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links,
     output: decodeCreated, moduleEvents: [sales.entityName + ".attached", shipping.entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-product-links", profile: "medusa.product.links" },
     methods: { create: method }, graph }));
-  return { create, dismiss, countSales, countShipping, commands: [create, dismiss, countSales, countShipping],
-    workflow, graph, eventPolicy, withService: use, prepareProfile: prepareProductLinkProfile };
-});
-
-const prepareProductLinkProfile = Effect.fn("ProductLinks.prepareProfile")(function* (
-  ...args: Parameters<typeof prepareProductShippingProfileSchema>
-) {
-  const prepared = yield* prepareProductShippingProfileSchema(...args);
-  const grants = [];
-  for (const tableId of ["product_sales_channel", "product_shipping_profile"]) {
-    const key = prepared.layout.frame.tables.find(table => table.identity.tableId === tableId)?.keys.find(key => key.kind === "primary");
-    if (key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    grants.push({ tableId, keyId: key.identity.keyId, update: "existingPrimaryKey" as const, remove: "declaredKey" as const,
-      lifecycle: "managedSoftDelete" as const, upsert: "activeRow" as const, observeRows: true as const });
-  }
-  const profile = yield* registerLocalCommerceProfile(prepared.artifact, prepared.layout, "medusa.product.links", grants);
-  return { ...prepared, profile, initialization: { rows: undefined } };
+  return { create, dismiss, restoreShipping, countSales, countShipping,
+    commands: [create, dismiss, restoreShipping, countSales, countShipping],
+    workflow, graph, logicalEventPolicy, withService: use };
 });

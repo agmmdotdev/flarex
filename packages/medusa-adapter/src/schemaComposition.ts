@@ -9,7 +9,7 @@ import { compileCurrencyDefinition } from "./currency-schema";
 import { compilePricingDefinition } from "./pricing-schema";
 import { compileVariantPricingLinkDefinition } from "./product-variant-pricing-schema";
 import { compileSalesChannelDefinition } from "./sales-channel-schema";
-import { compileProductSalesChannelLinkDefinition } from "./product-sales-channel-link-schema";
+import { compileProductLinksDefinition } from "./product-links-definition";
 import { compileShippingProfileDefinition } from "./shipping-profile-schema";
 import type {
   ApplicationAnalysisAuthority,
@@ -26,7 +26,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink", "shippingProfile"])));
+const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink", "shippingProfile", "productShippingProfileLink"])));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
   payloadCollections: Schema.Unknown,
@@ -52,7 +52,7 @@ export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
-  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink" | "salesChannel" | "productSalesChannelLink" | "shippingProfile")[];
+  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink" | "salesChannel" | "productSalesChannelLink" | "shippingProfile" | "productShippingProfileLink")[];
 }) {
   const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
     storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
@@ -167,10 +167,11 @@ export function makeSchemaComposer(configuration: {
           table: { namespace: "medusa", logicalName: `${link.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
       }));
     }
-    if (modules.includes("productSalesChannelLink")) {
-      const link = yield* compileProductSalesChannelLinkDefinition();
+    if (modules.includes("productSalesChannelLink") || modules.includes("productShippingProfileLink")) {
+      const link = yield* compileProductLinksDefinition({ salesChannel: modules.includes("productSalesChannelLink"),
+        shippingProfile: modules.includes("productShippingProfileLink") });
       medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.link.productSalesChannel", owner: "medusa", writeProfile: "medusa.link.productSalesChannel",
+        key: "medusa.productLinks", owner: "medusa", writeProfile: "medusa.productLinks",
         evidence: link.provenance, definition: { kind: "relational", schema: link.schema },
         bindings: link.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
           table: { namespace: "medusa", logicalName: `${link.schema.coordinate.lineageId}/${table.identity.tableId}` } })),

@@ -51,7 +51,7 @@ import { compileProductDefinition } from "../../src/product-definition";
 import { compilePricingDefinition } from "../../src/pricing-schema";
 import { compileVariantPricingLinkDefinition } from "../../src/product-variant-pricing-schema";
 import { compileSalesChannelDefinition } from "../../src/sales-channel-schema";
-import { compileProductSalesChannelLinkDefinition } from "../../src/product-sales-channel-link-schema";
+import { compileProductLinksDefinition } from "../../src/product-links-definition";
 import { compileShippingProfileDefinition } from "../../src/shipping-profile-schema";
 import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from "../../src/currency-service";
 
@@ -67,6 +67,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeSalesChannel?: boolean;
   includeProductSalesChannelLink?: boolean;
   includeShippingProfile?: boolean;
+  includeProductShippingProfileLink?: boolean;
 }> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
   | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
 
@@ -88,7 +89,7 @@ export interface LogicalCurrencyFixture {
   readonly pricingDefinition: Effect.Success<ReturnType<typeof compilePricingDefinition>> | undefined;
   readonly variantPricingLinkDefinition: Effect.Success<ReturnType<typeof compileVariantPricingLinkDefinition>> | undefined;
   readonly salesChannelDefinition: Effect.Success<ReturnType<typeof compileSalesChannelDefinition>> | undefined;
-  readonly productSalesChannelLinkDefinition: Effect.Success<ReturnType<typeof compileProductSalesChannelLinkDefinition>> | undefined;
+  readonly productLinksDefinition: Effect.Success<ReturnType<typeof compileProductLinksDefinition>> | undefined;
   readonly shippingProfileDefinition: Effect.Success<ReturnType<typeof compileShippingProfileDefinition>> | undefined;
   readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
   readonly observeSql?: (observer: ((text: string) => Promise<void> | void) | undefined) => void;
@@ -137,7 +138,8 @@ export async function logicalCurrencyFixture(
         ...(options?.includeVariantPricingLink === true ? ["variantPricingLink" as const] : []),
         ...(options?.includeSalesChannel === true ? ["salesChannel" as const] : []),
         ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : []),
-        ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
+        ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : []),
+        ...(options?.includeProductShippingProfileLink === true ? ["productShippingProfileLink" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
         payloadViews: [], extensions: [] });
@@ -151,8 +153,9 @@ export async function logicalCurrencyFixture(
     const pricingDefinition = options?.includePricing === true ? yield* compilePricingDefinition() : undefined;
     const variantPricingLinkDefinition = options?.includeVariantPricingLink === true ? yield* compileVariantPricingLinkDefinition() : undefined;
     const salesChannelDefinition = options?.includeSalesChannel === true ? yield* compileSalesChannelDefinition() : undefined;
-    const productSalesChannelLinkDefinition = options?.includeProductSalesChannelLink === true
-      ? yield* compileProductSalesChannelLinkDefinition() : undefined;
+    const productLinksDefinition = options?.includeProductSalesChannelLink === true || options?.includeProductShippingProfileLink === true
+      ? yield* compileProductLinksDefinition({ salesChannel: options?.includeProductSalesChannelLink === true,
+        shippingProfile: options?.includeProductShippingProfileLink === true }) : undefined;
     const shippingProfileDefinition = options?.includeShippingProfile === true
       ? yield* compileShippingProfileDefinition() : undefined;
     const initialization = yield* currencyInitialization();
@@ -237,7 +240,7 @@ export async function logicalCurrencyFixture(
     yield* host.initialize(initialization.rows);
     return { resource: pair, application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource,
-      productDefinition, pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, productSalesChannelLinkDefinition,
+      productDefinition, pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, productLinksDefinition,
       shippingProfileDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());

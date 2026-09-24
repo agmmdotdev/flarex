@@ -1,6 +1,6 @@
 # Shared Logical Storage For Application, Payload And Medusa
 
-Status: accepted architecture replacement; runtime migration is not implemented.
+Status: accepted architecture replacement; selected runtime consumers have moved, while full migration remains incomplete.
 
 The [query and constraint acceptance contract](../roadmaps/shared-logical-storage/02-query-and-constraint-acceptance.md)
 makes representative Pricing queries, indexed Payload operations, relation-policy
@@ -19,8 +19,10 @@ This is the owner-approved correction to the former separate document/commerce
 storage destination. The [accepted database design](./flarex-db-accepted-design.md)
 incorporates this decision. This note owns its detailed storage, index, relation,
 execution and replacement policy; the [redesign roadmap](../roadmaps/shared-logical-storage/README.md)
-owns sequencing and completion gates. Current code still uses shared Application
-row/index/unique/edge tables and deployment-named physical Medusa module tables.
+owns sequencing and completion gates. Current code uses shared Application
+row/index/unique/edge tables for selected Application, Payload and Medusa
+consumers; remaining physical Medusa callers and retirement gates are inventoried
+in the roadmap.
 Changing these documents does not change that runtime fact.
 
 The project is in development. The owner explicitly permits redesign of core

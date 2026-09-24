@@ -1,8 +1,8 @@
 # ShippingProfile Module Cutover
 
 Status: implemented under the approved shared-storage completion goal. The
-Product–ShippingProfile composed workflow still owns a named physical profile
-until its Product–ShippingProfile Link and router move together.
+Product–ShippingProfile composed workflow and both stored Links subsequently
+moved under the [connected logical cutover](./23-product-shipping-profile-link-workflow-cutover.md).
 
 ## Preflight And Owner
 

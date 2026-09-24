@@ -17,7 +17,7 @@ full migration/ownership transitions prerequisites for core completion.
 Status: accepted development-phase architecture replacement; the first
 [candidate-admission slice](./02-candidate-admission.md) is implemented as private metadata admission.
 Selective CMS/Payload ID, unique-key and ordinary-index reads are implemented; selected Medusa
-  Currency, Product, base Pricing, SalesChannel, ShippingProfile and the selected Variant–PriceSet and Product–SalesChannel Links and workflows execute through generic rows while other consumers remain physical. SalesChannel name and ShippingProfile type selection use shared exact-text equality access. The owner chooses generic physical storage with logical Application,
+  Currency, Product, base Pricing, SalesChannel, ShippingProfile and the selected Variant–PriceSet and Product Links and workflows execute through generic rows while other consumers remain physical. SalesChannel name and ShippingProfile type selection use shared exact-text equality access. The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
 
@@ -77,12 +77,12 @@ counts are bounded by matched identities and bytes; broad or unindexed find stil
 uses bounded collection reads.
 Generic storage therefore exists without complete generic framework query support.
 
-Medusa currently compiles admitted models to physical module tables. Deployment
-identity participates in table/index names and target namespace authentication.
-The current Product/Variant/Pricing/Link implementation is regression evidence,
-not the target physical model. Its native tests and exact numeric/index/link
-contracts are valuable replacement witnesses. Existing code is not relabeled as
-already using generic storage.
+Selected Medusa models and Links now compile into shared logical definitions and
+execute through generic storage. Remaining physical commerce consumers still
+compile deployment-named module tables and retain installation obligations;
+the [completion inventory](./03-completion-plan.md) governs their removal.
+Native tests and exact numeric/index/Link contracts remain replacement witnesses,
+not proof that every Medusa path has moved.
 
 ## Invariants And Trust Boundaries
 
@@ -135,8 +135,9 @@ implementation.
 - Generic Medusa schema/index/query translation and mutation materialization are
   proved for selected sources, not yet the complete replacement of the physical relational path.
 - Core actual-null predicates and null-distinct unique participation are
-  [implemented](./08-conditional-unique-constraints.md). Native Medusa predicate
-  translation, end-to-end decimal/null semantics and rich Link constraints remain.
+  [implemented](./08-conditional-unique-constraints.md). Selected native Medusa
+  predicates and stored Link constraints execute logically; broader translation
+  and end-to-end decimal/null semantics remain.
 - Payload indexed queries retain bounded complete membership, numeric-only ranges,
   native ID ordering and flat scalar fields. Multiple text-field and compound
   scalar uniqueness use the shared claim owner; [nullable keys](./09-payload-nullable-keys.md)

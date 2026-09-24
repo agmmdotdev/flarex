@@ -1,7 +1,7 @@
 # Native SalesChannel Runner Cutover
 
 Status: implemented under the approved shared-storage completion goal. The
-Product–ShippingProfile router is the remaining named physical SalesChannel
+Product–ShippingProfile router was the remaining named physical SalesChannel
 consumer.
 
 ## Preflight And Decision
