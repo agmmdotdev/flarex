@@ -175,6 +175,10 @@ remain distinct from logical schema evolution.
   [Collection membership cutover](./32-product-collection-membership-service-cutover.md).
   Generated-ID Collection creation and mixed upsert membership now use the
   [native result-bound logical receipt](./33-product-collection-generated-id-membership-cutover.md).
+  Large membership replacement remains an atomic capacity refusal; the
+  [core replacement preflight](./34-core-collection-membership-replacement.md)
+  names the native selector-enumeration seam and shared bounded settlement
+  needed to remove that limit without adapter pagination.
   More complex membership batches and other unported Product methods remain
   with the named physical compatibility runner;
   other relationship kinds still need their own coherent cutovers. General

@@ -78,6 +78,7 @@ unported Product methods retain the physical runner; it is not a fallback for
 the selected logical paths.
 Replacing membership beyond the shared complete indexed-read budget currently
 refuses atomically; the 129-member witness prevents a partial detach from
-appearing successful. General high-fan-out replacement needs a core-owned
-bounded complete-selection design, not adapter-side pagination or a larger
-unchecked `take` value.
+appearing successful. The [core replacement preflight](./34-core-collection-membership-replacement.md)
+records the native service seam, complete indexed selection, bounded atomic
+materialization and event/recovery gates. Adapter-side pagination or a larger
+unchecked `take` value is not the cutover.
