@@ -77,21 +77,48 @@ async function tagHost() {
   }));
 }
 
-async function updateHost() {
+async function updateHost(forged = false, pendingRead = false) {
   const policy = productLogicalUpdateEventPolicy(catalog);
   const participant = defineAtomicCommerceParticipant("product");
+  const command = forged ? defineCommerceCommand("productUpdate", "write", Effect.fn("ProductTest.forgedImageUpdate")(function* (ctx) {
+    yield* (yield* ctx.table(catalog.product.table.name)).write(ctx.manager, "update",
+      [{ id: "prod_logical_image_update", title: "Forged root title" }]);
+    yield* (yield* ctx.table(catalog.image.table.name)).write(ctx.manager, "insert",
+      [{ id: "img_logical_update_extra", product_id: "prod_logical_image_foreign", url: "extra.png", rank: 1 }]);
+    yield* ctx.captureLocalEvent({ name: catalog.product.updatedEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject, action: CommonEvents.UPDATED },
+      data: { id: "prod_logical_image_update" } });
+    yield* ctx.captureLocalEvent({ name: catalog.image.createdEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.image.eventObject, action: CommonEvents.CREATED },
+      data: { id: "img_logical_update_extra" } });
+    return null;
+  })) : product.runtime.commands.update;
   const root = defineAtomicCommerceCommand("productUpdateRoot", (ctx, input) =>
-    ctx.call(participant, product.runtime.commands.update, input));
+    Effect.gen(function* () {
+      const updated = yield* ctx.call(participant, command, input);
+      if (!pendingRead) return updated;
+      if (!isJsonObject(input) || typeof input.id !== "string")
+        return yield* Effect.fail(commerceError("invalidInput"));
+      const pending = yield* ctx.call(participant, product.runtime.commands.list,
+        { filters: { id: input.id }, config: { relations: ["images"] } });
+      return { updated, pending };
+    }));
   const revision = createHash("sha256").update("logical-product-update").digest("hex");
-  const contract = defineCommerceEventContract({ name: catalog.product.updatedEvent, revision,
-    internal: true, decode: policy.capture });
+  const contracts = new Map([
+    catalog.product.updatedEvent, catalog.image.createdEvent,
+    catalog.image.updatedEvent, catalog.image.deletedEvent,
+  ].map(name => [name, defineCommerceEventContract({ name, revision,
+    internal: true, decode: policy.capture })] as const));
+  const selected = { contracts: [...contracts.values()], select: (message: Json) => {
+    const contract = isJsonObject(message) && typeof message.name === "string" ? contracts.get(message.name) : undefined;
+    return contract === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(contract);
+  } };
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
     identityAndAccessPolicy: { profile: "logical-product-update" },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-      commands: [product.runtime.commands.update], validateLogical: policy.validateLogical,
-      events: { contracts: [contract], select: (message: Json) => isJsonObject(message) &&
-        message.name === catalog.product.updatedEvent ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }],
-    commands: [root], events: { producerRevision: revision, contracts: [contract],
+      commands: pendingRead ? [command, product.runtime.commands.list] : [command], validateLogical: policy.validateLogical,
+      events: selected }],
+    commands: [root], events: { producerRevision: revision, contracts: selected.contracts,
       subscribers: [{ id: "logical-product-update", revision: "a".repeat(64) }],
       validate: events => events.some(event => !event.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
   }));
@@ -507,6 +534,81 @@ describe("native Product lifecycle on shared logical storage", () => {
       await Effect.runPromise(categories.host.close);
       await Effect.runPromise(create.close);
       await Effect.runPromise(update.host.close);
+      await Effect.runPromise(read.close);
+    }
+  }, 180_000);
+
+  it("replaces native Product images with ranked events and one settlement", async () => {
+    const create = await createHost();
+    const update = await updateHost();
+    const pendingUpdate = await updateHost(false, true);
+    const forged = await updateHost(true);
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [...product.hostInput.commands, product.runtime.commands.list],
+    }));
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_image_update", title: "Image update",
+        images: [{ id: "img_logical_update_a", url: "a.png" },
+          { id: "img_logical_update_b", url: "b.png" }],
+      }, { id: "prod_logical_image_foreign", title: "Foreign image",
+        images: [{ id: "img_logical_update_foreign", url: "foreign.png" }],
+      }] }));
+      const beforeEvents = await committedEvents();
+      const reorder = { id: "prod_logical_image_update", data: { images: [
+        { id: "img_logical_update_b", url: "b.png" },
+        { id: "img_logical_update_a", url: "a.png" },
+      ] } };
+      const reorderKey = pendingUpdate.host.newRequestKey();
+      const reordered = await Effect.runPromise(pendingUpdate.host.run(reorderKey, pendingUpdate.root, reorder));
+      expect(reordered).toMatchObject({ updated: { id: reorder.id, images: [
+        { id: "img_logical_update_b", rank: 0 }, { id: "img_logical_update_a", rank: 1 },
+      ] }, pending: [{ images: [
+        { id: "img_logical_update_b", rank: 0 }, { id: "img_logical_update_a", rank: 1 },
+      ] }] });
+      expect((await committedEvents()).slice(beforeEvents.length).map(event => event.envelope.contract).sort())
+        .toEqual([catalog.product.updatedEvent, catalog.image.updatedEvent, catalog.image.updatedEvent].sort());
+      expect(await Effect.runPromise(pendingUpdate.host.run(reorderKey, pendingUpdate.root, reorder))).toEqual(reordered);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: reorder.id }, config: { relations: ["images"] },
+      }))).toMatchObject([{ images: [
+        { id: "img_logical_update_b", rank: 0 }, { id: "img_logical_update_a", rank: 1 },
+      ] }]);
+      const replace = { id: reorder.id, data: { images: [
+        { id: "img_logical_update_b", url: "b.png" }, { id: "img_logical_update_new", url: "new.png" },
+      ] } };
+      const replaced = await Effect.runPromise(update.host.run(update.host.newRequestKey(), update.root, replace));
+      expect(replaced).toMatchObject({ images: [
+        { id: "img_logical_update_b", rank: 0 }, { id: "img_logical_update_new", rank: 1 },
+      ] });
+      const afterReplace = await committedEvents();
+      expect(afterReplace.slice(beforeEvents.length + 3).map(event => event.envelope.contract).sort())
+        .toEqual([catalog.product.updatedEvent, catalog.image.createdEvent, catalog.image.deletedEvent].sort());
+      const cleared = await Effect.runPromise(update.host.run(update.host.newRequestKey(), update.root,
+        { id: reorder.id, data: { images: [] } }));
+      expect(cleared).toMatchObject({ images: [] });
+      expect((await committedEvents()).slice(afterReplace.length).map(event => event.envelope.contract).sort())
+        .toEqual([catalog.product.updatedEvent, catalog.image.deletedEvent, catalog.image.deletedEvent].sort());
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: reorder.id }, config: { relations: ["images"] },
+      }))).toMatchObject([{ images: [] }]);
+      const stableRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const stableEvents = await committedEvents();
+      await expect(Effect.runPromise(update.host.run(update.host.newRequestKey(), update.root, {
+        id: reorder.id, data: { images: [{ id: "img_logical_update_foreign", url: "foreign.png" }] },
+      }))).rejects.toMatchObject({ reason: "invalidInput" });
+      await expect(Effect.runPromise(forged.host.run(forged.host.newRequestKey(), forged.root, null)))
+        .rejects.toMatchObject({ reason: "receiptMismatch" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(stableRows);
+      expect(await committedEvents()).toEqual(stableEvents);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: "prod_logical_image_foreign" }, config: { relations: ["images"] },
+      }))).toMatchObject([{ images: [{ id: "img_logical_update_foreign", url: "foreign.png" }] }]);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(update.host.close);
+      await Effect.runPromise(pendingUpdate.host.close);
+      await Effect.runPromise(forged.host.close);
       await Effect.runPromise(read.close);
     }
   }, 180_000);

@@ -420,10 +420,44 @@ The selected logical host admits one native Product root update with its
 tag/category membership changes and authenticates the root event against
 those row transitions. The larger-catalog witness uses 260 unrelated Product
 rows and 260 unrelated tag memberships while updating one Product. General
-Product update shapes that mutate owned options, variants or images still need
+Product update shapes that mutate owned options or variants still need
 their own logical event admission and end-to-end cutover; the physical profile
 remains their named consumer. Bounded selections may still refuse when the
 selected set or predicate itself exceeds the core resource contract.
+
+## Native Product Image Replacement Preflight
+
+The pinned `updateProducts` service reorders existing images and removes all
+images when the update supplies an empty array. The shared planner can select
+those image rows by the declared Product foreign key, but the earlier logical
+event policy admitted only the Product root and tag/category pivots. That left
+a real native Product update branch on the physical profile.
+
+Extend that one logical command's receipt policy to admit image insert, update
+and delete transitions only when their before/after Product owner is the
+updated root, their active/deleted state matches the operation, and the native
+image event exactly matches each transition. Keep silent tag/category pivots
+bound to the same root and preserve one publication owner. Do not manufacture
+an image event from storage facts or add adapter SQL. The internal policy's
+accepted mutation set broadens; no durable schema or public command contract
+changes. The physical update profile remains for other unmigrated Product
+shapes until their own gates are satisfied.
+
+Use the native service to reorder retained images, insert a new image and remove
+one, then clear the list. Check rank/order, pending and committed views, exact
+row/event correspondence, replay, foreign-owner refusal, and rollback after an
+unadmitted extra image transition. Run focused physical regressions and PGlite
+plus ordinary-role PostgreSQL logical proofs. Option/value/variant updates stay
+at their named later gate: an option value can refer to an unchanged option, so
+the current mutation-only receipt does not itself prove that value's Product
+owner. Resolve that through the shared authority contract before admitting it.
+
+The logical Product update policy now admits direct image replacement for its
+selected root, using the DML-declared image owner key and exact native image
+events. The same atomic request can read the ranked pending image graph before
+settlement; committed reads and replay retain that order. An image already
+assigned to a variant still follows the existing assignment/deletion contract;
+variant relationship changes remain at the later variant update gate.
 
 ## Replacement Contract And Breaking Changes
 

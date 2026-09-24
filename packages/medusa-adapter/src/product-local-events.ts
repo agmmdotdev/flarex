@@ -300,9 +300,9 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
   return { capture, validateLogical };
 }
 
-/** A native Product update may replace only this root's declared tag/category
- * memberships. The core authenticates row transitions and FK targets; this
- * policy binds every silent pivot fact to the root's emitted update event. */
+/** A native Product update owns its root, direct images and declared
+ * tag/category memberships. Core authenticates rows and FK targets; this
+ * policy binds every transition and silent pivot to the root's native event. */
 export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalUpdate")(function* (calls, mutations, lifecycle) {
@@ -312,6 +312,7 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
     const pivots = new Map(memberships.map(pivot => [pivot.table, pivot]));
     let root: string | undefined;
     const seen = new Set<string>();
+    const imageAttempts: Array<typeof mutations[number]> = [];
     for (const mutation of mutations) {
       if (mutation.table === catalog.product.table.name) {
         const before = mutation.before, after = mutation.after;
@@ -322,6 +323,7 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
         root = before.id;
         continue;
       }
+      if (mutation.table === catalog.image.table.name) { imageAttempts.push(mutation); continue; }
       const pivot = pivots.get(mutation.table);
       const row = mutation.operation === "insert" ? mutation.after : mutation.operation === "delete" ? mutation.before : null;
       const productId = row?.[pivot?.productColumn ?? ""];
@@ -333,17 +335,38 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
         return yield* Effect.fail(commerceError("receiptMismatch"));
       seen.add(identity);
     }
-    if (root === undefined || mutations.some(mutation => mutation.table !== catalog.product.table.name &&
+    if (root === undefined || mutations.some(mutation => pivots.has(mutation.table) &&
       (mutation.operation === "insert" ? mutation.after : mutation.before)?.[
         pivots.get(mutation.table)?.productColumn ?? ""] !== root))
       return yield* Effect.fail(commerceError("receiptMismatch"));
-    const expected = new Set([root]);
+    const expected = new Set([catalog.product.updatedEvent + ":" + root]);
+    const imageIds = new Set<string>();
+    const imageOwner = catalog.foreignKeys.image;
+    for (const mutation of imageAttempts) {
+      const before = mutation.before, after = mutation.after;
+      const row = mutation.operation === "delete" ? before : after;
+      const eventName = mutation.operation === "insert" ? catalog.image.createdEvent
+        : mutation.operation === "delete" ? catalog.image.deletedEvent : catalog.image.updatedEvent;
+      const valid = mutation.operation === "insert" ? before === null && after !== null && after.deleted_at === null
+          : mutation.operation === "delete" ? before !== null && before.deleted_at === null && after === null
+          : before !== null && after !== null && before.id === after.id &&
+            before[imageOwner] === after[imageOwner] && before.deleted_at === null && after.deleted_at === null;
+      if (!valid || row === null || typeof row.id !== "string" || row[imageOwner] !== root ||
+        imageIds.has(row.id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      imageIds.add(row.id);
+      expected.add(eventName + ":" + row.id);
+    }
     for (const event of emitted) {
       const message = yield* capture(event);
-      if (message.name !== catalog.product.updatedEvent || message.metadata.object !== catalog.product.eventObject ||
-        message.metadata.action !== CommonEvents.UPDATED) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const allowed = message.name === catalog.product.updatedEvent &&
+        message.metadata.object === catalog.product.eventObject && message.metadata.action === CommonEvents.UPDATED ||
+        message.metadata.object === catalog.image.eventObject && (
+          message.name === catalog.image.createdEvent && message.metadata.action === CommonEvents.CREATED ||
+          message.name === catalog.image.updatedEvent && message.metadata.action === CommonEvents.UPDATED ||
+          message.name === catalog.image.deletedEvent && message.metadata.action === CommonEvents.DELETED);
+      if (!allowed) return yield* Effect.fail(commerceError("receiptMismatch"));
       for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
-        if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (!expected.delete(message.name + ":" + id)) return yield* Effect.fail(commerceError("receiptMismatch"));
     }
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
