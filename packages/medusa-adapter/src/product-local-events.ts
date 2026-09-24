@@ -925,6 +925,60 @@ export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
     action === "created" ? "productCreatetag" : action === "updated" ? "productUpdateTagsBySelector" : "productSoftDeleteTag", action);
 }
 
+/** A composed root may invoke several native tag commands. Authenticate each
+ * command against only its own ordered mutation and event transcript. */
+export function productLogicalTagCompositionEventPolicy(catalog: ProductRuntimeMetadata) {
+  const created = productLogicalTagEventPolicy(catalog, "created");
+  const updated = productLogicalTagEventPolicy(catalog, "updated");
+  const deleted = productLogicalTagEventPolicy(catalog, "deleted");
+  const policies = new Map([
+    ["productCreatetag", created],
+    ["productUpdateTagsBySelector", updated],
+    ["productSoftDeleteTag", deleted],
+  ]);
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalTagComposition")(
+    function* (calls, mutations, lifecycle, observedRows) {
+      let cursor = 0;
+      let writes = 0;
+      for (const [index, mutation] of mutations.entries()) {
+        if (mutation.ordinal !== index) return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+      const lifecycleAttempts = new Set<number>();
+      for (const observation of lifecycle) {
+        const mutation = observation.attemptOrdinal === null ? undefined : mutations[observation.attemptOrdinal];
+        if (mutation === undefined || observation.table !== catalog.tag.table.name ||
+          observation.operation !== "softDelete" || observation.key.id !== mutation.after?.id ||
+          observation.beforeDeletedAt !== null || observation.afterDeletedAt !== mutation.after?.deleted_at ||
+          lifecycleAttempts.has(mutation.ordinal))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        lifecycleAttempts.add(mutation.ordinal);
+      }
+      for (const call of calls) {
+        if (call.fromAttempt !== cursor || call.toAttempt < cursor || call.toAttempt > mutations.length)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (call.mode === "read") {
+          if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+          continue;
+        }
+        const policy = policies.get(call.commandName);
+        if (policy === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
+        const owned = mutations.slice(cursor, call.toAttempt);
+        const observations = lifecycle.filter(observation =>
+          observation.attemptOrdinal !== null && observation.attemptOrdinal >= cursor && observation.attemptOrdinal < call.toAttempt);
+        if (call.commandName === "productSoftDeleteTag"
+          ? observations.length !== owned.length : observations.length !== 0)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        yield* policy.validateLogical([{ ...call, fromAttempt: 0, toAttempt: owned.length }],
+          owned, observations, observedRows);
+        writes++;
+        cursor = call.toAttempt;
+      }
+      if (cursor !== mutations.length || (writes === 0 && lifecycle.length !== 0))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+    });
+  return { capture: created.capture, validateLogical };
+}
+
 /** Existing standalone local delivery profile. */
 export function productLocalEventPolicy(descriptor: CommerceProfileState, catalog: ProductRuntimeMetadata,
   deliver: (events: readonly Json[]) => Effect.Effect<void, CommerceTransactionError>,

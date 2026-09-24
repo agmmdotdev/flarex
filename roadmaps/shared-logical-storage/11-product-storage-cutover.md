@@ -968,6 +968,39 @@ enabled-build evidence after a concurrent commit, while unchanged-clock or
 persistent coverage misses still refuse. This does not retire remaining
 physical Product consumers or establish capacity under sustained contention.
 
+## Composed Product-tag Workflow Cutover
+
+The remaining native tag composition fixture still selects physical Product
+although its standalone create, update and delete paths now use logical Product.
+Move this one connected root and its fixture to the same logical Product source.
+The pinned Medusa child workflows retain their create, update, delete, hook and
+event sequence. The private composition preparation input breaks from a
+physical Product binding to a logical one; no public workflow input, result or
+event contract changes.
+
+One root can invoke several Product write commands, including repeated creates
+or create followed by update/delete of the same tag. A single-command event
+policy cannot authenticate that transcript. The Product adapter must validate
+each call's exact ordered mutation range and its own captured module events,
+reject gaps, foreign commands and orphan lifecycle observations, while the
+shared core continues to own the transaction, transcript and publication.
+The generic event-selection witness moves with the fixture to a logical
+participant; no physical Product fixture remains solely for that core test.
+Retain physical Product storage only for the other named workflow consumers
+until their connected cutovers; this slice neither drops tables nor grants
+general Product readiness. Prove native composition, pending graph, ordered
+publication, repeated/conditional children, deletion, rollback, cancellation,
+replay and duplicate-root behavior on PGlite and ordinary-role PostgreSQL.
+Run affected typechecks, guards and lint, obtain both required reviews, and
+commit the behavior with its test/fixture cleanup.
+
+The composed root now selects logical Product and Currency. Its adapter policy
+checks each child command's mutation and event range, with one distinct
+lifecycle observation per deleted mutation; read-only roots admit no Product
+facts. The connected fixture no longer installs physical Product and checks
+post-commit deletion through the logical graph. The other physical Product
+workflow consumers remain under the replacement gates below.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

@@ -29,7 +29,7 @@ export interface ProductTagCompositionHooks {
  * sequences, while this root owns the explicit method/graph/event selection. */
 export const prepareProductTagComposition = Effect.fn("MedusaWorkflow.prepareTagComposition")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule>;
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical">;
     readonly currency: InstalledWorkflowModule<CurrencyWorkflowModule, "physical" | "logical"> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
