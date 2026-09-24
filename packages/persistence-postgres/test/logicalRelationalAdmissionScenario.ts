@@ -5,6 +5,7 @@ import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { JsonObject } from "flarex-protocol/json";
 import { prepareLogicalRelationalAdmission, requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../src/logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
+import type { LogicalDocumentWrite } from "../src/logicalDocuments/model";
 import { compileLogicalRelationalRead } from "../src/logicalDocuments/relationalQuery";
 import { makeBoundedRequestLifetime } from "../src/boundedRequestLifetime";
 import { runEffectTransaction } from "../src/effectTransaction";
@@ -94,12 +95,13 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
             .pipe(Effect.flatMap(located => located === null ? Effect.die("Missing native index definition") : Effect.succeed(located))));
         const reads: string[] = [];
         const guard = requireLogicalRelationalAdmission(admission, tx).pipe(Effect.asVoid);
-        const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: authority.scopeId, clock, lifetime,
+        const workingConfiguration = { tx, scopeId: authority.scopeId, clock, lifetime,
           tables: selected.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })),
           relationalCapabilities: selected.schema.capabilities,
-          requireAdmission: guard, validateDocument: write => Effect.fromResult(selected.values.validate(write.tableId, write.document)),
+          requireAdmission: guard, validateDocument: (write: LogicalDocumentWrite) => Effect.fromResult(selected.values.validate(write.tableId, write.document)),
           error: failure, uniqueConflict: () => failure("uniqueConflict"), limits: { pageRows: 10, identities: 10, documentBytes: 65_536 },
-        }, AppCreationTimeV1Schema.make(1), unique, indexes,
+        };
+        const working = yield* makeLogicalDocumentWorkingSet(workingConfiguration, AppCreationTimeV1Schema.make(1), unique, indexes,
         { beforeRead: kind => Effect.sync(() => { reads.push(kind); }) });
         const id = yield* lifetime.begin(lifetime.context);
         const native = rows[0];
@@ -127,6 +129,18 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
             { kind: "in", column: "code", values: [native.code] }, { kind: "in", column: "name", values: ["no-match"] },
           ] },
         })).docs).toEqual([]);
+        const nullAnchored = { order: { column: "code", direction: "asc" }, predicate: { kind: "and", children: [
+          { kind: "isNull", column: "deleted_at" }, { kind: "in", column: "name", values: [native.name] },
+        ] } };
+        expect(Result.getOrThrow(compileLogicalRelationalRead(table.definition, selected.schema.capabilities,
+          nullAnchored, 10, failure)).requiresIndexedNullAnchor).toBe(true);
+        expect((yield* working.relationalFind(lifetime.context, id, table.localName, nullAnchored)).docs)
+          .toMatchObject([{ code: native.code, name: native.name }]);
+        expect((yield* working.relationalFind(lifetime.context, id, table.localName, { ...nullAnchored,
+          predicate: { kind: "and", children: [
+            { kind: "isNull", column: "deleted_at" }, { kind: "in", column: "name", values: ["no-match"] },
+          ] },
+        })).docs).toEqual([]);
         expect(reads).toContain("index");
         expect(reads).not.toContain("scan");
         const order = { column: "code", direction: "asc" };
@@ -142,6 +156,16 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
         ]) expect(Result.isFailure(compileLogicalRelationalRead(table.definition, selected.schema.capabilities, { order, predicate }, 10, failure))).toBe(true);
         yield* lifetime.seal;
         const closed = yield* working.close();
+        yield* Effect.scoped(Effect.gen(function* () {
+          const refusalLifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+            { calls: 32, commandBytes: 65_536, commandMs: 60_000 }, {}, {}, "native-null-refusal", "read"), resource => resource.close);
+          const withoutNullIndex = yield* makeLogicalDocumentWorkingSet({ ...workingConfiguration, lifetime: refusalLifetime },
+            AppCreationTimeV1Schema.make(1), unique,
+            indexes.filter(index => index.physicalSpec.predicate?.kind !== "fieldIsNull"));
+          const refusalId = yield* refusalLifetime.begin(refusalLifetime.context);
+          expect(yield* Effect.result(withoutNullIndex.relationalFind(refusalLifetime.context, refusalId,
+            table.localName, nullAnchored))).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+        }));
         expect(closed.changes).toHaveLength(3);
         expect(closed.indexReads.some(read => read.definition.physicalSpec.predicate?.kind === "fieldIsNull" &&
           read.definition.physicalSpec.predicate.field === "deleted_at"))

@@ -47,7 +47,14 @@ The current `LogicalDocumentChanges` arrays and per-request `rows`/`dependencies
 maps assume every changed identity fits in memory. The implementation preflight
 must choose a bounded transaction-local accumulation or staging representation
 that preserves their validation, retry and recovery semantics; changing only
-the read limit is insufficient. The trusted owner must not hold a transaction
+the read limit is insufficient. The current point-commit protocol caps one
+materialization command at 128 rows, while the developer-index action budget is
+256 revisions and `readBoundedCurrentAppRowsInTransactionEffect` caps one read
+at 256 identities. `inspectLogicalCommerceActivity`, contribution validation,
+`prepareDelta` and publication all currently receive complete arrays. A
+replacement must reconcile these coupled limits and consume bounded batches
+under one publication, including exact event/attempt evidence; it must not
+merely widen the working-set map. The trusted owner must not hold a transaction
 while calling untrusted code, pausing a workflow or performing remote effects.
 Cross-owner changes require an explicit source-owner policy, so the first
 implementation witness is a module-local nullable reference.

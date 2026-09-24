@@ -157,8 +157,9 @@ remain distinct from logical schema evolution.
   physical-only boundary witness to logical two-shop and rollback tests.
   The shared relational planner now selects an indexed scalar equality conjunct before applying
   an unindexed text residual, while a lone unindexed text or unanchored OR
-  branch still refuses. A null-only index as a residual-query anchor remains
-  a core planner gate: compilation must prove the actual index before admission.
+  branch still refuses. The [null-index residual correction](./29-relational-null-residual-anchor.md)
+  defers admission until the shared working set proves an actual installed
+  nullable-field index; a primary-identity fallback cannot authorize it.
   The full Product runner remains physical for other
   unported methods.
   The current 128-identity logical working set cannot complete a native Type

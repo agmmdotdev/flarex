@@ -474,11 +474,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     // active-row index. Otherwise the first text identity member's range is the
     // bounded complete-set path; a page limit never turns into a table scan.
     let completeSelection: LogicalWhere = { [query.key]: { gte: "" } };
+    let indexedNullAnchor = false;
     if (query.selections === null) for (const field of query.requiredNulls) {
       const candidate: LogicalWhere = { [field]: null };
       const index = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, candidate, error));
-      if (Option.isSome(index)) { completeSelection = candidate; break; }
+      if (Option.isSome(index)) { completeSelection = candidate; indexedNullAnchor = true; break; }
     }
+    if (query.requiresIndexedNullAnchor && !indexedNullAnchor) return yield* Effect.fail(error("invalidInput"));
     const selections: LogicalWhere[] = query.selections === null ? [completeSelection] :
       query.selections.map(selection => ({ [selection.column]: selection.value,
         ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) }));

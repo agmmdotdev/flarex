@@ -504,11 +504,20 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
           expect(yield* retained.run(key, eventOnly, null)).toBeNull();
         }), retained => retained.close), lookup => Effect.sync(() => lookup.mockRestore()));
     }) } : {}),
-    verify: ctx => withCurrencyService(ctx, async ({ service, context }) => {
-      expect(await service.retrieveCurrency("zzz", {}, context)).toMatchObject({ code: "zzz", name: "Shared rows",
-        raw_rounding: { value: "1234567890123456.7890" }, deleted_at: null });
-      expect(await service.listCurrencies({ code: ["yzz"] }, {}, context)).toEqual([]);
-      return null;
+    verify: ctx => Effect.gen(function* () {
+      const activeByName = { order: { column: "code", direction: "asc" }, predicate: { kind: "and", children: [
+        { kind: "isNull", column: "deleted_at" }, { kind: "in", column: "name", values: ["Shared rows"] },
+      ] } };
+      expect(yield* ctx.store.find(ctx.manager, activeByName)).toMatchObject([{ code: "zzz", name: "Shared rows" }]);
+      expect(yield* ctx.store.find(ctx.manager, { ...activeByName, predicate: { kind: "and", children: [
+        { kind: "isNull", column: "deleted_at" }, { kind: "in", column: "name", values: ["No match"] },
+      ] } })).toEqual([]);
+      return yield* withCurrencyService(ctx, async ({ service, context }) => {
+        expect(await service.retrieveCurrency("zzz", {}, context)).toMatchObject({ code: "zzz", name: "Shared rows",
+          raw_rounding: { value: "1234567890123456.7890" }, deleted_at: null });
+        expect(await service.listCurrencies({ code: ["yzz"] }, {}, context)).toEqual([]);
+        return null;
+      });
     }),
     concurrentExecute: (ctx, code) => withCurrencyService(ctx, async ({ internal, context }) => {
       await internal.upsert([{ code, name: `Concurrent ${code}`, symbol: "C", symbol_native: "C" }], context);

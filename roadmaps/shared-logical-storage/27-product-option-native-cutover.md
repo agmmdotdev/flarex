@@ -66,8 +66,8 @@ The old physical-only Option boundary fixture is displaced by logical
 two-shop, refusal, rollback and replay witnesses. The pinned full Product
 compatibility runner remains physical for unported commands. This selected
 path does not retire Product physical installation or lift the core's current
-128-observed-identity limit for high-fan-out graph deletion. A nullable-field
-index can be a complete residual-query anchor in the working set, but the
-compiler currently refuses unindexed text before checking that index. The
-shared planner must establish the actual null-index selection before admitting
-that combination; this scalar-equality correction does not claim it.
+128-observed-identity limit for high-fan-out graph deletion. The later
+[null-index residual correction](./29-relational-null-residual-anchor.md)
+also admits a text residual when the shared working set proves a nullable-field
+index against installed definitions; the Option path itself uses its indexed
+`product_id` equality anchor.

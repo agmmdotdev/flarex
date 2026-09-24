@@ -4431,7 +4431,7 @@
     {
       "target": "packages/medusa-adapter/test/logicalSchemaBindings.test.ts",
       "classification": "authored",
-      "targetSha256": "bd1d3211d67bbf1b6b5df1b00797031365ca755f95b5a26a8771b43c5f65afef"
+      "targetSha256": "dbec0402be8386ae82315c7e424131b604326492ccfce21ec17f031a45ee5163"
     },
     {
       "target": "packages/medusa-adapter/src/product-category-workflow.ts",

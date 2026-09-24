@@ -125,10 +125,12 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
     });
     const filter = yield* visit(query.predicate ?? { kind: "and", children: [] }, 0);
     const planned = yield* filter.select(new Set());
-    if (planned.selections === null && planned.unindexedText) return yield* Result.fail(error("invalidInput"));
+    if (planned.selections === null && planned.unindexedText && filter.requiredNulls.size === 0)
+      return yield* Result.fail(error("invalidInput"));
     const selections = planned.selections === null ? null : Object.freeze([...new Map(planned.selections.map(selection =>
       [JSON.stringify([selection.column, selection.value, selection.nullColumn ?? null]), selection] as const)).values()]);
     return Object.freeze({ key, selections,
+      requiresIndexedNullAnchor: selections === null && planned.unindexedText,
       requiredNulls: Object.freeze([...filter.requiredNulls]),
       offset: query.skip ?? 0, limit: take, direction: query.order.direction, fields: Object.freeze([...fields]),
       inspect: (row: JsonObject) => Result.gen(function* () {
