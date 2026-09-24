@@ -44,6 +44,7 @@ import type { RelationalSession } from "../../../persistence-postgres/src/relati
 import { preparedHostTestRuntime } from "../../../persistence-postgres/test/preparedHostRuntimeTestSupport";
 import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import type { LogicalSchemaExtension } from "flarex-protocol/internal/logical-schema-candidate";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { compileCurrencyDefinition } from "../../src/currency-schema";
 import { currencyInitialization } from "../../src/currency-contract";
@@ -63,6 +64,7 @@ type LogicalCurrencyResource =
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
   includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
+  extensions?: readonly LogicalSchemaExtension[];
   includeVariantPricingLink?: boolean;
   includeSalesChannel?: boolean;
   includeProductSalesChannelLink?: boolean;
@@ -142,7 +144,7 @@ export async function logicalCurrencyFixture(
         ...(options?.includeProductShippingProfileLink === true ? ["productShippingProfileLink" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
-        payloadViews: [], extensions: [] });
+        payloadViews: [], extensions: [...(options?.extensions ?? [])] });
     const candidate = yield* readPreparedLogicalSchemaCandidate(prepared);
     const nativeApplication = candidate.sources.find(source => source.key === "application");
     if (nativeApplication === undefined) throw new Error("Missing jointly composed Application source");

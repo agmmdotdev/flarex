@@ -4364,6 +4364,11 @@
       "targetSha256": "9d6d696b24ac4f03b1091bbf19f48a6577d356fa15b72328663cfeb4c49cd1d2"
     },
     {
+      "target": "packages/medusa-adapter/test/logical-cross-source-admission.test.ts",
+      "classification": "authored",
+      "targetSha256": "26b8a9f30b6c5c673d917d52a381f7328225d5ceb965e1361dd6bd041311e92a"
+    },
+    {
       "target": "packages/medusa-adapter/test/logical-currency-fixture.test.ts",
       "classification": "authored",
       "targetSha256": "430d0cddcde54e234a3f555680643704f977f59fa76d82b2537fd9b60206be73"
@@ -4396,7 +4401,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "00e56f09e7d473f3438f8d39913f07b61fd22acabc57553012420916706673e1"
+      "targetSha256": "c5498bbfbbd99359c5d313944bb36dc66f42982f8891a00702172b5cdbfa16b1"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",

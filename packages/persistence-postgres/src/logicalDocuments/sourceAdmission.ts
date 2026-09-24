@@ -26,7 +26,7 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 
 export class LogicalSourceAdmissionError extends Data.TaggedError("LogicalSourceAdmissionError")<{
-  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing";
+  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "unsupportedProfile";
   readonly cause?: unknown;
 }> {}
 
@@ -93,6 +93,9 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   const hasRelationships = (source.definition.kind === "documents" && source.definition.relations.length !== 0) ||
     evidence.candidate.extensions.some(extension => ownedTableKeys.has(logicalTableKey(extension.source.table)) ||
       ownedTableKeys.has(logicalTableKey(extension.target.table)));
+  // No current scalar or relational participant enforces cross-source edges.
+  // Refuse at the shared token owner so every affected framework stays closed.
+  if (hasRelationships) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
   const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(capturedPorts.controlDb, captured);
   if (snapshot === null || encodeBytesToLowercaseHex(snapshot.manifestSha256) !== readiness.reference.manifestSha256)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
@@ -129,5 +132,5 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       frame: candidate.value.frame,
       head: Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 }) }));
   });
-  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, hasRelationships, withBinding });
+  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding });
 });

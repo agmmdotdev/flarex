@@ -155,6 +155,9 @@ implementation.
   handling. No independent-schema or production performance claim is proven.
 - Cross-framework relationships, authorized reverse traversal and dependency-aware
   evolution have not been proved as one connected Application/Payload/Medusa path.
+  [Runtime admission](./25-cross-source-runtime-admission.md) refuses affected
+  sources with declared strong references until core enforcement exists; a
+  jointly admitted candidate is not a serving relationship capability.
 - Application evolution and framework structural installation remain distinct
   implementations. Shared storage does not itself consolidate their metadata,
   progress or activation responsibilities.

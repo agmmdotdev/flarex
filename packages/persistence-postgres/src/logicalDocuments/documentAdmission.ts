@@ -90,9 +90,6 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
     sourceKey: expected.sourceKey, writeProfile: expected.writeProfile,
     definition: expected.definition, evidence: expected.evidence,
   }, "payload", "documents").pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
-  // Native and extension relationships need edge, liveness and delete-policy
-  // enforcement. The scalar CMS participant must never issue a token for them.
-  if (selected.hasRelationships) return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "unsupportedProfile" }));
   if (selected.source.definition.kind !== "documents" || selected.source.bindings.some(binding => binding.kind !== "definition"))
     return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "sourceMismatch" }));
   const definitions = selected.source.definition.tables;

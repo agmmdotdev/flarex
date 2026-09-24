@@ -45,6 +45,9 @@ export function projectCompositeFailure(cause: unknown): CompositeFailure {
     cause instanceof AppIndexDefinitionReadPersistenceError || cause instanceof AppSchemaVersionIndexBindingPersistenceError ||
     cause instanceof IndexBuildStatePersistenceError || cause instanceof StableTableIdentityPersistenceError ||
     cause instanceof SchemaVersionArtifactPersistenceError) return compositeError("resourceFailure", cause);
+  if ((cause instanceof LogicalApplicationSourceAdmissionError || cause instanceof LogicalDocumentSourceAdmissionError ||
+    cause instanceof LogicalRelationalAdmissionError) && cause.reason === "unsupportedProfile")
+    return compositeError("unsupportedProfile", cause);
   if (cause instanceof LogicalApplicationSourceAdmissionError || cause instanceof LogicalDocumentSourceAdmissionError ||
     cause instanceof LogicalRelationalAdmissionError) return compositeError("invalidAuthority", cause);
   if (cause instanceof PreparedHostRuntimeError) return compositeError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);

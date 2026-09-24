@@ -17,7 +17,7 @@ import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError } from "./sou
 import { prepareLogicalRelationalValueValidation, LogicalRelationalValueError } from "./relationalValues";
 
 export class LogicalRelationalAdmissionError extends Data.TaggedError("LogicalRelationalAdmissionError")<{
-  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority";
+  readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" | "unsupportedProfile";
   readonly cause?: unknown;
 }> {}
 const SourceContract = Schema.Struct({

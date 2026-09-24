@@ -60,7 +60,7 @@ export const prepareLogicalApplicationSourceAdmission = Effect.fn("LogicalApplic
     new LogicalApplicationSourceAdmissionError({ reason: "invalidInput", cause })));
   const selected = yield* prepareLogicalSourceEvidence(capturedPorts, unique, capturedInput, expected,
     "application", "documents").pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
-  if (selected.hasRelationships || selected.source.definition.kind !== "documents" ||
+  if (selected.source.definition.kind !== "documents" ||
     selected.source.bindings.some(binding => binding.kind !== "definition"))
     return yield* Effect.fail(new LogicalApplicationSourceAdmissionError({ reason: "unsupportedProfile" }));
   const definitions = selected.source.definition.tables;

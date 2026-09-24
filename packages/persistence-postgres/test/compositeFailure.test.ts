@@ -2,6 +2,8 @@ import { expect, it } from "vitest";
 import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure } from "../src/commitPublication/scopePublicationModel";
 import { projectCompositeFailure, projectCompositePublicationFailure } from "../src/crossDomainCommand/model";
 import { LogicalDocumentSourceAdmissionError } from "../src/logicalDocuments/documentAdmission";
+import { LogicalApplicationSourceAdmissionError } from "../src/logicalDocuments/applicationAdmission";
+import { LogicalRelationalAdmissionError } from "../src/logicalDocuments/relationalAdmission";
 import { LogicalStorageDefinitionError } from "../src/logicalStorageDefinitions";
 import { IndexBuildStatePersistenceError } from "../src/indexBuildStates";
 import { DataBindingError } from "../src/frameworkSchema/binding/errors";
@@ -36,4 +38,16 @@ it("retains selected-source provider outages as resource failures", () => {
   }
   expect(projectCompositeFailure(new DataBindingError({ reason: "invalidAuthority" })))
     .toMatchObject({ reason: "invalidAuthority" });
+});
+
+it("retains unsupported source profiles through the composite boundary", () => {
+  for (const cause of [
+    new LogicalApplicationSourceAdmissionError({ reason: "unsupportedProfile" }),
+    new LogicalDocumentSourceAdmissionError({ reason: "unsupportedProfile" }),
+    new LogicalRelationalAdmissionError({ reason: "unsupportedProfile" }),
+  ]) {
+    const failure = projectCompositeFailure(cause);
+    expect(failure).toMatchObject({ _tag: "CompositeCommandError", reason: "unsupportedProfile" });
+    expect(failure.cause).toBe(cause);
+  }
 });

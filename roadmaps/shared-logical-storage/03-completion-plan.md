@@ -163,6 +163,13 @@ remain distinct from logical schema evolution.
 - Framework installation and Application evolution remain distinct. Generated
   commerce and Payload preference storage still consume framework evidence;
   their migration and recovery obligations must move before table removal.
+- Cross-source strong-reference extensions remain candidate metadata, not an
+  executable relationship. The shared source-admission owner now refuses every
+  affected Application, Payload or Medusa source before runtime token issue;
+  unrelated sources in the same candidate can serve. The connected
+  [admission correction](./25-cross-source-runtime-admission.md) closes the
+  previously permissive Medusa path. Indexed traversal, target liveness and
+  deletion/restore enforcement remain required for runtime support.
 
 ## Finite Delivery Packages
 
