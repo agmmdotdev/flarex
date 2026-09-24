@@ -1,115 +1,139 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Schema } from "effect";
 import { FulfillmentModuleService, FulfillmentProviderService } from "@medusajs/fulfillment/services";
+import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import type { CreateShippingProfileDTO, IEventBusModuleService } from "@medusajs/framework/types";
+import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "../src/commerce-input";
-import { registerNativeShippingProfileTests, type NativeShippingProfileRow } from "./support/shipping-profile-native-tests";
-import { makeLocalShippingProfileCommands } from "../src/shipping-profile-service";
-import { prepareLocalShippingProfile } from "../src/product-shipping-profile-schema";
 import { captureShippingProfileMetadata } from "../src/shipping-profile-schema";
-import { commerceHostFixture, type CommerceHostTestFixture } from "../../persistence-postgres/test/commerceHostFixture";
-import { commerceInventory } from "../../persistence-postgres/test/commerceInventory";
-import { createRelationalPGliteFixture } from "../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
-import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
-import { createFileScopedPostgresFixture } from "../../persistence-postgres/test/postgresHelpers";
-import { makePostgresRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
-import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
+import { registerNativeShippingProfileTests, type NativeShippingProfileRow } from "./support/shipping-profile-native-tests";
+import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { prepareLogicalShippingProfileHost } from "./support/logical-shipping-profile-fixture";
+import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
+import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
+import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
+import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid ShippingProfile test driver");
 const cleanup: Array<() => Promise<void>> = [];
-let fixture: CommerceHostTestFixture;
-let commands: Effect.Success<ReturnType<typeof makeLocalShippingProfileCommands>>;
-const delivered: unknown[] = [];
+const participant = defineAtomicCommerceParticipant("fulfillment");
+let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
+let shipping: Awaited<ReturnType<typeof prepareLogicalShippingProfileHost>>;
+let host: Effect.Success<ReturnType<typeof makeAtomicCommerceHost>>;
+let reader: Effect.Success<ReturnType<typeof makeCommerceHost>>;
+const create = defineAtomicCommerceCommand("nativeShippingProfileCreate", (ctx, input) =>
+  ctx.call(participant, shipping.runtime.create, input));
+const eventName = buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: "shipping_profile", action: "created" });
+const rows = () => fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+const events = () => fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
+
 beforeAll(async () => {
-  const registerCleanup = (close: () => Promise<void>) => { cleanup.push(close); };
-  const resource = driver === "pglite" ? await createRelationalPGliteFixture({ registerCleanup }) : await (async () => {
-    const database = await createFileScopedPostgresFixture(); registerCleanup(database.dispose);
-    return { persistence: database.persistence, session: makePostgresRelationalSession(database.persistence) };
-  })();
-  const control = driver === "pglite" ? await createMigratedPGlitePersistence(registerCleanup) : resource.persistence;
-  commands = await runEffect(makeLocalShippingProfileCommands());
-  fixture = await commerceHostFixture(resource.persistence, resource.session, prepareLocalShippingProfile,
-    commands.commands, control, descriptor => commands.eventPolicy(descriptor, events => Effect.sync(() => { delivered.push(...events); })));
-});
+  fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeShippingProfile: true });
+  shipping = await prepareLogicalShippingProfileHost(fixture);
+  await Effect.runPromise(shipping.host.initialize([]));
+  await Effect.runPromise(shipping.host.close);
+  const policy = shipping.runtime.logicalEventPolicy();
+  const contract = defineCommerceEventContract({ name: eventName, revision: "1".repeat(64), internal: true, decode: policy.capture });
+  host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+    identityAndAccessPolicy: { profile: "logical-shipping-profile-native" },
+    participants: [{ participant, logicalStorage: shipping.hostInput.logicalStorage,
+      commands: shipping.runtime.commands, validateLogical: policy.validateLogical,
+      events: { contracts: [contract], select: (message: Json) =>
+        isJsonObject(message) && message.name === eventName ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }],
+    commands: [create],
+    events: { producerRevision: "1".repeat(64), contracts: [contract],
+      subscribers: [{ id: "logical-shipping-profile", revision: "2".repeat(64) }],
+      validate: emitted => emitted.some(event => !event.internal)
+        ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
+  }));
+  cleanup.push(() => Effect.runPromise(host.close));
+  reader = await Effect.runPromise(makeCommerceHost(shipping.hostInput));
+  cleanup.push(() => Effect.runPromise(reader.close));
+}, 150_000);
 afterAll(async () => {
   const failures: unknown[] = [];
   for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
-  if (failures.length) throw new AggregateError(failures, "ShippingProfile fixture cleanup failed");
-});
-describe("native Fulfillment ShippingProfile", () => {
-  it("keeps native provider execution absent and validates metadata and managed fields", async () => {
+  if (failures.length) throw new AggregateError(failures, "ShippingProfile logical fixture cleanup failed");
+}, 150_000);
+
+describe("native ShippingProfile on shared logical storage", () => {
+  it("compiles its active-name constraint without a generated module table", async () => {
+    expect(shipping.definition.schema.tables.map(table => table.identity.tableId)).toEqual(["shipping_profile"]);
+    const table = shipping.definition.schema.tables[0];
+    expect(table?.indexes.filter(index => index.kind === "uniqueBtree").map(index => ({
+      columns: index.columns.map(column => column.columnId), predicate: index.predicate?.kind,
+    }))).toEqual([{ columns: ["name"], predicate: "isNull" }]);
+    const metadata = await Effect.runPromise(captureShippingProfileMetadata());
+    expect(metadata.frame.tables[0]?.relationships[0]).toMatchObject({ name: "shipping_options", targetTable: "shipping_option" });
+    expect((await fixture.persistence.query<{ name: string }>(
+      "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+      .toEqual(fixture.physicalTablesBeforeCandidate);
+  });
+
+  it("creates native scalar and batch rows with exact events, bounded reads and replay", async () => {
+    const beforeEvents = await events();
+    const key = host.newRequestKey();
+    const created = await Effect.runPromise(host.run(key, create,
+      { id: "sp_logical", name: "Logical", type: "default", metadata: { tags: ["fragile"] } }));
+    expect(created).toMatchObject({ id: "sp_logical", name: "Logical", type: "default", metadata: { tags: ["fragile"] }, deleted_at: null });
+    expect(await Effect.runPromise(host.run(key, create,
+      { id: "sp_logical", name: "Logical", type: "default", metadata: { tags: ["fragile"] } }))).toEqual(created);
+    const many = await Effect.runPromise(host.run(host.newRequestKey(), create,
+      [{ id: "sp_batch_a", name: "Batch A", type: "default" }, { id: "sp_batch_b", name: "Batch B", type: "custom" }]));
+    expect(many).toHaveLength(2);
+    expect(await Effect.runPromise(host.run(host.newRequestKey(), create, []))).toEqual([]);
+    expect((await events()).slice(beforeEvents.length).map(event => event.envelope.contract)).toEqual([eventName, eventName, eventName]);
+    expect(await Effect.runPromise(reader.read(shipping.runtime.retrieve, { id: "sp_logical" }))).toMatchObject({ name: "Logical" });
+    expect(await Effect.runPromise(reader.read(shipping.runtime.count,
+      { filters: { type: "custom" }, config: { select: ["id", "name"], take: 1 } })))
+      .toEqual([[{ id: "sp_batch_b", name: "Batch B" }], 1]);
+    expect(await Effect.runPromise(reader.read(shipping.runtime.count,
+      { filters: { name: "Logical" }, config: { select: ["id"], take: 1 } })))
+      .toEqual([[{ id: "sp_logical" }], 1]);
+  }, 120_000);
+
+  it("refuses invalid fields, hydration and duplicate active names without publication", async () => {
+    const beforeRows = await rows(), beforeEvents = await events();
+    for (const input of [{ name: "missing-type" }, { type: "missing-name" }])
+      await expect(Effect.runPromise(host.run(host.newRequestKey(), create, input)))
+        .rejects.toMatchObject({ reason: "invalidInput" });
+    for (const input of [
+      { id: "sp_bad", name: "Bad", type: "default", created_at: "2026-01-01T00:00:00Z" },
+      { name: "Bad", type: "default", shipping_options: [] },
+    ])
+      await expect(Effect.runPromise(host.run(host.newRequestKey(), create, input)))
+        .rejects.toMatchObject({ _tag: "CommerceTransactionError", reason: "unsupportedProfile" });
+    await expect(Effect.runPromise(reader.read(shipping.runtime.list,
+      { config: { relations: ["shipping_options"] } }))).rejects.toMatchObject({ reason: "invalidInput" });
+    await expect(Effect.runPromise(host.run(host.newRequestKey(), create,
+      [{ name: "duplicate-logical", type: "default" }, { name: "duplicate-logical", type: "custom" }])))
+      .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    expect(await rows()).toEqual(beforeRows);
+    expect(await events()).toEqual(beforeEvents);
+  }, 120_000);
+
+  it("keeps caught native deletion refusal fatal and never enters provider services", async () => {
     const provider = vi.spyOn(FulfillmentProviderService.prototype, "getFulfillmentOptions");
     const price = vi.spyOn(FulfillmentProviderService.prototype, "calculatePrice");
-    try {
-      const result = await runEffect(fixture.host.run(fixture.host.newRequestKey(), commands.create,
-        { id: "sp_metadata", name: "Metadata profile", type: "metadata", metadata: { tags: ["fragile"], enabled: true } }));
-      expect(result).toMatchObject({ id: "sp_metadata", metadata: { tags: ["fragile"], enabled: true } });
-      expect(provider).not.toHaveBeenCalled(); expect(price).not.toHaveBeenCalled();
-      const before = await commerceInventory(fixture);
-      for (const invalid of [{ id: 42 }, { id: "" }, { created_at: "2026-01-01T00:00:00Z" }, { deleted_at: null }, { shipping_options: [] }]) {
-        expect(await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), commands.create,
-          { name: "Invalid profile", type: "default", ...invalid }))).toMatchObject({ _tag: "CommerceTransactionError" });
-        expect(await commerceInventory(fixture)).toEqual(before);
-      }
-    } finally { provider.mockRestore(); price.mockRestore(); }
-  });
-  it("keeps a caught native deletion validation fatal before unselected ShippingOption access", async () => {
     const original = FulfillmentModuleService.prototype.createShippingProfiles_;
-    let reached = false;
-    const create = vi.spyOn(FulfillmentModuleService.prototype, "createShippingProfiles_").mockImplementation(async function (this: FulfillmentModuleService, data, context) {
-      const rows = await original.call(this, data, context);
-      const id = rows[0]?.id;
+    const createSpy = vi.spyOn(FulfillmentModuleService.prototype, "createShippingProfiles_").mockImplementation(async function (this: FulfillmentModuleService, data, context) {
+      const result = await original.call(this, data, context);
+      const id = result[0]?.id;
       if (id === undefined) throw new Error("Missing native ShippingProfile");
-      reached = true;
-      try { await this.deleteShippingProfiles(id, context); } catch { /* Native relation validation reaches the denied repository; refusal stays fatal. */ }
-      return rows;
+      try { await this.deleteShippingProfiles(id, context); } catch { /* Sticky core refusal. */ }
+      return result;
     });
-    const before = await commerceInventory(fixture);
+    const beforeRows = await rows();
     try {
-      expect(await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), commands.create,
-        { name: "Caught delete", type: "default" }))).toMatchObject({ reason: "rollbackOnly" });
-      expect(reached).toBe(true); expect(await commerceInventory(fixture)).toEqual(before);
-    } finally { create.mockRestore(); }
-  });
-  it("installs exactly the selected 17 tables and retains inverse metadata without hydration", async () => {
-    expect(fixture.descriptor.layout.frame.tables.map(table => table.identity.tableId).sort()).toEqual([
-      "image", "product", "product_category", "product_category_product", "product_collection",
-      "product_option", "product_option_value", "product_sales_channel", "product_shipping_profile", "product_tag",
-      "product_tags", "product_type", "product_variant", "product_variant_option", "product_variant_product_image",
-      "sales_channel", "shipping_profile",
-    ]);
-    const metadata = await runEffect(captureShippingProfileMetadata());
-    expect(metadata.frame.tables[0]?.relationships[0]).toMatchObject({ name: "shipping_options", targetTable: "shipping_option" });
-  });
-  it("constructs real native services and creates scalar, array and empty inputs", async () => {
-    const before = delivered.length;
-    const scalar = await runEffect(fixture.host.run(fixture.host.newRequestKey(), commands.create, { name: "default", type: "default" }));
-    expect(scalar).toMatchObject({ id: expect.stringMatching(/^sp_/), name: "default", type: "default", deleted_at: null });
-    expect(delivered.slice(before)).toEqual([expect.objectContaining({
-      name: "fulfillment.shipping-profile.created", metadata: { source: "fulfillment", object: "shipping_profile", action: "created" },
-    })]);
-    const rows = await runEffect(fixture.host.run(fixture.host.newRequestKey(), commands.create,
-      [{ id: "sp_custom", name: "custom", type: "custom" }, { name: "third", type: "default" }]));
-    expect(rows).toHaveLength(2);
-    const emptyBefore = delivered.length;
-    expect(await runEffect(fixture.host.run(fixture.host.newRequestKey(), commands.create, []))).toEqual([]);
-    expect(delivered).toHaveLength(emptyBefore);
-    expect(await runEffect(fixture.host.read(commands.retrieve, { id: "sp_custom" }))).toMatchObject({ name: "custom" });
-    expect(await runEffect(fixture.host.read(commands.count, { filters: { type: "custom" } })))
-      .toEqual([[expect.objectContaining({ id: "sp_custom" })], 1]);
-  });
-  it("requires name and type, refuses hydration, and rolls back duplicate active names", async () => {
-    const before = await commerceInventory(fixture);
-    for (const data of [{ name: "missing-type" }, { type: "missing-name" }]) {
-      expect(await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), commands.create, data))).toMatchObject({ reason: "invalidInput" });
-    }
-    expect(await runEffectFailure(fixture.host.read(commands.list,
-      { config: { relations: ["shipping_options"] } }))).toMatchObject({ reason: "invalidInput" });
-    expect(await runEffectFailure(fixture.host.run(fixture.host.newRequestKey(), commands.create,
-      [{ name: "duplicate", type: "default" }, { name: "duplicate", type: "custom" }]))).toMatchObject({ _tag: "CommerceTransactionError" });
-    expect(await commerceInventory(fixture)).toEqual(before);
-  });
+      await expect(Effect.runPromise(host.run(host.newRequestKey(), create,
+        { name: "Caught delete logical", type: "default" }))).rejects.toMatchObject({ reason: "rollbackOnly" });
+      expect(await rows()).toEqual(beforeRows);
+      expect(provider).not.toHaveBeenCalled(); expect(price).not.toHaveBeenCalled();
+    } finally { createSpy.mockRestore(); provider.mockRestore(); price.mockRestore(); }
+  }, 120_000);
 });
 
 describe("selected pinned ShippingProfile creation and event assertions", () => {
@@ -117,14 +141,10 @@ describe("selected pinned ShippingProfile creation and event assertions", () => 
   beforeEach(() => {
     const original = FulfillmentModuleService.prototype.createShippingProfiles_;
     vi.spyOn(FulfillmentModuleService.prototype, "createShippingProfiles_").mockImplementation(function (this: FulfillmentModuleService, data, context) {
-      // SAFETY: the pinned MedusaService constructor owns this public field;
-      // its generated declaration exposes methods but omits inherited fields.
+      // SAFETY: pinned service owns this field; its declaration omits inherited fields.
       const bus = (this as FulfillmentModuleService & { eventBusModuleService_: IEventBusModuleService }).eventBusModuleService_;
       const emit = bus.emit.bind(bus);
-      vi.spyOn(bus, "emit").mockImplementation((...args) => {
-        eventBusEmitSpy(...args);
-        return emit(...args);
-      });
+      vi.spyOn(bus, "emit").mockImplementation((...args) => { eventBusEmitSpy(...args); return emit(...args); });
       return original.call(this, data, context);
     });
   });
@@ -134,8 +154,8 @@ describe("selected pinned ShippingProfile creation and event assertions", () => 
   function createShippingProfiles(data: CreateShippingProfileDTO): Promise<NativeShippingProfileRow>;
   function createShippingProfiles(data: CreateShippingProfileDTO[]): Promise<readonly NativeShippingProfileRow[]>;
   async function createShippingProfiles(data: CreateShippingProfileDTO | CreateShippingProfileDTO[]): Promise<NativeShippingProfileRow | readonly NativeShippingProfileRow[]> {
-    const input = await runEffect(Effect.fromResult(captureCommerceInput(data)));
-    const result = await runEffect(fixture.host.run(fixture.host.newRequestKey(), commands.create, input));
+    const input = await Effect.runPromise(Effect.fromResult(captureCommerceInput(data)));
+    const result = await Effect.runPromise(host.run(host.newRequestKey(), create, input));
     return Array.isArray(data) ? Schema.decodeUnknownSync(Schema.Array(row))(result) : Schema.decodeUnknownSync(row)(result);
   }
   registerNativeShippingProfileTests({ createShippingProfiles }, eventBusEmitSpy);

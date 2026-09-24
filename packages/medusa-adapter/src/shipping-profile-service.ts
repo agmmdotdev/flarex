@@ -17,7 +17,7 @@ import { commerceServiceCommands } from "./service-commands";
 import { commerceDecoder } from "./commerce-decoder";
 import { captureCommerceInput } from "./commerce-input";
 import { prepareShippingProfileRepository } from "./shipping-profile-repository";
-import { shippingProfileEventPolicy } from "./shipping-profile-events";
+import { shippingProfileEventPolicy, shippingProfileLogicalEventPolicy } from "./shipping-profile-events";
 import { captureShippingProfileMetadata } from "./shipping-profile-schema";
 import { QueryLimit, QueryOffset } from "./query-decoder";
 
@@ -156,7 +156,7 @@ export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapte
     return { create, list, count, retrieve, graph, workflow,
       commands: [create, list, count, retrieve],
       withService: module.use,
-      eventPolicy: shippingProfileEventPolicy,
+      eventPolicy: shippingProfileEventPolicy, logicalEventPolicy: shippingProfileLogicalEventPolicy,
     };
   }));
 });

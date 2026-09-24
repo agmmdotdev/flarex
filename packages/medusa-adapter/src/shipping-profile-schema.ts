@@ -3,6 +3,8 @@ import { fulfillmentModuleModels } from "@medusajs/fulfillment/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { decodeCompiledDml } from "./schema/compiled";
+import { lowerDmlSchema } from "./schema/lower";
+import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 
 export class ShippingProfileSchemaError extends Data.TaggedError("ShippingProfileSchemaError")<{
   readonly cause: unknown;
@@ -37,4 +39,23 @@ export const captureShippingProfileMetadata = Effect.fn("ShippingProfile.capture
   } satisfies Parameters<typeof capturePrivateCanonicalValue>[2];
   const native = yield* capturePrivateCanonicalValue(inventory, 1_048_576, errors);
   return { ...yield* capturePrivateCanonicalValue(compiled, 1_048_576, errors), native };
+});
+
+export const shippingProfileSourceProvenance = Object.freeze({
+  kind: "sourceSnapshot", repository: "https://github.com/agmmdotdev/medusa-fork.git",
+  revision: "48d5cc675e4e8bc821e22c20c88a751acc66fb5f",
+  paths: Object.freeze(["packages/modules/fulfillment/src/models/shipping-profile.ts",
+    "packages/modules/fulfillment/src/static-manifest.ts", "packages/database/drizzle/src/schema.ts"]),
+} as const);
+
+/** The selected native model and active-name uniqueness, with no generated DDL. */
+export const compileShippingProfileDefinition = Effect.fn("ShippingProfile.compileDefinition")(function* () {
+  const metadata = yield* captureShippingProfileMetadata();
+  const lowered = lowerDmlSchema(metadata.frame.tables, "commerce.shipping-profile");
+  const schema = yield* Effect.fromResult(normalizeRelationalSchema({ ...lowered, tables: lowered.tables.map(table => ({
+    ...table, indexes: [...table.indexes, { indexId: "shipping_profile.type-equality", kind: "textEquality" as const,
+      columns: ["type"], predicate: null,
+      origin: { kind: "derived" as const, sourceId: "shipping_profile.type-equality" } }],
+  })) }));
+  return Object.freeze({ schema, provenance: shippingProfileSourceProvenance });
 });

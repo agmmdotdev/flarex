@@ -131,6 +131,11 @@ remain distinct from logical schema evolution.
   containing `product_sales_channel`; its removal gate is its Link/workflow
   cutover. Boolean-only SalesChannel filtering currently uses the bounded
   complete-set path and remains a selective-index scalability gate.
+  The selected native ShippingProfile module now compiles to one logical
+  source, including active-name uniqueness and derived type equality access.
+  Its standalone native service and promoted creation/event bodies use logical
+  rows, while the composed Product–ShippingProfile workflow remains a physical
+  consumer under the [module cutover](./22-shipping-profile-module-cutover.md).
   General bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

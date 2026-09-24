@@ -52,6 +52,7 @@ import { compilePricingDefinition } from "../../src/pricing-schema";
 import { compileVariantPricingLinkDefinition } from "../../src/product-variant-pricing-schema";
 import { compileSalesChannelDefinition } from "../../src/sales-channel-schema";
 import { compileProductSalesChannelLinkDefinition } from "../../src/product-sales-channel-link-schema";
+import { compileShippingProfileDefinition } from "../../src/shipping-profile-schema";
 import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from "../../src/currency-service";
 
 type LogicalCurrencyResource =
@@ -65,6 +66,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeVariantPricingLink?: boolean;
   includeSalesChannel?: boolean;
   includeProductSalesChannelLink?: boolean;
+  includeShippingProfile?: boolean;
 }> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
   | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
 
@@ -87,6 +89,7 @@ export interface LogicalCurrencyFixture {
   readonly variantPricingLinkDefinition: Effect.Success<ReturnType<typeof compileVariantPricingLinkDefinition>> | undefined;
   readonly salesChannelDefinition: Effect.Success<ReturnType<typeof compileSalesChannelDefinition>> | undefined;
   readonly productSalesChannelLinkDefinition: Effect.Success<ReturnType<typeof compileProductSalesChannelLinkDefinition>> | undefined;
+  readonly shippingProfileDefinition: Effect.Success<ReturnType<typeof compileShippingProfileDefinition>> | undefined;
   readonly physicalTablesBeforeCandidate: readonly Readonly<{ name: string }>[];
   readonly observeSql?: (observer: ((text: string) => Promise<void> | void) | undefined) => void;
 }
@@ -133,7 +136,8 @@ export async function logicalCurrencyFixture(
         ...(options?.includePricing === true ? ["pricing" as const] : []),
         ...(options?.includeVariantPricingLink === true ? ["variantPricingLink" as const] : []),
         ...(options?.includeSalesChannel === true ? ["salesChannel" as const] : []),
-        ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
+        ...(options?.includeProductSalesChannelLink === true ? ["productSalesChannelLink" as const] : []),
+        ...(options?.includeShippingProfile === true ? ["shippingProfile" as const] : [])] })({ applicationCandidateId: application.active.basis.candidateId,
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
         payloadViews: [], extensions: [] });
@@ -149,6 +153,8 @@ export async function logicalCurrencyFixture(
     const salesChannelDefinition = options?.includeSalesChannel === true ? yield* compileSalesChannelDefinition() : undefined;
     const productSalesChannelLinkDefinition = options?.includeProductSalesChannelLink === true
       ? yield* compileProductSalesChannelLinkDefinition() : undefined;
+    const shippingProfileDefinition = options?.includeShippingProfile === true
+      ? yield* compileShippingProfileDefinition() : undefined;
     const initialization = yield* currencyInitialization();
     const schemaVersionId = decodeCatalogSchemaVersionId("live-logical-currency");
     const controlSession = pair.kind === "postgres"
@@ -231,7 +237,8 @@ export async function logicalCurrencyFixture(
     yield* host.initialize(initialization.rows);
     return { resource: pair, application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource,
-      productDefinition, pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, productSalesChannelLinkDefinition, physicalTablesBeforeCandidate,
+      productDefinition, pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, productSalesChannelLinkDefinition,
+      shippingProfileDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());
 }

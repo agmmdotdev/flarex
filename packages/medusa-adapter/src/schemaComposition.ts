@@ -10,6 +10,7 @@ import { compilePricingDefinition } from "./pricing-schema";
 import { compileVariantPricingLinkDefinition } from "./product-variant-pricing-schema";
 import { compileSalesChannelDefinition } from "./sales-channel-schema";
 import { compileProductSalesChannelLinkDefinition } from "./product-sales-channel-link-schema";
+import { compileShippingProfileDefinition } from "./shipping-profile-schema";
 import type {
   ApplicationAnalysisAuthority,
   ApplicationAnalysisRepository,
@@ -25,7 +26,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 const strict = { parseOptions: { onExcessProperty: "error" } } as const;
-const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink"])));
+const decodeModules = Schema.decodeUnknownResult(Schema.Array(Schema.Literals(["product", "currency", "pricing", "variantPricingLink", "salesChannel", "productSalesChannelLink", "shippingProfile"])));
 const Request = Schema.Struct({
   applicationCandidateId: Schema.NonEmptyString,
   payloadCollections: Schema.Unknown,
@@ -51,7 +52,7 @@ export function makeSchemaComposer(configuration: {
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly applicationAnalyses: ApplicationAnalysisRepository;
-  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink" | "salesChannel" | "productSalesChannelLink")[];
+  readonly medusaModules: readonly ("product" | "currency" | "pricing" | "variantPricingLink" | "salesChannel" | "productSalesChannelLink" | "shippingProfile")[];
 }) {
   const authority = Object.freeze({ scopeId: configuration.authority.scopeId, epoch: configuration.authority.epoch,
     storageGeneration: configuration.authority.storageGeneration, storageGenerationFence: configuration.authority.storageGenerationFence });
@@ -135,6 +136,16 @@ export function makeSchemaComposer(configuration: {
         definition: { kind: "relational", schema: channel.schema },
         bindings: channel.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
           table: { namespace: "medusa", logicalName: `${channel.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
+      }));
+    }
+    if (modules.includes("shippingProfile")) {
+      const shipping = yield* compileShippingProfileDefinition();
+      medusaSources.push(yield* captureLogicalSchemaSource({
+        key: "medusa.shippingProfile", owner: "medusa", writeProfile: "medusa.shippingProfile",
+        evidence: shipping.provenance,
+        definition: { kind: "relational", schema: shipping.schema },
+        bindings: shipping.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,
+          table: { namespace: "medusa", logicalName: `${shipping.schema.coordinate.lineageId}/${table.identity.tableId}` } })),
       }));
     }
     if (modules.includes("pricing")) {

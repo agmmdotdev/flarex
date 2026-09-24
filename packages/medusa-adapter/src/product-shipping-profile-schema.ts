@@ -38,19 +38,8 @@ export const prepareProductShippingProfileSchema = Effect.fn("Commerce.preparePr
   return { ...captured, layout, profile };
 });
 
-export const prepareLocalShippingProfile = Effect.fn("ShippingProfile.prepareProfile")(function* (
-  ...args: Parameters<typeof prepareProductShippingProfileSchema>
-) {
-  const prepared = yield* prepareProductShippingProfileSchema(...args);
-  const key = prepared.layout.frame.tables.find(table => table.identity.tableId === "shipping_profile")?.keys.find(key => key.kind === "primary");
-  if (key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const profile = yield* registerLocalCommerceProfile(prepared.artifact, prepared.layout, "medusa.shipping-profile.local",
-    [{ tableId: "shipping_profile", keyId: key.identity.keyId }]);
-  return { ...prepared, profile, initialization: { rows: undefined } };
-});
-
-/** One fresh schema selection, four distinct native module profiles. Existing
- * standalone profiles retain their default resources and canonical identities. */
+/** Retained physical selection for the not-yet-migrated composed workflow.
+ * Standalone ShippingProfile creation uses the logical source instead. */
 export const prepareProductShippingProfile = Effect.fn("Commerce.prepareProductShippingProfile")(function* (
   ...args: Parameters<typeof prepareProductShippingProfileSchema>
 ) {
