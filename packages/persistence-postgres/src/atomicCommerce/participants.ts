@@ -27,6 +27,8 @@ import type { Json } from "flarex-protocol/json";
 export interface LogicalCommerceCallObservation {
   readonly commandName: string;
   readonly mode: "read" | "write";
+  readonly input: Json;
+  readonly result: Json;
   readonly events: readonly Json[];
   readonly fromAttempt: number;
   readonly toAttempt: number;

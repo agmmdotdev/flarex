@@ -182,7 +182,8 @@ function makeAtomicCommerceExecution(
             const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs);
             if (fromAttempt !== undefined && "attemptCount" in working) {
               const calls = logicalCalls.get(admission) ?? [];
-              calls.push(Object.freeze({ commandName: root.name, mode: root.mode, events: Object.freeze([...events]),
+              calls.push(Object.freeze({ commandName: root.name, mode: root.mode, input: call.input, result: call.result,
+                events: Object.freeze([...events]),
                 fromAttempt, toAttempt: working.attemptCount() }));
               logicalCalls.set(admission, calls);
             }

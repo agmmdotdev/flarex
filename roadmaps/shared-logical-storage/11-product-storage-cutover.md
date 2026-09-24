@@ -584,6 +584,51 @@ rollback pass on PGlite and ordinary-role PostgreSQL. Independent child
 commands, variant-image assignments and the other named physical Product
 consumers remain gated.
 
+## Native Variant Image Workflow Preflight
+
+The pinned `batchVariantImagesWorkflow` makes separate add/remove assignment
+calls, reads Variant and Image rows, and conditionally updates a Variant's
+thumbnail. Its existing physical Product profile is still required even though
+the complete Product logical source and generic assignment FKs now exist. The
+assignment service emits no event; a thumbnail row update emits the native
+Variant event. The pinned service explicitly has no same-Product validation for
+assignment endpoints. Preserve that same-scope behavior rather than inventing
+an adapter-only constraint; a change to Medusa business semantics needs its own
+compatibility decision. Shared source confinement still forbids cross-shop
+references.
+
+Select the existing native workflow over logical Product storage and correlate
+each call's bounded, immutable input and result with its closed mutation range.
+Expose those already captured call values to the internal logical validator;
+this breaks that private observation shape and migrates its consumers directly,
+without a second input capture or database read. The Product policy must require
+every inserted assignment's ID and endpoint pair to match the add call, every
+deleted assignment pair to match the remove call, and every Variant update to
+match the thumbnail update call and exact native event. Reads and empty calls
+cannot hide writes or events. Core retains FK target existence, selected-scope
+confinement, resource bounds, settlement and one publication owner.
+
+Prove native add/remove/thumbnail behavior, duplicate-assignment and no-op
+cases, pending graph reads, replay, forged extra assignment/event refusal,
+rollback and two-shop isolation on PGlite and ordinary-role PostgreSQL. Retain
+the physical workflow regressions. Change the workflow's internal installation
+type to accept the selected logical source; do not add fallback/dual writes.
+The physical Product profile remains for other named unmigrated consumers and
+durable-data disposition; remove only displaced assumptions in this slice.
+
+The native workflow now runs on the selected Product logical source. The
+logical receipt matches each silent assignment insert/delete to its call input
+and result, and matches the optional Variant thumbnail update to its exact
+module event. Bounded call values come from the existing immutable core
+capture; no adapter read or second capture is involved. Native add/remove,
+duplicate assignment, same-scope cross-Product endpoints, no-op, missing target
+refusal, thumbnail clear, committed graph read, replay, forged extra row and
+event refusal, and rollback pass on both PGlite and ordinary-role PostgreSQL.
+The existing physical native workflow regressions pass on both drivers. Generic
+row scope isolation and the physical workflow's colliding foreign-scope case
+remain the supporting two-shop witnesses; a direct two-shop logical-workflow
+fixture remains a validation gate before claiming full multi-shop cutover.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

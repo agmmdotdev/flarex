@@ -89,8 +89,11 @@ remain distinct from logical schema evolution.
   replacement and Option/OptionValue replacement; unchanged Option ownership
   is authenticated through bounded pending row observations from the shared
   working set. The same selected update admits a Variant/OptionValue link
-  replacement with authenticated ancestry. Independent child commands and
-  variant-image assignments remain outside this selected admission.
+  replacement with authenticated ancestry. The native Variant image workflow
+  now selects logical Product storage: add/remove assignment calls, conditional
+  thumbnail updates and exact module events share one publication, with call
+  input/result matched to bounded logical row attempts. Independent child
+  commands and other Product workflows remain outside this selected admission.
   General bounded population/overflow, broader Product commands and
   relationship queries, and rich Links still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

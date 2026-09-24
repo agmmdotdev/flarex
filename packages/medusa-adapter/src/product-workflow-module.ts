@@ -35,7 +35,8 @@ export const ProductCreateGraphInput = Schema.Struct({
   })).check(Schema.isMaxLength(256))),
   variants: Schema.optionalKey(Schema.Array(Schema.Struct({
     id: Schema.optionalKey(Schema.String), title: Schema.String,
-    sku: Schema.optionalKey(Schema.String), options: Schema.Record(Schema.String, Schema.String),
+    sku: Schema.optionalKey(Schema.String), thumbnail: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    options: Schema.Record(Schema.String, Schema.String),
   })).check(Schema.isMaxLength(256))),
 });
 const decodeCreateProductsArguments = commerceDecoder(Schema.Tuple([

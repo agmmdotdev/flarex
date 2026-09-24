@@ -13,7 +13,7 @@ import { internalModuleWorkflowEvents as variantImagesWorkflowEvents } from "./w
 
 export const prepareVariantImagesWorkflow = Effect.fn("MedusaWorkflow.prepareVariantImages")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "physical" | "logical"> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {

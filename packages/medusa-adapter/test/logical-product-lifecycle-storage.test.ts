@@ -5,9 +5,11 @@ import { isJsonObject } from "flarex-protocol/json";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import { productLogicalCategoryCreateEventPolicy, productLogicalCreateEventPolicy,
   productLogicalDeleteEventPolicy, productLogicalTagEventPolicy,
-  productLogicalLifecycleEventPolicy, productLogicalUpdateEventPolicy } from "../src/product-local-events";
+  productLogicalLifecycleEventPolicy, productLogicalUpdateEventPolicy,
+  productLogicalVariantImagesEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
+import { prepareVariantImagesWorkflow } from "../src/product-variant-images-workflow";
 import { currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
@@ -41,6 +43,17 @@ async function createHost() {
       moduleEvents: productLogicalCreateEventPolicy(catalog) } },
     revision: createHash("sha256").update("logical-product-lifecycle-create").digest("hex"),
     subscribers: [{ id: "logical-product-lifecycle", revision: "a".repeat(64) }],
+  }));
+}
+
+async function variantImagesHost() {
+  return Effect.runPromise(prepareVariantImagesWorkflow({
+    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+      moduleEvents: productLogicalVariantImagesEventPolicy(catalog) } },
+    revision: createHash("sha256").update("logical-product-variant-images").digest("hex"),
+    subscribers: [{ id: "logical-product-variant-images", revision: "a".repeat(64) }],
   }));
 }
 
@@ -228,6 +241,199 @@ describe("native Product lifecycle on shared logical storage", () => {
     const failures: unknown[] = [];
     for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
     if (failures.length > 0) throw new AggregateError(failures, "Logical Product fixture cleanup failed");
+  }, 120_000);
+
+  it("runs native Variant image assignment, thumbnail and replay over logical Product storage", async () => {
+    const create = await createHost();
+    const images = await variantImagesHost();
+    const assignments = defineCommerceCommand("productAssignmentRead", "read", ctx =>
+      Effect.gen(function* () {
+        const store = yield* ctx.table(catalog.assignment.table.name);
+        return yield* store.find(ctx.manager, { take: 20, order: { column: "id", direction: "asc" } });
+      }));
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [assignments, product.runtime.commands.listVariants],
+    }));
+    const selected = (value: Json) => {
+      if (!Array.isArray(value) || !value.every(isJsonObject)) throw new Error("Invalid assignment rows");
+      return value.filter(row => row.variant_id === "pvar_logical_images").map(row => row.image_id);
+    };
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_images", title: "Logical Images",
+        images: [{ id: "img_logical_images_old", url: "old-url" },
+          { id: "img_logical_images_new", url: "new-url" },
+          { id: "img_logical_images_general", url: "general-url" }],
+        variants: [{ id: "pvar_logical_images", title: "Image variant", thumbnail: "old-url", options: {} }],
+      }] }));
+      await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_images", add: ["img_logical_images_old"],
+      }));
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await committedEvents();
+      const key = images.newRequestKey();
+      const input = { variant_id: "pvar_logical_images", add: ["img_logical_images_new"],
+        remove: ["img_logical_images_old"] };
+      const result = await Effect.runPromise(images.run(key, input));
+      expect(result).toEqual({ added: ["img_logical_images_new"], removed: ["img_logical_images_old"] });
+      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      expect(afterRows).not.toEqual(beforeRows);
+      expect(selected(await Effect.runPromise(read.read(assignments, null)))).toEqual(["img_logical_images_new"]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.listVariants, {
+        filters: { id: "pvar_logical_images" }, config: { relations: ["images"] },
+      }))).toMatchObject([{ thumbnail: null, images: expect.arrayContaining([
+        expect.objectContaining({ id: "img_logical_images_old" }),
+        expect.objectContaining({ id: "img_logical_images_new" }),
+        expect.objectContaining({ id: "img_logical_images_general" }),
+      ]) }]);
+      const afterEvents = await committedEvents();
+      expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope)).toMatchObject([{
+        contract: catalog.variant.updatedEvent, internal: true, group: key,
+        message: { data: { id: "pvar_logical_images" } },
+      }]);
+      expect(await Effect.runPromise(images.run(key, input))).toEqual(result);
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+      expect(await committedEvents()).toEqual(afterEvents);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(images.close);
+      await Effect.runPromise(read.close);
+    }
+  }, 120_000);
+
+  it("preserves duplicate, same-scope cross-Product, empty call and nonmatching thumbnail behavior", async () => {
+    const create = await createHost();
+    const images = await variantImagesHost();
+    const assignments = defineCommerceCommand("productAssignmentRead", "read", ctx =>
+      Effect.gen(function* () {
+        const store = yield* ctx.table(catalog.assignment.table.name);
+        return yield* store.find(ctx.manager, { take: 20, order: { column: "id", direction: "asc" } });
+      }));
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [assignments, product.runtime.commands.listVariants],
+    }));
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_images_repeat", title: "Logical Repeated Images",
+        images: [{ id: "img_logical_images_repeat", url: "repeat-url" }],
+        variants: [{ id: "pvar_logical_images_repeat", title: "Repeat variant", thumbnail: "other-url", options: {} }],
+      }, {
+        id: "prod_logical_images_neighbor", title: "Neighbor Images",
+        images: [{ id: "img_logical_images_neighbor", url: "neighbor-url" }],
+      }] }));
+      const beforeEvents = await committedEvents();
+      for (let repeat = 0; repeat < 2; repeat++) {
+        expect(await Effect.runPromise(images.run(images.newRequestKey(), {
+          variant_id: "pvar_logical_images_repeat", add: ["img_logical_images_repeat"],
+        }))).toEqual({ added: ["img_logical_images_repeat"], removed: [] });
+      }
+      const rows = await Effect.runPromise(read.read(assignments, null));
+      if (!Array.isArray(rows) || !rows.every(isJsonObject)) throw new Error("Invalid assignment rows");
+      expect(rows.filter(row => row.variant_id === "pvar_logical_images_repeat" &&
+        row.image_id === "img_logical_images_repeat")).toHaveLength(2);
+      // The pinned service permits same-scope endpoints from different Products.
+      expect(await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_images_repeat", add: ["img_logical_images_neighbor"],
+      }))).toEqual({ added: ["img_logical_images_neighbor"], removed: [] });
+      const beforeRefusal = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      await expect(Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_images_repeat", add: ["missing-image"],
+      }))).rejects.toMatchObject({ reason: "invalidInput" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRefusal);
+      expect(await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_images_repeat", remove: ["missing-image"],
+      }))).toEqual({ added: [], removed: ["missing-image"] });
+      expect(await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "missing-variant",
+      }))).toEqual({ added: [], removed: [] });
+      expect(await Effect.runPromise(read.read(product.runtime.commands.listVariants, {
+        filters: { id: "pvar_logical_images_repeat" }, config: { relations: [] },
+      }))).toMatchObject([{ thumbnail: "other-url" }]);
+      expect(await committedEvents()).toEqual(beforeEvents);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(images.close);
+      await Effect.runPromise(read.close);
+    }
+  }, 120_000);
+
+  it("rolls back an extra silent assignment outside the native call result", async () => {
+    const create = await createHost();
+    const policy = productLogicalVariantImagesEventPolicy(catalog);
+    const participant = defineAtomicCommerceParticipant("product");
+    const command = defineCommerceCommand("productCreateassignment", "write", ctx =>
+      Effect.gen(function* () {
+        const store = yield* ctx.table(catalog.assignment.table.name);
+        yield* store.write(ctx.manager, "insert", [
+          { id: "pvpi_logical_forged_one", variant_id: "pvar_logical_images_forged", image_id: "img_logical_images_forged" },
+          { id: "pvpi_logical_forged_two", variant_id: "pvar_logical_images_forged", image_id: "img_logical_images_forged" },
+        ]);
+        return [{ id: "pvpi_logical_forged_one" }];
+      }));
+    const root = defineAtomicCommerceCommand("productAssignmentForgery", (ctx, input) =>
+      ctx.call(participant, command, input));
+    const revision = createHash("sha256").update("logical-product-variant-images-forgery").digest("hex");
+    const contract = defineCommerceEventContract({ name: catalog.variant.updatedEvent, revision,
+      internal: true, decode: policy.capture });
+    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+      identityAndAccessPolicy: { profile: "logical-product-variant-images-forgery" },
+      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+        commands: [command], validateLogical: policy.validateLogical,
+        events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
+      commands: [root], events: { producerRevision: revision, contracts: [contract],
+        subscribers: [{ id: "logical-product-variant-images-forgery", revision: "a".repeat(64) }],
+        validate: () => Effect.void },
+    }));
+    const unrelated = defineCommerceCommand("productUpdateVariantsBySelector", "write", ctx =>
+      Effect.gen(function* () {
+        yield* (yield* ctx.table(catalog.variant.table.name)).write(ctx.manager, "update", [{
+          id: "pvar_logical_images_forged", title: "Unrequested title", thumbnail: null,
+        }]);
+        yield* ctx.captureLocalEvent({ name: catalog.variant.updatedEvent,
+          metadata: { source: Modules.PRODUCT, object: catalog.variant.eventObject, action: CommonEvents.UPDATED },
+          data: { id: "pvar_logical_images_forged" } });
+        return [];
+      }));
+    const unrelatedRoot = defineAtomicCommerceCommand("productVariantThumbnailForgery", (ctx, input) =>
+      ctx.call(participant, unrelated, input));
+    const unrelatedHost = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+      identityAndAccessPolicy: { profile: "logical-product-variant-thumbnail-forgery" },
+      participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+        commands: [unrelated], validateLogical: policy.validateLogical,
+        events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
+      commands: [unrelatedRoot], events: { producerRevision: revision, contracts: [contract],
+        subscribers: [{ id: "logical-product-variant-thumbnail-forgery", revision: "a".repeat(64) }],
+        validate: () => Effect.void },
+    }));
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_images_forged", title: "Forged Images",
+        images: [{ id: "img_logical_images_forged", url: "forged-url" }],
+        variants: [{ id: "pvar_logical_images_forged", title: "Forged variant", options: {} }],
+      }] }));
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await committedEvents();
+      await expect(Effect.runPromise(host.run(host.newRequestKey(), root,
+        [{ variant_id: "pvar_logical_images_forged", image_id: "img_logical_images_forged" }])))
+        .rejects.toMatchObject({ reason: "receiptMismatch" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await committedEvents()).toEqual(beforeEvents);
+      await expect(Effect.runPromise(unrelatedHost.run(unrelatedHost.newRequestKey(), unrelatedRoot, {
+        selector: { id: "pvar_logical_images_forged" }, update: { thumbnail: null },
+      }))).rejects.toMatchObject({ reason: "receiptMismatch" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await committedEvents()).toEqual(beforeEvents);
+      await expect(Effect.runPromise(policy.validateLogical([{
+        commandName: "productCreateassignment", mode: "write", input: [], result: [],
+        events: [{ name: catalog.variant.updatedEvent,
+          metadata: { source: Modules.PRODUCT, object: catalog.variant.eventObject, action: CommonEvents.UPDATED },
+          data: { id: "pvar_logical_images_forged" } }], fromAttempt: 0, toAttempt: 0,
+      }], [], [], []))).rejects.toMatchObject({ reason: "receiptMismatch" });
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(host.close);
+      await Effect.runPromise(unrelatedHost.close);
+    }
   }, 120_000);
 
   it("publishes owned lifecycle events, replays, authenticates active restore, and rolls back a handle conflict", async () => {
