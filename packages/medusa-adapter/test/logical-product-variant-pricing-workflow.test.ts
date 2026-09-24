@@ -125,6 +125,7 @@ describe("native Product Variant Pricing workflow on shared logical storage", ()
     const policy = productLogicalVariantCreateEventPolicy(selected.catalog);
     const result = await Effect.runPromise(Effect.result(policy.validateLogical([{
       commandName: "productCreatevariant", mode: "write", input: [], result: [], fromAttempt: 0, toAttempt: 2,
+      fromLifecycle: 0, toLifecycle: 0,
       events: [{ name: selected.catalog.variant.createdEvent,
         metadata: { source: "product", object: selected.catalog.variant.eventObject, action: "created" },
         data: { id: "variant_wrong_owner" } }],

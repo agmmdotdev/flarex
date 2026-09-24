@@ -8,7 +8,7 @@ import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { SimpleProductInput, type ProductWorkflowModule } from "./product-workflow-module";
 import { SimpleSalesChannelInput, type makeLocalSalesChannelCommands } from "./sales-channel-service";
-import type { prepareLocalProductSalesChannelLink } from "./product-sales-channel-link-service";
+import type { prepareProductSalesChannelLink } from "./product-sales-channel-link-service";
 import { captureWorkflowRecord } from "./workflow/configuration";
 import { prepareWorkflowResources } from "./workflow/resources";
 import { internalModuleWorkflowEvents } from "./workflow/events";
@@ -50,9 +50,9 @@ export const productSalesChannelWorkflow = createWorkflow("create-products-in-sa
 export const prepareProductSalesChannelWorkflow = Effect.fn("MedusaWorkflow.prepareProductSalesChannel")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
   readonly modules: {
-    readonly product: InstalledWorkflowModule<ProductWorkflowModule>;
-    readonly sales_channel: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>["workflow"]>;
-    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareLocalProductSalesChannelLink>>["workflow"]>;
+    readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical">;
+    readonly sales_channel: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>["workflow"], "logical">;
+    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareProductSalesChannelLink>>["workflow"], "logical">;
   };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];

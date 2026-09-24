@@ -1,12 +1,10 @@
 import { Effect, Result, Schema } from "effect";
 import type { FindConfig } from "@medusajs/types";
-import { registerLocalCommerceProfile, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-link-schema";
 import { prepareLinkService, type BoundLink } from "./link-service";
-import { linkEventPolicy } from "./link-events";
-import { prepareProductSalesChannelLinkSchema } from "./sales-channel-schema";
+import { linkLogicalEventPolicy } from "./link-events";
 import { commerceServiceCommands } from "./service-commands";
 import { commerceDecoder } from "./commerce-decoder";
 import { moduleAliases } from "./local-graph/module";
@@ -44,11 +42,11 @@ const decodeRead = commerceDecoder(Schema.Struct({
   })),
 }), "invalidInput");
 /** Named construction selects the supported native definition and commands. */
-export const prepareLocalProductSalesChannelLink = Effect.fn("LinkAdapter.prepare")(function* () {
+export const prepareProductSalesChannelLink = Effect.fn("ProductSalesChannelLink.prepare")(function* () {
   const metadata = yield* captureProductSalesChannelLinkMetadata();
   const { use: useNative, prepared, joiner, serviceName, entityName } = yield* prepareLinkService(metadata);
-  // Keep this named binding's existing borrowed API; native write access is
-  // available only to explicit internal construction, not this module facade.
+  // This named module facade exposes borrowed reads; write access stays with
+  // explicit internal construction, not a workflow resource.
   const use = (ctx: CommerceCommandContext, work: (bound: Omit<BoundLink, "service"> & {
     readonly service: Pick<BoundLink["service"], "list" | "listAndCount">;
   }) => Promise<unknown>) => useNative(ctx, bound => work({ ...bound,
@@ -68,25 +66,12 @@ export const prepareLocalProductSalesChannelLink = Effect.fn("LinkAdapter.prepar
     model: entityName, command: count, table: prepared.table, paths: [], orderable: ["product_id"],
     uniqueOrder: [], multipleOrder: false, decode: decodeGraphCount,
   }] };
-  const eventPolicy = (descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]) =>
-    linkEventPolicy("product_sales_channel", serviceName, entityName, descriptor, deliver);
+  const logicalEventPolicy = () => linkLogicalEventPolicy("product_sales_channel", serviceName, entityName,
+    ["product_id", "sales_channel_id"]);
   const workflowCreate = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
     encode: ([links]) => links, output: decodeCreatedLinks, moduleEvents: [entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: serviceName, profile: "medusa.product-sales-channel.link" },
     methods: { create: workflowCreate }, graph }));
-  return { create, dismiss, delete: remove, restore, list, count, links, graph, workflow, withService: use, eventPolicy, prepareProfile: prepareLinkProfile,
+  return { create, dismiss, delete: remove, restore, list, count, links, graph, workflow, withService: use, logicalEventPolicy,
     commands: [create, dismiss, remove, restore, list, count, links] };
-});
-
-const prepareLinkProfile = Effect.fn("LinkAdapter.prepareProfile")(function* (
-  ...args: Parameters<typeof prepareProductSalesChannelLinkSchema>
-) {
-  const prepared = yield* prepareProductSalesChannelLinkSchema(...args);
-  const table = prepared.layout.frame.tables.find(table => table.identity.tableId === "product_sales_channel");
-  const key = table?.keys.find(key => key.kind === "primary");
-  if (key === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const profile = yield* registerLocalCommerceProfile(prepared.artifact, prepared.layout, "medusa.product-sales-channel.link",
-    [{ tableId: "product_sales_channel", keyId: key.identity.keyId, update: "existingPrimaryKey",
-      remove: "declaredKey", lifecycle: "managedSoftDelete", upsert: "activeRow", observeRows: true }]);
-  return { ...prepared, profile, initialization: { rows: undefined } };
 });

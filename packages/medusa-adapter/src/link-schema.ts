@@ -3,6 +3,16 @@ import type { ModuleJoinerConfig } from "@medusajs/framework/types";
 import { generateEntityDefinition } from "@medusajs/link-modules";
 import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-profile";
 import type { SchemaTable } from "./schema/model";
+import type { SchemaOrigins } from "./schema/model";
+
+/** One provenance mapping for the pinned generated Link entity shape. */
+export const linkSchemaOrigins = {
+  table: table => ({ kind: "authored", sourceId: "link." + table.name }),
+  column: (table, column) => ({ kind: ["created_at", "updated_at", "deleted_at"].includes(column.name) ? "implicit" : "authored",
+    sourceId: "link." + table.name + "." + column.name }),
+  primaryKey: table => ({ kind: "authored", sourceId: "link." + table.name + ".endpoints" }),
+  searchable: table => ({ kind: "authored", sourceId: "link." + table.name + ".searchable" }),
+} satisfies SchemaOrigins;
 
 export class LinkSchemaError extends Data.TaggedError("LinkSchemaError")<{ readonly cause: unknown }> {}
 const Name = Schema.String.check(Schema.isPattern(/^[a-zA-Z_][a-zA-Z0-9_]*$/));

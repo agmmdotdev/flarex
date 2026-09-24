@@ -95,11 +95,11 @@ describe("native composed Product workflows", () => {
     const mutations = ["tag-a", "tag-b"].map((id, ordinal) => ({ ordinal, table: catalog.tag.table.name,
       operation: "patch" as const, before: { id, deleted_at: null }, after: { id, deleted_at: stamp } }));
     const lifecycle = ["tag-a", "tag-b"].map((id, attemptOrdinal) => ({ table: catalog.tag.table.name,
-      key: { id }, operation: "softDelete" as const, beforeDeletedAt: null, afterDeletedAt: stamp, attemptOrdinal }));
+      key: { id }, operation: "softDelete" as const, beforeDeletedAt: null, afterDeletedAt: stamp, attemptOrdinal, rowAtOperation: null }));
     const calls = [{ commandName: "productSoftDeleteTag", mode: "write" as const, input: null, result: null,
       events: [{ name: catalog.tag.deletedEvent, metadata: { source: Modules.PRODUCT,
         object: catalog.tag.eventObject, action: CommonEvents.DELETED }, data: { id: ["tag-a", "tag-b"] } }],
-      fromAttempt: 0, toAttempt: 2 }];
+      fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 2 }];
     await runEffect(policy.validateLogical(calls, mutations, lifecycle, []));
     expect(await runEffectFailure(policy.validateLogical(calls, mutations,
       [lifecycle[0]!, { ...lifecycle[1]!, key: { id: "tag-a" }, attemptOrdinal: 0 }], [])))

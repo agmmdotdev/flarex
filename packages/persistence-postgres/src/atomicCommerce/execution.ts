@@ -178,13 +178,15 @@ function makeAtomicCommerceExecution(
               return yield* Effect.fail(commerceError("invalidAuthority"));
             const working: Working = yield* makeWorking(admission, child);
             const fromAttempt = admission.kind === "logical" && "attemptCount" in working ? working.attemptCount() : undefined;
+            const fromLifecycle = admission.kind === "logical" && "lifecycleCount" in working ? working.lifecycleCount() : undefined;
             const { invoke, events } = makeParticipantInvocation(member, working, lifetime, id, eventCapture);
             const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs);
-            if (fromAttempt !== undefined && "attemptCount" in working) {
+            if (fromAttempt !== undefined && fromLifecycle !== undefined && "attemptCount" in working && "lifecycleCount" in working) {
               const calls = logicalCalls.get(admission) ?? [];
               calls.push(Object.freeze({ commandName: root.name, mode: root.mode, input: call.input, result: call.result,
                 events: Object.freeze([...events]),
-                fromAttempt, toAttempt: working.attemptCount() }));
+                fromAttempt, toAttempt: working.attemptCount(),
+                fromLifecycle, toLifecycle: working.lifecycleCount() }));
               logicalCalls.set(admission, calls);
             }
             if (admission.kind === "physical") {

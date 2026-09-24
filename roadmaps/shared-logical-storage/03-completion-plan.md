@@ -119,9 +119,15 @@ remain distinct from logical schema evolution.
   [shared exact-equality index](./19-unrestricted-text-equality-index.md), not
   an ordered whole-text key. The standalone physical binding fixture and
   Product/SalesChannel atomic composition witness move together in this cutover.
-  The Product–SalesChannel stored Link and composed workflow still select their
-  physical profiles and retain a separate cutover gate in the
-  [SalesChannel slice](./18-sales-channel-storage-cutover.md).
+  The Product–SalesChannel stored Link and composed native workflow now select
+  three logical sources in one atomic root. The checked Link has no endpoint
+  foreign keys; active-pair uniqueness, lifecycle and native event receipts
+  use shared logical storage. The displaced standalone physical Link profile
+  and fixture are retired under the [connected cutover](./20-product-sales-channel-link-workflow-cutover.md).
+  The native SalesChannel compatibility runner and Product–ShippingProfile
+  router still select a physical endpoint schema containing
+  `product_sales_channel`. Their removal gates are their own logical cutovers;
+  this Link source does not silently convert those consumers.
   General bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

@@ -7,19 +7,11 @@ import { commerceError, defaultCommerceResources } from "@flarex/persistence-pos
 import { captureProductSchema } from "./product-schema";
 import { productSourceProvenance } from "./product-definition";
 import { capturePricingMetadata } from "./pricing-schema";
-import { captureLinkMetadata } from "./link-schema";
+import { captureLinkMetadata, linkSchemaOrigins } from "./link-schema";
 import { lowerDmlSchema } from "./schema/lower";
-import type { SchemaOrigins } from "./schema/model";
 
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const captureVariantPricingLinkMetadata = () => captureLinkMetadata(ProductVariantPriceSet);
-const variantPricingLinkOrigins = {
-  table: (table) => ({ kind: "authored", sourceId: "link." + table.name }),
-  column: (table, column) => ({ kind: ["created_at", "updated_at", "deleted_at"].includes(column.name) ? "implicit" : "authored",
-    sourceId: "link." + table.name + "." + column.name }),
-  primaryKey: (table) => ({ kind: "authored", sourceId: "link." + table.name + ".endpoints" }),
-  searchable: (table) => ({ kind: "authored", sourceId: "link." + table.name + ".searchable" }),
-} satisfies SchemaOrigins;
 
 export const variantPricingLinkSourceProvenance = Object.freeze({
   kind: "sourceSnapshot", repository: "https://github.com/agmmdotdev/medusa-fork.git",
@@ -32,7 +24,7 @@ export const variantPricingLinkSourceProvenance = Object.freeze({
  * source intentionally has no endpoint FK: the pinned definition has none. */
 export const compileVariantPricingLinkDefinition = Effect.fn("VariantPricingLink.compileDefinition")(function* () {
   const metadata = yield* captureVariantPricingLinkMetadata();
-  const lowered = lowerDmlSchema([metadata.frame], "commerce.link.variant-pricing", variantPricingLinkOrigins);
+  const lowered = lowerDmlSchema([metadata.frame], "commerce.link.variant-pricing", linkSchemaOrigins);
   const schema = yield* Effect.fromResult(normalizeRelationalSchema({ ...lowered, tables: lowered.tables.map(table => ({
     ...table, indexes: [...table.indexes, { indexId: "product_variant_price_set.restore-by-price-set",
       kind: "btree" as const, columns: ["price_set_id"], predicate: null,
@@ -50,7 +42,7 @@ export const prepareProductVariantPricing = Effect.fn("Commerce.prepareProductVa
   const pricing = yield* capturePricingMetadata();
   const link = yield* captureVariantPricingLinkMetadata();
   const endpoints = lowerDmlSchema([...product.metadata.frame.tables, ...pricing.frame.tables], "commerce.product-variant-pricing");
-  const links = lowerDmlSchema([link.frame], endpoints.lineageId, variantPricingLinkOrigins);
+  const links = lowerDmlSchema([link.frame], endpoints.lineageId, linkSchemaOrigins);
   const tables = [...endpoints.tables, ...links.tables];
   if (tables.length !== 18 || new Set(tables.map(table => table.tableId)).size !== 18) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const captured = yield* captureRelationalSchemaArtifact({ deploymentId,

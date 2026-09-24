@@ -35,6 +35,7 @@ export interface LogicalCommerceLifecycleObservation {
   readonly beforeDeletedAt: string | null;
   readonly afterDeletedAt: string | null;
   readonly attemptOrdinal: number | null;
+  readonly rowAtOperation: JsonObject | null;
 }
 interface ClosureState {
   readonly admission: LogicalRelationalAdmission;
@@ -73,7 +74,7 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     return closure;
   });
   return Object.freeze({ store, resources: defaultCommerceResources, close,
-    attemptCount: working.attemptCount,
+    attemptCount: working.attemptCount, lifecycleCount: working.lifecycleCount,
     table: (context: Parameters<typeof working.relationalTable>[0], table: string) => working.relationalTable(context, id, table) });
 });
 
@@ -103,7 +104,7 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
     if (table === undefined || table !== observation.tableName) return yield* Effect.fail(commerceError("storedCorruption"));
     lifecycle.push(Object.freeze({ table, key: observation.key, operation: observation.operation,
       beforeDeletedAt: observation.beforeDeletedAt, afterDeletedAt: observation.afterDeletedAt,
-      attemptOrdinal: observation.attemptOrdinal }));
+      attemptOrdinal: observation.attemptOrdinal, rowAtOperation: observation.rowAtOperation }));
   }
   const observedRows: LogicalCommerceObservedRow[] = [];
   for (const observation of closed.changes.observedRows) {

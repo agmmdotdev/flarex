@@ -68,6 +68,8 @@ export interface LogicalRelationalLifecycleObservation {
   readonly beforeDeletedAt: string | null;
   readonly afterDeletedAt: string | null;
   readonly attemptOrdinal: number | null;
+  /** Captured at an unchanged restore, before a later call can change the row. */
+  readonly rowAtOperation: JsonObject | null;
 }
 /** Final pending rows already observed within this working set. Canonical
  * values are immutable; their point/index dependencies settle with changes. */
@@ -549,9 +551,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         const previous = before[deletedAt], next = after[deletedAt];
         if ((previous !== null && typeof previous !== "string") || (next !== null && typeof next !== "string") ||
           (lifecycleOperation === "restore" ? next !== null : next === null)) return yield* Effect.fail(error("storedCorruption"));
-        yield* charge(128 + tableName.length + JSON.stringify(key).length + (previous?.length ?? 0) + (next?.length ?? 0));
+        const capturedRow = attemptOrdinal === null
+          ? yield* Effect.fromResult(capturePrivateJsonData(after, lifetime.remainingBytes(), error)) : null;
+        const rowAtOperation = capturedRow?.value ?? null;
+        if (rowAtOperation !== null && !isJsonObject(rowAtOperation)) return yield* Effect.fail(error("storedCorruption"));
+        yield* charge(128 + tableName.length + JSON.stringify(key).length + (previous?.length ?? 0) + (next?.length ?? 0)
+          + (capturedRow?.bytes ?? 0));
         lifecycle.push(Object.freeze({ tableId: table.tableId, tableName, key: Object.freeze({ ...key }), operation: lifecycleOperation,
-          beforeDeletedAt: previous, afterDeletedAt: next, attemptOrdinal }));
+          beforeDeletedAt: previous, afterDeletedAt: next, attemptOrdinal, rowAtOperation }));
       });
       for (const { identity, row: inputRow } of rowsByKey.values()) {
         let pending: PendingDocument | undefined;
@@ -742,5 +749,5 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       } satisfies LogicalRelationalStore<Failure>);
     })));
   return Object.freeze({ documents, relationalFind, relationalChange, relationalTable, close, requirePendingDeletion,
-    attemptCount: () => attempts.length });
+    attemptCount: () => attempts.length, lifecycleCount: () => lifecycle.length });
 });

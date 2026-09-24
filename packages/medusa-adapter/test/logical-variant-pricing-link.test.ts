@@ -75,7 +75,8 @@ describe("native Variant–PriceSet Link on shared logical storage", () => {
   it("refuses a Link row whose native attached message is missing", async () => {
     const policy = link.runtime.logicalEventPolicy();
     expect(await Effect.runPromise(Effect.result(policy.validateLogical([
-      { commandName: "linkCreate", mode: "write", input: [], result: [], events: [], fromAttempt: 0, toAttempt: 1 },
+      { commandName: "linkCreate", mode: "write", input: [], result: [], events: [], fromAttempt: 0, toAttempt: 1,
+        fromLifecycle: 0, toLifecycle: 0 },
     ], [{ ordinal: 0, table: "product_variant_price_set", operation: "insert", before: null,
       after: { id: "pvps_orphan", variant_id: "variant", price_set_id: "pset", deleted_at: null } }], [], []))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });

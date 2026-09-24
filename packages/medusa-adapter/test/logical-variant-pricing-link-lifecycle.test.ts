@@ -63,9 +63,9 @@ describe("native Variant–PriceSet Link lifecycle on shared logical storage", (
     const policy = link.runtime.logicalEventPolicy();
     expect(await Effect.runPromise(Effect.result(policy.validateLogical([
       { commandName: "linkRestore", mode: "write", input: { price_set_id: "forged-set" }, result: null,
-        events: [], fromAttempt: 0, toAttempt: 0 },
+        events: [], fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 1 },
     ], [], [{ table: "product_variant_price_set", key: { variant_id: "forged-variant", price_set_id: "forged-set" },
-      operation: "restore", beforeDeletedAt: null, afterDeletedAt: null, attemptOrdinal: null }], []))))
+      operation: "restore", beforeDeletedAt: null, afterDeletedAt: null, attemptOrdinal: null, rowAtOperation: null }], []))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 

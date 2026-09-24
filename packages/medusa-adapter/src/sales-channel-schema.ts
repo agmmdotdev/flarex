@@ -7,7 +7,6 @@ import { captureProductSchema } from "./product-schema";
 import { productSourceProvenance } from "./product-definition";
 import { decodeCompiledDml } from "./schema/compiled";
 import { lowerDmlSchema } from "./schema/lower";
-import { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-link-schema";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 
 export class SalesChannelSchemaError extends Data.TaggedError("SalesChannelSchemaError")<{
@@ -78,32 +77,6 @@ export const prepareProductSalesChannelSchema = Effect.fn("Commerce.prepareProdu
   const layout = yield* captureRelationalPhysicalLayout({ ...target, artifact: captured.artifact });
   const profile = yield* registerCommerceSchemaProfile(captured.artifact, layout);
   return { ...captured, layout, profile };
-});
-
-/** Fresh configured candidate with one stored native Link; no upgrade/fallback. */
-export const prepareProductSalesChannelLinkSchema = Effect.fn("Commerce.prepareProductSalesChannelLinkSchema")(function* (
-  deploymentId: string, target: Omit<Parameters<typeof captureRelationalPhysicalLayout>[0], "artifact">,
-) {
-  const product = yield* captureProductSchema(deploymentId);
-  const salesChannel = yield* captureSalesChannelMetadata();
-  const link = yield* captureProductSalesChannelLinkMetadata();
-  const endpoints = lowerDmlSchema([...product.metadata.frame.tables, ...salesChannel.frame.tables], "commerce.product-sales-channel-link");
-  const linkSchema = lowerDmlSchema([link.frame], endpoints.lineageId, {
-    table: table => ({ kind: "authored", sourceId: "link." + table.name }),
-    column: (table, column) => ({ kind: ["created_at", "updated_at", "deleted_at"].includes(column.name) ? "implicit" : "authored",
-      sourceId: "link." + table.name + "." + column.name }),
-    primaryKey: table => ({ kind: "authored", sourceId: "link." + table.name + ".endpoints" }),
-    searchable: table => ({ kind: "authored", sourceId: "link." + table.name + ".searchable" }),
-  });
-  const captured = yield* captureRelationalSchemaArtifact({ deploymentId,
-    provenance: { ...productSourceProvenance, paths: [...productSourceProvenance.paths,
-      "packages/modules/sales-channel/src/models", "packages/modules/sales-channel/src/static-manifest.ts",
-      "packages/modules/link-modules/src/definitions/product-sales-channel.ts", "packages/modules/link-modules/src/utils/generate-entity.ts"] },
-    schema: { ...endpoints, tables: [...endpoints.tables, ...linkSchema.tables], capabilities: [...endpoints.capabilities, ...linkSchema.capabilities] },
-  });
-  const layout = yield* captureRelationalPhysicalLayout({ ...target, artifact: captured.artifact });
-  const profile = yield* registerCommerceSchemaProfile(captured.artifact, layout);
-  return { ...captured, layout, profile, productMetadata: product.metadata, salesChannelMetadata: salesChannel, linkMetadata: link };
 });
 
 /** Only Sales Channel rows are granted here, despite the shared schema artifact. */

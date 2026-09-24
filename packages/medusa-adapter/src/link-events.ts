@@ -7,7 +7,9 @@ import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgre
 
 /** The selected Link receipt binds native events to attempted rows or an
  * authenticated unchanged-restore observation, never a final-row reread. */
-export function linkLogicalEventPolicy(tableName: string, serviceName: string, entityName: string) {
+export function linkLogicalEventPolicy(tableName: string, serviceName: string, entityName: string,
+  endpoints: readonly [string, string]) {
+  const [primary, foreign] = endpoints;
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = Schema.decodeUnknownEffect(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(serviceName), object: Schema.Literal(entityName), action: Schema.Literals(["attached", "detached"]) }),
@@ -22,82 +24,85 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
     return message satisfies Json;
   });
   const validateLogical: LogicalCommerceEventValidation = Effect.fn("LinkEvents.validateLogical")(
-    function* (calls, mutations, lifecycle, observedRows) {
+    function* (calls, mutations, lifecycle) {
       if (mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       let cursor = 0;
-      let command: "linkCreate" | "linkDismiss" | "linkRestore" | undefined;
-      let emitted: readonly Json[] = [];
+      let lifecycleCursor = 0;
       for (const call of calls) {
-        if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (call.fromAttempt !== cursor || call.fromLifecycle !== lifecycleCursor ||
+          call.toAttempt < cursor || call.toAttempt > mutations.length ||
+          call.toLifecycle < lifecycleCursor || call.toLifecycle > lifecycle.length)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
         if (call.mode === "read") {
-          if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+          if (call.toAttempt !== cursor || call.toLifecycle !== lifecycleCursor || call.events.length !== 0)
+            return yield* Effect.fail(commerceError("receiptMismatch"));
           continue;
         }
-        if (command !== undefined || (call.commandName !== "linkCreate" && call.commandName !== "linkDismiss" && call.commandName !== "linkRestore")
-          || call.toAttempt !== mutations.length)
+        if (call.commandName !== "linkCreate" && call.commandName !== "linkDismiss"
+          && call.commandName !== "linkDelete" && call.commandName !== "linkRestore")
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        command = call.commandName;
-        cursor = call.toAttempt;
-        emitted = call.events;
-      }
-      if (cursor !== mutations.length || (command === undefined && (mutations.length !== 0 || lifecycle.length !== 0)))
-        return yield* Effect.fail(commerceError("receiptMismatch"));
-      const expected: string[] = [];
-      const expectedAction = command === "linkDismiss" ? "detached" : "attached";
-      for (const mutation of mutations) {
-        const row = mutation.after;
-        const id = row?.id;
-        if (mutation.table !== tableName ||
-          (command === "linkCreate" ? mutation.operation !== "insert" && mutation.operation !== "patch"
-            : mutation.operation !== "patch") ||
-          (mutation.operation === "insert" ? mutation.before !== null : mutation.before === null) ||
-          row === null || typeof id !== "string" || typeof row.variant_id !== "string" || typeof row.price_set_id !== "string" ||
-          (command === "linkDismiss" ? typeof row.deleted_at !== "string" : row.deleted_at !== null) ||
-          (mutation.before !== null && (mutation.before.variant_id !== row.variant_id || mutation.before.price_set_id !== row.price_set_id)))
+        const command = call.commandName;
+        const expected: string[] = [];
+        const expectedAction = command === "linkDismiss" || command === "linkDelete" ? "detached" : "attached";
+        for (const mutation of mutations.slice(cursor, call.toAttempt)) {
+          const row = mutation.after;
+          const id = row?.id;
+          if (mutation.table !== tableName ||
+            (command === "linkCreate" ? mutation.operation !== "insert" && mutation.operation !== "patch"
+              : mutation.operation !== "patch") ||
+            (mutation.operation === "insert" ? mutation.before !== null : mutation.before === null) ||
+            row === null || typeof id !== "string" || typeof row[primary] !== "string" || typeof row[foreign] !== "string" ||
+            (command === "linkDismiss" || command === "linkDelete" ? typeof row.deleted_at !== "string" : row.deleted_at !== null) ||
+            (mutation.before !== null && (mutation.before[primary] !== row[primary] || mutation.before[foreign] !== row[foreign])))
+            return yield* Effect.fail(commerceError("receiptMismatch"));
+          expected.push(id);
+        }
+        if (command === "linkCreate" && call.toLifecycle !== lifecycleCursor)
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        expected.push(id);
-      }
-      if (command === "linkCreate" && lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-      if (command !== "linkCreate") {
         const seen = new Set<number>();
-        for (const change of lifecycle) {
-          if (change.table !== tableName || change.operation !== (command === "linkDismiss" ? "softDelete" : "restore") ||
-            typeof change.key.variant_id !== "string" || typeof change.key.price_set_id !== "string" ||
+        for (const change of lifecycle.slice(lifecycleCursor, call.toLifecycle)) {
+          if (change.table !== tableName || change.operation !== (command === "linkDismiss" || command === "linkDelete" ? "softDelete" : "restore") ||
+            typeof change.key[primary] !== "string" || typeof change.key[foreign] !== "string" ||
             Object.keys(change.key).length !== 2 ||
-            (command === "linkDismiss" ? change.beforeDeletedAt !== null || typeof change.afterDeletedAt !== "string"
+            (command === "linkDismiss" || command === "linkDelete" ? change.beforeDeletedAt !== null || typeof change.afterDeletedAt !== "string"
               : change.afterDeletedAt !== null || (change.attemptOrdinal !== null && typeof change.beforeDeletedAt !== "string")))
             return yield* Effect.fail(commerceError("receiptMismatch"));
           if (change.attemptOrdinal === null) {
             if (command !== "linkRestore" || change.beforeDeletedAt !== null) return yield* Effect.fail(commerceError("receiptMismatch"));
-            const matches = observedRows.filter(observation => observation.table === tableName &&
-              observation.row.variant_id === change.key.variant_id && observation.row.price_set_id === change.key.price_set_id &&
-              observation.row.deleted_at === null && typeof observation.row.id === "string");
-            const id = matches[0]?.row.id;
-            if (matches.length !== 1 || typeof id !== "string")
+            const row = change.rowAtOperation;
+            const id = row?.id;
+            if (row === null || row[primary] !== change.key[primary] || row[foreign] !== change.key[foreign] ||
+              row.deleted_at !== null || typeof id !== "string")
               return yield* Effect.fail(commerceError("receiptMismatch"));
             expected.push(id);
             continue;
           }
           const mutation = mutations[change.attemptOrdinal];
-          if (mutation === undefined || seen.has(change.attemptOrdinal) || mutation.after === null || mutation.before === null ||
-            mutation.after.variant_id !== change.key.variant_id || mutation.after.price_set_id !== change.key.price_set_id ||
+          if (change.attemptOrdinal < cursor || change.attemptOrdinal >= call.toAttempt ||
+            mutation === undefined || seen.has(change.attemptOrdinal) || mutation.after === null || mutation.before === null ||
+            mutation.after[primary] !== change.key[primary] || mutation.after[foreign] !== change.key[foreign] ||
             mutation.before.deleted_at !== change.beforeDeletedAt || mutation.after.deleted_at !== change.afterDeletedAt)
             return yield* Effect.fail(commerceError("receiptMismatch"));
           seen.add(change.attemptOrdinal);
         }
-        if (seen.size !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-      }
-      for (const event of emitted) {
-        const message = yield* capture(event);
-        if (message.metadata.action !== expectedAction) return yield* Effect.fail(commerceError("receiptMismatch"));
-        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
-          const index = expected.indexOf(id);
-          if (index === -1) return yield* Effect.fail(commerceError("receiptMismatch"));
-          expected.splice(index, 1);
+        if (command !== "linkCreate" && seen.size !== call.toAttempt - cursor)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        for (const event of call.events) {
+          const message = yield* capture(event);
+          if (message.metadata.action !== expectedAction) return yield* Effect.fail(commerceError("receiptMismatch"));
+          for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+            const index = expected.indexOf(id);
+            if (index === -1) return yield* Effect.fail(commerceError("receiptMismatch"));
+            expected.splice(index, 1);
+          }
         }
+        if (expected.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+        cursor = call.toAttempt;
+        lifecycleCursor = call.toLifecycle;
       }
-      if (expected.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (cursor !== mutations.length || lifecycleCursor !== lifecycle.length)
+        return yield* Effect.fail(commerceError("receiptMismatch"));
     });
   return { capture, validateLogical };
 }

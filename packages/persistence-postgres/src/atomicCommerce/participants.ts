@@ -32,6 +32,8 @@ export interface LogicalCommerceCallObservation {
   readonly events: readonly Json[];
   readonly fromAttempt: number;
   readonly toAttempt: number;
+  readonly fromLifecycle: number;
+  readonly toLifecycle: number;
 }
 export type LogicalCommerceEventValidation = (calls: readonly LogicalCommerceCallObservation[],
   mutations: readonly LogicalCommerceMutation[],

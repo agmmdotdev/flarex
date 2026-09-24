@@ -157,7 +157,7 @@ describe("native SalesChannel service on shared logical storage", () => {
     const policy = sales.runtime.logicalEventPolicy();
     const attempted = [
       { commandName: "salesChannelCreate", mode: "write", input: {}, result: {},
-        events: [], fromAttempt: 0, toAttempt: 1 },
+        events: [], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 },
     ] as const;
     const mutation = [{ ordinal: 0, table: "sales_channel", operation: "insert", before: null,
       after: { id: "orphan-channel", name: "Orphan", deleted_at: null } }] as const;

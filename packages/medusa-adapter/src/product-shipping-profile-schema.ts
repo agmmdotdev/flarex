@@ -9,6 +9,7 @@ import { captureShippingProfileMetadata } from "./shipping-profile-schema";
 import { captureProductSalesChannelLinkMetadata } from "./product-sales-channel-link-schema";
 import { captureProductShippingProfileLinkMetadata } from "./product-shipping-profile-link-schema";
 import { lowerDmlSchema } from "./schema/lower";
+import { linkSchemaOrigins } from "./link-schema";
 import { productShippingProfileResources } from "./product-shipping-profile-contract";
 
 /** Fresh selected 17-table installation. Importing all Fulfillment models does
@@ -22,13 +23,7 @@ export const prepareProductShippingProfileSchema = Effect.fn("Commerce.preparePr
   const salesLink = yield* captureProductSalesChannelLinkMetadata();
   const shippingLink = yield* captureProductShippingProfileLinkMetadata();
   const endpoints = lowerDmlSchema([...product.metadata.frame.tables, ...sales.frame.tables, ...shipping.frame.tables], "commerce.product-shipping-profile");
-  const links = lowerDmlSchema([salesLink.frame, shippingLink.frame], endpoints.lineageId, {
-    table: table => ({ kind: "authored", sourceId: "link." + table.name }),
-    column: (table, column) => ({ kind: ["created_at", "updated_at", "deleted_at"].includes(column.name) ? "implicit" : "authored",
-      sourceId: "link." + table.name + "." + column.name }),
-    primaryKey: table => ({ kind: "authored", sourceId: "link." + table.name + ".endpoints" }),
-    searchable: table => ({ kind: "authored", sourceId: "link." + table.name + ".searchable" }),
-  });
+  const links = lowerDmlSchema([salesLink.frame, shippingLink.frame], endpoints.lineageId, linkSchemaOrigins);
   const tables = [...endpoints.tables, ...links.tables];
   if (tables.length !== 17 || new Set(tables.map(table => table.tableId)).size !== 17) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const captured = yield* captureRelationalSchemaArtifact({ deploymentId,
