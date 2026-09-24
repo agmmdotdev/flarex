@@ -20,7 +20,8 @@ import type { FlarexMetadataDatabase } from "../deployments";
 import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { getAtomicCommerceParticipant, type AtomicCommerceParticipant } from "./commands";
 import { captureParticipantEvents, type ParticipantEventSelection } from "./events";
-import type { LogicalCommerceLifecycleObservation, LogicalCommerceMutation } from "../commerceTransaction/logicalParticipant";
+import type { LogicalCommerceLifecycleObservation, LogicalCommerceMutation,
+  LogicalCommerceObservedRow } from "../commerceTransaction/logicalParticipant";
 import type { Json } from "flarex-protocol/json";
 
 export interface LogicalCommerceCallObservation {
@@ -32,7 +33,8 @@ export interface LogicalCommerceCallObservation {
 }
 export type LogicalCommerceEventValidation = (calls: readonly LogicalCommerceCallObservation[],
   mutations: readonly LogicalCommerceMutation[],
-  lifecycle: readonly LogicalCommerceLifecycleObservation[]) => Effect.Effect<void, ReturnType<typeof commerceError>>;
+  lifecycle: readonly LogicalCommerceLifecycleObservation[],
+  observedRows: readonly LogicalCommerceObservedRow[]) => Effect.Effect<void, ReturnType<typeof commerceError>>;
 
 interface AtomicCommerceParticipantBase {
   readonly participant: AtomicCommerceParticipant;

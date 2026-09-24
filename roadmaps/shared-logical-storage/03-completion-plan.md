@@ -85,6 +85,11 @@ remain distinct from logical schema evolution.
   root event and retains generic tombstone history. The same native create,
   read and delete path now includes existing tag/category memberships through
   shared join rows, with a selected native Category root-creation source.
+  Selected native Product updates also admit direct Image and Variant
+  replacement and Option/OptionValue replacement; unchanged Option ownership
+  is authenticated through bounded pending row observations from the shared
+  working set. Independent child commands and variant relationships remain
+  outside this selected admission.
   General bounded population/overflow, broader Product commands and
   relationship queries, and rich Links still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

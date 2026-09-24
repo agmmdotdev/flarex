@@ -169,7 +169,7 @@ export const enterCmsApplicationCommit = Effect.fn("CmsCommit.enter")(
       );
       if (hooks?.afterDocumentClosure !== undefined) yield* hooks.afterDocumentClosure({
         dependencies: closed.dependencies, scans: closed.scans, uniqueReads: closed.uniqueReads,
-        changes: closed.changes, noFinalRows: closed.noFinalRows,
+        changes: closed.changes, noFinalRows: closed.noFinalRows, observedRows: closed.observedRows,
       });
       // Admission protects lifecycle; only settlement excludes ordinary publishers.
       const current = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(state.tx, state.authority.scopeId)
@@ -250,7 +250,7 @@ export const enterSourceCmsCommit = Effect.fn("CmsCommit.enterSource")(function*
     const closed = yield* consumeSourceCmsDocumentClosure(closure, admission, tx, lifetime);
     if (hooks?.afterDocumentClosure !== undefined) yield* hooks.afterDocumentClosure({
       dependencies: closed.dependencies, scans: closed.scans, uniqueReads: closed.uniqueReads,
-      changes: closed.changes, noFinalRows: closed.noFinalRows,
+      changes: closed.changes, noFinalRows: closed.noFinalRows, observedRows: closed.observedRows,
     });
     const current = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, state.authority.scopeId).pipe(
       Effect.mapError(cause => cmsError("statementFailure", cause)));

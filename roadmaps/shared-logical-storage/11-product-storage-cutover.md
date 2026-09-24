@@ -420,9 +420,9 @@ The selected logical host admits one native Product root update with its
 tag/category membership changes and authenticates the root event against
 those row transitions. The larger-catalog witness uses 260 unrelated Product
 rows and 260 unrelated tag memberships while updating one Product. General
-Product update shapes that mutate owned options, option values, variant-option
-links or variant-image assignments still need their own logical event admission
-and end-to-end cutover; the physical profile remains their named consumer.
+Product update shapes that mutate variant-option links or variant-image
+assignments still need their own logical event admission and end-to-end cutover;
+the physical profile remains their named consumer.
 Bounded selections may still refuse when the selected set or predicate itself
 exceeds the core resource contract.
 
@@ -448,10 +448,9 @@ Use the native service to reorder retained images, insert a new image and remove
 one, then clear the list. Check rank/order, pending and committed views, exact
 row/event correspondence, replay, foreign-owner refusal, and rollback after an
 unadmitted extra image transition. Run focused physical regressions and PGlite
-plus ordinary-role PostgreSQL logical proofs. Option/value/variant updates stay
-at their named later gate: an option value can refer to an unchanged option, so
-the current mutation-only receipt does not itself prove that value's Product
-owner. Resolve that through the shared authority contract before admitting it.
+plus ordinary-role PostgreSQL logical proofs. Option/value/variant updates have
+their own ownership gates below: an option value can refer to an unchanged
+option, so image ownership alone does not prove that value's Product owner.
 
 The logical Product update policy now admits direct image replacement for its
 selected root, using the DML-declared image owner key and exact native image
@@ -491,11 +490,57 @@ slice rather than allowing the pivot without proof.
 The native Product update now admits directly owned Variant create, update and
 delete transitions beside images and memberships. It binds each transition to
 the Product root using the DML-declared foreign key and to its matching native
-event; unchanged option/value ancestry and variant-option pivots remain
-unadmitted. The selected workflow proves pending and committed Variant reads,
+event; unchanged option/value ancestry and variant-option pivots remained
+unadmitted at that checkpoint. The selected workflow proves pending and
+committed Variant reads,
 replay, foreign-owner refusal, unique-SKU conflict rollback and rejection of a
 forged foreign-owned child. The physical profile remains for the named
 unmigrated Product graph commands and relationship branches above.
+
+## Authenticated Product Option Ancestry Preflight
+
+Native Product option replacement can mutate OptionValue rows while their
+Option parent remains unchanged. A mutation-only event receipt cannot prove
+that such a Value belongs to the updated Product. The generic working set
+already retains bounded, source-confined pending rows and point/index
+dependencies from the native service and final FK checks. Its closed mutation
+receipt, however, exposes only attempted transitions, so the Product policy
+cannot use those authenticated unchanged rows.
+
+Extend the internal logical receipt with immutable final pending row
+observations from the same closed working set. Each observation must be a row
+actually loaded through the selected source or written in that request; no
+adapter SQL, caller-supplied lineage, raw transaction handle or second read
+path is admitted. Retain the existing identity, byte and dependency accounting
+and settlement revalidation. This breaks the internal validator callback shape
+by adding read-only observations; affected trusted validators must migrate in
+place. No public framework API or durable format changes.
+
+Use the DML-declared Option-to-Product and Value-to-Option keys to admit native
+Option and OptionValue create/update/delete transitions only when their
+observed or transitioning Option belongs to the updated root. Require exact
+native events, active states, stable ownership on updates and one transition
+per child ID. Variant-option pivots and variant-image assignments remain
+closed until their respective ancestry and relationship policies are proven.
+Prove native option/value replacement, pending and committed reads, exact
+events, replay, foreign-owner and forged-transition refusal, and rollback on
+both PGlite and ordinary-role PostgreSQL. Add a neutral working-set witness
+for observed unchanged parents and pending/deleted state, then run existing
+physical Product and logical lifecycle regressions. Keep any physical Product
+consumer until its named branches and data disposition gate are complete.
+
+The closed generic working set now supplies immutable final pending row
+observations, including unchanged parents loaded through its selected source,
+to the internal event validator. Its existing bounded identity and dependency
+accounting still governs those observations, and settlement revalidates them.
+The selected native Product update now admits Option and OptionValue replacement
+with an unchanged Option parent or an Option replaced in the same request.
+The policy uses the declared parent keys, exact native events and observed
+ancestry to reject a foreign-owned Value even when a matching event is forged.
+Pending and committed graph reads, replay and rollback pass on PGlite and
+ordinary-role PostgreSQL. Independent Option/Value commands, variant-option
+links and variant-image assignments remain outside this selected admission;
+the physical Product profile remains for their named consumers.
 
 ## Replacement Contract And Breaking Changes
 

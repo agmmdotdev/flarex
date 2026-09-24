@@ -296,6 +296,9 @@ export async function cmsCommandSettlementScenario(
       .observed,
   ).toEqual({ kind: "missing", basis: { kind: "noVisibleRevision" } });
   expect(closed.changes.map((row) => row.documentId)).toEqual([editedRow._id]);
+  expect(closed.observedRows.find(row => row.documentId === readRow._id)?.value.title).toBe(readRow.title);
+  expect(closed.observedRows.find(row => row.documentId === editedRow._id)?.value.title).toBe("settled-title");
+  expect(closed.observedRows.some(row => row.documentId === removedRow._id || row.documentId === transientId)).toBe(false);
   expect(closed.noFinalRows).toEqual([transientId]);
   expect(closed.scans).toEqual([]);
   expect(closed.uniqueReads).toHaveLength(3);

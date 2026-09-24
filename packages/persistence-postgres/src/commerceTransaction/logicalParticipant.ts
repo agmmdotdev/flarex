@@ -24,6 +24,10 @@ export interface LogicalCommerceMutation {
   readonly before: JsonObject | null;
   readonly after: JsonObject | null;
 }
+export interface LogicalCommerceObservedRow {
+  readonly table: string;
+  readonly row: JsonObject;
+}
 export interface LogicalCommerceLifecycleObservation {
   readonly table: string;
   readonly key: Readonly<Record<string, string>>;
@@ -101,7 +105,15 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
       beforeDeletedAt: observation.beforeDeletedAt, afterDeletedAt: observation.afterDeletedAt,
       attemptOrdinal: observation.attemptOrdinal }));
   }
-  return Object.freeze({ mutations: Object.freeze(mutations), lifecycle: Object.freeze(lifecycle) });
+  const observedRows: LogicalCommerceObservedRow[] = [];
+  for (const observation of closed.changes.observedRows) {
+    const table = names.get(observation.tableId);
+    if (table === undefined || table !== observation.tableName || !isJsonObject(observation.value))
+      return yield* Effect.fail(commerceError("storedCorruption"));
+    observedRows.push(Object.freeze({ table, row: observation.value }));
+  }
+  return Object.freeze({ mutations: Object.freeze(mutations), lifecycle: Object.freeze(lifecycle),
+    observedRows: Object.freeze(observedRows) });
 });
 
 /** The root consumes exactly once while the source callback is still live. */

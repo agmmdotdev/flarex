@@ -305,7 +305,7 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
  * policy binds every transition and silent pivot to the root's native event. */
 export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalUpdate")(function* (calls, mutations, lifecycle) {
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalUpdate")(function* (calls, mutations, lifecycle, observedRows) {
     const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productUpdate");
     if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     const memberships = yield* productMembershipPivots(catalog);
@@ -313,10 +313,12 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
     const children = new Map([
       [catalog.image.table.name, { entity: catalog.image, owner: catalog.foreignKeys.image }],
       [catalog.variant.table.name, { entity: catalog.variant, owner: catalog.foreignKeys.variant }],
+      [catalog.option.table.name, { entity: catalog.option, owner: catalog.foreignKeys.option }],
     ]);
     let root: string | undefined;
     const seen = new Set<string>();
     const childAttempts: Array<{ mutation: typeof mutations[number]; entity: ProductEntityMetadata; owner: string }> = [];
+    const valueAttempts: Array<typeof mutations[number]> = [];
     for (const mutation of mutations) {
       if (mutation.table === catalog.product.table.name) {
         const before = mutation.before, after = mutation.after;
@@ -329,6 +331,7 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       }
       const child = children.get(mutation.table);
       if (child !== undefined) { childAttempts.push({ mutation, ...child }); continue; }
+      if (mutation.table === catalog.value.table.name) { valueAttempts.push(mutation); continue; }
       const pivot = pivots.get(mutation.table);
       const row = mutation.operation === "insert" ? mutation.after : mutation.operation === "delete" ? mutation.before : null;
       const productId = row?.[pivot?.productColumn ?? ""];
@@ -346,6 +349,13 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       return yield* Effect.fail(commerceError("receiptMismatch"));
     const expected = new Set([catalog.product.updatedEvent + ":" + root]);
     const childIds = new Set<string>();
+    const ownedOptions = new Set<string>();
+    for (const observation of observedRows) {
+      if (observation.table !== catalog.option.table.name) continue;
+      const row = observation.row;
+      if (row[catalog.foreignKeys.option] === root && row.deleted_at === null && typeof row.id === "string")
+        ownedOptions.add(row.id);
+    }
     for (const { mutation, entity, owner } of childAttempts) {
       const before = mutation.before, after = mutation.after;
       const row = mutation.operation === "delete" ? before : after;
@@ -358,11 +368,29 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
       if (!valid || row === null || typeof row.id !== "string" || row[owner] !== root ||
         childIds.has(entity.table.name + ":" + row.id)) return yield* Effect.fail(commerceError("receiptMismatch"));
       childIds.add(entity.table.name + ":" + row.id);
+      if (entity === catalog.option) ownedOptions.add(row.id);
+      expected.add(eventName + ":" + row.id);
+    }
+    for (const mutation of valueAttempts) {
+      const before = mutation.before, after = mutation.after;
+      const row = mutation.operation === "delete" ? before : after;
+      const eventName = mutation.operation === "insert" ? catalog.value.createdEvent
+        : mutation.operation === "delete" ? catalog.value.deletedEvent : catalog.value.updatedEvent;
+      const valid = mutation.operation === "insert" ? before === null && after !== null && after.deleted_at === null
+        : mutation.operation === "delete" ? before !== null && before.deleted_at === null && after === null
+          : before !== null && after !== null && before.id === after.id &&
+            before[catalog.foreignKeys.value] === after[catalog.foreignKeys.value] &&
+            before.deleted_at === null && after.deleted_at === null;
+      const optionId = row?.[catalog.foreignKeys.value];
+      if (!valid || row === null || typeof row.id !== "string" || typeof optionId !== "string" ||
+        !ownedOptions.has(optionId) || childIds.has(catalog.value.table.name + ":" + row.id))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      childIds.add(catalog.value.table.name + ":" + row.id);
       expected.add(eventName + ":" + row.id);
     }
     const allowedEvents = new Map([
       [catalog.product.updatedEvent, { object: catalog.product.eventObject, action: CommonEvents.UPDATED }],
-      ...[catalog.image, catalog.variant].flatMap(entity => [
+      ...[catalog.image, catalog.variant, catalog.option, catalog.value].flatMap(entity => [
         [entity.createdEvent, { object: entity.eventObject, action: CommonEvents.CREATED }],
         [entity.updatedEvent, { object: entity.eventObject, action: CommonEvents.UPDATED }],
         [entity.deletedEvent, { object: entity.eventObject, action: CommonEvents.DELETED }],

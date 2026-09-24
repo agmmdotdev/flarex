@@ -68,10 +68,19 @@ export interface LogicalRelationalLifecycleObservation {
   readonly afterDeletedAt: string | null;
   readonly attemptOrdinal: number | null;
 }
+/** Final pending rows already observed within this working set. Canonical
+ * values are immutable; their point/index dependencies settle with changes. */
+export interface LogicalDocumentObservedRow {
+  readonly documentId: AppDocumentIdV1;
+  readonly tableId: CatalogTableId;
+  readonly tableName: string;
+  readonly value: JsonObject;
+}
 export interface LogicalDocumentChanges {
   readonly changes: readonly LogicalDocumentChange[];
   readonly attempts: readonly LogicalDocumentAttempt[];
   readonly lifecycle: readonly LogicalRelationalLifecycleObservation[];
+  readonly observedRows: readonly LogicalDocumentObservedRow[];
   readonly noFinalRows: readonly AppDocumentIdV1[];
   readonly dependencies: readonly ApplicationDocumentObservation[];
   readonly scans: readonly Readonly<{ tableId: CatalogTableId; frontier: CommitSeq | null }>[];
@@ -687,7 +696,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     closed = true;
     const changes: LogicalDocumentChange[] = [];
     const noFinalRows: AppDocumentIdV1[] = [];
+    const observedRows: LogicalDocumentObservedRow[] = [];
     for (const row of rows.values()) {
+      if (row.current !== null) {
+        const value = row.current.valueJson;
+        if (!isJsonObject(value) || !dependencies.has(row.documentId)) return yield* Effect.fail(error("storedCorruption"));
+        observedRows.push(Object.freeze({ documentId: row.documentId, tableId: row.tableId,
+          tableName: row.tableName, value }));
+      }
       if (row.attempts.length === 0) continue;
       if (row.base === null && row.current === null) { noFinalRows.push(row.documentId); continue; }
       const dependency = dependencies.get(row.documentId);
@@ -696,9 +712,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         { ...dependency, kind: "live", creationTime: row.creationTime, document: row.current }));
     }
     changes.sort((left, right) => left.tableId - right.tableId || left.rowId.localeCompare(right.rowId));
+    observedRows.sort((left, right) => left.tableId - right.tableId || left.documentId.localeCompare(right.documentId));
     noFinalRows.sort();
     return Object.freeze({ changes: Object.freeze(changes),
-      attempts: Object.freeze([...attempts]), lifecycle: Object.freeze([...lifecycle]), noFinalRows: Object.freeze(noFinalRows),
+      attempts: Object.freeze([...attempts]), lifecycle: Object.freeze([...lifecycle]),
+      observedRows: Object.freeze(observedRows), noFinalRows: Object.freeze(noFinalRows),
       dependencies: Object.freeze([...dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
       scans: Object.freeze([...scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
       uniqueReads: Object.freeze([...uniqueReads.values()]), indexReads: Object.freeze([...indexReads.values()]) });

@@ -104,7 +104,7 @@ export const productForeignKeyScenario: (
     runEffectTransaction(callback => db.transaction(callback), "Product FK working set fixture", work,
       cause => new Error("Product FK fixture transaction", { cause }));
   for (const scenario of ["childFirst", "missing", "requiredMissing", "cascade", "selfCascade", "replacement",
-    "noAction", "persist", "deletePersisted"] as const)
+    "noAction", "persist", "unchangedParent", "deletePersisted"] as const)
     yield* transact(tx => Effect.scoped(Effect.gen(function* () {
     const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
     const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
@@ -148,6 +148,9 @@ export const productForeignKeyScenario: (
       yield* products.write(lifetime.context, "insert", [product]);
     } else if (scenario === "deletePersisted") {
       yield* (yield* table("product")).delete(lifetime.context, [product.id]);
+    } else if (scenario === "unchangedParent") {
+      yield* (yield* table("product_variant")).write(lifetime.context, "insert",
+        [{ ...variant, id: "variant_fk_observed" }]);
     } else {
       yield* (yield* table("product_type")).write(lifetime.context, "insert", [{ id: "type_fk", value: "Type FK" }]);
       yield* (yield* table("product")).write(lifetime.context, "insert", [{ ...product, type_id: "type_fk" }]);
@@ -161,8 +164,16 @@ export const productForeignKeyScenario: (
       expect(closed).toMatchObject({ _tag: "Success" });
       if (closed._tag === "Success") {
         expect(scenario === "cascade" || scenario === "selfCascade" ? closed.success.noFinalRows.length :
-          closed.success.changes.length).toBe(scenario === "selfCascade" ? 3 : 2);
+          closed.success.changes.length).toBe(scenario === "selfCascade" ? 3 : scenario === "unchangedParent" ? 1 : 2);
         if (scenario === "replacement") expect(closed.success.noFinalRows).toHaveLength(1);
+        if (scenario === "unchangedParent") {
+          expect(closed.success.attempts.map(attempt => attempt.tableName)).toEqual(["product_variant"]);
+          expect(closed.success.observedRows.map(row => [row.tableName, row.value.id])).toEqual([
+            ["product", "prod_fk"], ["product_variant", "variant_fk_observed"],
+          ]);
+          expect(closed.success.dependencies.some(row => row.tableId === nativeTables.find(table =>
+            table.logicalName === "product")?.tableId && row.dependency.observed.kind === "present")).toBe(true);
+        }
         if (scenario === "persist" || scenario === "deletePersisted") {
           const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId, tables: new Set(tableIds),
             maximumIndexEntries: 64, error: failure }, closed.success);

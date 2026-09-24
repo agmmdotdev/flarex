@@ -5,7 +5,7 @@ import type { CmsClosedDocuments } from "./documents";
 /** Fault injection only; no admission, preparation or receipt issuer is exposed. */
 export interface CmsMaterializationTestHooks {
   readonly afterDocumentClosure?: (evidence: Pick<CmsClosedDocuments,
-    "dependencies" | "scans" | "uniqueReads" | "changes" | "noFinalRows">) => Effect.Effect<void, CmsTransactionError>;
+    "dependencies" | "scans" | "uniqueReads" | "changes" | "noFinalRows" | "observedRows">) => Effect.Effect<void, CmsTransactionError>;
   readonly transformReceipts?: (
     receipts: readonly object[],
   ) => readonly object[];

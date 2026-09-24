@@ -255,7 +255,7 @@ function makeAtomicCommerceExecution(
         if (member.validateLogical !== undefined) {
           const activity = yield* inspectLogicalCommerceActivity(closure, lifetime);
           yield* member.validateLogical(Object.freeze([...(logicalCalls.get(contribution.token) ?? [])]),
-            activity.mutations, activity.lifecycle);
+            activity.mutations, activity.lifecycle, activity.observedRows);
         }
         closed.push({ kind: "logical", closure });
       }

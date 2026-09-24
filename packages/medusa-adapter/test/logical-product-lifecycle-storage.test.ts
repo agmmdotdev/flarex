@@ -77,19 +77,25 @@ async function tagHost() {
   }));
 }
 
-async function updateHost(forged: "image" | "variant" | false = false, pendingRelation?: "images" | "variants") {
+async function updateHost(forged: "image" | "variant" | "value" | false = false,
+  pendingRelation?: "images" | "variants" | "options.values", foreignOptionId?: string) {
   const policy = productLogicalUpdateEventPolicy(catalog);
   const participant = defineAtomicCommerceParticipant("product");
   const command = forged ? defineCommerceCommand("productUpdate", "write", Effect.fn("ProductTest.forgedChildUpdate")(function* (ctx) {
-    const rootId = forged === "image" ? "prod_logical_image_update" : "prod_logical_variant_update";
-    const foreignId = forged === "image" ? "prod_logical_image_foreign" : "prod_logical_variant_foreign";
-    const child = forged === "image" ? catalog.image : catalog.variant;
-    const childId = forged === "image" ? "img_logical_update_extra" : "pvar_logical_update_extra";
+    const rootId = forged === "image" ? "prod_logical_image_update"
+      : forged === "variant" ? "prod_logical_variant_update" : "prod_logical_option_update";
+    const foreignId = forged === "image" ? "prod_logical_image_foreign"
+      : forged === "variant" ? "prod_logical_variant_foreign" : foreignOptionId;
+    if (foreignId === undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+    const child = forged === "image" ? catalog.image : forged === "variant" ? catalog.variant : catalog.value;
+    const childId = forged === "image" ? "img_logical_update_extra"
+      : forged === "variant" ? "pvar_logical_update_extra" : "pval_logical_update_extra";
     yield* (yield* ctx.table(catalog.product.table.name)).write(ctx.manager, "update",
       [{ id: rootId, title: "Forged root title" }]);
     yield* (yield* ctx.table(child.table.name)).write(ctx.manager, "insert",
       [forged === "image" ? { id: childId, [catalog.foreignKeys.image]: foreignId, url: "extra.png", rank: 1 }
-        : { id: childId, [catalog.foreignKeys.variant]: foreignId, title: "Extra variant" }]);
+        : forged === "variant" ? { id: childId, [catalog.foreignKeys.variant]: foreignId, title: "Extra variant" }
+          : { id: childId, [catalog.foreignKeys.value]: foreignId, value: "Extra value" }]);
     yield* ctx.captureLocalEvent({ name: catalog.product.updatedEvent,
       metadata: { source: Modules.PRODUCT, object: catalog.product.eventObject, action: CommonEvents.UPDATED },
       data: { id: rootId } });
@@ -113,6 +119,8 @@ async function updateHost(forged: "image" | "variant" | false = false, pendingRe
     catalog.product.updatedEvent, catalog.image.createdEvent,
     catalog.image.updatedEvent, catalog.image.deletedEvent,
     catalog.variant.createdEvent, catalog.variant.updatedEvent, catalog.variant.deletedEvent,
+    catalog.option.createdEvent, catalog.option.updatedEvent, catalog.option.deletedEvent,
+    catalog.value.createdEvent, catalog.value.updatedEvent, catalog.value.deletedEvent,
   ].map(name => [name, defineCommerceEventContract({ name, revision,
     internal: true, decode: policy.capture })] as const));
   const selected = { contracts: [...contracts.values()], select: (message: Json) => {
@@ -682,6 +690,86 @@ describe("native Product lifecycle on shared logical storage", () => {
       await Effect.runPromise(create.close);
       await Effect.runPromise(update.host.close);
       await Effect.runPromise(forged.host.close);
+      await Effect.runPromise(read.close);
+    }
+  }, 180_000);
+
+  it("replaces Product option values using authenticated unchanged Option ancestry", async () => {
+    const create = await createHost();
+    const update = await updateHost(false, "options.values");
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [...product.hostInput.commands, product.runtime.commands.list],
+    }));
+    let forged: Awaited<ReturnType<typeof updateHost>> | undefined;
+    const productId = "prod_logical_option_update";
+    try {
+      const created = await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: productId, title: "Option update",
+        options: [{ title: "Size", values: ["Small", "Large"] }],
+      }, { id: "prod_logical_option_foreign", title: "Foreign option",
+        options: [{ title: "Size", values: ["XL"] }],
+      }] }));
+      if (!isJsonObject(created) || !Array.isArray(created.products)) throw new Error("Missing created Product graph");
+      const optionFor = (position: number) => {
+        const productRow = created.products[position];
+        if (productRow === undefined || !isJsonObject(productRow) || !Array.isArray(productRow.options) ||
+          productRow.options[0] === undefined || !isJsonObject(productRow.options[0]) ||
+          typeof productRow.options[0].id !== "string")
+          throw new Error("Missing created Product Option");
+        return productRow.options[0].id;
+      };
+      const ownedOptionId = optionFor(0), foreignOptionId = optionFor(1);
+      forged = await updateHost("value", undefined, foreignOptionId);
+      const beforeEvents = await committedEvents();
+      const replacement = { id: productId, data: { options: [{
+        id: ownedOptionId, title: "Size", values: ["Small", "Medium"],
+      }] } };
+      const key = update.host.newRequestKey();
+      const result = await Effect.runPromise(update.host.run(key, update.root, replacement));
+      expect(result).toMatchObject({ updated: { options: [{ id: ownedOptionId,
+        values: expect.arrayContaining([
+          expect.objectContaining({ value: "Small" }), expect.objectContaining({ value: "Medium" }),
+        ]) }] }, pending: [{ options: [{ id: ownedOptionId,
+        values: expect.arrayContaining([
+          expect.objectContaining({ value: "Small" }), expect.objectContaining({ value: "Medium" }),
+        ]) }] }] });
+      expect((await committedEvents()).slice(beforeEvents.length).map(event => event.envelope.contract).sort())
+        .toEqual([catalog.product.updatedEvent,
+          catalog.value.createdEvent, catalog.value.deletedEvent].sort());
+      expect(await Effect.runPromise(update.host.run(key, update.root, replacement))).toEqual(result);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: productId }, config: { relations: ["options.values"] },
+      }))).toMatchObject([{ options: [{ id: ownedOptionId,
+        values: expect.arrayContaining([
+          expect.objectContaining({ value: "Small" }), expect.objectContaining({ value: "Medium" }),
+        ]) }] }]);
+      const afterValueEvents = await committedEvents();
+      const replaceOption = { id: productId, data: { options: [{ title: "Color", values: ["Red"] }] } };
+      const optionKey = update.host.newRequestKey();
+      const replaced = await Effect.runPromise(update.host.run(optionKey, update.root, replaceOption));
+      expect(replaced).toMatchObject({ updated: { options: [{ title: "Color",
+        values: [{ value: "Red" }] }] }, pending: [{ options: [{ title: "Color",
+        values: [{ value: "Red" }] }] }] });
+      expect((await committedEvents()).slice(afterValueEvents.length).map(event => event.envelope.contract).sort())
+        .toEqual([catalog.product.updatedEvent, catalog.option.createdEvent, catalog.option.deletedEvent,
+          catalog.value.createdEvent, catalog.value.deletedEvent, catalog.value.deletedEvent].sort());
+      expect(await Effect.runPromise(update.host.run(optionKey, update.root, replaceOption))).toEqual(replaced);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: productId }, config: { relations: ["options.values"] },
+      }))).toMatchObject([{ options: [{ title: "Color", values: [{ value: "Red" }] }] }]);
+      const stableRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const stableEvents = await committedEvents();
+      await expect(Effect.runPromise(update.host.run(update.host.newRequestKey(), update.root, {
+        id: productId, data: { options: [{ id: foreignOptionId, title: "Size", values: ["XL"] }] },
+      }))).rejects.toMatchObject({ reason: "invalidInput" });
+      await expect(Effect.runPromise(forged.host.run(forged.host.newRequestKey(), forged.root, null)))
+        .rejects.toMatchObject({ reason: "receiptMismatch" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(stableRows);
+      expect(await committedEvents()).toEqual(stableEvents);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(update.host.close);
+      if (forged !== undefined) await Effect.runPromise(forged.host.close);
       await Effect.runPromise(read.close);
     }
   }, 180_000);
