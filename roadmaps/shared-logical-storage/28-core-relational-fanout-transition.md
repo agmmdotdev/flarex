@@ -1,10 +1,12 @@
 # Core relational fan-out transition
 
-Status: accepted design correction; bounded same-sequence page materialization
-and authenticated, indexed reverse-reference page selection exist in the shared
-core. Neutral `set null` application, sealed transition intent, publication
-integration and native Type cutover remain pending under the standing
-shared-storage goal. The selected ProductType delete remains safely bounded.
+Status: accepted design correction; bounded same-sequence page materialization,
+authenticated indexed reverse selection and neutral `set null` row derivation
+exist in the shared core. A transaction fixture composes the row derivation
+with multi-page materialization and rollback. Sealed transition intent,
+production publication integration, concurrent-writer proof and native Type
+cutover remain pending under the standing shared-storage goal. The selected
+ProductType delete remains safely bounded.
 
 ## Trigger and ownership
 
@@ -94,8 +96,13 @@ enabled current-coverage index and each bounded current row under the scope
 publication lock. Its multi-page Product Type witness reaches 144 references
 without loading the range in one read. The 32-row page and 480-reference
 total leave one of the materializer's 16 pages for the root operation.
-Selection alone does not authorize the
-root delete or guarantee that derived changes have settled.
+The neutral `set null` operation uses the admitted row normalization policy to
+preserve native fields, set the declared nullable FK to null and update managed
+timestamps. It builds ordinary logical row intents page by page, requires the
+trusted caller to lower each page, then rejects any matching reference left in
+the current index. A multi-page fixture proves 144 derived Product changes at
+one sequence and rollback after a late injected failure. It has no production
+caller yet and does not authorize the root delete or publish native activity.
 
 Use a bounded total affected-row, byte, statement and time budget independent
 of the page size. Keep at most one decoded page and its materialization state

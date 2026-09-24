@@ -1,19 +1,25 @@
 import { Clock, Effect, Option, Result } from "effect";
+import { eq, sql } from "drizzle-orm";
 import { isJsonObject } from "flarex-protocol/json";
+import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
+import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import type { CatalogTableId } from "flarex-protocol/catalog";
-import type { RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
-import type { ScopeId } from "flarex-protocol/storage-authority";
 import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputError, AppRowReadPersistenceError,
   type LiveAppRowRevisionV1 } from "../appRows";
 import { scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError } from "../appIndexEntries";
 import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
-import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect, ScopeClockNotFoundError,
-  ScopeAuthorizationRevocationEpochPersistenceError } from "../scopeClock";
+  ScopeAuthorizationRevocationEpochPersistenceError, type ScopeClockRecord } from "../scopeClock";
 import { readRequiredEnabledIndexBuildsInTransactionEffect, IndexBuildStatePersistenceError } from "../indexBuildStates";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
+import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
+import { databaseTimestampFromUnknown } from "../databaseTimestamp";
+import { fxSystemScopeClocks } from "../schema";
 import type { LogicalDocumentFailure } from "./model";
+import type { LogicalDocumentChange } from "./workingSet";
+import type { LogicalRelationalAdmissionState } from "./relationalAdmission";
 import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
+import { prepareLogicalRelationalRows } from "./relationalRows";
 import { selectLogicalIndex } from "./query";
 
 /** Fifteen update pages leave one materialization page for the root operation.
@@ -23,34 +29,40 @@ export const logicalReferenceTransitionBudget = Object.freeze({
   pageRows: 32, affectedRows: 480, totalReadBytes: 4_194_304, scanMilliseconds: 30_000,
 });
 
+type LogicalReferenceAdmission = Pick<LogicalRelationalAdmissionState,
+  "tx" | "authority" | "schema" | "tables" | "indexes">;
+
 /** Traverse a declared nullable reverse FK after acquiring publication
  * exclusion. The callback is trusted settlement code, never framework code.
  * It can lower a page; keyset progress is based on the captured index entry. */
-export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachPage")(function* <Failure>(
-  input: Readonly<{
+export interface LogicalReferencePageInput<Failure> {
     tx: FlarexMetadataTransaction;
-    scopeId: ScopeId;
-    tables: readonly Readonly<{ tableId: CatalogTableId; logicalName: string; relational?: RelationalTableDefinition }>[];
-    indexes: readonly LocatedAppIndexDefinitionV1[];
     sourceTableId: CatalogTableId;
     sourceColumn: string;
     targetTableId: CatalogTableId;
     targetColumn: string;
     targetKey: string;
-    requireAdmission: Effect.Effect<void, Failure>;
+    requireAdmission: Effect.Effect<LogicalReferenceAdmission, Failure>;
     error: LogicalDocumentFailure<Failure>;
-  }>,
-  onPage: (rows: readonly LiveAppRowRevisionV1[]) => Effect.Effect<void, Failure>,
+}
+
+export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachPage")(function* <Failure>(
+  input: Readonly<LogicalReferencePageInput<Failure>>,
+  onPage: (rows: readonly LiveAppRowRevisionV1[], clock: ScopeClockRecord) => Effect.Effect<void, Failure>,
 ) {
-  const { tx, scopeId, error } = input;
-  yield* input.requireAdmission;
-  const foreignKeys = yield* Effect.fromResult(prepareLogicalRelationalForeignKeys(input.tables, error));
+  const { tx, error } = input;
+  const admission = yield* input.requireAdmission;
+  if (admission.tx !== tx || admission.tables.some(table => !admission.schema.tables.includes(table.definition)))
+    return yield* Effect.fail(error("invalidAuthority"));
+  const scopeId = admission.authority.scopeId;
+  const foreignKeys = yield* Effect.fromResult(prepareLogicalRelationalForeignKeys(admission.tables.map(table =>
+    ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })), error));
   const declared = foreignKeys.find(key => key.source.tableId === input.sourceTableId &&
     key.source.column === input.sourceColumn && key.target.tableId === input.targetTableId &&
     key.target.column === input.targetColumn && key.source.nullable && key.onDelete === "noAction");
   if (declared === undefined)
     return yield* Effect.fail(error("invalidInput"));
-  const selected = yield* Effect.fromResult(selectLogicalIndex(input.indexes, declared.source.tableId,
+  const selected = yield* Effect.fromResult(selectLogicalIndex(admission.indexes, declared.source.tableId,
     { [declared.source.column]: input.targetKey }, error));
   if (Option.isNone(selected) || selected.value.definition.physicalSpec.orderedFields[0]?.kind !== "documentPath" ||
     selected.value.definition.physicalSpec.orderedFields[0]?.path !== declared.source.column)
@@ -74,7 +86,7 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
   let totalReadBytes = 0;
   let pages = 0;
   while (true) {
-    yield* input.requireAdmission;
+    if ((yield* input.requireAdmission) !== admission) return yield* Effect.fail(error("invalidAuthority"));
     if (++pages > Math.ceil(logicalReferenceTransitionBudget.affectedRows / logicalReferenceTransitionBudget.pageRows) + 1 ||
       (yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
       return yield* Effect.fail(error("limitExceeded"));
@@ -83,6 +95,8 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
       limit: logicalReferenceTransitionBudget.pageRows, ...(after === undefined ? {} : { after }),
     }).pipe(Effect.mapError(cause => error(cause instanceof AppIndexEntryReadPersistenceError ? "statementFailure" :
       cause instanceof AppIndexEntryHashError ? "resourceFailure" : "storedCorruption", cause)));
+    if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
+      return yield* Effect.fail(error("limitExceeded"));
     if (affectedRows + page.entries.length > logicalReferenceTransitionBudget.affectedRows)
       return yield* Effect.fail(error("limitExceeded"));
     if (page.entries.some(entry => entry.tableId !== declared.source.tableId) ||
@@ -116,7 +130,9 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
       totalReadBytes += indexBytes + ordered.reduce((sum, row) => sum + row.document.canonicalBytes.byteLength, 0);
       if (totalReadBytes > logicalReferenceTransitionBudget.totalReadBytes)
         return yield* Effect.fail(error("limitExceeded"));
-      yield* onPage(Object.freeze(ordered));
+      yield* onPage(Object.freeze(ordered), clock);
+      if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
+        return yield* Effect.fail(error("limitExceeded"));
       affectedRows += ordered.length;
     }
     if (page.isDone) break;
@@ -124,4 +140,58 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
     after = page.continueCursor;
   }
   return affectedRows;
+});
+
+/** A trusted owner converts each selected page into ordinary logical row
+ * intents. The callback lowers it in the same transaction; it never receives
+ * storage authority or a framework-supplied affected-row list. */
+export const forEachLogicalSetNullPage = Effect.fn("LogicalReferences.forEachSetNullPage")(function* <Failure>(
+  input: Readonly<LogicalReferencePageInput<Failure>>,
+  onPage: (changes: readonly LogicalDocumentChange[]) => Effect.Effect<void, Failure>,
+) {
+  const admission = yield* input.requireAdmission;
+  if (admission.tx !== input.tx) return yield* Effect.fail(input.error("invalidAuthority"));
+  const stableInput = { ...input, requireAdmission: input.requireAdmission.pipe(Effect.flatMap(current =>
+    current === admission ? Effect.succeed(current) : Effect.fail(input.error("invalidAuthority")))) };
+  const source = admission.tables.find(table => table.tableId === input.sourceTableId);
+  if (source === undefined || !admission.schema.tables.includes(source.definition))
+    return yield* Effect.fail(input.error("invalidAuthority"));
+  const policy = yield* Effect.fromResult(prepareLogicalRelationalRows(source.definition,
+    admission.schema.capabilities, input.error));
+  const transactionTime = yield* Effect.cached(Effect.gen(function* () {
+    const time = yield* runDrizzleStatementEffect(input.tx.select({ timestamp: sql<unknown>`current_timestamp` })
+      .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, admission.authority.scopeId)),
+    cause => input.error("statementFailure", cause));
+    const parsed = databaseTimestampFromUnknown(time[0]?.timestamp);
+    if (parsed === null) return yield* Effect.fail(input.error("storedCorruption"));
+    return parsed.toISOString();
+  }));
+  const started = yield* Clock.currentTimeMillis;
+  const changed = yield* forEachLogicalReferencePage(stableInput, (rows, clock) => Effect.gen(function* () {
+    const changes: LogicalDocumentChange[] = [];
+    for (const row of rows) {
+      const previous = row.document.valueJson;
+      const documentId = appDocumentIdV1FromRowIdentity(row);
+      if (!isJsonObject(previous) || previous._id !== documentId || previous._creationTime !== row.creationTime)
+        return yield* Effect.fail(input.error("storedCorruption"));
+      const native = Object.fromEntries(Object.entries(previous).filter(([name]) => name !== "_id" && name !== "_creationTime"));
+      yield* Effect.fromResult(policy.validate(native, "storedCorruption"));
+      const updated = yield* Effect.fromResult(policy.normalize({ [input.sourceColumn]: null }, native,
+        yield* transactionTime).pipe(Result.mapError(cause => input.error("storedCorruption", cause))));
+      const document = yield* canonicalizeFlarexValueV1Effect({ ...updated, _id: documentId,
+        _creationTime: row.creationTime }, "appDocument").pipe(Effect.mapError(cause => input.error("storedCorruption", cause)));
+      changes.push(Object.freeze({ documentId, tableId: row.tableId, rowId: row.rowId, readAt: clock.lastCommitSeq,
+        dependency: Object.freeze({ kind: "appRowPoint" as const, documentId,
+          observed: Object.freeze({ kind: "present" as const, revisionCommitSeq: row.commitSeq }) }),
+        kind: "live" as const, creationTime: row.creationTime, document }));
+    }
+    yield* onPage(Object.freeze(changes));
+  }));
+  if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
+    return yield* Effect.fail(input.error("limitExceeded"));
+  const remaining = yield* forEachLogicalReferencePage(stableInput, () => Effect.void);
+  if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
+    return yield* Effect.fail(input.error("limitExceeded"));
+  if (remaining !== 0) return yield* Effect.fail(input.error("invalidAuthority"));
+  return changed;
 });

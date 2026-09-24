@@ -6,6 +6,7 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { RelationalSchema } from "flarex-protocol/internal/relational-schema";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { CommitSeqSchema, projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
+import { isJsonObject } from "flarex-protocol/json";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
@@ -31,6 +32,8 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
 import { validateLogicalDocumentChanges } from "../src/logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization } from "../src/logicalDocuments/materialization";
 import { forEachLogicalReferencePage } from "../src/logicalDocuments/referencePages";
+import { forEachLogicalSetNullPage } from "../src/logicalDocuments/referencePages";
+import { readBoundedCurrentAppRowsInTransactionEffect } from "../src/appRows";
 
 /** Whole-candidate Product index coverage and native row/FK execution through
  * the shared working set. The committed cases materialize row deltas; full
@@ -325,16 +328,89 @@ export const productForeignKeyScenario: (
   const referenced = new Set<string>();
   const typeTableId = nativeTables.find(table => table.logicalName === "product_type")?.tableId;
   if (typeTableId === undefined) throw new Error("Missing Product Type table identity");
-  const references = { scopeId, tables: nativeTables,
-    indexes: selectedIndexes.filter(index => index.access.kind === "developer"),
+  const references = {
     sourceTableId: productTableId, sourceColumn: "type_id",
     targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type",
-    requireAdmission: Effect.void, error: failure } as const;
-  const count = yield* transact(tx => forEachLogicalReferencePage({ tx, ...references },
+    error: failure } as const;
+  const boundTables = nativeTables.map(table => ({ tableId: table.tableId,
+    localName: table.logicalName, definition: table.relational }));
+  const referenceInput = (tx: FlarexMetadataTransaction) => ({ tx, ...references,
+    requireAdmission: Effect.succeed(Object.freeze({ tx, authority: resolved.authority,
+      schema, tables: boundTables, indexes: selectedIndexes.filter(index => index.access.kind === "developer") })) });
+  const count = yield* transact(tx => forEachLogicalReferencePage(referenceInput(tx),
     rows => Effect.sync(() => { for (const row of rows) referenced.add(row.rowId); })));
   expect(count).toBe(144);
   expect(referenced.size).toBe(144);
-  const undeclared = yield* Effect.result(transact(tx => forEachLogicalReferencePage({ tx, ...references,
+  const undeclared = yield* Effect.result(transact(tx => forEachLogicalReferencePage({ ...referenceInput(tx),
     sourceColumn: "handle" }, () => Effect.void)));
   expect(undeclared).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
+  const unstableAdmission = yield* Effect.result(transact(tx => forEachLogicalSetNullPage({
+    ...referenceInput(tx), requireAdmission: Effect.sync(() => Object.freeze({ tx, authority: resolved.authority,
+      schema, tables: boundTables, indexes: selectedIndexes })),
+  }, () => Effect.void)));
+  expect(unstableAdmission).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+
+  // The shared row owner normalizes and lowers each derived update, with one
+  // commit sequence and one rollback boundary for all reference pages.
+  const beforeDetach = yield* inventory;
+  const beforeProductRows = yield* transact(tx => readBoundedCurrentAppRowsInTransactionEffect(tx, {
+    scopeId, tableId: productTableId, minimumCommitSeq: committedSeq,
+    maximumIdentities: 200, maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576,
+  }));
+  const priorProduct = beforeProductRows.rows.find(row => row.kind === "live" &&
+    isJsonObject(row.document.valueJson) && row.document.valueJson.id === "batch_product_0");
+  if (priorProduct?.kind !== "live" || !isJsonObject(priorProduct.document.valueJson))
+    throw new Error("Missing reference Product before detach");
+  const omitted = yield* Effect.result(transact(tx => forEachLogicalSetNullPage(referenceInput(tx), () => Effect.void)));
+  expect(omitted).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+  expect(yield* inventory).toEqual(beforeDetach);
+  let detachedPages = 0;
+  const detach = (failLate: boolean) => transact(tx => Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    const core = yield* enterLogicalDocumentMaterialization({ coverage: "sourceBound", batch: true,
+      command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(deploymentId),
+        scopeId: scope.scopeId, schemaVersionId }, rowIntents: tableIds.map(tableId => ({ tableId })) },
+      intrinsic: selectedIndexes.filter(index => index.access.kind === "by_creation_time"),
+      developer: selectedIndexes.filter(index => index.access.kind === "developer"), unique: constraints,
+      relations: null, options: {}, requireAdmission: Effect.void,
+      validateWrites: (_, changes) => Effect.forEach(changes, change => change.kind === "deleted" ? Effect.void :
+        Effect.fromResult(values.validate(change.tableId, change.document)), { discard: true }),
+    }, tx, resolved.authority, clock);
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+    const changed = yield* forEachLogicalSetNullPage(referenceInput(tx),
+      changes => Effect.gen(function* () {
+        yield* (yield* core.prepareDelta(changes, changes)).lower(commitSeq);
+        detachedPages++;
+        if (failLate && detachedPages === 2) return yield* Effect.fail(failure("injectedDetachFailure"));
+      }));
+    const remaining = yield* forEachLogicalReferencePage(referenceInput(tx), () => Effect.void);
+    expect(remaining).toBe(0);
+    yield* core.completeBatch();
+    yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("statementFailure", cause));
+    return changed;
+  }));
+  expect((yield* Effect.result(detach(true)))._tag).toBe("Failure");
+  expect(detachedPages).toBe(2);
+  expect(yield* inventory).toEqual(beforeDetach);
+  detachedPages = 0;
+  expect(yield* detach(false)).toBe(144);
+  expect(detachedPages).toBeGreaterThan(1);
+  const afterDetach = yield* inventory;
+  expect(afterDetach.rows).toHaveLength(beforeDetach.rows.length);
+  expect(afterDetach.revisions).toHaveLength(beforeDetach.revisions.length + 144);
+  expect(afterDetach.clocks.find(row => row.scopeId === scopeId)?.lastCommitSeq)
+    .toBe(CommitSeqSchema.make(committedSeq + 1n));
+  const detachedRows = yield* transact(tx => readBoundedCurrentAppRowsInTransactionEffect(tx, {
+    scopeId, tableId: productTableId, minimumCommitSeq: CommitSeqSchema.make(committedSeq + 1n),
+    maximumIdentities: 200, maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576,
+  }));
+  expect(detachedRows.rows.filter(row => row.kind === "live" && isJsonObject(row.document.valueJson) &&
+    row.document.valueJson.type_id === null)).toHaveLength(144);
+  const updatedProduct = detachedRows.rows.find(row => row.kind === "live" &&
+    isJsonObject(row.document.valueJson) && row.document.valueJson.id === "batch_product_0");
+  if (updatedProduct?.kind !== "live" || !isJsonObject(updatedProduct.document.valueJson))
+    throw new Error("Missing reference Product after detach");
+  expect(updatedProduct.document.valueJson.updated_at).not.toBe(priorProduct.document.valueJson.updated_at);
+  expect(updatedProduct.document.valueJson._creationTime).toBe(priorProduct.document.valueJson._creationTime);
 });
