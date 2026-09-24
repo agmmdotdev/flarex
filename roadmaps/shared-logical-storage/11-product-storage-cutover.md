@@ -610,8 +610,8 @@ confinement, resource bounds, settlement and one publication owner.
 
 Prove native add/remove/thumbnail behavior, duplicate-assignment and no-op
 cases, pending graph reads, replay, forged extra assignment/event refusal,
-rollback and two-shop isolation on PGlite and ordinary-role PostgreSQL. Retain
-the physical workflow regressions. Change the workflow's internal installation
+rollback and two-shop isolation on PGlite and ordinary-role PostgreSQL. Carry
+the physical workflow regressions until their logical replacements pass. Change the workflow's internal installation
 type to accept the selected logical source; do not add fallback/dual writes.
 The physical Product profile remains for other named unmigrated consumers and
 durable-data disposition; remove only displaced assumptions in this slice.
@@ -624,10 +624,50 @@ capture; no adapter read or second capture is involved. Native add/remove,
 duplicate assignment, same-scope cross-Product endpoints, no-op, missing target
 refusal, thumbnail clear, committed graph read, replay, forged extra row and
 event refusal, and rollback pass on both PGlite and ordinary-role PostgreSQL.
-The existing physical native workflow regressions pass on both drivers. Generic
-row scope isolation and the physical workflow's colliding foreign-scope case
-remain the supporting two-shop witnesses; a direct two-shop logical-workflow
-fixture remains a validation gate before claiming full multi-shop cutover.
+The physical native workflow regressions were retained through the first
+logical cutover and retired after the direct logical two-shop proof below.
+
+## Variant Image Physical-Path Retirement Preflight
+
+The native Variant-image workflow already has a selected logical Product
+receipt and successful single-scope behavioral tests. Its preparation API still
+accepts a physical Product installation solely for the displaced physical-only
+workflow suite. This keeps an old selection contract alive after the real
+workflow moved. Retire that private physical input, migrate the still-unique
+native refusal, cancellation/recovery and concurrency witnesses to the logical
+source, and remove the displaced suite. Preserve original add/remove, thumbnail,
+duplicate, graph and event semantics; keep the pinned Medusa steps unchanged.
+
+The current logical fixture creates one scope in a fresh target. Extend its
+test authority setup to create two independent deployments/scopes on one target
+database, with the same shared physical families and colliding native IDs.
+Prove a Variant and Image from one shop cannot be read or mutated by the other,
+and one shop's workflow leaves the other's rows, events and outcomes unchanged.
+This is a connected native two-shop proof, not a claim about many-shop capacity.
+Core scope identity, FK enforcement and settlement remain the owners; do not
+add adapter-side scope filters or another transaction.
+
+This intentionally breaks the internal Variant-image preparation contract for
+physical Product bindings and removes its physical-only workflow fixture.
+Other named physical Product consumers, their stored rows and the generated
+profile remain until their own cutovers and approved data disposition. If the
+existing shared authority/fixture cannot represent two scopes on one target,
+correct that owner rather than falling back to two isolated databases. Validate
+native behavior, replay, refusal, rollback, uncertainty, scope isolation and
+same-key concurrency on PGlite and ordinary-role PostgreSQL, then run affected
+typechecks, lint, both required reviews and scoped cleanup before committing.
+
+The Variant-image preparation API now accepts only logical Product bindings.
+The physical-only suite is replaced by native logical tests for output and
+caught-graph refusal, cancellation, uncertain-commit replay, and concurrent
+same-key calls. Two independent shop scopes use one persistence target and
+colliding Product, Variant and Image IDs; a workflow in one scope leaves the
+other's rows, commits, events and outcomes unchanged, and cross-scope Image
+selection is refused. This proves the chosen confinement behavior for the
+tested scopes; it does not establish many-shop throughput or table-count scale.
+The test fixture can share a target across independent application identities
+without adding runtime adapter filtering. Other physical Product consumers
+remain named in this roadmap until their individual cutovers.
 
 ## Native Collection Root And Indexed Membership Preflight
 

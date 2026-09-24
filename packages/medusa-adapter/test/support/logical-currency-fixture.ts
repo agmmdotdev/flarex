@@ -50,7 +50,19 @@ import { currencyInitialization } from "../../src/currency-contract";
 import { compileProductDefinition } from "../../src/product-definition";
 import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from "../../src/currency-service";
 
+type LogicalCurrencyResource =
+  | Readonly<{ kind: "pglite"; control: PGliteFlarexPersistence; target: PGliteFlarexPersistence;
+    session: RelationalSession; observeSql: (observer: ((text: string) => Promise<void> | void) | undefined) => void }>
+  | Readonly<{ kind: "postgres"; control: PostgresFlarexPersistence; target: PostgresFlarexPersistence }>;
+
+type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
+type LogicalCurrencyFixtureOptions = Readonly<{
+  includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean;
+}> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
+  | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
+
 export interface LogicalCurrencyFixture {
+  readonly resource: LogicalCurrencyResource;
   readonly application: ApplicationNativeMutationPGliteFixture | ApplicationNativeMutationPostgresFixture;
   readonly control: PGliteFlarexPersistence | PostgresFlarexPersistence;
   readonly persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
@@ -72,25 +84,31 @@ export interface LogicalCurrencyFixture {
 export async function logicalCurrencyFixture(
   driver: "pglite" | "postgres",
   registerCleanup: (cleanup: () => Promise<void>) => void,
-  options?: Readonly<{ includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean }>,
+  options?: LogicalCurrencyFixtureOptions,
 ): Promise<LogicalCurrencyFixture> {
   let observer: ((text: string) => Promise<void> | void) | undefined;
-  const pair = driver === "pglite" ? await (async () => {
+  if (options?.resource !== undefined && options.fixtureIdentity === undefined)
+    throw new Error("A shared logical Currency resource requires a distinct fixture identity");
+  if (options?.resource !== undefined && options.resource.kind !== driver)
+    throw new Error("Logical Currency resource driver mismatch");
+  const pair = options?.resource ?? (driver === "pglite" ? await (async () => {
     const control = await createMigratedPGlitePersistence(registerCleanup);
     const target = await createRelationalPGliteFixture({ registerCleanup, observeQuery: text => observer?.(text) });
-    return { kind: "pglite" as const, control, target: target.persistence, session: target.session };
+    return { kind: "pglite" as const, control, target: target.persistence, session: target.session,
+      observeSql: (next: typeof observer) => { observer = next; } };
   })() : await (async () => {
       const control = await createFileScopedPostgresFixture();
       registerCleanup(control.dispose);
       const target = await createFileScopedPostgresFixture();
       registerCleanup(target.dispose);
       return { kind: "postgres" as const, control: control.persistence, target: target.persistence };
-    })();
+    })());
   const { control, target } = pair;
   const schemaName = (await target.query<{ schema: string }>("select current_schema() as schema")).rows[0]?.schema;
   if (schemaName === undefined) throw new Error("Missing logical Currency target schema");
   const applicationOptions = { runtimeHostIdentity: "flarex.test/logical-currency", compatibilityDate: "2026-09-20",
     ...(options?.includeUserNameIndex === true ? { includeUserNameIndex: true } : {}),
+    ...(options?.fixtureIdentity === undefined ? {} : { fixtureIdentity: options.fixtureIdentity }),
     physicalLocator: { kind: "database_per_scope" as const, databaseKey: "logical_currency_target", schemaName } };
   const application = pair.kind === "postgres"
     ? await createApplicationNativeMutationPostgresFixture(applicationOptions, { control: pair.control, target: pair.target })
@@ -188,9 +206,9 @@ export async function logicalCurrencyFixture(
     const host = yield* makeCommerceHost(hostInput);
     yield* Effect.sync(() => registerCleanup(() => Effect.runPromise(host.close)));
     yield* host.initialize(initialization.rows);
-    return { application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
+    return { resource: pair, application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource,
       productDefinition, physicalTablesBeforeCandidate,
-      ...(pair.kind === "pglite" ? { observeSql: (next: typeof observer) => { observer = next; } } : {}) };
+      ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };
   })());
 }

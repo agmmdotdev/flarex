@@ -173,6 +173,8 @@ export interface ApplicationNativeMutationAnalysis {
 
 export interface ApplicationNativeMutationFixtureOptions {
   readonly physicalLocator?: SplitScopePhysicalLocator;
+  /** Test-only identity selection for independent scopes sharing one target. */
+  readonly fixtureIdentity?: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly includeUserNameIndex?: boolean;
@@ -408,23 +410,26 @@ async function createApplicationNativeMutationFixture<
   lane: ApplicationNativeMutationFixtureLane<Persistence>,
 ): Promise<ApplicationNativeMutationFixture<Persistence>> {
   const { control, target } = lane;
-  const deploymentId = "deployment_application_native_mutation";
+  const deploymentId = options.fixtureIdentity?.deploymentId ?? "deployment_application_native_mutation";
+  const projectId = options.fixtureIdentity?.projectId ?? "project_application_native_mutation";
+  const uuidOffset = options.fixtureIdentity?.uuidOffset ?? 0;
+  const fixtureUuidSequence = (...values: number[]) => uuidSequence(...values.map(value => value + uuidOffset));
   const provisioned = await lane.provision({
       placementPlanner: { plan: () => options.physicalLocator ?? LOCATOR },
       targetResolver: {
         resolve: async locator =>
           lane.locateClock(locator),
       },
-      randomUuid: uuidSequence(1, 2),
+      randomUuid: fixtureUuidSequence(1, 2),
     },
   ).ensure({
     deploymentId,
-    projectId: "project_application_native_mutation",
+    projectId,
   });
   await target.query(
     `insert into deployments (deployment_id, project_id)
      values ($1, $2)`,
-    [deploymentId, "project_application_native_mutation"],
+    [deploymentId, projectId],
   );
   await target.query(
     `update fx_system_scope_clock
@@ -509,7 +514,7 @@ async function createApplicationNativeMutationFixture<
       }],
     } as const;
   const analyses = makeApplicationAnalysisRepository(target.drizzle, {
-    randomUuid: uuidSequence(11, 12, 13),
+    randomUuid: fixtureUuidSequence(11, 12, 13),
   });
   const requestKey = "request:application-native-mutation:analysis";
   const analyzed = options.analysis === undefined
@@ -647,7 +652,7 @@ async function createApplicationNativeMutationFixture<
     registrationSequence += 1;
     const sequence = registrationSequence;
     const repository = makeApplicationAnalysisRepository(target.drizzle, {
-      randomUuid: uuidSequence(
+      randomUuid: fixtureUuidSequence(
         100 + sequence * 3 + 1,
         100 + sequence * 3 + 2,
         100 + sequence * 3 + 3,
@@ -694,7 +699,7 @@ async function createApplicationNativeMutationFixture<
     headMoveSequence += 1;
     const sequence = headMoveSequence;
     const nextAnalyses = makeApplicationAnalysisRepository(target.drizzle, {
-      randomUuid: uuidSequence(
+      randomUuid: fixtureUuidSequence(
         30 + sequence * 3 + 1,
         30 + sequence * 3 + 2,
         30 + sequence * 3 + 3,

@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
+import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import { createStep, createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
+import { batchVariantImagesWorkflow } from "@medusajs/core-flows/product/batch-variant-images";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import { productLogicalCategoryCreateEventPolicy, productLogicalCreateEventPolicy,
   productLogicalDeleteEventPolicy, productLogicalTagEventPolicy,
@@ -9,17 +12,22 @@ import { productLogicalCategoryCreateEventPolicy, productLogicalCreateEventPolic
   productLogicalVariantImagesEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
-import { prepareVariantImagesWorkflow } from "../src/product-variant-images-workflow";
+import { prepareVariantImagesWorkflow, variantImagesWorkflowEvents } from "../src/product-variant-images-workflow";
+import { VariantImagesWorkflowInput } from "../src/product-variant-workflow-input";
+import { prepareAtomicWorkflowHost } from "../src/workflow/host";
+import { prepareWorkflowResources } from "../src/workflow/resources";
 import { currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
+import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent, fxAppRowRevisions } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency } from "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
@@ -35,23 +43,24 @@ const committedEvents = () => currency.persistence.drizzle.select().from(fxSyste
 const rowIdentity = (row: { scopeUuid: string; tableId: number; rowId: Uint8Array }) =>
   `${row.scopeUuid}:${row.tableId}:${Buffer.from(row.rowId).toString("hex")}`;
 
-async function createHost() {
+async function createHost(selectedCurrency = currency, selectedProduct = product) {
   return Effect.runPromise(prepareProductCreateWorkflow({
-    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+    execution: { identityAndAccessPolicy: selectedCurrency.hostInput.identityAndAccessPolicy,
+      prepare: composition => makeAtomicCommerceHost({ ...selectedCurrency.hostInput, ...composition }) },
+    modules: { product: { module: selectedProduct.runtime.workflow, logicalStorage: selectedProduct.hostInput.logicalStorage,
       moduleEvents: productLogicalCreateEventPolicy(catalog) } },
     revision: createHash("sha256").update("logical-product-lifecycle-create").digest("hex"),
     subscribers: [{ id: "logical-product-lifecycle", revision: "a".repeat(64) }],
   }));
 }
 
-async function variantImagesHost() {
+async function variantImagesHost(selectedCurrency = currency, selectedProduct = product,
+  moduleEvents = productLogicalVariantImagesEventPolicy(catalog), session = selectedCurrency.session) {
   return Effect.runPromise(prepareVariantImagesWorkflow({
-    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalVariantImagesEventPolicy(catalog) } },
+    execution: { identityAndAccessPolicy: selectedCurrency.hostInput.identityAndAccessPolicy,
+      prepare: composition => makeAtomicCommerceHost({ ...selectedCurrency.hostInput, session, ...composition }) },
+    modules: { product: { module: selectedProduct.runtime.workflow, logicalStorage: selectedProduct.hostInput.logicalStorage,
+      moduleEvents } },
     revision: createHash("sha256").update("logical-product-variant-images").digest("hex"),
     subscribers: [{ id: "logical-product-variant-images", revision: "a".repeat(64) }],
   }));
@@ -301,6 +310,89 @@ describe("native Product lifecycle on shared logical storage", () => {
     }
   }, 120_000);
 
+  it("confines colliding native Variant-image IDs to each shop on one shared target", async () => {
+    const otherCurrency = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
+      includeProduct: true, resource: currency.resource,
+      fixtureIdentity: { deploymentId: "deployment_product_images_shop_b",
+        projectId: "project_product_images_shop_b", uuidOffset: 1_000 },
+    });
+    const otherProduct = await prepareLogicalProductHost(otherCurrency);
+    await Effect.runPromise(otherProduct.host.initialize([]));
+    await Effect.runPromise(otherProduct.host.close);
+    const firstCreate = await createHost();
+    const secondCreate = await createHost(otherCurrency, otherProduct);
+    const firstImages = await variantImagesHost();
+    const secondImages = await variantImagesHost(otherCurrency, otherProduct);
+    const assignmentRead = defineCommerceCommand("productSharedAssignmentRead", "read", ctx =>
+      Effect.gen(function* () {
+        const store = yield* ctx.table(catalog.assignment.table.name);
+        return yield* store.find(ctx.manager, { take: 20, order: { column: "id", direction: "asc" } });
+      }));
+    const firstRead = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [assignmentRead, product.runtime.commands.retrieve],
+    }));
+    const secondRead = await Effect.runPromise(makeCommerceHost({ ...otherProduct.hostInput,
+      commands: [assignmentRead, otherProduct.runtime.commands.retrieve],
+    }));
+    try {
+      expect(otherCurrency.persistence).toBe(currency.persistence);
+      const firstScope = projectScopeIdUuidV1(currency.application.authority.scopeId).scopeUuid;
+      const secondScope = projectScopeIdUuidV1(otherCurrency.application.authority.scopeId).scopeUuid;
+      expect(firstScope).not.toBe(secondScope);
+      const seed = (name: string) => ({ products: [{ id: "shared-image-product", title: `${name} Product`,
+        images: [{ id: "shared-image-old", url: `${name}-old-url` },
+          { id: "shared-image-new", url: `${name}-new-url` },
+          ...(name === "first" ? [{ id: "first-only-image", url: "first-only-url" }] : [])],
+        variants: [{ id: "shared-image-variant", title: "Shared variant", thumbnail: `${name}-old-url`, options: {} }],
+      }] });
+      await Effect.runPromise(firstCreate.run(firstCreate.newRequestKey(), seed("first")));
+      await Effect.runPromise(secondCreate.run(secondCreate.newRequestKey(), seed("second")));
+      for (const host of [firstImages, secondImages]) await Effect.runPromise(host.run(host.newRequestKey(), {
+        variant_id: "shared-image-variant", add: ["shared-image-old"],
+      }));
+      const secondRowsBefore = (await currency.persistence.drizzle.select().from(fxAppRowCurrent))
+        .filter(row => row.scopeUuid === secondScope);
+      const secondEventsBefore = (await committedEvents()).filter(row => row.scopeUuid === secondScope);
+      const secondCommitsBefore = (await currency.persistence.drizzle.select().from(fxSystemCommits))
+        .filter(row => row.scopeUuid === secondScope);
+      const secondOutcomesBefore = (await currency.persistence.drizzle.select().from(fxSystemIdempotency))
+        .filter(row => row.scopeUuid === secondScope);
+      expect(await Effect.runPromise(firstImages.run(firstImages.newRequestKey(), {
+        variant_id: "shared-image-variant", add: ["shared-image-new"], remove: ["shared-image-old"],
+      }))).toEqual({ added: ["shared-image-new"], removed: ["shared-image-old"] });
+      expect((await currency.persistence.drizzle.select().from(fxAppRowCurrent))
+        .filter(row => row.scopeUuid === secondScope)).toEqual(secondRowsBefore);
+      expect((await committedEvents()).filter(row => row.scopeUuid === secondScope)).toEqual(secondEventsBefore);
+      expect((await currency.persistence.drizzle.select().from(fxSystemCommits))
+        .filter(row => row.scopeUuid === secondScope)).toEqual(secondCommitsBefore);
+      expect((await currency.persistence.drizzle.select().from(fxSystemIdempotency))
+        .filter(row => row.scopeUuid === secondScope)).toEqual(secondOutcomesBefore);
+      await expect(Effect.runPromise(secondImages.run(secondImages.newRequestKey(), {
+        variant_id: "shared-image-variant", add: ["first-only-image"],
+      }))).rejects.toMatchObject({ reason: "invalidInput" });
+      const secondVariant = await Effect.runPromise(secondRead.read(otherProduct.runtime.commands.retrieve, {
+        id: "shared-image-product", config: { relations: ["variants.images"] },
+      }));
+      expect(secondVariant).toMatchObject({ variants: [{ thumbnail: "second-old-url" }] });
+      const firstAssignments = await Effect.runPromise(firstRead.read(assignmentRead, null));
+      const secondAssignments = await Effect.runPromise(secondRead.read(assignmentRead, null));
+      if (!Array.isArray(firstAssignments) || !firstAssignments.every(isJsonObject) ||
+        !Array.isArray(secondAssignments) || !secondAssignments.every(isJsonObject))
+        throw new Error("Invalid scoped assignment rows");
+      expect(firstAssignments.filter(row => row.variant_id === "shared-image-variant")
+        .map(row => row.image_id)).toEqual(["shared-image-new"]);
+      expect(secondAssignments.filter(row => row.variant_id === "shared-image-variant")
+        .map(row => row.image_id)).toEqual(["shared-image-old"]);
+    } finally {
+      await Effect.runPromise(firstCreate.close);
+      await Effect.runPromise(secondCreate.close);
+      await Effect.runPromise(firstImages.close);
+      await Effect.runPromise(secondImages.close);
+      await Effect.runPromise(firstRead.close);
+      await Effect.runPromise(secondRead.close);
+    }
+  }, 180_000);
+
   it("preserves duplicate, same-scope cross-Product, empty call and nonmatching thumbnail behavior", async () => {
     const create = await createHost();
     const images = await variantImagesHost();
@@ -354,6 +446,249 @@ describe("native Product lifecycle on shared logical storage", () => {
       await Effect.runPromise(create.close);
       await Effect.runPromise(images.close);
       await Effect.runPromise(read.close);
+    }
+  }, 120_000);
+
+  it("uses requested image URLs without an assignment and refuses malformed native selections", async () => {
+    const create = await createHost();
+    const images = await variantImagesHost();
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [product.runtime.commands.listVariants],
+    }));
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_image_requests", title: "Requested Image URLs",
+        images: [{ id: "img_logical_image_general", url: "general-url" },
+          { id: "img_logical_image_other", url: "other-url" }],
+        variants: [{ id: "pvar_logical_image_requests", title: "Requested variant",
+          thumbnail: "general-url", options: {} },
+          { id: "pvar_logical_image_null", title: "Null thumbnail", thumbnail: null, options: {} }],
+      }] }));
+      const beforeEvents = await committedEvents();
+      expect(await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_image_requests", remove: ["img_logical_image_general", "missing-image"],
+      }))).toEqual({ added: [], removed: ["img_logical_image_general", "missing-image"] });
+      expect(await Effect.runPromise(read.read(product.runtime.commands.listVariants, {
+        filters: { id: "pvar_logical_image_requests" }, config: { relations: [] },
+      }))).toMatchObject([{ thumbnail: null }]);
+      const afterEvents = await committedEvents();
+      expect(afterEvents.slice(beforeEvents.length).map(row => row.envelope.contract))
+        .toEqual([catalog.variant.updatedEvent]);
+      expect(await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_image_requests", remove: ["missing-image"],
+      }))).toEqual({ added: [], removed: ["missing-image"] });
+      expect(await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_image_null", remove: ["img_logical_image_other"],
+      }))).toEqual({ added: [], removed: ["img_logical_image_other"] });
+      expect(await committedEvents()).toEqual(afterEvents);
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      for (const input of [
+        { variant_id: "pvar_logical_image_requests", add: ["img_logical_image_other", "img_logical_image_other"] },
+        { variant_id: "pvar_logical_image_requests", add: ["img_logical_image_other"], remove: ["img_logical_image_other"] },
+        { variant_id: "pvar_logical_image_requests", add: ["missing-image"] },
+        { variant_id: "missing-variant", add: ["img_logical_image_other"] },
+        { variant_id: "", add: [] },
+        { variant_id: "pvar_logical_image_requests", add: ["img_logical_image_other"], extra: true },
+      ]) {
+        await expect(Effect.runPromise(images.run(images.newRequestKey(), input)))
+          .rejects.toBeDefined();
+        expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+        expect(await committedEvents()).toEqual(afterEvents);
+      }
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(images.close);
+      await Effect.runPromise(read.close);
+    }
+  }, 120_000);
+
+  it("rolls back native Variant-image writes when output decoding or caught graph use fails", async () => {
+    const create = await createHost();
+    const images = await variantImagesHost();
+    const resources = Result.getOrThrow(prepareWorkflowResources({ product: { module: product.runtime.workflow,
+      methods: ["addImageToVariant", "removeImageFromVariant", "listProductVariants", "updateProductVariants"], graph: true,
+    } }, true));
+    const invalid = await Effect.runPromise(prepareAtomicWorkflowHost({
+      execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+        prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+        moduleEvents: productLogicalVariantImagesEventPolicy(catalog) } },
+      revision: createHash("sha256").update("logical-product-variant-images-invalid-output").digest("hex"),
+      subscribers: [{ id: "logical-product-variant-images", revision: "a".repeat(64) }],
+      workflow: { name: "invalidVariantImagesOutput", resources,
+        prepared: Result.getOrThrow(batchVariantImagesWorkflow.prepare()),
+        input: VariantImagesWorkflowInput, output: Schema.Null, events: variantImagesWorkflowEvents },
+    }));
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_image_rollback", title: "Rollback Images",
+        images: [{ id: "img_logical_image_rollback_old", url: "rollback-old" },
+          { id: "img_logical_image_rollback_new", url: "rollback-new" }],
+        variants: [{ id: "pvar_logical_image_rollback", title: "Rollback variant",
+          thumbnail: "rollback-old", options: {} }],
+      }] }));
+      await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_image_rollback", add: ["img_logical_image_rollback_old"],
+      }));
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await committedEvents();
+      await expect(Effect.runPromise(invalid.run(invalid.newRequestKey(), {
+        variant_id: "pvar_logical_image_rollback", add: ["img_logical_image_rollback_new"],
+        remove: ["img_logical_image_rollback_old"],
+      }))).rejects.toMatchObject({ reason: "storedCorruption" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await committedEvents()).toEqual(beforeEvents);
+      const caughtResources = Result.getOrThrow(prepareWorkflowResources({ product: { module: product.runtime.workflow,
+        methods: ["addImageToVariant"], graph: true,
+      } }, false));
+      const call = createStep("caught-extra-variant-graph-arguments", caughtResources.callback(async (_: unknown, context) => {
+        await context.resources.product.addImageToVariant([{
+          variant_id: "pvar_logical_image_rollback", image_id: "img_logical_image_rollback_new",
+        }]);
+        await Reflect.apply(context.resources.query.graph, undefined,
+          [{ entity: "variant", fields: ["id"], pagination: { take: 1 } }, {}]).catch(() => undefined);
+        return null;
+      }));
+      const flow = createWorkflow("caught-extra-variant-graph", () => new WorkflowResponse(call(undefined)));
+      const caught = await Effect.runPromise(prepareAtomicWorkflowHost({
+        execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+          prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+        modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+          moduleEvents: productLogicalVariantImagesEventPolicy(catalog) } },
+        revision: createHash("sha256").update("logical-product-variant-images-caught-graph").digest("hex"),
+        workflow: { name: "caughtVariantGraph", resources: caughtResources,
+          prepared: Result.getOrThrow(flow.prepare()), input: Schema.Null, output: Schema.Null },
+      }));
+      try {
+        const exit = await Effect.runPromise(Effect.exit(caught.run(caught.newRequestKey(), null)));
+        if (!Exit.isFailure(exit)) throw new Error("Expected sticky graph refusal");
+        expect(exit.cause.reasons.some(reason => Cause.isFailReason(reason) &&
+          reason.error.reason === "unsupportedProfile")).toBe(true);
+        expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+        expect(await committedEvents()).toEqual(beforeEvents);
+      } finally { await Effect.runPromise(caught.close); }
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(images.close);
+      await Effect.runPromise(invalid.close);
+    }
+  }, 120_000);
+
+  it("drains cancelled Variant-image writes and recovers an uncertain commit without repeating validation", async () => {
+    const create = await createHost();
+    const images = await variantImagesHost();
+    const reached = await Effect.runPromise(Deferred.make<void>());
+    const policy = productLogicalVariantImagesEventPolicy(catalog);
+    const cancelled = await variantImagesHost(currency, product, { ...policy,
+      validateLogical: (...args) => policy.validateLogical(...args).pipe(
+        Effect.andThen(Deferred.succeed(reached, undefined)), Effect.andThen(Effect.never)),
+    });
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_images_recovery", title: "Recover Variant Images",
+        images: [{ id: "img_logical_recovery_old", url: "recovery-old" },
+          { id: "img_logical_recovery_new", url: "recovery-new" }],
+        variants: [{ id: "pvar_logical_images_recovery", title: "Recovery variant",
+          thumbnail: "recovery-old", options: {} }],
+      }] }));
+      await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_images_recovery", add: ["img_logical_recovery_old"],
+      }));
+      const input = { variant_id: "pvar_logical_images_recovery",
+        add: ["img_logical_recovery_new"], remove: ["img_logical_recovery_old"] };
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await committedEvents();
+      const beforeCommits = await currency.persistence.drizzle.select().from(fxSystemCommits);
+      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+        const fiber = yield* Effect.forkScoped(cancelled.run(cancelled.newRequestKey(), input));
+        yield* Deferred.await(reached).pipe(Effect.timeout(5000));
+        yield* Fiber.interrupt(fiber);
+      })));
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+      expect(await committedEvents()).toEqual(beforeEvents);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommits)).toEqual(beforeCommits);
+      let loseAcknowledgement = true;
+      let validations = 0;
+      const session = issueRelationalSession(currency.persistence.drizzle, (profile, work) =>
+        runRelationalSession(currency.session, profile, work).pipe(
+          Effect.catchTag("RelationalTransactionError", cause =>
+            Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause }))),
+          Effect.flatMap(value => {
+            if (!loseAcknowledgement) return Effect.succeed(value);
+            loseAcknowledgement = false;
+            return Effect.fail(new RelationalSessionError({
+              reason: "decisionUncertain", cause: "lost logical Variant-image acknowledgement",
+            }));
+          }),
+        ));
+      const recovering = await variantImagesHost(currency, product, { ...policy,
+        validateLogical: (...args) => policy.validateLogical(...args).pipe(
+          Effect.tap(() => Effect.sync(() => { validations++; }))),
+      }, session);
+      try {
+        const key = recovering.newRequestKey();
+        const result = { added: ["img_logical_recovery_new"], removed: ["img_logical_recovery_old"] };
+        expect(await Effect.runPromise(recovering.run(key, input))).toEqual(result);
+        const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+        const afterEvents = await committedEvents();
+        const afterCommits = await currency.persistence.drizzle.select().from(fxSystemCommits);
+        expect(validations).toBe(1);
+        expect(afterCommits).toHaveLength(beforeCommits.length + 1);
+        expect(afterEvents).toHaveLength(beforeEvents.length + 1);
+        expect(await Effect.runPromise(recovering.run(key, input))).toEqual(result);
+        expect(validations).toBe(1);
+        expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+        expect(await committedEvents()).toEqual(afterEvents);
+        expect(await currency.persistence.drizzle.select().from(fxSystemCommits)).toEqual(afterCommits);
+      } finally { await Effect.runPromise(recovering.close); }
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(images.close);
+      await Effect.runPromise(cancelled.close);
+    }
+  }, 120_000);
+
+  it.skipIf(driver !== "postgres")("isolates pending Variant-image writes and settles duplicate request keys once", async () => {
+    const create = await createHost();
+    const images = await variantImagesHost();
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_images_concurrent", title: "Concurrent Variant Images",
+        images: [{ id: "img_logical_concurrent_old", url: "concurrent-old" },
+          { id: "img_logical_concurrent_new", url: "concurrent-new" }],
+        variants: [{ id: "pvar_logical_images_concurrent", title: "Concurrent variant",
+          thumbnail: "concurrent-old", options: {} }],
+      }] }));
+      await Effect.runPromise(images.run(images.newRequestKey(), {
+        variant_id: "pvar_logical_images_concurrent", add: ["img_logical_concurrent_old"],
+      }));
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await committedEvents();
+      const beforeCommits = await currency.persistence.drizzle.select().from(fxSystemCommits);
+      let observed = false;
+      const policy = productLogicalVariantImagesEventPolicy(catalog);
+      const concurrent = await variantImagesHost(currency, product, { ...policy,
+        validateLogical: (...args) => policy.validateLogical(...args).pipe(Effect.andThen(Effect.promise(async () => {
+          observed = true;
+          expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+          expect(await committedEvents()).toEqual(beforeEvents);
+        }))),
+      });
+      try {
+        const key = concurrent.newRequestKey();
+        const input = { variant_id: "pvar_logical_images_concurrent",
+          add: ["img_logical_concurrent_new"], remove: ["img_logical_concurrent_old"] };
+        const result = { added: ["img_logical_concurrent_new"], removed: ["img_logical_concurrent_old"] };
+        expect(await Promise.all([Effect.runPromise(concurrent.run(key, input)),
+          Effect.runPromise(concurrent.run(key, input))])).toEqual([result, result]);
+        expect(observed).toBe(true);
+        expect(await currency.persistence.drizzle.select().from(fxSystemCommits))
+          .toHaveLength(beforeCommits.length + 1);
+        expect(await committedEvents()).toHaveLength(beforeEvents.length + 1);
+      } finally { await Effect.runPromise(concurrent.close); }
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(images.close);
     }
   }, 120_000);
 
