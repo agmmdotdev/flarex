@@ -420,10 +420,11 @@ The selected logical host admits one native Product root update with its
 tag/category membership changes and authenticates the root event against
 those row transitions. The larger-catalog witness uses 260 unrelated Product
 rows and 260 unrelated tag memberships while updating one Product. General
-Product update shapes that mutate owned options or variants still need
-their own logical event admission and end-to-end cutover; the physical profile
-remains their named consumer. Bounded selections may still refuse when the
-selected set or predicate itself exceeds the core resource contract.
+Product update shapes that mutate owned options, option values, variant-option
+links or variant-image assignments still need their own logical event admission
+and end-to-end cutover; the physical profile remains their named consumer.
+Bounded selections may still refuse when the selected set or predicate itself
+exceeds the core resource contract.
 
 ## Native Product Image Replacement Preflight
 
@@ -457,7 +458,44 @@ selected root, using the DML-declared image owner key and exact native image
 events. The same atomic request can read the ranked pending image graph before
 settlement; committed reads and replay retain that order. An image already
 assigned to a variant still follows the existing assignment/deletion contract;
-variant relationship changes remain at the later variant update gate.
+variant-image assignment and variant-option changes remain at their later gates.
+
+## Native Product Direct-Variant Update Preflight
+
+The pinned Product service can replace its Variant list, updating retained
+Variant scalars and creating or removing direct children. The shared graph
+planner already selects Variant rows by the declared Product foreign key, and
+shared unique claims cover active SKU and other declared identifiers. The
+earlier logical Product update receipt refused every Variant transition, so
+this native branch remained a physical-profile consumer.
+
+Admit direct Variant insert, patch/replace and delete in the existing Product
+update policy only when each row belongs to its updated Product root, the
+transition is active, each Variant ID occurs once, and its native event matches
+the exact change. Preserve one borrowed transaction and publication owner.
+This broadens an internal receipt contract; no public input, physical family or
+durable schema changes. Native option-value and variant-option changes are not
+silently admitted: those need authenticated ancestry through unchanged rows,
+which the current mutation-only receipt does not provide. The physical Product
+profile remains a named consumer for those graph shapes and other uncut paths.
+
+Prove native retained-Variant scalar update, insertion and removal, selected
+pending and committed graph reads, exact event facts,
+replay, cross-Product Variant refusal and rollback of a forged foreign-owned
+transition. Exercise active identifier uniqueness on both PGlite and ordinary
+role PostgreSQL; retain the existing physical Product/Variant regressions. If
+native normalization always entails a variant-option pivot, stop at that
+boundary and correct the shared ancestry contract in a separate connected
+slice rather than allowing the pivot without proof.
+
+The native Product update now admits directly owned Variant create, update and
+delete transitions beside images and memberships. It binds each transition to
+the Product root using the DML-declared foreign key and to its matching native
+event; unchanged option/value ancestry and variant-option pivots remain
+unadmitted. The selected workflow proves pending and committed Variant reads,
+replay, foreign-owner refusal, unique-SKU conflict rollback and rejection of a
+forged foreign-owned child. The physical profile remains for the named
+unmigrated Product graph commands and relationship branches above.
 
 ## Replacement Contract And Breaking Changes
 
