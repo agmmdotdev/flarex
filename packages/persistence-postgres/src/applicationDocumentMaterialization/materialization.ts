@@ -540,7 +540,8 @@ export async function materializeApplicationDocumentRows(
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   publicationProfile: import("../indexBuildStates").IndexPublicationProfile,
   options: ApplicationDocumentMaterializationOptions,
-): Promise<void> {
+  deferCoverage = false,
+): Promise<(() => Promise<void>) | void> {
   const writeEpoch = clock.epoch;
   const maintainedBuilds = [...intrinsicBuilds, ...developerBuilds];
   const coverageContext = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
@@ -659,50 +660,59 @@ export async function materializeApplicationDocumentRows(
     uniqueKeyActions,
     options,
   );
-  for (const { build } of maintainedBuilds) {
-    if (build.lifecycle !== "enabled" || build.maintenance !== null) continue;
-    const updated = await sqlCall("resetDeveloperIndexValidation", () =>
-      tx
-        .update(fxSystemIndexBuildStates)
-        .set({
-          coveredThroughCommitSeq: commitSeq,
-          updatedAt: sql`clock_timestamp()`,
-        })
-        .where(
-          and(
-            eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
-            eq(
-              fxSystemIndexBuildStates.indexDefinitionId,
-              build.indexDefinitionId,
+  // Page writes may share one publication sequence. The coverage watermarks
+  // must advance only after every page is lowered, or the next page would be
+  // validated against a future watermark while the scope clock is still old.
+  const coverageSchemaVersionId = command.authorityPins.schemaVersionId;
+  const coverageAuthority = { authorityPins: { scopeId: command.authorityPins.scopeId } };
+  const completeCoverage = async () => {
+    for (const { build } of maintainedBuilds) {
+      if (build.lifecycle !== "enabled" || build.maintenance !== null) continue;
+      const updated = await sqlCall("resetDeveloperIndexValidation", () =>
+        tx
+          .update(fxSystemIndexBuildStates)
+          .set({
+            coveredThroughCommitSeq: commitSeq,
+            updatedAt: sql`clock_timestamp()`,
+          })
+          .where(
+            and(
+              eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
+              eq(
+                fxSystemIndexBuildStates.indexDefinitionId,
+                build.indexDefinitionId,
+              ),
+              eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
+              eq(fxSystemIndexBuildStates.epoch, build.epoch),
+              eq(
+                fxSystemIndexBuildStates.storageGenerationFence,
+                build.storageGenerationFence,
+              ),
+              eq(fxSystemIndexBuildStates.lifecycle, "enabled"),
             ),
-            eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
-            eq(fxSystemIndexBuildStates.epoch, build.epoch),
-            eq(
-              fxSystemIndexBuildStates.storageGenerationFence,
-              build.storageGenerationFence,
-            ),
-            eq(fxSystemIndexBuildStates.lifecycle, "enabled"),
-          ),
-        )
-        .returning({ id: fxSystemIndexBuildStates.indexDefinitionId }),
-    );
-    if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
-  }
+          )
+          .returning({ id: fxSystemIndexBuildStates.indexDefinitionId }),
+      );
+      if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
+    }
 
-  await runUniqueCoverage(
-    advanceUnboundUniqueCoverageInTransactionEffect(
-      tx,
-      uniqueBuilds,
-      commitSeq,
-      command.authorityPins.schemaVersionId,
-    ),
-  );
-  if (uniqueBuilds.length > 0)
-    await emitTransactionStep(
-      options,
-      command,
-      "uniquePublicationApplied",
+    await runUniqueCoverage(
+      advanceUnboundUniqueCoverageInTransactionEffect(
+        tx,
+        uniqueBuilds,
+        commitSeq,
+        coverageSchemaVersionId,
+      ),
     );
+    if (uniqueBuilds.length > 0)
+      await emitTransactionStep(
+        options,
+        coverageAuthority,
+        "uniquePublicationApplied",
+      );
+  };
+  if (deferCoverage) return completeCoverage;
+  await completeCoverage();
 }
 
 async function runUniqueCoverage<A>(

@@ -1,6 +1,8 @@
 # Core relational fan-out transition
 
-Status: accepted design correction; implementation pending under the standing
+Status: accepted design correction; bounded same-sequence page materialization
+exists in the shared core. Indexed reverse selection, sealed transition intent,
+publication integration and native Type cutover remain pending under the standing
 shared-storage goal. The selected ProductType delete remains safely bounded.
 
 ## Trigger and ownership
@@ -89,10 +91,13 @@ earlier capped request page as authoritative.
 Use a bounded total affected-row, byte, statement and time budget independent
 of the page size. Keep at most one decoded page and its materialization state
 live at once; retain only resource-accounted compact row identities and event
-proof needed by the single publication. The current one-shot
-`prepareDelta`, `LogicalDocumentChanges`, row-intent array and native mutation
-inspector must be replaced or extended *together* so each page is lowered at
-the same sequence and the complete change count/facts remain recoverable. The
+proof needed by the single publication. The shared materializer now admits
+explicitly selected bounded pages at one commit sequence and defers index and
+unique coverage watermarks until the batch is complete. Repeating the old
+one-shot lower without that deferral fails the next page's coverage validation.
+The remaining `LogicalDocumentChanges`, row-intent array and native mutation
+inspector must be replaced or extended *together* so settlement can consume
+pages and the complete change count/facts remain recoverable. The
 Type event validator currently expects a full Product before/after mutation
 array; it must instead authenticate the root event and the sealed transition
 intent, while core verifies that every derived Product change is exactly the
@@ -109,9 +114,11 @@ logical transition.
 
 ## Coherent implementation and acceptance gate
 
-1. Inventory the logical row, index, unique, revision, attempt, dependency,
-   publication and recovery writers that consume a closed working set. Define
-   the replacement contribution contract and an explicit total-work budget.
+1. Complete the inventory of logical row, index, unique, revision, attempt,
+   dependency, publication and recovery writers that consume a closed working
+   set. The shared materialization page budget is 512 changed identities,
+   16 pages and 4 MiB of final document bytes; the relation-transition owner
+   still needs its separate read, total work, statement and time budget.
 2. Implement and test a neutral declared `set null` transition with indexed
    reverse selection, complete membership, rollback and concurrent insert or
    delete conflict. Keep one outer settlement authority.

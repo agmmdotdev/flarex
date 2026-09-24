@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import { SnapshotTokenSchema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
 import type { ApplicationDocumentMaterializationOptions, ApplicationDocumentDefinitionCommand, ApplicationDocumentMaterializationCommand,
   ApplicationDocumentObservation, PointCommitDependencyV1, PreparedPointCommitApplicationRelations } from "../applicationDocumentMaterialization/model";
@@ -25,6 +26,10 @@ export class LogicalDocumentMaterializationError extends Data.TaggedError("Logic
 export const logicalMaterializationError = (reason: LogicalDocumentMaterializationError["reason"], cause?: unknown) =>
   new LogicalDocumentMaterializationError({ reason, ...(cause === undefined ? {} : { cause }) });
 
+/** A bounded multi-page logical command still publishes one commit. These
+ * limits bound retained identity evidence independently of the page size. */
+export const logicalMaterializationBatchBudget = Object.freeze({ rows: 512, pages: 16, documentBytes: 4_194_304 });
+
 /** Source-private kernel inputs from the trusted semantic participant. These
  * are not authority tokens or an admission API. Both semantic gates are required;
  * the owner supplies its admitted definitions and borrows its settlement transaction. */
@@ -36,6 +41,8 @@ export interface LogicalDocumentMaterializationInput<Failure> {
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
   readonly relations: PreparedPointCommitApplicationRelations | null;
   readonly options: Pick<ApplicationDocumentMaterializationOptions, "afterTransactionStep" | "observeQuery">;
+  /** Trusted settlement only: retain build coverage until all pages share one sequence. */
+  readonly batch?: true;
   readonly requireAdmission: Effect.Effect<void, Failure>;
   readonly validateWrites: (commitSeq: CommitSeq, changes: ApplicationDocumentMaterializationCommand["rowIntents"]) => Effect.Effect<void, Failure>;
 }
@@ -117,16 +124,31 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
         empty,
       ),
     );
-    let preparedDelta = false;
+    let phase: "ready" | "prepared" | "failed" | "complete" = "ready";
+    let loweredCommitSeq: CommitSeq | null = null;
+    let totalRows = 0;
+    let totalPages = 0;
+    let totalDocumentBytes = 0;
+    const changedIdentities = new Set<string>();
+    const coverageSteps: Array<() => Promise<void>> = [];
     const prepareDelta = Effect.fn("LogicalDocumentMaterialization.prepareDelta")(function* (
       changes: ApplicationDocumentMaterializationCommand["rowIntents"], dependencies: readonly ApplicationDocumentObservation[],
     ) {
-      if (preparedDelta) return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
-      preparedDelta = true;
+      if (phase !== "ready" || (prepared.batch !== true && totalPages > 0))
+        return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
+      phase = "failed";
       yield* prepared.requireAdmission;
       const allowed = new Set(prepared.command.rowIntents.map(row => row.tableId));
       const observed = new Set<PointCommitDependencyV1>(dependencies);
       if (dependencies.some(row => !allowed.has(row.tableId)) || new Set(dependencies.map(row => row.documentId)).size !== dependencies.length || changes.some(row => !observed.has(row))) return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
+      if (changes.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1 || totalRows + changes.length > logicalMaterializationBatchBudget.rows ||
+        totalPages >= logicalMaterializationBatchBudget.pages) return yield* Effect.fail(logicalMaterializationError("limitExceeded"));
+      const pageIdentities = changes.map(row => row.documentId);
+      if (new Set(pageIdentities).size !== pageIdentities.length || pageIdentities.some(id => changedIdentities.has(id)))
+        return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
+      const pageBytes = changes.reduce((sum, row) => sum + (row.kind === "live" ? row.document.canonicalBytes.byteLength : 0), 0);
+      if (totalDocumentBytes + pageBytes > logicalMaterializationBatchBudget.documentBytes)
+        return yield* Effect.fail(logicalMaterializationError("limitExceeded"));
       const command: ApplicationDocumentMaterializationCommand = {
         authorityPins,
         rowIntents: changes,
@@ -180,9 +202,13 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
         ),
       );
       let lowered = false;
+      phase = "prepared";
       const lower = Effect.fn("LogicalDocumentMaterialization.lower")(function* (commitSeq: CommitSeq) {
-        if (lowered) return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
+        if (lowered || phase !== "prepared" ||
+          (loweredCommitSeq !== null && commitSeq !== loweredCommitSeq))
+          return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
         lowered = true;
+        phase = "failed";
         yield* prepared.requireAdmission;
         const indexActions = yield* participantKernel(() =>
           preparePointCommitDeveloperIndexActions(
@@ -201,7 +227,7 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
           ),
         );
         yield* prepared.validateWrites(commitSeq, changes);
-        yield* participantKernel(() =>
+        const completeCoverage = yield* participantKernel(() =>
           materializeApplicationDocumentRows(
             tx,
             command,
@@ -217,8 +243,12 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
             selectedUnique,
             prepared.coverage,
             prepared.options,
+            prepared.batch === true,
           ),
         );
+        if (prepared.batch === true && completeCoverage === undefined)
+          return yield* Effect.fail(logicalMaterializationError("storedCorruption"));
+        if (completeCoverage !== undefined) coverageSteps.push(completeCoverage);
         if (relationPlan !== null)
           yield* maintainPointCommitApplicationRelationsEffect(
             tx,
@@ -240,10 +270,25 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
             resetPointCommitDeveloperIndexValidation(tx, index.build),
           );
 
+        loweredCommitSeq = commitSeq;
+        totalRows += changes.length;
+        totalPages++;
+        totalDocumentBytes += pageBytes;
+        for (const id of pageIdentities) changedIdentities.add(id);
+        phase = "ready";
+
         return relationPlan?.prepared.adjacencyChanges ?? [];
       });
       return Object.freeze({ lower });
     });
-    return Object.freeze({ uniqueDefinitions: prepared.unique, indexDefinitions: prepared.developer, prepareDelta });
+    const completeBatch = Effect.fn("LogicalDocumentMaterialization.completeBatch")(function* () {
+      if (prepared.batch !== true || phase !== "ready" || totalPages === 0)
+        return yield* Effect.fail(logicalMaterializationError("invalidAuthority"));
+      phase = "failed";
+      yield* prepared.requireAdmission;
+      for (const complete of coverageSteps) yield* participantKernel(complete);
+      phase = "complete";
+    });
+    return Object.freeze({ uniqueDefinitions: prepared.unique, indexDefinitions: prepared.developer, prepareDelta, completeBatch });
   },
 );

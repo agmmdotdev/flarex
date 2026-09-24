@@ -26,7 +26,8 @@ import { resolveLocatedTrustedScopeAuthorityEffect } from "../src/scopeAuthority
 import { makeBoundedRequestLifetime } from "../src/boundedRequestLifetime";
 import { runEffectTransaction } from "../src/effectTransaction";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
-import { fxAppRowCurrent, fxAppRowRevisions, fxSystemScopeClocks } from "../src/schema";
+import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppUniqueKeys,
+  fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { validateLogicalDocumentChanges } from "../src/logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization } from "../src/logicalDocuments/materialization";
 
@@ -206,4 +207,111 @@ export const productForeignKeyScenario: (
       .map(table => table.tableId)))), cause => failure("Read Product cascade result", cause));
   expect(stored).toHaveLength(2);
   expect(stored.every(row => row.isTombstone)).toBe(true);
+
+  // The neutral materializer must settle more than one point-command page at
+  // one sequence. A late failure rolls back earlier lowered pages as well.
+  const inventory = Effect.gen(function* () {
+    return {
+      rows: yield* runDrizzleStatementEffect(db.select().from(fxAppRowCurrent)
+        .orderBy(fxAppRowCurrent.scopeUuid, fxAppRowCurrent.tableId, fxAppRowCurrent.rowId), cause => failure("statementFailure", cause)),
+      revisions: yield* runDrizzleStatementEffect(db.select().from(fxAppRowRevisions)
+        .orderBy(fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId, fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
+      cause => failure("statementFailure", cause)),
+      indexes: yield* runDrizzleStatementEffect(db.select().from(fxAppIndexEntryCurrent)
+        .orderBy(fxAppIndexEntryCurrent.scopeUuid, fxAppIndexEntryCurrent.indexDefinitionId,
+          fxAppIndexEntryCurrent.encodedKey, fxAppIndexEntryCurrent.rowId), cause => failure("statementFailure", cause)),
+      indexRevisions: yield* runDrizzleStatementEffect(db.select().from(fxAppIndexEntryRevisions)
+        .orderBy(fxAppIndexEntryRevisions.scopeUuid, fxAppIndexEntryRevisions.indexDefinitionId,
+          fxAppIndexEntryRevisions.encodedKey, fxAppIndexEntryRevisions.rowId, fxAppIndexEntryRevisions.commitSeq),
+      cause => failure("statementFailure", cause)),
+      unique: yield* runDrizzleStatementEffect(db.select().from(fxAppUniqueKeys)
+        .orderBy(fxAppUniqueKeys.scopeUuid, fxAppUniqueKeys.constraintId, fxAppUniqueKeys.localeKey,
+          fxAppUniqueKeys.canonicalKeySha256), cause => failure("statementFailure", cause)),
+      indexBuilds: yield* runDrizzleStatementEffect(db.select().from(fxSystemIndexBuildStates)
+        .orderBy(fxSystemIndexBuildStates.scopeId, fxSystemIndexBuildStates.indexDefinitionId), cause => failure("statementFailure", cause)),
+      uniqueBuilds: yield* runDrizzleStatementEffect(db.select().from(fxSystemUniqueConstraintBuilds)
+        .orderBy(fxSystemUniqueConstraintBuilds.scopeId, fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId),
+      cause => failure("statementFailure", cause)),
+      clocks: yield* runDrizzleStatementEffect(db.select().from(fxSystemScopeClocks)
+        .orderBy(fxSystemScopeClocks.scopeId), cause => failure("statementFailure", cause)),
+    };
+  });
+  const beforeBatches = yield* inventory;
+  let lateReached = false;
+  const runBatches = (failLate: boolean) => transact(tx => Effect.scoped(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+      { calls: 64, commandBytes: 1_048_576, commandMs: 60_000 }, {}, {}, "product-fk-batches", "write"),
+    lifetime => lifetime.close);
+    const id = yield* lifetime.begin(lifetime.context);
+    const batches: Array<ReturnType<Effect.Success<ReturnType<typeof makeLogicalDocumentWorkingSet>>["close"]>> = [];
+    for (let page = 0; page < 9; page++) {
+      const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId, clock, lifetime,
+        tables: nativeTables, relationalCapabilities: schema.capabilities, requireAdmission: Effect.void,
+        validateDocument: write => Effect.fromResult(values.validate(write.tableId, write.document)).pipe(
+          Effect.mapError(cause => failure("documentInvalid", cause))),
+        error: failure, uniqueConflict: () => failure("uniqueConflict"),
+        limits: { pageRows: 32, identities: 32, documentBytes: 65_536 },
+      }, AppCreationTimeV1Schema.make(1000 + page * 16), constraints, selectedIndexes);
+      const products = yield* working.relationalTable(lifetime.context, id, "product");
+      yield* products.write(lifetime.context, "insert", Array.from({ length: 16 }, (_, ordinal) => {
+        const number = page * 16 + ordinal;
+        return { id: `batch_product_${number}`, handle: `batch-product-${number}`, title: `Batch ${number}` };
+      }));
+      batches.push(working.close());
+    }
+    yield* lifetime.seal;
+    const materialization = yield* enterLogicalDocumentMaterialization({ coverage: "sourceBound", batch: true,
+      command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(deploymentId),
+        scopeId: scope.scopeId, schemaVersionId }, rowIntents: tableIds.map(tableId => ({ tableId })) },
+      intrinsic: selectedIndexes.filter(index => index.access.kind === "by_creation_time"),
+      developer: selectedIndexes.filter(index => index.access.kind === "developer"), unique: constraints,
+      relations: null, options: {}, requireAdmission: Effect.void,
+      validateWrites: (_, changes) => Effect.forEach(changes, change => change.kind === "deleted" ? Effect.void :
+        Effect.fromResult(values.validate(change.tableId, change.document)), { discard: true }),
+    }, tx, resolved.authority, clock);
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+    for (const [page, close] of batches.entries()) {
+      const closed = yield* close;
+      const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId, tables: new Set(tableIds),
+        maximumIndexEntries: 64, error: failure }, closed);
+      const delta = yield* materialization.prepareDelta(contribution.changes, contribution.dependencies);
+      yield* delta.lower(commitSeq);
+      if (failLate && page === 1) {
+        lateReached = true;
+        return yield* Effect.fail(failure("injectedLateFailure"));
+      }
+    }
+    yield* materialization.completeBatch();
+    yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId)), cause => failure("statementFailure", cause));
+  })));
+  expect((yield* Effect.result(runBatches(true)))._tag).toBe("Failure");
+  expect(lateReached).toBe(true);
+  expect(yield* inventory).toEqual(beforeBatches);
+  yield* runBatches(false);
+  const afterBatches = yield* inventory;
+  expect(afterBatches.rows).toHaveLength(beforeBatches.rows.length + 144);
+  expect(afterBatches.revisions).toHaveLength(beforeBatches.revisions.length + 144);
+  expect(afterBatches.indexRevisions.length).toBeGreaterThan(beforeBatches.indexRevisions.length + 144);
+  expect(afterBatches.unique.length).toBeGreaterThan(beforeBatches.unique.length + 144);
+  const previousClock = beforeBatches.clocks.find(row => row.scopeId === scopeId)?.lastCommitSeq;
+  if (previousClock === undefined) throw new Error("Missing Product batch scope clock");
+  expect(afterBatches.clocks.find(row => row.scopeId === scopeId)?.lastCommitSeq)
+    .toBe(CommitSeqSchema.make(previousClock + 1n));
+  const committedSeq = CommitSeqSchema.make(previousClock + 1n);
+  const productTableId = nativeTables.find(table => table.logicalName === "product")?.tableId;
+  if (productTableId === undefined) throw new Error("Missing Product table identity");
+  expect(afterBatches.rows.filter(row => row.tableId === productTableId && row.commitSeq === committedSeq)).toHaveLength(144);
+  expect(afterBatches.revisions.filter(row => row.tableId === productTableId && row.commitSeq === committedSeq)).toHaveLength(144);
+  expect(afterBatches.indexRevisions.filter(row => row.tableId === productTableId && row.commitSeq === committedSeq).length)
+    .toBeGreaterThan(144);
+  for (const definition of selectedIndexes.filter(index => index.access.tableId === productTableId)) {
+    expect(afterBatches.indexBuilds.find(build => build.indexDefinitionId === definition.indexDefinitionId)?.coveredThroughCommitSeq)
+      .toBe(committedSeq);
+  }
+  for (const definition of constraints.filter(unique => unique.tableId === productTableId)) {
+    expect(afterBatches.uniqueBuilds.find(build => build.uniqueConstraintDefinitionId === definition.uniqueConstraintDefinitionId)?.coveredThroughCommitSeq)
+      .toBe(committedSeq);
+  }
 });
