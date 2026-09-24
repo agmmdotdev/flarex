@@ -300,6 +300,56 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
   return { capture, validateLogical };
 }
 
+/** A native Product update may replace only this root's declared tag/category
+ * memberships. The core authenticates row transitions and FK targets; this
+ * policy binds every silent pivot fact to the root's emitted update event. */
+export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalUpdate")(function* (calls, mutations, lifecycle) {
+    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productUpdate");
+    if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    const memberships = yield* productMembershipPivots(catalog);
+    const pivots = new Map(memberships.map(pivot => [pivot.table, pivot]));
+    let root: string | undefined;
+    const seen = new Set<string>();
+    for (const mutation of mutations) {
+      if (mutation.table === catalog.product.table.name) {
+        const before = mutation.before, after = mutation.after;
+        if (root !== undefined || (mutation.operation !== "patch" && mutation.operation !== "replace") ||
+          before === null || after === null || typeof before.id !== "string" || before.id !== after.id ||
+          before.deleted_at !== null || after.deleted_at !== null)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        root = before.id;
+        continue;
+      }
+      const pivot = pivots.get(mutation.table);
+      const row = mutation.operation === "insert" ? mutation.after : mutation.operation === "delete" ? mutation.before : null;
+      const productId = row?.[pivot?.productColumn ?? ""];
+      const targetId = row?.[pivot?.targetColumn ?? ""];
+      const identity = JSON.stringify([mutation.table, productId, targetId]);
+      if (pivot === undefined || row === null ||
+        (mutation.operation === "insert" ? mutation.before !== null : mutation.after !== null) ||
+        typeof productId !== "string" || typeof targetId !== "string" || seen.has(identity))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      seen.add(identity);
+    }
+    if (root === undefined || mutations.some(mutation => mutation.table !== catalog.product.table.name &&
+      (mutation.operation === "insert" ? mutation.after : mutation.before)?.[
+        pivots.get(mutation.table)?.productColumn ?? ""] !== root))
+      return yield* Effect.fail(commerceError("receiptMismatch"));
+    const expected = new Set([root]);
+    for (const event of emitted) {
+      const message = yield* capture(event);
+      if (message.name !== catalog.product.updatedEvent || message.metadata.object !== catalog.product.eventObject ||
+        message.metadata.action !== CommonEvents.UPDATED) return yield* Effect.fail(commerceError("receiptMismatch"));
+      for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+        if (!expected.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+    }
+    if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+  });
+  return { capture, validateLogical };
+}
+
 /** Public native Product lifecycle admits the owned cascade and authenticates
  * an already-active restore without pretending that storage changed a row. */
 export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetadata,

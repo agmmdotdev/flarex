@@ -67,7 +67,8 @@ export function productReplacementProfile(catalog: ProductRuntimeMetadata): Repl
       : Result.succeed("replace"),
     validateLink: Effect.fn("ProductAdapter.validateGraphLink")(function* (source, next, selected, load) {
       if (source !== catalog.variant) return;
-      const options = yield* load(catalog.option.table);
+      if (typeof selected.option_id !== "string") return yield* Effect.fail(commerceError("invalidInput"));
+      const options = yield* load(catalog.option.table, "id", [selected.option_id]);
       if (!options.some(value => value.id === selected.option_id && value.product_id === next.product_id)) return yield* Effect.fail(commerceError("invalidInput"));
     }),
     projectionPaths: (entity, relations) => relations.flatMap(name => name === "options" && entity === catalog.product ? [name, "options.values"] : [name]),

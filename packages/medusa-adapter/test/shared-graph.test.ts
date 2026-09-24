@@ -176,6 +176,59 @@ describe("shared graph planning over renamed module keys", () => {
     }));
   });
 
+  it("selects many referenced members in one bounded lookup", async () => {
+    await run(Effect.gen(function* () {
+      const labels = Array.from({ length: 60 }, (_, index) => ({ slug: `label-${index}`, name: `Label ${index}` }));
+      const rows = new Map(seeded);
+      rows.set("labels", labels);
+      rows.set(pivot.name, []);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, replacement, volume,
+        [{ isbn: "v1", labels: labels.map(row => row.slug) }], { relations: ["labels"] });
+      expect(result.entities).toMatchObject([{ isbn: "v1", labels }]);
+      expect(calls.filter(call => call.operation === "find:labels")).toHaveLength(1);
+      expect(calls.filter(call => call.operation === "insert:volume_labels")).toHaveLength(1);
+    }));
+  });
+
+  it("reuses a complete child selection for retained members", async () => {
+    await run(Effect.gen(function* () {
+      const editions = Array.from({ length: 60 }, (_, index) => ({
+        serial: `edition-${index}`, volume_isbn: "v1", label: `Edition ${index}`,
+      }));
+      const rows = new Map(seeded);
+      rows.set("editions", editions);
+      rows.set(references.name, []);
+      const { ctx, calls } = yield* fixture(rows);
+      const result = yield* replaceGraphRows(ctx, replacement, volume,
+        [{ isbn: "v1", editions: editions.map(({ serial, label }) => ({ serial, label })) }],
+        { relations: ["editions"] });
+      expect(result.entities).toMatchObject([{ isbn: "v1", editions }]);
+      expect(calls.filter(call => call.operation === "find:editions")).toHaveLength(1);
+    }));
+  });
+
+  it("associates many existing children with one selected-key read", async () => {
+    await run(Effect.gen(function* () {
+      const editions = Array.from({ length: 60 }, (_, index) => ({
+        serial: `association-${index}`, volume_isbn: "v1", label: `Association ${index}`,
+      }));
+      const rows = new Map(seeded);
+      rows.set("editions", editions);
+      const moved = editions.map(row => ({ ...row, volume_isbn: "v2" }));
+      const { ctx, calls } = yield* fixture(rows, new Map([["update:editions", moved]]));
+      const result = yield* replaceGraphRows(ctx, { ...replacement, toManyMode: () => Result.succeed("associate") }, volume,
+        [{ isbn: "v2", editions: editions.map(({ serial }) => ({ serial })) }], { relations: ["editions"] });
+      expect(result.entities).toMatchObject([{ isbn: "v2", editions: moved }]);
+      const selections = calls.filter(call => call.operation === "find:editions");
+      expect(selections).toHaveLength(2);
+      expect(selections.map(call => call.input)).toMatchObject([
+        { predicate: { column: "serial" } }, { predicate: { column: "volume_isbn" } },
+      ]);
+      expect(calls.filter(call => call.operation === "update:editions")).toHaveLength(1);
+    }));
+  });
+
   it("distinguishes empty replacement from reference association", async () => {
     await run(Effect.gen(function* () {
       const empty = yield* fixture(seeded);
@@ -201,6 +254,16 @@ describe("shared graph planning over renamed module keys", () => {
       const { ctx, calls } = yield* fixture(seeded);
       const result = yield* replaceGraphRows(ctx, replacement, volume, [input], { relations: ["editions", "labels"] }).pipe(Effect.result);
       expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+      expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
+    }));
+  });
+
+  it("reports the first missing member before a later duplicate", async () => {
+    await run(Effect.gen(function* () {
+      const { ctx, calls } = yield* fixture(seeded);
+      const result = yield* replaceGraphRows(ctx, replacement, volume,
+        [{ isbn: "v1", labels: ["missing", "featured", "featured"] }], { relations: ["labels"] }).pipe(Effect.result);
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure" } });
       expect(calls.filter(call => /^(insert|update|delete):/.test(call.operation))).toEqual([]);
     }));
   });

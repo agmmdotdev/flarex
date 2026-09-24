@@ -382,6 +382,49 @@ and relationship consumers; its removal gate remains their cutover and approved
 data disposition. Cross-module rich Links and advanced evolution stay outside
 this slice.
 
+## Indexed Graph Replacement And Native Product Update Preflight
+
+The shared Medusa graph replacement planner still loads every row of each
+touched Product table before selecting an existing root, FK target, child or
+join membership. A one-Product update can therefore fail when unrelated rows
+exceed the shared request bound. This is an adapter query-planning defect: the
+generic logical store already offers indexed, bounded predicates and owns
+their completeness, pending membership, constraint and settlement checks.
+Raising its catalog limit, adding Product SQL or accepting a small-catalog
+update would preserve the wrong scaling contract.
+
+Replace the planner's table-wide snapshots with source-key and declared
+relationship selections. Keep a request-local overlay for planned inserts,
+updates and removals; read the resulting projection from the same working set
+after applying the plan. Change the internal `GraphLoad` callback to demand a
+specific key selection, migrate Product's variant/option validator, and remove
+the old full-table cache. Preserve native replacement semantics, event facts,
+resource refusal for genuinely oversized selected sets, first-failure order
+where framework-visible, and one borrowed transaction/settlement owner.
+
+The connected proof is native public Product update of a selected root and
+tag/category membership beyond more than one request bound of unrelated
+Product and join rows. Verify pending and committed reads, unchanged target
+records, events, replay, bad reference/foreign-child refusal and rollback on
+both database drivers; retain existing physical Product and graph regressions.
+This changes only internal graph selection/callback contracts. The physical
+profile stays for named unmigrated command families and data disposition; rich
+Links, general pagination/count overflow and advanced evolution remain outside
+this slice.
+
+The selected implementation now resolves graph roots, children, FK targets
+and pivots through complete indexed selections. It keeps planned and written
+rows in one request-local view, batches tag/category targets and Collection
+associations, and reuses retained children selected by their parent FK.
+The selected logical host admits one native Product root update with its
+tag/category membership changes and authenticates the root event against
+those row transitions. The larger-catalog witness uses 260 unrelated Product
+rows and 260 unrelated tag memberships while updating one Product. General
+Product update shapes that mutate owned options, variants or images still need
+their own logical event admission and end-to-end cutover; the physical profile
+remains their named consumer. Bounded selections may still refuse when the
+selected set or predicate itself exceeds the core resource contract.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

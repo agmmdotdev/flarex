@@ -5,7 +5,7 @@ import { isJsonObject } from "flarex-protocol/json";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import { productLogicalCategoryCreateEventPolicy, productLogicalCreateEventPolicy,
   productLogicalDeleteEventPolicy, productLogicalTagEventPolicy,
-  productLogicalLifecycleEventPolicy } from "../src/product-local-events";
+  productLogicalLifecycleEventPolicy, productLogicalUpdateEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
 import { currencyWorkflowModule } from "../src/currency-service";
@@ -60,6 +60,39 @@ async function categoryHost() {
         message.name === catalog.category.createdEvent ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }],
     commands: [root], events: { producerRevision: revision, contracts: [contract],
       subscribers: [{ id: "logical-product-membership", revision: "a".repeat(64) }],
+      validate: events => events.some(event => !event.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
+  }));
+  return { host, root };
+}
+
+async function tagHost() {
+  return Effect.runPromise(prepareProductTagWorkflow({
+    execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
+      prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+      moduleEvents: productLogicalTagEventPolicy(catalog, "created") },
+    currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
+    revision: createHash("sha256").update("logical-product-membership-tag").digest("hex"),
+    subscribers: [{ id: "logical-product-membership", revision: "a".repeat(64) }],
+  }));
+}
+
+async function updateHost() {
+  const policy = productLogicalUpdateEventPolicy(catalog);
+  const participant = defineAtomicCommerceParticipant("product");
+  const root = defineAtomicCommerceCommand("productUpdateRoot", (ctx, input) =>
+    ctx.call(participant, product.runtime.commands.update, input));
+  const revision = createHash("sha256").update("logical-product-update").digest("hex");
+  const contract = defineCommerceEventContract({ name: catalog.product.updatedEvent, revision,
+    internal: true, decode: policy.capture });
+  const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+    identityAndAccessPolicy: { profile: "logical-product-update" },
+    participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
+      commands: [product.runtime.commands.update], validateLogical: policy.validateLogical,
+      events: { contracts: [contract], select: (message: Json) => isJsonObject(message) &&
+        message.name === catalog.product.updatedEvent ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }],
+    commands: [root], events: { producerRevision: revision, contracts: [contract],
+      subscribers: [{ id: "logical-product-update", revision: "a".repeat(64) }],
       validate: events => events.some(event => !event.internal) ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
   }));
   return { host, root };
@@ -288,15 +321,7 @@ describe("native Product lifecycle on shared logical storage", () => {
   }, 120_000);
 
   it("creates existing tag/category memberships and deletes only their Product pivots", async () => {
-    const tags = await Effect.runPromise(prepareProductTagWorkflow({
-      execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
-        prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalTagEventPolicy(catalog, "created") },
-      currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
-      revision: createHash("sha256").update("logical-product-membership-tag").digest("hex"),
-      subscribers: [{ id: "logical-product-membership", revision: "a".repeat(64) }],
-    }));
+    const tags = await tagHost();
     const categories = await categoryHost();
     const create = await createHost();
     const remove = await lifecycleHost("delete");
@@ -383,4 +408,106 @@ describe("native Product lifecycle on shared logical storage", () => {
       await Effect.runPromise(read.close);
     }
   }, 120_000);
+
+  it("updates one Product and its memberships beyond unrelated shared rows", async () => {
+    const tags = await tagHost();
+    const categories = await categoryHost();
+    const create = await createHost();
+    const update = await updateHost();
+    const tagRelation = catalog.queryRelations.get(catalog.product.table.name)?.get("tags");
+    if (tagRelation?.join.type !== "manyToMany") throw new Error("Missing Product tag pivot");
+    const tagPivot = tagRelation.join;
+    const productColumn = tagPivot.sourceColumns[0], tagColumn = tagPivot.targetColumns[0];
+    if (productColumn === undefined || tagColumn === undefined) throw new Error("Missing Product tag columns");
+    const seed = defineCommerceCommand("logicalProductUpdateSeed", "write", Effect.fn("ProductTest.seedUnrelatedGraph")(function* (ctx, input) {
+      if (typeof input !== "number" || !Number.isInteger(input) || input < 0 || input >= 260 || input % 20 !== 0)
+        return yield* ctx.refuse(commerceError("invalidInput"));
+      const start = input;
+      const products = Array.from({ length: 20 }, (_, index) => ({
+        id: `prod_logical_update_unrelated_${start + index}`, title: "Unrelated Product",
+        handle: `logical-update-unrelated-${start + index}`,
+      }));
+      yield* (yield* ctx.table(catalog.product.table.name)).write(ctx.manager, "insert", products);
+      yield* (yield* ctx.table(tagPivot.pivotTable)).write(ctx.manager, "insert", products.map(row => ({
+        [productColumn]: row.id, [tagColumn]: "ptag_logical_update_old",
+      })));
+      return null;
+    }));
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [...product.hostInput.commands, product.runtime.commands.list,
+        product.runtime.commands.listTags, product.runtime.commands.listCategories, seed],
+    }));
+    try {
+      await Effect.runPromise(tags.run(tags.newRequestKey(), { product_tags: [
+        { id: "ptag_logical_update_old", value: "Old update tag" },
+        { id: "ptag_logical_update_new", value: "New update tag" },
+      ] }));
+      await Effect.runPromise(categories.host.run(categories.host.newRequestKey(), categories.root, [
+        { id: "pcat_logical_update_old", name: "Old update category" },
+        { id: "pcat_logical_update_new", name: "New update category" },
+      ]));
+      const created = await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
+        id: "prod_logical_selected_update", title: "Before update",
+        tag_ids: ["ptag_logical_update_old"], category_ids: ["pcat_logical_update_old"],
+      }, { id: "prod_logical_foreign_update", title: "Foreign update",
+        options: [{ title: "Size", values: ["Small"] }],
+      }] }));
+      const foreignProduct = isJsonObject(created) && Array.isArray(created.products) ? created.products[1] : undefined;
+      const foreignOption = isJsonObject(foreignProduct) && Array.isArray(foreignProduct.options)
+        ? foreignProduct.options[0] : undefined;
+      if (!isJsonObject(foreignOption) || typeof foreignOption.id !== "string")
+        throw new Error("Missing foreign Product option");
+      for (let start = 0; start < 260; start += 20)
+        await Effect.runPromise(read.run(read.newRequestKey(), seed, start));
+      const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeEvents = await committedEvents();
+      const beforeTargets = [
+        await Effect.runPromise(read.read(product.runtime.commands.listTags,
+          { filters: { id: ["ptag_logical_update_old", "ptag_logical_update_new"] } })),
+        await Effect.runPromise(read.read(product.runtime.commands.listCategories,
+          { filters: { id: ["pcat_logical_update_old", "pcat_logical_update_new"] } })),
+      ];
+      const input = { id: "prod_logical_selected_update", data: { title: "After update",
+        tag_ids: ["ptag_logical_update_new"], category_ids: ["pcat_logical_update_new"] } };
+      const key = update.host.newRequestKey();
+      const result = await Effect.runPromise(update.host.run(key, update.root, input));
+      expect(result).toMatchObject({ id: input.id, title: "After update",
+        tags: [{ id: "ptag_logical_update_new" }], categories: [{ id: "pcat_logical_update_new" }] });
+      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const afterEvents = await committedEvents();
+      expect(afterRows).toHaveLength(beforeRows.length + 2);
+      expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
+        .toEqual([catalog.product.updatedEvent]);
+      expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
+        filters: { id: input.id }, config: { relations: ["tags", "categories"] },
+      }))).toMatchObject([{ id: input.id, title: "After update",
+        tags: [{ id: "ptag_logical_update_new" }], categories: [{ id: "pcat_logical_update_new" }] }]);
+      expect([
+        await Effect.runPromise(read.read(product.runtime.commands.listTags,
+          { filters: { id: ["ptag_logical_update_old", "ptag_logical_update_new"] } })),
+        await Effect.runPromise(read.read(product.runtime.commands.listCategories,
+          { filters: { id: ["pcat_logical_update_old", "pcat_logical_update_new"] } })),
+      ]).toEqual(beforeTargets);
+      expect(await Effect.runPromise(update.host.run(key, update.root, input))).toEqual(result);
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+      expect(await committedEvents()).toEqual(afterEvents);
+      await expect(Effect.runPromise(update.host.run(update.host.newRequestKey(), update.root, {
+        id: input.id, data: { tag_ids: ["ptag_logical_update_missing"] },
+      }))).rejects.toMatchObject({ reason: "adapterFailure" });
+      await expect(Effect.runPromise(update.host.run(update.host.newRequestKey(), update.root, {
+        id: input.id, data: { options: [{ id: foreignOption.id, title: "Size", values: ["Small"] }] },
+      }))).rejects.toMatchObject({ reason: "invalidInput" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+      expect(await committedEvents()).toEqual(afterEvents);
+      expect((await currency.persistence.query<{ name: string }>(
+        "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+        .toEqual(currency.physicalTablesBeforeCandidate);
+    } finally {
+      await Effect.runPromise(tags.close);
+      await Effect.runPromise(categories.host.close);
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(update.host.close);
+      await Effect.runPromise(read.close);
+    }
+  }, 180_000);
 });

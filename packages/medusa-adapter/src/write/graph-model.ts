@@ -26,7 +26,7 @@ export interface GraphCatalog {
   readonly decodeAssociation: (entity: GraphEntity, input: Json) => Result.Result<string, CommerceTransactionError>;
 }
 export type GraphRows = ReadonlyMap<string, readonly JsonObject[]>;
-export type GraphLoad = (table: GraphTable) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
+export type GraphLoad = (table: GraphTable, column: string, values: readonly string[]) => Effect.Effect<readonly JsonObject[], CommerceTransactionError>;
 /** The pinned event helper projects actual key names. Its legacy Medusa type
  * promises id even for other keys; that promise must not escape this owner. */
 export interface GraphPerformedActions {

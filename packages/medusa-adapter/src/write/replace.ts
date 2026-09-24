@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { generateEntityId, MedusaError } from "@medusajs/framework/utils/portable";
 import { emptyPerformedActions, addPerformedAction } from "@medusajs/drizzle/mutation-events";
 import { tupleKey } from "@medusajs/drizzle/relation-query";
@@ -28,6 +28,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
   const { relations } = yield* Effect.fromResult(decodeConfig(settings));
   if (relations.some(name => !profile.allowedRelations(entity).includes(name))) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const state = new Map<string, JsonObject[]>();
+  const selectedKeys = new Set<string>();
   const inserts = new Map<string, Map<string, JsonObject>>();
   const updates = new Map<string, Map<string, JsonObject>>();
   const deletes = new Map<string, Map<string, JsonObject>>();
@@ -48,17 +49,36 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
     const rows = group.get(table.name) ?? new Map<string, JsonObject>();
     rows.set(identity(table, row), row); group.set(table.name, rows);
   };
-  const load = Effect.fn("MedusaGraph.load")(function* (table: Table) {
-    const cached = state.get(table.name);
-    if (cached !== undefined) return cached;
-    const store = yield* getStore(table);
-    const order = keys(table)[0];
-    if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-    // Core find first bounds the entire scoped catalog at 256 rows. Therefore a
-    // 256-row unfiltered read is complete without another count/round trip.
-    const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" } });
-    const copy = rows.map(row => ({ ...row })); state.set(table.name, copy);
-    return copy;
+  const load = Effect.fn("MedusaGraph.load")(function* (table: Table, column: string, values: readonly string[]) {
+    if (values.length === 0) return [];
+    const selected = new Set(values);
+    const known = new Map((state.get(table.name) ?? []).map(row => [identity(table, row), row]));
+    const primary = keys(table);
+    // A complete prior FK selection may already contain every requested
+    // primary-key row. Reuse that request-local view instead of spending one
+    // bounded call per retained child; unknown keys still go to core.
+    if (primary.length === 1 && primary[0] === column && [...selected].every(value =>
+      [...known.values()].some(row => row[column] === value)))
+      return [...known.values()].filter(row => typeof row[column] === "string" && selected.has(row[column]) &&
+        !deletes.get(table.name)?.has(identity(table, row)));
+    const selectionKey = JSON.stringify([table.name, column, [...selected].sort()]);
+    if (!selectedKeys.has(selectionKey)) {
+      const store = yield* getStore(table);
+      const order = keys(table)[0];
+      if (order === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+      const rows = yield* store.find(ctx.manager, { take: ctx.resources.queryRows, order: { column: order, direction: "asc" },
+        predicate: { kind: "in", column, values: [...selected] } });
+      // The plan's request-local rows override prior store values until its
+      // batched writes run. The core read still owns index selection and bounds.
+      for (const row of rows) {
+        const token = identity(table, row);
+        if (!known.has(token) && !deletes.get(table.name)?.has(token)) known.set(token, { ...row });
+      }
+      selectedKeys.add(selectionKey);
+    }
+    state.set(table.name, [...known.values()]);
+    return [...known.values()].filter(row => typeof row[column] === "string" && selected.has(row[column]) &&
+      !deletes.get(table.name)?.has(identity(table, row)));
   });
   const remove = Effect.fn("MedusaGraph.remove")(function* (table: Table, row: JsonObject): Effect.fn.Return<void, CommerceTransactionError> {
     const token = identity(table, row);
@@ -66,13 +86,16 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
     if (inserts.get(table.name)?.has(token) || updates.get(table.name)?.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
     for (const child of catalog.tables) {
       for (const fk of child.foreignKeys.filter(key => key.referencedTable === table.name && key.onDelete === "cascade")) {
-        const children = yield* load(child);
+        const childColumn = fk.columns[0], parentColumn = fk.referencedColumns[0];
+        if (fk.columns.length !== 1 || fk.referencedColumns.length !== 1 || childColumn === undefined || parentColumn === undefined ||
+          typeof row[parentColumn] !== "string") return yield* Effect.fail(commerceError("unsupportedProfile"));
+        const children = yield* load(child, childColumn, [row[parentColumn]]);
         const selected = children.filter(value => tupleKey(value, fk.columns) === tupleKey(row, fk.referencedColumns));
         for (const value of selected) yield* remove(child, value);
       }
     }
     put(deletes, table, row);
-    state.set(table.name, (yield* load(table)).filter(value => identity(table, value) !== token));
+    state.set(table.name, (state.get(table.name) ?? []).filter(value => identity(table, value) !== token));
   });
   const plan = Effect.fn("MedusaGraph.plan")(function* (
     target: GraphEntity, inputRow: Json, owner: JsonObject, root: boolean,
@@ -83,7 +106,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
     const token = target.table.name + ":" + id;
     if (visited.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
     visited.add(token);
-    const rows = yield* load(target.table);
+    const rows = yield* load(target.table, target.keyColumn, [id]);
     const existing = rows.find(value => value[target.keyColumn] === id);
     if (existing?.deleted_at != null || (creation && root && existing !== undefined)) return yield* Effect.fail(commerceError("invalidInput"));
     if (Object.entries(owner).some(([name, value]) => (row[name] !== undefined && row[name] !== value) || (existing !== undefined && existing[name] !== value)))
@@ -110,7 +133,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
       if (reference === undefined || reference === null) continue;
       const table = catalog.tables.find(table => table.name === fk.referencedTable);
       if (table === undefined || typeof reference !== "string") return yield* Effect.fail(commerceError("invalidInput"));
-      if (!(yield* load(table)).some(row => row[targetColumn] === reference && row.deleted_at == null))
+      if (!(yield* load(table, targetColumn, [reference])).some(row => row[targetColumn] === reference && row.deleted_at == null))
         return yield* Effect.fail(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA, relationshipNotFoundMessage(column, reference))));
     }
     if (existing !== undefined) {
@@ -124,7 +147,7 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
       if (root || hasChangedFields(existing, scalar, [target.keyColumn])) put(updates, target.table, scalar);
     } else put(inserts, target.table, scalar);
     const next = { ...existing, ...scalar };
-    state.set(target.table.name, [...rows.filter(value => value[target.keyColumn] !== id), next]);
+    state.set(target.table.name, [...(state.get(target.table.name) ?? []).filter(value => value[target.keyColumn] !== id), next]);
     for (const [name, descriptor] of catalog.queryRelations.get(target.table.name) ?? []) {
       if (row[name] === undefined || descriptor.join.type === "belongsTo") continue;
       if (root && !relations.includes(name)) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -137,22 +160,37 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
         if (join.foreignKeys.length !== 1 || fk === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
         const mode = yield* Effect.fromResult(profile.toManyMode(target, name, child));
         if (mode === "associate") {
+          const references: Array<Result.Result<string, CommerceTransactionError>> = [];
+          const targetIds = new Set<string>();
           for (const member of members) {
-            const reference = yield* Effect.fromResult(catalog.decodeAssociation(child, member));
+            const decoded = catalog.decodeAssociation(child, member);
+            if (Result.isFailure(decoded)) { references.push(decoded); break; }
+            const reference = decoded.success;
             const token = child.table.name + ":" + reference;
-            if (visited.has(token)) return yield* Effect.fail(commerceError("invalidInput"));
+            if (visited.has(token) || targetIds.has(reference)) {
+              references.push(Result.fail(commerceError("invalidInput")));
+              break;
+            }
+            references.push(decoded);
+            targetIds.add(reference);
+          }
+          const candidates = new Map((yield* load(child.table, child.keyColumn, [...targetIds]))
+            .map(value => [value[child.keyColumn], value]));
+          for (const decoded of references) {
+            const reference = yield* Effect.fromResult(decoded);
+            const token = child.table.name + ":" + reference;
             visited.add(token);
-            const candidates = yield* load(child.table);
-            const selected = candidates.find(row => row[child.keyColumn] === reference && row.deleted_at == null);
-            if (selected === undefined) return yield* Effect.fail(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA, relationshipNotFoundMessage(fk, reference))));
+            const selected = candidates.get(reference);
+            if (selected === undefined || selected.deleted_at != null) return yield* Effect.fail(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA, relationshipNotFoundMessage(fk, reference))));
             if (selected[fk] !== id) {
               put(updates, child.table, { [child.keyColumn]: reference, [fk]: id });
-              state.set(child.table.name, candidates.map(row => row[child.keyColumn] === reference ? { ...row, [fk]: id } : row));
+              state.set(child.table.name, (state.get(child.table.name) ?? []).map(row =>
+                row[child.keyColumn] === reference ? { ...row, [fk]: id } : row));
             }
           }
           continue;
         }
-        const previous = (yield* load(child.table)).filter(value => value[fk] === id);
+        const previous = (yield* load(child.table, fk, [id])).filter(value => value[fk] === id);
         const retained = new Set<string>();
         for (const member of members) {
           const value = yield* plan(child, member, { [fk]: id }, false);
@@ -168,21 +206,38 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
         const pivot = catalog.writablePivots.find(table => table.name === join.pivotTable);
         const sourceColumn = join.sourceColumns[0], targetColumn = join.targetColumns[0];
         if (pivot === undefined || sourceColumn === undefined || targetColumn === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-        const targets = yield* load(child.table);
-        const previous = (yield* load(pivot)).filter(value => value[sourceColumn] === id);
+        const previous = (yield* load(pivot, sourceColumn, [id])).filter(value => value[sourceColumn] === id);
         const retained = new Set<string>();
+        // Decode pure references ahead of one indexed target read, then report
+        // errors and validate links in the original member order. Stop at the
+        // first invalid or duplicate member so its predecessors can still
+        // report a missing target before that member does.
+        const references: Array<Result.Result<{ readonly key: string }, CommerceTransactionError>> = [];
+        const targetIds = new Set<string>();
         for (const member of members) {
-          const reference = yield* Effect.fromResult(catalog.decodeReference(child, member));
-          if (reference.supplied !== undefined) yield* Effect.fromResult(catalog.decodeRow(child, reference.supplied));
-          const childId = reference.key;
+          const reference = Result.flatMap(catalog.decodeReference(child, member), value =>
+            value.supplied === undefined ? Result.succeed({ key: value.key })
+              : Result.map(catalog.decodeRow(child, value.supplied), () => ({ key: value.key })));
+          if (Result.isFailure(reference)) { references.push(reference); break; }
+          if (targetIds.has(reference.success.key)) {
+            references.push(Result.fail(commerceError("invalidInput")));
+            break;
+          }
+          targetIds.add(reference.success.key);
+          references.push(reference);
+        }
+        const targets = new Map((yield* load(child.table, child.keyColumn, [...targetIds]))
+          .map(value => [value[child.keyColumn], value]));
+        for (const reference of references) {
+          const childId = (yield* Effect.fromResult(reference)).key;
           if (retained.has(childId)) return yield* Effect.fail(commerceError("invalidInput"));
           retained.add(childId);
-          const selected = targets.find(value => value[child.keyColumn] === childId && value.deleted_at == null);
-          if (selected === undefined) return yield* Effect.fail(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA, relationshipNotFoundMessage(targetColumn, childId))));
+          const selected = targets.get(childId);
+          if (selected === undefined || selected.deleted_at != null) return yield* Effect.fail(commerceError("adapterFailure", new MedusaError(MedusaError.Types.INVALID_DATA, relationshipNotFoundMessage(targetColumn, childId))));
           yield* profile.validateLink(target, next, selected, load);
           const link = { [sourceColumn]: id, [targetColumn]: childId };
           if (!previous.some(value => identity(pivot, value) === identity(pivot, link))) {
-            put(inserts, pivot, link); state.set(pivot.name, [...yield* load(pivot), link]);
+            put(inserts, pivot, link); state.set(pivot.name, [...state.get(pivot.name) ?? [], link]);
           }
         }
         for (const link of previous) if (typeof link[targetColumn] === "string" && !retained.has(link[targetColumn])) yield* remove(pivot, link);
@@ -221,11 +276,31 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
   for (const table of ordered) yield* apply(table, "insert", inserts);
   for (const table of ordered) yield* apply(table, "update", updates);
   const paths = profile.projectionPaths(entity, relations);
-  // Hydrate requested relations from the plan's rows, loading only untouched
-  // relation tables. The original service owns the final DTO serialization.
+  // Keep returned write rows and their framework order. Select any previously
+  // untouched relation members by declared keys before final projection.
+  const rootIds: string[] = [];
+  for (const root of roots) {
+    const id = root[entity.keyColumn];
+    if (typeof id !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
+    rootIds.push(id);
+  }
+  const freshRoots = yield* load(entity.table, entity.keyColumn, rootIds);
+  if (freshRoots.length !== roots.length) return yield* Effect.fail(commerceError("storedCorruption"));
+  const selectValues = Effect.fn("MedusaGraph.selectValues")(function* (rows: readonly JsonObject[], column: string) {
+    const values = new Set<string>();
+    for (const row of rows) {
+      const value = row[column];
+      if (value === null) continue;
+      if (typeof value !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
+      values.add(value);
+    }
+    return [...values];
+  });
+  // Hydrate each selected relation from its indexed forward or reverse key.
+  // The original service still owns the final DTO serialization.
   for (const path of paths) {
     let source = entity.table.name;
-    let parents: readonly JsonObject[] = roots;
+    let parents: readonly JsonObject[] = freshRoots;
     for (const name of path.split(".")) {
       if (parents.length === 0) break;
       const descriptor = catalog.queryRelations.get(source)?.get(name);
@@ -234,24 +309,31 @@ export const replaceGraphRows = Effect.fn("MedusaGraph.replaceRows")(function* (
       if (table === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const join = descriptor.join;
       if (join.type === "manyToMany") {
-        const pivot = catalog.tables.find(table => descriptor.join.type === "manyToMany" && table.name === descriptor.join.pivotTable);
-        if (pivot === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-        const sources = new Set(parents.map(row => tupleKey(row, descriptor.sourcePrimaryKeys)));
-        const links = (yield* load(pivot)).filter(row => sources.has(tupleKey(row, join.sourceColumns)));
+        const pivot = catalog.tables.find(table => table.name === join.pivotTable);
+        const sourceKey = descriptor.sourcePrimaryKeys[0], pivotSource = join.sourceColumns[0];
+        const pivotTarget = join.targetColumns[0], targetKey = descriptor.targetPrimaryKeys[0];
+        if (pivot === undefined || descriptor.sourcePrimaryKeys.length !== 1 || join.sourceColumns.length !== 1 ||
+          join.targetColumns.length !== 1 || descriptor.targetPrimaryKeys.length !== 1 ||
+          sourceKey === undefined || pivotSource === undefined || pivotTarget === undefined || targetKey === undefined)
+          return yield* Effect.fail(commerceError("unsupportedProfile"));
+        const links = yield* load(pivot, pivotSource, yield* selectValues(parents, sourceKey));
         if (links.length === 0) break;
-        const targets = new Set(links.map(row => tupleKey(row, join.targetColumns)));
-        parents = (yield* load(table)).filter(row => targets.has(tupleKey(row, descriptor.targetPrimaryKeys)));
+        parents = yield* load(table, targetKey, yield* selectValues(links, pivotTarget));
       } else if (join.type === "hasMany") {
-        const sources = new Set(parents.map(row => tupleKey(row, descriptor.sourcePrimaryKeys)));
-        parents = (yield* load(table)).filter(row => sources.has(tupleKey(row, join.foreignKeys)));
+        const sourceKey = descriptor.sourcePrimaryKeys[0], targetKey = join.foreignKeys[0];
+        if (descriptor.sourcePrimaryKeys.length !== 1 || join.foreignKeys.length !== 1 ||
+          sourceKey === undefined || targetKey === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+        parents = yield* load(table, targetKey, yield* selectValues(parents, sourceKey));
       } else {
-        const targets = new Set(parents.map(row => tupleKey(row, join.foreignKeys)));
-        parents = (yield* load(table)).filter(row => targets.has(tupleKey(row, descriptor.targetPrimaryKeys)));
+        const sourceKey = join.foreignKeys[0], targetKey = descriptor.targetPrimaryKeys[0];
+        if (join.foreignKeys.length !== 1 || descriptor.targetPrimaryKeys.length !== 1 ||
+          sourceKey === undefined || targetKey === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+        parents = yield* load(table, targetKey, yield* selectValues(parents, sourceKey));
       }
       source = table.name;
     }
   }
   const projection = new Map(yield* Effect.fromResult(profile.project(state)));
-  projection.set(entity.table.name, roots.map(root => state.get(entity.table.name)?.find(row => row[entity.keyColumn] === root[entity.keyColumn]) ?? root));
+  projection.set(entity.table.name, roots.map(root => freshRoots.find(row => row[entity.keyColumn] === root[entity.keyColumn]) ?? root));
   return { entities: assembleCommerceRelations(entity.table.name, projection, paths, catalog.queryRelations), performedActions };
 });
