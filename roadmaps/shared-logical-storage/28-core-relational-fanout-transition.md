@@ -59,6 +59,53 @@ while calling untrusted code, pausing a workflow or performing remote effects.
 Cross-owner changes require an explicit source-owner policy, so the first
 implementation witness is a module-local nullable reference.
 
+## Selected execution boundary
+
+The first transition is an explicit, authenticated module-local `set null`
+intent for a declared nullable source FK. The native service may request that
+transition and delete its root, but it cannot supply a page of affected rows or
+storage handles. Core checks the admitted source and target table identities,
+the exact FK columns, nullability, and same-source ownership. The current
+`noAction` FK is not silently reinterpreted as a schema-wide automatic action:
+Medusa's Type service explicitly detaches Products, while other consumers may
+legitimately require restriction. This is a private core/adapter contract break,
+not a change to native Medusa's public delete API.
+
+The intent alone must not authorize the Type delete at working-set close or
+publish a native event. After the untrusted command and event capture have
+finished, the trusted settlement owner takes the scope publication lock,
+validates ordinary observed dependencies, and selects the *then-current*
+reverse index range with scoped keyset pages. A reference committed before
+that lock belongs to the transition; a conflicting writer settling after it
+must validate against the removed target. Core applies each page with shared
+row/index/unique/history materialization under one transaction and one commit
+sequence, then verifies that no matching reference remains before lowering the
+root deletion and publishing one outcome. A late page, validation, or
+publication failure rolls back all pages. This ordering keeps a complete
+membership decision at the actual settlement point rather than treating an
+earlier capped request page as authoritative.
+
+Use a bounded total affected-row, byte, statement and time budget independent
+of the page size. Keep at most one decoded page and its materialization state
+live at once; retain only resource-accounted compact row identities and event
+proof needed by the single publication. The current one-shot
+`prepareDelta`, `LogicalDocumentChanges`, row-intent array and native mutation
+inspector must be replaced or extended *together* so each page is lowered at
+the same sequence and the complete change count/facts remain recoverable. The
+Type event validator currently expects a full Product before/after mutation
+array; it must instead authenticate the root event and the sealed transition
+intent, while core verifies that every derived Product change is exactly the
+declared field detachment and managed timestamp change. It must not accept
+arbitrary adapter-supplied derived mutations.
+
+The selected Type command performs no Product read after requesting detach.
+Before exposing this operation to a command that does, core must provide
+correct pending-read and pending-index visibility for the planned transition;
+silently returning the pre-transition Product is not allowed. Preserve the
+existing physical compatibility runner only for its named unported Product
+methods until their logical cutover; do not add a physical fallback to the new
+logical transition.
+
 ## Coherent implementation and acceptance gate
 
 1. Inventory the logical row, index, unique, revision, attempt, dependency,
