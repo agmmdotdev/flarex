@@ -65,3 +65,9 @@ contract and a two-driver test with more references than one command admits.
 Do not work around the bound with adapter SQL, a raised fixed limit, or a
 second settlement path. Until then, callers must treat `limitExceeded` as a
 capacity refusal, not a successful delete.
+
+The [accepted core fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions)
+now assigns complete reverse selection, bounded batching, concurrency checks,
+rollback and one publication to shared relation/transaction ownership. The
+selected Type witness remains bounded until that core path is implemented and
+tested against a native high-reference delete.

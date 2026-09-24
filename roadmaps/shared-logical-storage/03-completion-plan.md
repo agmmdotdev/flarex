@@ -150,7 +150,12 @@ remain distinct from logical schema evolution.
   confinement. The Type-only physical boundary fixture is retired under the
   [selected Type cutover](./26-product-type-native-cutover.md); the broader
   Product compatibility runner still uses physical storage for unported methods.
-  General bounded population/overflow, broader Product commands and
+  The current 128-identity logical working set cannot complete a native Type
+  delete with high Product-reference fan-out. Core must own an indexed,
+  resource-accounted atomic relationship transition as specified in the
+  [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions);
+  adapter paging or a larger fixed limit is not the replacement. General
+  bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,
   including mixed-index Boolean branches and pending updates; scalar foreign-key

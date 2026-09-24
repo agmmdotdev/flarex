@@ -274,6 +274,38 @@ traversal authorization still apply. Generic physical FKs may protect stable
 storage identities; field-specific native FKs require a proven logical
 constraint owner where their semantics are admitted, not weaker adapter checks.
 
+### Bounded high-fan-out relationship transitions
+
+Deleting or changing one logical row may affect many indexed referencing rows.
+The shared relation/transaction owner must execute admitted `set null`, cascade
+or restrict behavior from authenticated relationship metadata; a framework
+adapter may select the native operation but must not enumerate a capped result
+page, split the mutation into independently committed calls, issue private SQL
+or raise a fixed row cap to simulate complete relationship maintenance.
+
+For a single atomic native operation, core selects complete reverse membership
+through scoped indexes, processes it in resource-accounted keyset batches under
+one trusted database transaction, maintains row history and every affected
+index/unique claim, validates concurrent reference insertion and deletion,
+and publishes complete facts, one durable outcome and admitted events at one
+settlement. The operation must not hold a transaction across untrusted code,
+workflow pauses or remote effects. A page limit cannot define the affected
+set; an incomplete page is never a successful transition. Core may reject an
+operation that exceeds an explicit time, byte, row or statement budget, but
+must roll back every staged change and return a capacity refusal. An unbounded
+atomic deletion is not a scalability promise.
+
+The executor must separate the bounded read page from the total affected-row
+budget and avoid keeping every decoded row and revision in one request heap.
+The exact transaction-local staging and publication representation belongs to
+the implementation preflight and must preserve current recovery evidence.
+Cross-framework strong references do not acquire implicit cross-owner cascade
+or `set null` rights: the declared owner policy must explicitly admit any
+affected framework record. Native stored Links retain their distinct policy.
+An ordinary-role PostgreSQL contention witness and a PGlite fan-out witness
+beyond the current working-set identity limit are required before claiming
+general relationship-maintenance parity.
+
 Redesign the current edge/row core when those semantics do not fit. Do not
 preserve application-shaped internals by attaching a second commerce relation
 engine. Reuse is judged by authority and semantics, not matching type names.
