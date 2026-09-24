@@ -20,8 +20,8 @@ const decodePairs = commerceDecoder(Schema.Array(Schema.Struct({ entity: Schema.
 })).check(Schema.isMaxLength(256)), "unsupportedProfile");
 
 /** Only the Collection mutation composition exposes these private DAL calls.
- * Medusa owns association/dissociation; filtering consumes a complete bounded
- * scoped catalog, so exclusion cannot silently leave a later page attached. */
+ * Medusa owns association/dissociation. Select requested IDs or one Collection
+ * through declared indexes before applying the native exclusion semantics. */
 export const findCollectionMembershipProducts = Effect.fn("ProductAdapter.findCollectionMembers")(function* (
   ctx: Pick<CommerceCommandContext, "manager" | "table" | "resources">, metadata: ProductRuntimeMetadata, input: unknown,
 ) {
@@ -31,13 +31,15 @@ export const findCollectionMembershipProducts = Effect.fn("ProductAdapter.findCo
   yield* Effect.fromResult(decodeOptions(envelope.options ?? {}));
   const excluded = "collection_id" in selector;
   const selected = new Set(excluded ? selector.id.$nin : selector.id.$in);
+  if (!excluded && selected.size === 0) return [];
   const table = metadata.product.table.name;
   const projection = yield* Effect.fromResult(compileProjection(metadata.readCatalog, table, undefined, [], scalarProjection));
   return (yield* executeRead(ctx, metadata.readCatalog, {
     table, projection, paths: [], relationFilters: [], ordering: new Map(), withDeleted: false,
     query: { predicate: { kind: "and", children: [
       { kind: "isNull", column: "deleted_at" },
-      ...(excluded ? [{ kind: "in", column: "collection_id", values: [selector.collection_id] }] : []),
+      { kind: "in", column: excluded ? "collection_id" : "id",
+        values: excluded ? [selector.collection_id] : [...selected] },
     ] } },
     window: { kind: "catalog", order: "id", select: rows => {
       const members = rows.filter(row => typeof row.id === "string" && (excluded ? !selected.has(row.id) : selected.has(row.id)));

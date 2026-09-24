@@ -25,6 +25,7 @@ export const SimpleProductInput = Schema.Struct({
  * module-local tag/category memberships, not every Medusa Product DTO field. */
 export const ProductCreateGraphInput = Schema.Struct({
   ...SimpleProductInput.fields,
+  collection_id: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isLengthBetween(1, 256)))),
   tag_ids: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256))),
   category_ids: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isLengthBetween(1, 256))).check(Schema.isMaxLength(256))),
   images: Schema.optionalKey(Schema.Array(Schema.Struct({

@@ -49,12 +49,18 @@ describe("Medusa relation query extraction", () => {
         expect(queries).toEqual([{ take: defaultCommerceResources.queryRows, order: { column: "id", direction: "asc" }, predicate: {
           kind: "and", children: [{ kind: "isNull", column: "deleted_at" }, { kind: "in", column: "collection_id", values: ["c"] }],
         } }]);
+        expect(yield* findCollectionMembershipProducts(ctx, catalog,
+          { where: { id: { $in: ["p19"] } }, options: { populate: [] } })).toEqual(rows.slice(19));
+        expect(queries[1]).toEqual({ take: defaultCommerceResources.queryRows,
+          order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
+            { kind: "isNull", column: "deleted_at" }, { kind: "in", column: "id", values: ["p19"] },
+          ] } });
         for (const input of [
           { where: { id: { $in: ["p19"] } }, options: { limit: 1 } },
           { where: { id: { $in: ["p19"] } }, options: { filters: { softDeletable: { withDeleted: true } } } },
           { where: { id: ["p19"] } }, { where: { id: { $nin: [] } } },
         ]) expect(yield* Effect.result(findCollectionMembershipProducts(ctx, catalog, input))).toMatchObject({ _tag: "Failure" });
-        expect(queries).toHaveLength(1);
+        expect(queries).toHaveLength(2);
       }).pipe(Effect.ensuring(lifetime.close));
     }));
   });

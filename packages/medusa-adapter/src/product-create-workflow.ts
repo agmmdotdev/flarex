@@ -26,8 +26,9 @@ export const ProductCreateOutput = Schema.Struct({
 /** Native creation and pending graph read for owned rows and memberships. */
 const productCreateWorkflow = createWorkflow("create-products-owned-graph", (input: WorkflowData<typeof ProductCreateInput.Type>) => {
   const products = createProductsStep(transform(input.products, values => values.map(value => {
-    const { images, options, variants, tag_ids, category_ids, ...scalar } = value;
+    const { collection_id, images, options, variants, tag_ids, category_ids, ...scalar } = value;
     return { ...scalar,
+      ...(collection_id == null ? {} : { collection_id }),
       ...(tag_ids === undefined ? {} : { tag_ids: [...tag_ids] }),
       ...(category_ids === undefined ? {} : { category_ids: [...category_ids] }),
       ...(images === undefined ? {} : { images: images.map(image => ({ ...image })) }),

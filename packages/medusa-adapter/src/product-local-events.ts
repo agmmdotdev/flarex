@@ -237,6 +237,11 @@ export function productLogicalCategoryCreateEventPolicy(catalog: ProductRuntimeM
   return productLogicalEntityEventPolicy(catalog, catalog.category, "productCreatecategory", "created");
 }
 
+/** Selected native Collection root, before its relationship workflow moves. */
+export function productLogicalCollectionCreateEventPolicy(catalog: ProductRuntimeMetadata) {
+  return productLogicalEntityEventPolicy(catalog, catalog.collection, "productCreatecollection", "created");
+}
+
 /** The native Product create command owns every inserted entity and its
  * variant/value pivot. No other command or Product table is admitted here. */
 export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata) {

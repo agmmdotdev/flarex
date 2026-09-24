@@ -629,6 +629,62 @@ row scope isolation and the physical workflow's colliding foreign-scope case
 remain the supporting two-shop witnesses; a direct two-shop logical-workflow
 fixture remains a validation gate before claiming full multi-shop cutover.
 
+## Native Collection Root And Indexed Membership Preflight
+
+The pinned Product service can create a Collection, create Products referring to
+it, and read its Product membership. The complete logical Product definition
+already declares the nullable Collection foreign key and reverse index. The
+selected Product create workflow's private input omits `collection_id`, and
+the Collection root has no logical module-event receipt yet. The existing
+Collection membership repository selects an `id` request only after a broad
+bounded Product read; unrelated Products can exhaust that window before a
+small selected request. Those are adapter admission and query-shaping gaps,
+not reasons for another Product storage path.
+
+Admit the native Collection create command with the existing generic
+single-entity logical event policy. Extend the private Product create workflow
+input to carry a nullable Collection reference; shared FK settlement owns
+target existence and scope confinement. For the Collection service's selected
+membership read, use the declared Product ID index for positive ID selection
+and the declared Collection reverse index for exclusions. Retain complete-set
+bounds and refusal when a selected Collection itself exceeds the request
+budget; do not page a replacement operation into an incomplete update or add
+adapter SQL. This breaks only the private selected workflow input shape by
+adding its native field, and removes its broad-read assumption. The physical
+Collection/Category relationship workflow remains a named consumer until its
+multi-call logical event receipt, pending reads and large-membership semantics
+are proven.
+
+Prove native Collection create, Product create with Collection FK or explicit
+null, reverse population, replay, missing-Collection rollback and small
+selected ID lookup beside more than one unrelated-row bound on PGlite and
+ordinary-role PostgreSQL. Run the physical relationship regressions against
+their committed baseline and record any existing failure as a separate
+consumer gate; the selected logical roots do not depend on that workflow.
+Typecheck, lint and both required reviews complete this slice. Do not treat
+this as Collection/Category workflow cutover or as a full many-member
+Collection capacity claim.
+
+The selected native Collection root now writes logical Product storage with an
+authenticated created event. The native Product creation step accepts its
+existing `collection_id` field, with explicit null normalized to an unassigned
+Product, and the shared FK plus indexed reverse read connects the two roots.
+Positive Collection membership selection now reads the
+requested Product IDs through the shared primary index instead of filtering a
+catalog-wide Product window; negative selection remains confined to the
+declared Collection reverse index and retains complete-set refusal. A selected
+Product beside more than one ordinary request bound of unrelated Products is
+the query witness. The combined Collection/Category relationship workflow and
+its multi-call event receipt are not admitted by this slice.
+
+The retained physical relationship workflow currently reaches the request-wide
+64-statement storage ceiling at attempt 65 while accessing
+`product_collection` in its composed child path. The same failure reproduces
+with the committed membership selector on both drivers, so it is not caused by
+the indexed-ID change. Its request/query composition and resource accounting
+must be corrected at their owner before using that workflow as a cutover or
+scale witness; raising the limit locally would only hide the missing bound.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at
