@@ -32,7 +32,7 @@ const productCollectionMembershipWorkflow = createWorkflow("assign-products-to-c
 
 export const prepareProductCollectionMembershipWorkflow = Effect.fn("MedusaWorkflow.prepareCollectionMembership")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "physical" | "logical"> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical"> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {

@@ -185,7 +185,7 @@ restart after result expiry, stale claims, subscriber independence, corruption
 and retention. Actual competing claims and outside-transaction visibility are
 ordinary-role PostgreSQL proofs; PGlite is not a concurrency substitute.
 
-Preserve original Product/Currency suites and atomic/graph, publication, recovery,
+Preserve native Product/Currency behavior and atomic/graph, publication, recovery,
 wake and migration regressions. Promotion/portable checks inspect the resulting
 import closure. Node/database and browser-bundle checks do not establish deployed
 Cloudflare or production dispatcher readiness.

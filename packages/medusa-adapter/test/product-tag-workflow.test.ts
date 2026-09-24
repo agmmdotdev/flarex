@@ -7,12 +7,12 @@ import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from 
 import type { Json } from "flarex-protocol/json";
 import { prepareProductTagWorkflow, type ProductTagWorkflowHooks } from "../src/product-tag-workflow";
 import { currencyCommands, currencyWorkflowModule } from "../src/currency-service";
-import { makeLocalProductCommands } from "../src/product-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productModuleEventPolicy } from "../src/product-local-events";
+import { productLogicalTagEventPolicy } from "../src/product-local-events";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { commercePhysicalRows, expireCommerceResult, compactRetainedCommitHistory } from "../../persistence-postgres/test/commerceInventory";
+import { expireCommerceResult, compactRetainedCommitHistory } from "../../persistence-postgres/test/commerceInventory";
+import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
 import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
@@ -24,31 +24,38 @@ import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { commerceDecoder } from "../src/commerce-decoder";
 import { defineWorkflowMethod, defineWorkflowModule, workflowModuleDefinition } from "../src/workflow/module";
-import { logicalCategoryCurrencyFixture } from "./support/logical-category-currency-fixture";
+import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
+import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 
 const cleanup: Array<() => Promise<void>> = [];
 const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
-let fixture: Awaited<ReturnType<typeof logicalCategoryCurrencyFixture>>;
-let policy: ReturnType<typeof productModuleEventPolicy>;
-let productCommands: Effect.Success<ReturnType<typeof makeLocalProductCommands>>;
+let fixture: { currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
+  product: Awaited<ReturnType<typeof prepareLogicalProductHost>> };
+let policy: ReturnType<typeof productLogicalTagEventPolicy>;
 let revision: string;
 const subscribers = [{ id: "tags-index", revision: "a".repeat(64) }, { id: "tags-audit", revision: "b".repeat(64) }];
 const args = (value: string) => ({ product_tags: [{ value }], additional_data: { witness: value } });
 const inventory = async () => ({ logical: await logicalCurrencyInventory(fixture.currency),
-  productRows: await commercePhysicalRows(fixture.currency.persistence, fixture.product.descriptor.layout.frame),
+  productRows: await fixture.currency.persistence.drizzle.select().from(fxAppRowCurrent),
   events: await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents).orderBy(fxSystemCommitEvents.commitSeq, fxSystemCommitEvents.eventOrdinal),
   deliveries: await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEventDeliveries).orderBy(fxSystemCommitEventDeliveries.commitSeq, fxSystemCommitEventDeliveries.eventOrdinal, fxSystemCommitEventDeliveries.subscriberId),
 });
 const execution = (session = fixture.currency.session) => ({
-  identityAndAccessPolicy: fixture.input.identityAndAccessPolicy,
-  prepare: (composition: import("../src/workflow/host").AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...fixture.input, session, ...composition }),
+  identityAndAccessPolicy: fixture.product.hostInput.identityAndAccessPolicy,
+  prepare: (composition: import("../src/workflow/host").AtomicWorkflowHostComposition) =>
+    makeAtomicCommerceHost({ ...fixture.product.hostInput, session, ...composition }),
 });
 const installedModules = () => ({
-  product: { module: productCommands.workflow, profile: fixture.product.profile, installation: fixture.installation, moduleEvents: policy },
+  product: { module: fixture.product.runtime.workflow, logicalStorage: fixture.product.hostInput.logicalStorage, moduleEvents: policy },
   currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: fixture.currency.hostInput.logicalStorage },
 });
+const readOnlyModules = () => {
+  const modules = installedModules();
+  return { product: { module: modules.product.module, logicalStorage: modules.product.logicalStorage },
+    currency: modules.currency };
+};
 const assemble = async (hooks?: ProductTagWorkflowHooks, suffix = "standard") => {
   const input = { execution: execution(), modules: installedModules(), revision: createHash("sha256").update(revision).update(suffix).digest("hex"),
     subscribers, ...(hooks === undefined ? {} : { hooks }) };
@@ -71,10 +78,13 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     sources.push(await readFile(new URL(import.meta.url)));
     const hash = createHash("sha256"); for (const source of sources) hash.update(source);
     revision = hash.digest("hex");
-    fixture = await logicalCategoryCurrencyFixture(driver, close => cleanup.push(close));
-    productCommands = await runEffect(makeLocalProductCommands());
+    const currency = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true });
+    const product = await prepareLogicalProductHost(currency);
+    await runEffect(product.host.initialize([]));
+    await runEffect(product.host.close);
+    fixture = { currency, product };
     const catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    policy = productModuleEventPolicy(fixture.product.descriptor, catalog);
+    policy = productLogicalTagEventPolicy(catalog, "created");
   }, 150_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -353,7 +363,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   }, 60_000);
 
   it("uses the same host for native Product/Currency reads with no event resource", async () => {
-    const modules = installedModules();
+    const modules = readOnlyModules();
     const resources = Result.getOrThrow(prepareWorkflowResources({
       product: { module: modules.product.module, methods: [], graph: true },
       currency: { module: modules.currency.module, methods: ["retrieveCurrency"], graph: false },
@@ -461,7 +471,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   }, 60_000);
 
   it("decodes encoded inputs once and validates transformed stored results on replay", async () => {
-    const modules = installedModules();
+    const modules = readOnlyModules();
     const resources = Result.getOrThrow(prepareWorkflowResources({
       product: { module: modules.product.module, methods: [], graph: true },
       currency: { module: modules.currency.module, methods: ["retrieveCurrency"], graph: false },
@@ -490,7 +500,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   }, 60_000);
 
   it("includes method-to-command associations in replay identity", async () => {
-    const installed = installedModules();
+    const installed = readOnlyModules();
     const description = workflowModuleDefinition(installed.currency.module);
     if (description === undefined) throw new Error("Missing Currency registration");
     const decode = commerceDecoder(Schema.Json, "invalidInput");

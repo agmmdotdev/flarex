@@ -203,7 +203,7 @@ delivery. A different event-free composition proves reuse with both real modules
 
 PGlite and ordinary-role PostgreSQL cover the connected workflow/atomic/graph
 lanes. Competing transactions and pending-write invisibility remain PostgreSQL
-proofs. Original Product/Currency and selected composer assertions, affected
+proofs. Native Product/Currency behavior and selected composer assertions, affected
 TypeScript, provenance, portable imports, lint and both reviewer scopes remain
 required regression evidence. These checks do not establish whole-SDK parity,
 Cloudflare deployment or production dispatcher readiness.

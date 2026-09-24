@@ -921,6 +921,53 @@ binding and atomic-host tests own selection changes and host mechanics. This
 does not retire physical Product for its remaining named consumers or assert
 general Product serving readiness.
 
+## Product Tag Create And Owned Workflow Binding Cutover Preflight
+
+The pinned `createProductTagsWorkflow` performs the native create step, then
+the `productTagsCreated` hook and created event under one atomic root. Logical
+Product already supports that sequence, but the older connected workflow suite
+still binds physical Product and the create facade accepts both sources. The
+Product create and Collection membership facades likewise accept physical
+Product despite having only logical callers. Move the connected tag workflow
+suite to the selected logical Product source, retaining its native hook,
+pending graph, event family, replay, refusal, cancellation and ordinary-role
+PostgreSQL proofs. Shared delivery/recovery tests may continue in this suite;
+their authority remains the common host and event store. Retire the redundant
+physical Product/logical Currency transitional fixture once its mixed-source
+and binding checks have a logical or shared-owner witness.
+
+This breaks the three private workflow preparation inputs for physical Product;
+callers must pass the logical Product binding. The pinned Medusa workflow,
+business inputs, result and published event contracts do not change. Physical
+Product profile, generated tables and installation evidence remain for other
+named consumers; this slice neither removes their data nor grants full Product
+serving readiness. No compatibility overload is retained solely for tests.
+Prove the connected suite on PGlite and ordinary-role PostgreSQL, run affected
+typechecks, guard and lint checks, obtain both required reviews, then remove
+the superseded fixture references and commit the coherent cutover.
+
+The retained PostgreSQL parallel-hook witness exposed a shared readiness race:
+one root may read enabled build rows and the scope clock before another root
+commits, then observe the new table frontier afterwards. Comparing those mixed
+observations can falsely report `notCovered` even though the committing root
+advanced the build frontier in the same transaction. Correct the shared
+`logicalStorageReadiness` owner, not the Medusa adapter. Retain the initially
+admitted snapshot and all lifecycle/fence checks; on a coverage miss followed
+by a newer scope clock, retry a bounded fresh build/clock read inside
+the accepting transaction. Persistent noncoverage must still refuse. This
+changes no durable format or business contract. The concurrent Product-tag
+witness and both database lanes gate the correction.
+
+The connected Product-tag create suite now binds logical Product and Currency
+on both drivers, preserving the native hook, two event families, replay,
+rollback, delivery and read-only compositions. The redundant mixed physical
+Product fixture is removed. Product create and Collection membership workflow
+preparation now require logical Product; their existing connected callers use
+that source. In the shared readiness owner, a post-miss clock check refreshes
+enabled-build evidence after a concurrent commit, while unchanged-clock or
+persistent coverage misses still refuse. This does not retire remaining
+physical Product consumers or establish capacity under sustained contention.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

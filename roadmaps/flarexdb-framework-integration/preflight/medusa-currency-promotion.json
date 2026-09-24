@@ -807,7 +807,7 @@
     {
       "target": "packages/medusa-adapter/src/product-tag-workflow.ts",
       "classification": "authored",
-      "targetSha256": "845fd6848f655c823a568c845d6f768e59b6cb5fa68ecf25ef1208131698e117"
+      "targetSha256": "dc7355e55e8a03f7a9bb7aa776f4f6d842d704593ee8f4533e7ad08e858dd5d3"
     },
     {
       "target": "packages/medusa-adapter/src/product-value-profile.ts",
@@ -1054,7 +1054,7 @@
     {
       "target": "packages/medusa-adapter/test/product-tag-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "8e4cf78905bd73121c512a776b0d10434b427fcf30fee7f6d194a9a03bc94f01"
+      "targetSha256": "84375dbb3e0d64b13403262b6b1d94ea81c865af52cfda087064c0e867e27360"
     },
     {
       "target": "packages/medusa-adapter/test/product-tags-upstream.test.ts",
@@ -4404,11 +4404,6 @@
       "targetSha256": "669f7f5641de10c78ea7f37b3e4627a71f515f4b401acb64589465f877c5a88e"
     },
     {
-      "target": "packages/medusa-adapter/test/logical-product-tag-workflow.test.ts",
-      "classification": "authored",
-      "targetSha256": "d707acb0e72d41be26f32fa3be10919e712139c3290104ff0ca42eb4e6160c90"
-    },
-    {
       "target": "packages/medusa-adapter/test/support/logical-category-currency-fixture.ts",
       "classification": "authored",
       "targetSha256": "4375a70b3c54a6f599d49f8c18d446fbbbfa3a9731cb755cdc09fb6cdd3cfb1f"
@@ -4446,12 +4441,12 @@
     {
       "target": "packages/medusa-adapter/src/product-collection-workflow.ts",
       "classification": "authored",
-      "targetSha256": "68751340edd63dcd596201899bb3d394d6cfae81cdfae80477861a055ca602b0"
+      "targetSha256": "6ba14cf17fe91099457c1fedb9e682804020874892175e4bc1a3be275512260f"
     },
     {
       "target": "packages/medusa-adapter/src/product-create-workflow.ts",
       "classification": "authored",
-      "targetSha256": "bffdc2e1c8d013cc51c938ac75ee937dec77de5f440ab4fcb4429276d2ae239a"
+      "targetSha256": "ee65a0ef6d24aa092859d9d6b442ea6909324de565ab7659c5c9cc5be46e61a2"
     },
     {
       "target": "packages/medusa-adapter/test/logical-composite-identity.test.ts",

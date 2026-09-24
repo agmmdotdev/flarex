@@ -51,23 +51,42 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     if (authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId || clock.scopeId !== authority.scopeId ||
       clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence)
       return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
-    // KEY SHARE protects lifecycle identity while ordinary publication may
-    // advance coverage. Re-read the clock after the build rows so a concurrent
-    // committed advance cannot look like a frontier ahead of the clock.
-    const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, definitionIds, "key share");
-    if (builds.status === "not_ready") return Object.freeze({ ...builds, kind: "index" as const });
-    const observedClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
-    if (observedClock.storageGeneration !== clock.storageGeneration || observedClock.storageGenerationFence !== clock.storageGenerationFence ||
-      observedClock.epoch !== clock.epoch || observedClock.lastCommitSeq < clock.lastCommitSeq)
-      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
-    const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock);
-    for (const definition of requirements.definitions) {
-      const row = builds.rows.find(build => build.indexDefinitionId === definition.indexDefinitionId);
-      if (row === undefined) return yield* Effect.die("Complete required build set lost a member");
-      const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId));
-      yield* Effect.fromResult(validateIndexBuildStateFrontierResult(state, observedClock.lastCommitSeq));
-      if (!(yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state, definition, clock.lastCommitSeq, coverage)))
-        return Object.freeze({ status: "not_ready" as const, kind: "index" as const, reason: "notCovered" as const, indexDefinitionId: definition.indexDefinitionId });
+    // KEY SHARE protects lifecycle identity while publication may advance
+    // coverage. A commit between the clock read and a later table-frontier
+    // read can make an old build look uncovered at the admitted snapshot.
+    // Refresh both observations only when a post-miss clock read proves that
+    // publication advanced; never waive a persistent miss.
+    let previousCommitSeq = clock.lastCommitSeq;
+    for (let refresh = 0; refresh < 3; refresh++) {
+      const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, definitionIds, "key share");
+      if (builds.status === "not_ready") return Object.freeze({ ...builds, kind: "index" as const });
+      const observedClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
+      if (observedClock.storageGeneration !== clock.storageGeneration || observedClock.storageGenerationFence !== clock.storageGenerationFence ||
+        observedClock.epoch !== clock.epoch || observedClock.lastCommitSeq < clock.lastCommitSeq)
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+      const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock);
+      let uncoveredIndexDefinitionId: (typeof requirements.definitions)[number]["indexDefinitionId"] | undefined;
+      for (const definition of requirements.definitions) {
+        const row = builds.rows.find(build => build.indexDefinitionId === definition.indexDefinitionId);
+        if (row === undefined) return yield* Effect.die("Complete required build set lost a member");
+        const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId));
+        yield* Effect.fromResult(validateIndexBuildStateFrontierResult(state, observedClock.lastCommitSeq));
+        if (!(yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state, definition, clock.lastCommitSeq, coverage))) {
+          uncoveredIndexDefinitionId = definition.indexDefinitionId;
+          break;
+        }
+      }
+      if (uncoveredIndexDefinitionId === undefined) break;
+      const afterMissClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
+      if (afterMissClock.storageGeneration !== clock.storageGeneration || afterMissClock.storageGenerationFence !== clock.storageGenerationFence ||
+        afterMissClock.epoch !== clock.epoch || afterMissClock.lastCommitSeq < observedClock.lastCommitSeq)
+        return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+      if (refresh < 2 && afterMissClock.lastCommitSeq > previousCommitSeq) {
+        previousCommitSeq = afterMissClock.lastCommitSeq;
+        continue;
+      }
+      return Object.freeze({ status: "not_ready" as const, kind: "index" as const, reason: "notCovered" as const,
+        indexDefinitionId: uncoveredIndexDefinitionId });
     }
     const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, clock, "concurrentProgress");
     if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
