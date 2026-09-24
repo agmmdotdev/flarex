@@ -26,7 +26,7 @@ type MedusaHooks = NonNullable<Parameters<typeof deleteProductTagsWorkflow.prepa
  * at the native completion boundary. Its restore compensator stays unadmitted. */
 export const prepareProductTagDeleteWorkflow = Effect.fn("MedusaWorkflow.prepareProductTagDeletion")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "physical" | "logical"> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical"> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
   readonly hooks?: ProductTagDeleteWorkflowHooks;

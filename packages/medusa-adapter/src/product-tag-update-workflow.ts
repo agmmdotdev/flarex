@@ -28,7 +28,7 @@ type MedusaHooks = NonNullable<Parameters<typeof updateProductTagsWorkflow.prepa
  * of other active installations in the trusted deployment. */
 export const prepareProductTagUpdateWorkflow = Effect.fn("MedusaWorkflow.prepareProductTagUpdates")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "physical" | "logical"> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical"> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
   readonly hooks?: ProductTagUpdateWorkflowHooks;

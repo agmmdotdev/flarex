@@ -186,10 +186,12 @@ capability adds neither Convex child transactions nor native journal/OCC access.
 
 ## Validation And Remaining Boundaries
 
-The [connected update suite](../../packages/medusa-adapter/test/product-tag-update-workflow.test.ts)
-installs Product through the real coordinator, then adds Currency through the
-same binding owner. It exercises both selected-module configurations. The
-existing two-module workflow and atomic suites retain their independent proofs.
+The former physical-Product update suite proved the original coordinator and
+mixed-binding behavior. The [logical Product-tag lifecycle suite](../../packages/medusa-adapter/test/logical-product-tag-lifecycle.test.ts)
+and [native refusal/recovery suite](../../packages/medusa-adapter/test/logical-product-tag-retirement.test.ts)
+now exercise the selected logical Product source. Shared binding and atomic
+host suites retain selection and replay-identity proofs; the physical-only
+update fixture was retired with its preparation input.
 
 Required evidence:
 

@@ -880,6 +880,47 @@ snapshot preserves both Collection and Category memberships. This is the
 logical source's optimistic conflict contract; the displaced physical test's
 lock-wait assertion is not its concurrency contract.
 
+## Product Tag Update/Delete Physical-Path Retirement Preflight
+
+Native Product-tag update and delete already execute on the selected logical
+Product source, with row/event correlation, indexed ID selection, replay and
+forged-event refusal. Their private preparation contracts still accept a
+physical Product binding because the older physical-only workflow suites use
+it. Retire both physical alternatives together and migrate their remaining
+native behavior and failure proofs to the logical Product fixture. Keep the
+pinned Medusa workflows, hook inputs, selector semantics, service results,
+soft-delete behavior and event order unchanged. Core remains the sole owner of
+transaction settlement, rollback, idempotency and publication.
+
+The physical Product plus logical Currency binding-transition test also uses
+these two facades. Its transitional selection is not a target profile: replace
+its native same-key input conflict with a logical workflow witness and retain
+binding-change and selection-identity coverage at the shared binding owner.
+Do not keep a physical Product caller just to repeat that generic contract.
+
+The replacement tests must exercise selector and missing/empty behavior,
+malformed/duplicate input, real hook and caught-resource refusal, output
+decoding refusal, interruption after pending mutation, uncertain-commit replay,
+and PostgreSQL pending visibility with same-key calls. Shared workflow-host
+configuration and delivery mechanics remain with their existing generic tests;
+do not preserve a physical Product fixture merely to retest those internals.
+Deleting the two displaced suites is conditional on preserving the native
+Product-tag assertions in logical tests. This intentionally breaks only the
+private physical Product input to the update/delete workflow facades. The
+physical Product profile, generated rows and other named physical Product
+consumers remain until their own cutovers and explicit data disposition. Run
+focused PGlite and ordinary-role PostgreSQL tests, affected typechecks, lint,
+both reviews and scoped cleanup before committing.
+
+The Product-tag update and delete preparation contracts now require logical
+Product bindings. The former physical-only workflow suites and mixed physical
+Product/logical Currency binding-transition fixture are retired. The selected
+logical tests retain native selector, soft-delete, attached Product membership,
+event, replay, refusal, cancellation and uncertain-outcome behavior; generic
+binding and atomic-host tests own selection changes and host mechanics. This
+does not retire physical Product for its remaining named consumers or assert
+general Product serving readiness.
+
 ## Replacement Contract And Breaking Changes
 
 Keep native Product DML, service, repository, event and workflow semantics at

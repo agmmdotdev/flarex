@@ -51,7 +51,8 @@ from the word "delete" or from current upstream documentation.
 
 The original [Product-tag integration cases](../../third_party/medusa/upstream/packages/modules/product/integration-tests/__tests__/product-module-service/product-tags.spec.ts)
 exercise physical deletion, not this soft-delete workflow. Keep those assertions
-alongside the [connected deletion suite](../../packages/medusa-adapter/test/product-tag-delete-workflow.test.ts).
+alongside the [logical Product-tag lifecycle suite](../../packages/medusa-adapter/test/logical-product-tag-lifecycle.test.ts)
+and [native refusal/recovery suite](../../packages/medusa-adapter/test/logical-product-tag-retirement.test.ts).
 Original physical-delete assertions alone do not prove the soft-delete workflow.
 
 ## Execution And Result Contract
