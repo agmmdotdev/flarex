@@ -246,6 +246,56 @@ export function productLogicalCollectionCreateEventPolicy(catalog: ProductRuntim
   return productLogicalEntityEventPolicy(catalog, catalog.collection, "productCreatecollection", "created");
 }
 
+/** Native Type writes stay on Product's logical source. Its hard delete may
+ * detach nullable Product.type_id references before removing the Type row. */
+export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
+  operation: "create" | "update" | "delete") {
+  if (operation !== "delete") return productLogicalEntityEventPolicy(catalog, catalog.type,
+    operation === "create" ? "productCreatetype" : "productupdatetype",
+    operation === "create" ? "created" : "updated");
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalTypeDelete")(
+    function* (calls, mutations, lifecycle) {
+      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productDeletetype");
+      if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const deleted = new Set<string>();
+      const detached = new Map<string, string>();
+      for (const mutation of mutations) {
+        if (mutation.table === catalog.type.table.name && mutation.operation === "delete" &&
+          mutation.after === null && typeof mutation.before?.id === "string" &&
+          !deleted.has(mutation.before.id)) {
+          deleted.add(mutation.before.id);
+          continue;
+        }
+        if (mutation.table === catalog.product.table.name &&
+          (mutation.operation === "patch" || mutation.operation === "replace") &&
+          mutation.before !== null && mutation.after !== null &&
+          typeof mutation.before.id === "string" && mutation.before.id === mutation.after.id &&
+          typeof mutation.before.type_id === "string" && mutation.after.type_id === null) {
+          const { type_id: _beforeType, updated_at: _beforeTime, ...beforeRest } = mutation.before;
+          const { type_id: _afterType, updated_at: _afterTime, ...afterRest } = mutation.after;
+          if (!jsonEqual(beforeRest, afterRest) || detached.has(mutation.before.id))
+            return yield* Effect.fail(commerceError("receiptMismatch"));
+          detached.set(mutation.before.id, mutation.before.type_id);
+          continue;
+        }
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
+      if ([...detached.values()].some(typeId => !deleted.has(typeId)))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      for (const event of emitted) {
+        const message = yield* capture(event);
+        if (message.name !== catalog.type.deletedEvent || message.metadata.object !== catalog.type.eventObject ||
+          message.metadata.action !== CommonEvents.DELETED) return yield* Effect.fail(commerceError("receiptMismatch"));
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
+          if (!deleted.delete(id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        }
+      }
+      if (deleted.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+    });
+  return { capture, validateLogical };
+}
+
 /** Native Collection assignment owns one Collection update and the Product
  * foreign-key changes implied by its final requested membership. */
 export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRuntimeMetadata) {

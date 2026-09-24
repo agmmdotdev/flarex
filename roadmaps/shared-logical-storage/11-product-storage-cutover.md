@@ -1003,6 +1003,16 @@ workflow consumers remain under the replacement gates below.
 
 ## Replacement Contract And Breaking Changes
 
+The [selected native Type path](./26-product-type-native-cutover.md) now
+executes ProductType create/read/update/delete and Product `type_id` references
+on generic Product storage. Its old physical-only boundary fixture is removed;
+the pinned full Product compatibility runner remains physical for named
+unported operations. Type deletion preserves the native nullable Product
+detachment before the shared FK checks final state, within the logical
+command's 128 observed-row budget. Higher fan-out is an atomic capacity
+refusal pending a core-owned resource-aware transition contract. This is one
+selected bounded consumer path, not retirement of the Product physical profile.
+
 Keep native Product DML, service, repository, event and workflow semantics at
 the Medusa boundary. Replace the physical layout/profile/installation reference
 and `CommerceCommandContext.table` backing for the selected Product source with

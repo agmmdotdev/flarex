@@ -144,6 +144,12 @@ remain distinct from logical schema evolution.
   Its standalone native service and promoted creation/event bodies use logical
   rows; the composed workflow now uses the same selected logical source under
   the [module cutover](./22-shipping-profile-module-cutover.md).
+  A selected native ProductType create/read/update/delete path and native
+  Product `type_id` reference now share the Product logical source, including
+  active-value uniqueness, nullable detachment, event receipts and two-shop
+  confinement. The Type-only physical boundary fixture is retired under the
+  [selected Type cutover](./26-product-type-native-cutover.md); the broader
+  Product compatibility runner still uses physical storage for unported methods.
   General bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

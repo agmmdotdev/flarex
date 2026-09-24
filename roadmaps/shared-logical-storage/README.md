@@ -22,6 +22,9 @@ and Product Links workflows execute through generic rows while other consumers
 remain physical. SalesChannel name and ShippingProfile type use shared exact-text
 equality access; SalesChannel `is_disabled` uses a declared Boolean index under
 [its connected selection cutover](./24-sales-channel-boolean-selection.md).
+Native ProductType CRUD and Product `type_id` references have a selected
+[logical path](./26-product-type-native-cutover.md), while the wider pinned
+Product compatibility runner retains its physical source.
 The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.
