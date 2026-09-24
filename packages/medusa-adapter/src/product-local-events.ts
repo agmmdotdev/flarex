@@ -241,65 +241,103 @@ export function productLogicalCategoryCreateEventPolicy(catalog: ProductRuntimeM
   return productLogicalEntityEventPolicy(catalog, catalog.category, "productCreatecategory", "created");
 }
 
-/** The scalar Collection host must refuse an explicit membership request even
- * when an empty list happens to produce no Product row or event. */
-function scalarCollectionEventPolicy(policy: ReturnType<typeof productLogicalEntityEventPolicy>) {
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCollectionScalar")(
-    function* (...args: Parameters<LogicalCommerceEventValidation>) {
-      const requested = args[0].some(call => {
-        if (call.mode !== "write") return false;
-        const members = Array.isArray(call.input) ? call.input : [call.input];
-        return members.some(member => isJsonObject(member) &&
-          (Object.hasOwn(member, "product_ids") ||
-            (member.data !== undefined && isJsonObject(member.data) && Object.hasOwn(member.data, "product_ids"))));
-      });
-      if (requested) return yield* Effect.fail(commerceError("receiptMismatch"));
-      return yield* policy.validateLogical(...args);
-    });
-  return { capture: policy.capture, validateLogical };
-}
-
-/** Selected native Collection root, before its relationship workflow moves. */
-export function productLogicalCollectionCreateEventPolicy(catalog: ProductRuntimeMetadata) {
-  return scalarCollectionEventPolicy(productLogicalEntityEventPolicy(catalog, catalog.collection, "productCreatecollection", "created"));
-}
-
-export function productLogicalCollectionUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
-  return scalarCollectionEventPolicy(productLogicalEntityEventPolicy(catalog, catalog.collection, "productupdatecollection", "updated"));
-}
-
-/** Scalar native upsert may create and update Collection roots in one call.
- * Product membership changes require their own admitted relationship policy. */
-export function productLogicalCollectionUpsertEventPolicy(catalog: ProductRuntimeMetadata) {
+/** Native Collection writes may change their own roots and, when product_ids
+ * is present, only the requested Product.collection_id memberships. */
+function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadata,
+  operation: "create" | "update" | "upsert") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCollectionUpsert")(
-    function* (calls, mutations, lifecycle) {
-      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productupsertcollection");
-      if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+  const commandName = operation === "create" ? "productCreatecollection"
+    : operation === "update" ? "productupdatecollection" : "productupsertcollection";
+  const mismatch = () => commerceError("receiptMismatch");
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCollectionWrite")(
+    function* (calls, mutations, lifecycle, _observedRows, setNull) {
+      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+      if (lifecycle.length !== 0 || setNull.length !== 0) return yield* Effect.fail(mismatch());
+      const write = calls.find(call => call.mode === "write");
+      if (write === undefined) return yield* Effect.fail(mismatch());
+      const updateId = operation === "update" && isJsonObject(write.input) && typeof write.input.id === "string"
+        ? write.input.id : undefined;
+      if (operation === "update" && (updateId === undefined || !isJsonObject(write.result) || write.result.id !== updateId))
+        return yield* Effect.fail(mismatch());
+      const requested = operation === "update" ? [write.input] : Array.isArray(write.input) ? write.input : [write.input];
+      const memberships = new Map<string, ReadonlySet<string>>();
+      for (const item of requested) {
+        if (!isJsonObject(item)) return yield* Effect.fail(mismatch());
+        const row = operation === "update" ? item.data : item;
+        if (row === undefined || !isJsonObject(row) || !Object.hasOwn(row, "product_ids")) continue;
+        const ids = row.product_ids;
+        if (typeof item.id !== "string" || !Array.isArray(ids) ||
+          ids.some(id => typeof id !== "string") || memberships.has(item.id))
+          return yield* Effect.fail(mismatch());
+        memberships.set(item.id, new Set(ids));
+      }
       const expected = new Set<string>();
+      const roots = new Set<string>();
       for (const mutation of mutations) {
         const { before, after } = mutation;
         const created = mutation.operation === "insert" && before === null && after?.deleted_at === null;
         const updated = (mutation.operation === "patch" || mutation.operation === "replace") &&
           before !== null && before.deleted_at === null && after?.deleted_at === null && before.id === after.id;
-        if (mutation.table !== catalog.collection.table.name || !(created || updated) || typeof after?.id !== "string")
-          return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (!(created || updated) || typeof after?.id !== "string") return yield* Effect.fail(mismatch());
+        if (mutation.table === catalog.product.table.name) {
+          if (!updated || before === null)
+            return yield* Effect.fail(mismatch());
+          const allowed = new Set(["collection_id", "updated_at"]);
+          const unchanged = Object.keys(before).filter(key => !allowed.has(key));
+          if (unchanged.length !== Object.keys(after).filter(key => !allowed.has(key)).length ||
+            unchanged.some(key => {
+              const left = before[key], right = after[key];
+              return left === undefined || right === undefined || !jsonEqual(left, right);
+            }))
+            return yield* Effect.fail(mismatch());
+          const attached = typeof after.collection_id === "string" && memberships.get(after.collection_id)?.has(after.id);
+          const detached = typeof before.collection_id === "string" &&
+            memberships.has(before.collection_id) && after.collection_id === null &&
+            !memberships.get(before.collection_id)?.has(after.id);
+          if (!attached && !detached) return yield* Effect.fail(mismatch());
+          const identity = catalog.product.updatedEvent + ":" + after.id;
+          if (expected.has(identity)) return yield* Effect.fail(mismatch());
+          expected.add(identity);
+          continue;
+        }
+        if (mutation.table !== catalog.collection.table.name ||
+          operation === "create" && !created || operation === "update" && (!updated || after.id !== updateId) || roots.has(after.id))
+          return yield* Effect.fail(mismatch());
+        roots.add(after.id);
         const identity = (created ? catalog.collection.createdEvent : catalog.collection.updatedEvent) + ":" + after.id;
-        if (expected.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (expected.has(identity)) return yield* Effect.fail(mismatch());
         expected.add(identity);
       }
+      for (const root of memberships.keys()) if (!roots.has(root)) return yield* Effect.fail(mismatch());
+      if (operation === "update" && (updateId === undefined || !roots.has(updateId)))
+        return yield* Effect.fail(mismatch());
       for (const event of emitted) {
         const message = yield* capture(event);
-        const created = message.name === catalog.collection.createdEvent && message.metadata.action === CommonEvents.CREATED;
-        const updated = message.name === catalog.collection.updatedEvent && message.metadata.action === CommonEvents.UPDATED;
-        if ((!created && !updated) || message.metadata.object !== catalog.collection.eventObject)
-          return yield* Effect.fail(commerceError("receiptMismatch"));
+        const created = message.name === catalog.collection.createdEvent && message.metadata.action === CommonEvents.CREATED &&
+          message.metadata.object === catalog.collection.eventObject;
+        const updated = message.name === catalog.collection.updatedEvent && message.metadata.action === CommonEvents.UPDATED &&
+          message.metadata.object === catalog.collection.eventObject;
+        const product = message.name === catalog.product.updatedEvent && message.metadata.action === CommonEvents.UPDATED &&
+          message.metadata.object === catalog.product.eventObject;
+        if (!(created || updated || product)) return yield* Effect.fail(mismatch());
         for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
-          if (!expected.delete(message.name + ":" + id)) return yield* Effect.fail(commerceError("receiptMismatch"));
+          if (!expected.delete(message.name + ":" + id)) return yield* Effect.fail(mismatch());
       }
-      if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (expected.size !== 0) return yield* Effect.fail(mismatch());
     });
-  return scalarCollectionEventPolicy({ capture, validateLogical });
+  return { capture, validateLogical };
+}
+
+export function productLogicalCollectionCreateEventPolicy(catalog: ProductRuntimeMetadata) {
+  return productLogicalCollectionWriteEventPolicy(catalog, "create");
+}
+
+export function productLogicalCollectionUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
+  return productLogicalCollectionWriteEventPolicy(catalog, "update");
+}
+
+export function productLogicalCollectionUpsertEventPolicy(catalog: ProductRuntimeMetadata) {
+  return productLogicalCollectionWriteEventPolicy(catalog, "upsert");
 }
 
 export function productLogicalCollectionDeleteEventPolicy(catalog: ProductRuntimeMetadata) {

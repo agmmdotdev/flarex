@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import { ProductEvents } from "@medusajs/utils/product/events";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { fxSystemScopeClocks } from "../../../persistence-postgres/src/schema";
 import { commerceInventory } from "../../../persistence-postgres/test/commerceInventory";
 import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
@@ -10,51 +9,6 @@ const run = Effect.runPromise;
 
 describe("Product Collection boundary", () => {
   beforeEach(clearProductRunnerRows);
-  it("replaces and clears every member beyond the default page with complete facts and events", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
-    const ids = Array.from({ length: 20 }, (_, index) => "product_" + index.toString().padStart(2, "0"));
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, ids.map(id => ({ id, title: id, handle: id.replaceAll("_", "-") }))));
-    takeProductRunnerEvents();
-    const before = await commerceInventory(fixture);
-    const input = { id: "collection_all", title: "all", product_ids: ids };
-    const snapshot = structuredClone(input);
-    const key = fixture.host.newRequestKey();
-    const created = await run(fixture.host.run(key, runtime.commands.createCollections, input));
-    expect(input).toEqual(snapshot);
-    const after = await commerceInventory(fixture);
-    expect(after.tables.product).toHaveLength(20);
-    expect(after.tables.product?.every(row => row.collection_id === "collection_all")).toBe(true);
-    expect(after.facts.slice(before.facts.length).filter(fact => fact.tableId === "product" && fact.operation === "update")).toHaveLength(20);
-    expect(after.commits).toHaveLength(before.commits.length + 1);
-    expect(after.commits.at(-1)?.relationalChangeCount).toBe(21);
-    const events = takeProductRunnerEvents();
-    expect(events).toHaveLength(21);
-    expect(events.filter(event => isJsonObject(event) && event.name === ProductEvents.PRODUCT_UPDATED)).toHaveLength(20);
-    expect(await run(fixture.host.run(key, runtime.commands.createCollections, input))).toEqual(created);
-    expect(takeProductRunnerEvents()).toEqual([]);
-    expect(await commerceInventory(fixture)).toEqual(after);
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCollections, { id: "collection_all", data: { title: "renamed" } }));
-    expect((await commerceInventory(fixture)).tables.product?.every(row => row.collection_id === "collection_all")).toBe(true);
-    const kept = ids[19];
-    if (kept === undefined) throw new Error("Missing last-page Product");
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCollections, { id: "collection_all", data: { product_ids: [kept] } }));
-    const replaced = await commerceInventory(fixture);
-    expect(replaced.tables.product?.filter(row => row.collection_id === "collection_all").map(row => row.id)).toEqual([kept]);
-    expect(replaced.tables.product?.filter(row => row.collection_id === null)).toHaveLength(19);
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCollections, { id: "collection_other", title: "other" }));
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCollections, { id: "collection_other", data: { product_ids: [kept] } }));
-    expect(await run(fixture.host.read(runtime.commands.retrieveCollection, { id: "collection_all", config: { select: ["title", "products.id"], relations: ["products"] } })))
-      .toEqual({ id: "collection_all", title: "renamed", products: [] });
-    takeProductRunnerEvents();
-    const beforeClear = await commerceInventory(fixture);
-    await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCollections, { id: "collection_other", data: { product_ids: [] } }));
-    const cleared = await commerceInventory(fixture);
-    expect(cleared.tables.product).toHaveLength(20);
-    expect(cleared.tables.product?.every(row => row.collection_id === null)).toBe(true);
-    expect(cleared.facts.slice(beforeClear.facts.length).filter(fact => fact.tableId === "product" && fact.operation === "update")).toHaveLength(1);
-    expect(takeProductRunnerEvents().filter(event => isJsonObject(event) && event.name === ProductEvents.PRODUCT_UPDATED)).toHaveLength(1);
-  });
-
   it("isolates Collection projections and membership changes from colliding foreign scope rows", async () => {
     const { fixture, runtime } = getProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_owned", title: "local", handle: "local" }));

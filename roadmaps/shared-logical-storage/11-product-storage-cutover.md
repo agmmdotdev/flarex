@@ -1021,8 +1021,11 @@ with a two-driver native high-reference, replay, rollback and two-shop witness.
 The [selected scalar Collection service path](./31-product-collection-scalar-service-cutover.md)
 also runs native create, update and mixed upsert with root event receipts,
 shared list/count/retrieve and active-handle uniqueness. The native
-`product_ids` commands remain outside that scalar host; the physical Product
-compatibility runner remains their named unported consumer. The
+explicit-ID `product_ids` create, update and upsert commands now join that
+logical path through the [Collection membership cutover](./32-product-collection-membership-service-cutover.md),
+with Product change/event receipts and a 20-member replacement proof. Auto-ID
+membership creation and other unported Product methods still retain the
+physical compatibility runner. The
 [selected native Option path](./27-product-option-native-cutover.md) now
 executes Option/Value create, parent/child read, count, title update, upsert
 rollback and hard delete on generic Product storage. The Value and

@@ -169,8 +169,12 @@ remain distinct from logical schema evolution.
   `Product.collection_id`. Both remain bounded by total transition resources;
   native scalar Collection create, update and mixed upsert now use one logical
   Product source with shared list/count/retrieve, unique claims and exact root
-  events. Membership-bearing native Collection commands remain with the named
-  physical compatibility runner until their full logical receipt is admitted;
+  events. Explicit-ID native Collection create, update and upsert membership
+  now use the same logical Product source and an exact Collection/Product
+  receipt, including a 20-member replacement and two-shop proof in the
+  [Collection membership cutover](./32-product-collection-membership-service-cutover.md).
+  Auto-ID membership creation, more complex membership batches and other
+  unported Product methods remain with the named physical compatibility runner;
   other relationship kinds still need their own coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
