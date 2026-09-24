@@ -167,6 +167,10 @@ remain distinct from logical schema evolution.
   [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions).
   The selected native Collection delete uses the same owner for
   `Product.collection_id`. Both remain bounded by total transition resources;
+  native scalar Collection create, update and mixed upsert now use one logical
+  Product source with shared list/count/retrieve, unique claims and exact root
+  events. Membership-bearing native Collection commands remain with the named
+  physical compatibility runner until their full logical receipt is admitted;
   other relationship kinds still need their own coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.

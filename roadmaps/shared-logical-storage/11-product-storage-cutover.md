@@ -1018,8 +1018,12 @@ not retirement of the Product physical profile.
 The selected native Collection delete now detaches its nullable Product
 references through the shared bounded [core fan-out transition](./28-core-relational-fanout-transition.md),
 with a two-driver native high-reference, replay, rollback and two-shop witness.
-The physical Product compatibility runner remains for its named unported
-methods. The [selected native Option path](./27-product-option-native-cutover.md) now
+The [selected scalar Collection service path](./31-product-collection-scalar-service-cutover.md)
+also runs native create, update and mixed upsert with root event receipts,
+shared list/count/retrieve and active-handle uniqueness. The native
+`product_ids` commands remain outside that scalar host; the physical Product
+compatibility runner remains their named unported consumer. The
+[selected native Option path](./27-product-option-native-cutover.md) now
 executes Option/Value create, parent/child read, count, title update, upsert
 rollback and hard delete on generic Product storage. The Value and
 Variant–Value pivot cascade is correlated with the root-only native delete
