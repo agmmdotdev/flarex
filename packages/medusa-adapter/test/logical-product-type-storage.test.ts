@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Cause, Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
+import { createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
 import { productLogicalCreateEventPolicy, productLogicalTypeEventPolicy } from "../src/product-local-events";
+import { prepareAtomicWorkflowHost } from "../src/workflow/host";
+import { prepareWorkflowResources } from "../src/workflow/resources";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
@@ -37,7 +40,8 @@ describe("native Product Type on shared logical Product storage", () => {
   }, 120_000);
 
   async function typeCommand(operation: "create" | "update" | "delete",
-    selectedFixture = fixture, selectedProduct = product) {
+    selectedFixture = fixture, selectedProduct = product, rejectReceipt = false,
+    afterValidation?: () => Promise<void>) {
     const command = operation === "create" ? selectedProduct.runtime.commands.createTypes
       : operation === "update" ? selectedProduct.runtime.commands.updateTypes : selectedProduct.runtime.commands.deleteTypes;
     const policy = productLogicalTypeEventPolicy(catalog, operation);
@@ -50,7 +54,12 @@ describe("native Product Type on shared logical Product storage", () => {
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
       identityAndAccessPolicy: { profile: `logical-product-type-${operation}` },
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
-        commands: [command], validateLogical: policy.validateLogical,
+        commands: [command], validateLogical: rejectReceipt || afterValidation !== undefined
+          ? (...args) => policy.validateLogical(...args).pipe(Effect.andThen(rejectReceipt
+            ? Effect.fail(commerceError("receiptMismatch"))
+            : afterValidation === undefined ? Effect.void : Effect.promise(afterValidation)))
+          : policy.validateLogical,
+        ...(operation === "delete" ? { allowSetNull: true as const } : {}),
         events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
       commands: [root], events: { producerRevision: revision, contracts: [contract],
         subscribers: [{ id: `logical-product-type-${operation}`, revision: "a".repeat(64) }],
@@ -91,6 +100,25 @@ describe("native Product Type on shared logical Product storage", () => {
   const typeReads = (selectedProduct = product) => makeCommerceHost({ ...selectedProduct.hostInput,
     commands: [...selectedProduct.hostInput.commands, selectedProduct.runtime.commands.listTypes,
       selectedProduct.runtime.commands.retrieveType, selectedProduct.runtime.commands.countTypes],
+  });
+
+  it("forwards a validated logical transition opt-in through workflow composition", async () => {
+    const resources = Result.getOrThrow(prepareWorkflowResources({ product: {
+      module: product.runtime.workflow, methods: ["listProductTags"], graph: false,
+    } }, false));
+    const workflow = createWorkflow("type-transition-composition", () => new WorkflowResponse(null));
+    let forwarded = false;
+    await expect(Effect.runPromise(prepareAtomicWorkflowHost({
+      execution: { identityAndAccessPolicy: {}, prepare: composition => {
+        forwarded = composition.participants[0]?.allowSetNull === true;
+        return Effect.fail(commerceError("invalidAuthority"));
+      } },
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
+        moduleEvents: { ...productLogicalTypeEventPolicy(catalog, "delete"), allowSetNull: true } } },
+      workflow: { name: "typeTransitionComposition", resources, prepared: Result.getOrThrow(workflow.prepare()),
+        input: Schema.Json, output: Schema.Json }, revision: "a".repeat(64),
+    }))).rejects.toMatchObject({ reason: "invalidAuthority" });
+    expect(forwarded).toBe(true);
   });
 
   it("uses native Type service, shared unique/FK enforcement and one publication per command", async () => {
@@ -179,7 +207,9 @@ describe("native Product Type on shared logical Product storage", () => {
     const secondCreate = await typeCommand("create", other, otherProduct);
     const firstReads = await Effect.runPromise(typeReads());
     const secondReads = await Effect.runPromise(typeReads(otherProduct));
+    const firstProductCreate = await productCreation();
     const secondProductCreate = await productCreation(other, otherProduct);
+    const firstDelete = await typeCommand("delete");
     try {
       expect(other.persistence).toBe(fixture.persistence);
       const firstScope = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
@@ -202,6 +232,17 @@ describe("native Product Type on shared logical Product storage", () => {
         { filters: { value: "Same value" } }))).toMatchObject([[{ id: "ptype_shared" }], 1]);
       expect(await Effect.runPromise(secondReads.read(otherProduct.runtime.commands.countTypes,
         { filters: { value: "Same value" } }))).toMatchObject([[{ id: "ptype_shared" }], 1]);
+      await Effect.runPromise(firstProductCreate.host.run(firstProductCreate.host.newRequestKey(),
+        firstProductCreate.root, { id: "prod_type_shared_first", title: "First shop", type_id: "ptype_shared" }));
+      await Effect.runPromise(secondProductCreate.host.run(secondProductCreate.host.newRequestKey(),
+        secondProductCreate.root, { id: "prod_type_shared_second", title: "Second shop", type_id: "ptype_shared" }));
+      await Effect.runPromise(firstDelete.host.run(firstDelete.host.newRequestKey(), firstDelete.root, ["ptype_shared"]));
+      expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
+        { id: "prod_type_shared_first" }))).toMatchObject({ type_id: null });
+      expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductRetrieve,
+        { id: "prod_type_shared_second" }))).toMatchObject({ type_id: "ptype_shared" });
+      expect(await Effect.runPromise(secondReads.read(otherProduct.runtime.commands.countTypes,
+        { filters: { id: "ptype_shared" } }))).toMatchObject([[{ id: "ptype_shared" }], 1]);
       expect((await fixture.persistence.query<{ name: string }>(
         "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
         .toEqual(fixture.physicalTablesBeforeCandidate);
@@ -210,14 +251,17 @@ describe("native Product Type on shared logical Product storage", () => {
       await Effect.runPromise(secondCreate.host.close);
       await Effect.runPromise(firstReads.close);
       await Effect.runPromise(secondReads.close);
+      await Effect.runPromise(firstProductCreate.host.close);
       await Effect.runPromise(secondProductCreate.host.close);
+      await Effect.runPromise(firstDelete.host.close);
       await Effect.runPromise(otherProduct.host.close);
     }
   }, 180_000);
 
-  it("keeps a high-fan-out Type delete atomic at the current core capacity boundary", async () => {
+  it("detaches 128 Products in one Type delete publication and replays its outcome", async () => {
     const created = await typeCommand("create");
     const deleted = await typeCommand("delete");
+    const rejected = await typeCommand("delete", fixture, product, true);
     const productCreate = await productCreation();
     const typeId = "ptype_fanout_boundary";
     try {
@@ -234,18 +278,72 @@ describe("native Product Type on shared logical Product storage", () => {
       }
       expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toHaveLength(rowsBeforeProducts.length + 128);
       const before = await logicalCurrencyInventory(fixture);
-      const outcome = await Effect.runPromise(Effect.result(deleted.host.run(deleted.host.newRequestKey(), deleted.root, [typeId])));
-      if (!Result.isFailure(outcome)) throw new Error("Expected bounded Type deletion refusal");
-      expect(outcome.failure.reason).toBe("rollbackOnly");
-      if (!Cause.isCause(outcome.failure.cause)) throw new Error("Missing bounded refusal cause");
-      expect(outcome.failure.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-        reason.error !== null && typeof reason.error === "object" && "reason" in reason.error &&
-        reason.error.reason === "limitExceeded")).toBe(true);
+      await expect(Effect.runPromise(rejected.host.run(rejected.host.newRequestKey(), rejected.root, [typeId])))
+        .rejects.toMatchObject({ reason: "receiptMismatch" });
       expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+      const key = deleted.host.newRequestKey();
+      const outcome = await Effect.runPromise(deleted.host.run(key, deleted.root, [typeId]));
+      const after = await logicalCurrencyInventory(fixture);
+      expect(after.rows).toHaveLength(before.rows.length);
+      expect(after.revisions).toHaveLength(before.revisions.length + 129);
+      expect(after.indexRevisions.length).toBeGreaterThan(before.indexRevisions.length + 128);
+      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 129);
+      expect(after.commits).toHaveLength(before.commits.length + 1);
+      expect(after.events).toHaveLength(before.events.length + 1);
+      const published = after.rowChanges.slice(before.rowChanges.length);
+      expect(new Set(published.map(change => change.commitSeq)).size).toBe(1);
+      expect(published.map(change => change.changeOrdinal)).toEqual(Array.from({ length: 129 }, (_, index) => index));
+      for (const index of [0, 31, 32, 63, 64, 95, 96, 127]) {
+        expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
+          { id: `prod_fanout_${index}` }))).toMatchObject({ id: `prod_fanout_${index}`, type_id: null });
+      }
+      expect(await Effect.runPromise(deleted.host.run(key, deleted.root, [typeId]))).toEqual(outcome);
+      expect(await logicalCurrencyInventory(fixture)).toEqual(after);
     } finally {
       await Effect.runPromise(created.host.close);
       await Effect.runPromise(deleted.host.close);
+      await Effect.runPromise(rejected.host.close);
       await Effect.runPromise(productCreate.host.close);
     }
   }, 240_000);
+
+  it("includes a Product reference committed while Type deletion awaits settlement", async () => {
+    if (driver !== "postgres") return;
+    const typeId = "ptype_concurrent_insert";
+    const created = await typeCommand("create");
+    const productCreate = await productCreation();
+    let signalEntered!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>(resolve => { signalEntered = resolve; });
+    const released = new Promise<void>(resolve => { release = resolve; });
+    const deleted = await typeCommand("delete", fixture, product, false, async () => {
+      signalEntered();
+      await released;
+    });
+    try {
+      await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
+        { id: typeId, value: "Concurrent insert" }));
+      await Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root,
+        { id: "prod_concurrent_before", title: "Before", type_id: typeId }));
+      const before = await logicalCurrencyInventory(fixture);
+      const deleting = Effect.runPromise(deleted.host.run(deleted.host.newRequestKey(), deleted.root, [typeId]));
+      try {
+        await Effect.runPromise(Effect.promise(() => entered).pipe(Effect.timeout(5000)));
+        await Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root,
+          { id: "prod_concurrent_during", title: "During", type_id: typeId }));
+      } finally { release(); }
+      await deleting;
+      const after = await logicalCurrencyInventory(fixture);
+      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 4);
+      for (const id of ["prod_concurrent_before", "prod_concurrent_during"]) {
+        expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve, { id })))
+          .toMatchObject({ id, type_id: null });
+      }
+    } finally {
+      release();
+      await Effect.runPromise(created.host.close);
+      await Effect.runPromise(productCreate.host.close);
+      await Effect.runPromise(deleted.host.close);
+    }
+  }, 180_000);
 });

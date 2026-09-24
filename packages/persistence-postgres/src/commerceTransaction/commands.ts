@@ -4,6 +4,13 @@ import type { Json } from "flarex-protocol/json";
 import type { CommerceStore } from "./storeModel";
 import type { BoundedRequestContext } from "../boundedRequestLifetime";
 import type { CommerceTransactionError } from "./model";
+export interface CommerceSetNullSelection {
+  readonly sourceTable: string;
+  readonly sourceColumn: string;
+  readonly targetTable: string;
+  readonly targetColumn: string;
+  readonly targetKey: string;
+}
 
 declare const commandBrand: unique symbol;
 export interface CommerceCommand { readonly [commandBrand]: true }
@@ -12,6 +19,9 @@ export interface CommerceCommandContext {
   readonly manager: BoundedRequestContext;
   readonly store: CommerceStore;
   readonly table: (tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
+  /** Available only to admitted logical relational participants. Physical
+   * compatibility commands keep their existing bounded row operations. */
+  readonly planSetNull?: (selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
   readonly captureLocalEvent: (event: unknown) => Effect.Effect<void, CommerceTransactionError>;
   readonly nested: (command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly rejectEvent: Effect.Effect<never, CommerceTransactionError>;

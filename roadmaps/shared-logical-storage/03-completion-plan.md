@@ -162,11 +162,11 @@ remain distinct from logical schema evolution.
   nullable-field index; a primary-identity fallback cannot authorize it.
   The full Product runner remains physical for other
   unported methods.
-  The current 128-identity logical working set cannot complete a native Type
-  delete with high Product-reference fan-out. Core must own an indexed,
-  resource-accounted atomic relationship transition as specified in the
-  [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions);
-  adapter paging or a larger fixed limit is not the replacement. General
+  The selected native Type delete now uses the core-owned indexed,
+  resource-accounted atomic `set null` transition specified in the
+  [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions).
+  It remains bounded by total transition resources, and other relationship
+  kinds still need their own coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

@@ -255,11 +255,10 @@ export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
     operation === "create" ? "created" : "updated");
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalTypeDelete")(
-    function* (calls, mutations, lifecycle) {
+    function* (calls, mutations, lifecycle, _observedRows, setNull) {
       const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productDeletetype");
       if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
       const deleted = new Set<string>();
-      const detached = new Map<string, string>();
       for (const mutation of mutations) {
         if (mutation.table === catalog.type.table.name && mutation.operation === "delete" &&
           mutation.after === null && typeof mutation.before?.id === "string" &&
@@ -267,21 +266,11 @@ export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
           deleted.add(mutation.before.id);
           continue;
         }
-        if (mutation.table === catalog.product.table.name &&
-          (mutation.operation === "patch" || mutation.operation === "replace") &&
-          mutation.before !== null && mutation.after !== null &&
-          typeof mutation.before.id === "string" && mutation.before.id === mutation.after.id &&
-          typeof mutation.before.type_id === "string" && mutation.after.type_id === null) {
-          const { type_id: _beforeType, updated_at: _beforeTime, ...beforeRest } = mutation.before;
-          const { type_id: _afterType, updated_at: _afterTime, ...afterRest } = mutation.after;
-          if (!jsonEqual(beforeRest, afterRest) || detached.has(mutation.before.id))
-            return yield* Effect.fail(commerceError("receiptMismatch"));
-          detached.set(mutation.before.id, mutation.before.type_id);
-          continue;
-        }
         return yield* Effect.fail(commerceError("receiptMismatch"));
       }
-      if ([...detached.values()].some(typeId => !deleted.has(typeId)))
+      if (setNull.length !== deleted.size || new Set(setNull.map(intent => intent.targetKey)).size !== setNull.length ||
+        setNull.some(intent => intent.sourceTable !== catalog.product.table.name || intent.sourceColumn !== "type_id" ||
+          intent.targetTable !== catalog.type.table.name || intent.targetColumn !== "id" || !deleted.has(intent.targetKey)))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       for (const event of emitted) {
         const message = yield* capture(event);
@@ -618,12 +607,12 @@ export function productLogicalRelationshipsEventPolicy(catalog: ProductRuntimeMe
       const boundary = categoryStart === calls.length ? mutations.length : calls[categoryStart]?.fromAttempt;
       if (boundary === undefined || boundary < 0 || boundary > mutations.length)
         return yield* Effect.fail(commerceError("receiptMismatch"));
-      yield* collection.validateLogical(calls.slice(0, categoryStart), mutations.slice(0, boundary), lifecycle, observedRows);
+      yield* collection.validateLogical(calls.slice(0, categoryStart), mutations.slice(0, boundary), lifecycle, observedRows, []);
       const categoryCalls = calls.slice(categoryStart).map(call => ({ ...call,
         fromAttempt: call.fromAttempt - boundary, toAttempt: call.toAttempt - boundary }));
       const categoryMutations = mutations.slice(boundary).map(mutation => ({ ...mutation,
         ordinal: mutation.ordinal - boundary }));
-      yield* category.validateLogical(categoryCalls, categoryMutations, lifecycle, observedRows);
+      yield* category.validateLogical(categoryCalls, categoryMutations, lifecycle, observedRows, []);
     });
   return { capture: collection.capture, validateLogical };
 }
@@ -1157,7 +1146,7 @@ export function productLogicalTagCompositionEventPolicy(catalog: ProductRuntimeM
           ? observations.length !== owned.length : observations.length !== 0)
           return yield* Effect.fail(commerceError("receiptMismatch"));
         yield* policy.validateLogical([{ ...call, fromAttempt: 0, toAttempt: owned.length }],
-          owned, observations, observedRows);
+          owned, observations, observedRows, []);
         writes++;
         cursor = call.toAttempt;
       }

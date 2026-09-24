@@ -55,19 +55,15 @@ upstream Product runner remains a comparison/compatibility consumer of physical
 Product storage until its other methods move. This selected path does not
 retire physical Product installation or prove general Product readiness.
 
-The selected delete is bounded by the logical command's 128 observed-row
-identities. A Type with enough referencing Products cannot be detached and
-deleted in one command; the core rejects the oversized working set and the
-transaction commits no partial detach. This is not general ProductType delete
-parity at arbitrary fan-out. Before accepting that parity, the shared
-working-set/transaction owner needs a resource-aware high-fan-out transition
-contract and a two-driver test with more references than one command admits.
-Do not work around the bound with adapter SQL, a raised fixed limit, or a
-second settlement path. Until then, callers must treat `limitExceeded` as a
-capacity refusal, not a successful delete.
+The selected delete now seals one declared nullable FK transition and lets
+shared core select referencing Products by index after publication exclusion.
+The core lowers bounded pages at one commit sequence with row, index, history
+and fact maintenance. A 128-Product Type delete succeeds on both drivers;
+exceeding the separate transition budget still refuses atomically. This is
+bounded native parity, not arbitrary fan-out or a performance claim.
 
 The [accepted core fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions)
-now assigns complete reverse selection, bounded batching, concurrency checks,
+assigns complete reverse selection, bounded batching, concurrency checks,
 rollback and one publication to shared relation/transaction ownership. The
-selected Type witness remains bounded until that core path is implemented and
-tested against a native high-reference delete.
+selected Type witness uses that core path; the physical Product runner remains
+only for its named unported methods until their logical cutover.

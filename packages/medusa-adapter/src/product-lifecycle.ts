@@ -88,6 +88,8 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     }
   });
   for (const row of roots) yield* visit(entity.table, row);
+  const planSetNull = operation === "delete" && entity === catalog.type ? ctx.planSetNull : undefined;
+  const plannedDetach: Array<Parameters<NonNullable<CommerceCommandContext["planSetNull"]>>[0]> = [];
   // The pinned repository detaches non-cascading hasMany references before
   // removing a type/collection. These are the profile's admitted nullable
   // Product reference writes, with normal core facts and managed timestamps.
@@ -99,6 +101,16 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
       const columns = descriptor.join.foreignKeys;
       if (columns.length !== descriptor.sourcePrimaryKeys.length || columns.some(name => !["type_id", "collection_id"].includes(name)))
         return yield* Effect.fail(commerceError("unsupportedProfile"));
+      if (planSetNull !== undefined) {
+        if (columns.length !== 1 || columns[0] !== "type_id" || descriptor.sourcePrimaryKeys.length !== 1 ||
+          descriptor.sourcePrimaryKeys[0] !== "id") return yield* Effect.fail(commerceError("unsupportedProfile"));
+        for (const root of roots) {
+          if (typeof root.id !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
+          plannedDetach.push({ sourceTable: catalog.product.table.name, sourceColumn: "type_id",
+            targetTable: entity.table.name, targetColumn: "id", targetKey: root.id });
+        }
+        continue;
+      }
       const updates: JsonObject[] = [];
       for (const root of roots) for (const row of yield* loadReferencing(catalog.product.table, columns, root, descriptor.sourcePrimaryKeys)) {
         if (typeof row.id !== "string") return yield* Effect.fail(commerceError("storedCorruption"));
@@ -129,5 +141,6 @@ export const changeProductLifecycle = Effect.fn("ProductAdapter.lifecycle")(func
     if (model !== undefined) cascades[model.model] = rows.map(row => ({ ...row }));
     if (table === entity.table) changedRoots = rows.map(row => ({ ...row }));
   }
+  if (planSetNull !== undefined) for (const selection of plannedDetach) yield* planSetNull(selection);
   return { roots: changedRoots, cascades };
 });

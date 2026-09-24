@@ -138,7 +138,7 @@ describe("native Product Variant Pricing workflow on shared logical storage", ()
     ], [], [
       { table: selected.catalog.option.table.name, row: { id: "option_b", product_id: "product_b", deleted_at: null } },
       { table: selected.catalog.value.table.name, row: { id: "value_b", option_id: "option_b", deleted_at: null } },
-    ])));
+    ], [])));
     expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 

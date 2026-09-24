@@ -341,6 +341,33 @@ export const productForeignKeyScenario: (
     rows => Effect.sync(() => { for (const row of rows) referenced.add(row.rowId); })));
   expect(count).toBe(144);
   expect(referenced.size).toBe(144);
+  const planned = yield* transact(tx => Effect.scoped(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+      { calls: 16, commandBytes: 1_048_576, commandMs: 60_000 }, {}, {}, "product-fk-planned-null", "write"),
+    member => member.close);
+    const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId, clock, lifetime,
+      tables: nativeTables, relationalCapabilities: schema.capabilities, requireAdmission: Effect.void,
+      validateDocument: write => Effect.fromResult(values.validate(write.tableId, write.document)).pipe(
+        Effect.mapError(cause => failure("documentInvalid", cause))),
+      error: failure, uniqueConflict: () => failure("uniqueConflict"),
+      limits: { pageRows: 32, identities: 16, documentBytes: 65_536 },
+    }, AppCreationTimeV1Schema.make(1800), constraints, selectedIndexes);
+    const id = yield* lifetime.begin(lifetime.context);
+    yield* (yield* working.relationalTable(lifetime.context, id, "product_type"))
+      .delete(lifetime.context, ["batch_type"]);
+    yield* working.planSetNull(lifetime.context, id, { sourceTableId: productTableId,
+      sourceColumn: "type_id", targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type" });
+    yield* lifetime.seal;
+    const closed = yield* working.close();
+    const rejected = yield* Effect.result(validateLogicalDocumentChanges({ tx, scopeId,
+      tables: new Set(tableIds), maximumIndexEntries: 128, error: failure }, closed));
+    return { closed, rejected };
+  })));
+  expect(planned.closed.setNull).toEqual([{ sourceTableId: productTableId, sourceColumn: "type_id",
+    targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type" }]);
+  expect(planned.closed.changes).toMatchObject([{ kind: "deleted", tableId: typeTableId }]);
+  expect(planned.rejected).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
   const undeclared = yield* Effect.result(transact(tx => forEachLogicalReferencePage({ ...referenceInput(tx),
     sourceColumn: "handle" }, () => Effect.void)));
   expect(undeclared).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });

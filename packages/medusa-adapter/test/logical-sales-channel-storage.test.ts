@@ -43,8 +43,8 @@ async function prepareNativeHost(selectedFixture = fixture, selectedSales = sale
     ctx.call(participant, selectedSales.runtime.delete, input));
   const policy = selectedSales.runtime.logicalEventPolicy();
   const validateLogical: LogicalCommerceEventValidation = substituteEvents === undefined ? policy.validateLogical
-    : (calls, mutations, lifecycle, observedRows) => policy.validateLogical(calls.map(call => call.mode === "write"
-      ? { ...call, events: substituteEvents(call.events) } : call), mutations, lifecycle, observedRows);
+    : (calls, mutations, lifecycle, observedRows, setNull) => policy.validateLogical(calls.map(call => call.mode === "write"
+      ? { ...call, events: substituteEvents(call.events) } : call), mutations, lifecycle, observedRows, setNull);
   const revision = "1".repeat(64);
   const contracts = {
     created: defineCommerceEventContract({ name: eventName("created"), revision, internal: true, decode: policy.capture }),
@@ -161,14 +161,14 @@ describe("native SalesChannel service on shared logical storage", () => {
     ] as const;
     const mutation = [{ ordinal: 0, table: "sales_channel", operation: "insert", before: null,
       after: { id: "orphan-channel", name: "Orphan", deleted_at: null } }] as const;
-    expect(await Effect.runPromise(Effect.result(policy.validateLogical(attempted, mutation, [], []))))
+    expect(await Effect.runPromise(Effect.result(policy.validateLogical(attempted, mutation, [], [], []))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     const attached = { name: eventName("created"), metadata: { source: Modules.SALES_CHANNEL,
       object: "sales_channel", action: "created" }, data: { id: "orphan-channel" } };
     for (const emitted of [[attached, attached], [{ ...attached, data: { id: "forged-channel" } }]]) {
       expect(await Effect.runPromise(Effect.result(policy.validateLogical([
         { ...attempted[0], events: emitted },
-      ], mutation, [], [])))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+      ], mutation, [], [], [])))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     }
     const { host, create, update } = await prepareNativeHost();
     const reader = await Effect.runPromise(makeCommerceHost(sales.hostInput));

@@ -100,9 +100,9 @@ describe("native composed Product workflows", () => {
       events: [{ name: catalog.tag.deletedEvent, metadata: { source: Modules.PRODUCT,
         object: catalog.tag.eventObject, action: CommonEvents.DELETED }, data: { id: ["tag-a", "tag-b"] } }],
       fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 2 }];
-    await runEffect(policy.validateLogical(calls, mutations, lifecycle, []));
+    await runEffect(policy.validateLogical(calls, mutations, lifecycle, [], []));
     expect(await runEffectFailure(policy.validateLogical(calls, mutations,
-      [lifecycle[0]!, { ...lifecycle[1]!, key: { id: "tag-a" }, attemptOrdinal: 0 }], [])))
+      [lifecycle[0]!, { ...lifecycle[1]!, key: { id: "tag-a" }, attemptOrdinal: 0 }], [], [])))
       .toMatchObject({ reason: "receiptMismatch" });
   });
 

@@ -21,7 +21,7 @@ import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
 import { getAtomicCommerceParticipant, type AtomicCommerceParticipant } from "./commands";
 import { captureParticipantEvents, type ParticipantEventSelection } from "./events";
 import type { LogicalCommerceLifecycleObservation, LogicalCommerceMutation,
-  LogicalCommerceObservedRow } from "../commerceTransaction/logicalParticipant";
+  LogicalCommerceObservedRow, LogicalCommerceSetNull } from "../commerceTransaction/logicalParticipant";
 import type { Json } from "flarex-protocol/json";
 
 export interface LogicalCommerceCallObservation {
@@ -38,7 +38,9 @@ export interface LogicalCommerceCallObservation {
 export type LogicalCommerceEventValidation = (calls: readonly LogicalCommerceCallObservation[],
   mutations: readonly LogicalCommerceMutation[],
   lifecycle: readonly LogicalCommerceLifecycleObservation[],
-  observedRows: readonly LogicalCommerceObservedRow[]) => Effect.Effect<void, ReturnType<typeof commerceError>>;
+  observedRows: readonly LogicalCommerceObservedRow[],
+  setNull: readonly LogicalCommerceSetNull[])
+  => Effect.Effect<void, ReturnType<typeof commerceError>>;
 
 interface AtomicCommerceParticipantBase {
   readonly participant: AtomicCommerceParticipant;
@@ -46,6 +48,7 @@ interface AtomicCommerceParticipantBase {
   /** Required for local profiles; all captured messages must match real facts. */
   readonly validate?: LocalCommerceEventPolicy["validate"];
   readonly validateLogical?: LogicalCommerceEventValidation;
+  readonly allowSetNull?: true;
   readonly events?: ParticipantEventSelection;
 }
 export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
@@ -57,6 +60,7 @@ export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0
 function captureParticipant(member: AtomicCommerceParticipantInput) {
   return Object.freeze({ participant: member.participant,
     commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
+    allowSetNull: member.allowSetNull,
     events: captureParticipantEvents(member.events),
     ...(member.logicalStorage === undefined
       ? { kind: "physical" as const, profile: member.profile,
@@ -101,9 +105,10 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
       .pipe(Effect.mapError(projectCommerceRequestFailure));
     const common = { participant: member.participant, name, commands,
       commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate,
-      validateLogical: member.validateLogical, events };
+      validateLogical: member.validateLogical, allowSetNull: member.allowSetNull, events };
     if (member.kind === "logical") {
-      if (location === undefined || member.validate !== undefined || (events !== undefined && member.validateLogical === undefined))
+      if (location === undefined || member.validate !== undefined || (events !== undefined && member.validateLogical === undefined)
+        || (member.allowSetNull === true && member.validateLogical === undefined))
         return yield* Effect.fail(commerceError("unsupportedProfile"));
       const selection = yield* Effect.fromResult(member.logical);
       const sourceKey = isNonArrayRecord(selection.source) ? selection.source.sourceKey : undefined;
@@ -125,7 +130,8 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     const reference = capturedReference.value;
     yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectCommerceRequestFailure));
     const descriptor = yield* requireCommerceProfile(member.profile);
-    if (member.validateLogical !== undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
+    if (member.validateLogical !== undefined || member.allowSetNull === true)
+      return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (descriptor.localOnly !== (member.validate !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (!sameBindingValue({ ...descriptor.artifact.identity }, reference.installation.artifact))
       return yield* Effect.fail(commerceError("invalidAuthority"));

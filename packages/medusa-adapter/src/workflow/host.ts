@@ -25,7 +25,9 @@ export interface AtomicWorkflowExecution {
 type InstalledWorkflowModuleBase<Module extends WorkflowModule> = {
   readonly module: Module;
   readonly moduleEvents?: Readonly<{ capture: LocalCommerceEventPolicy["capture"];
-    validate?: LocalCommerceEventPolicy["validate"]; validateLogical?: LogicalCommerceEventValidation }>;
+    validate?: LocalCommerceEventPolicy["validate"]; validateLogical?: LogicalCommerceEventValidation;
+    /** Admit only a policy that validates the sealed core transition. */
+    allowSetNull?: true }>;
 };
 export type InstalledWorkflowModule<Module extends WorkflowModule = WorkflowModule,
   Storage extends "physical" | "logical" = "physical"> = InstalledWorkflowModuleBase<Module> & (
@@ -101,7 +103,8 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     const profile = "profile" in binding ? binding.profile : undefined;
     const installation = "installation" in binding ? binding.installation : undefined;
     const moduleEvents = binding.moduleEvents === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(binding.moduleEvents));
-    if (moduleEvents !== undefined && (typeof moduleEvents.capture !== "function" || (hasLogicalStorage
+    if (moduleEvents !== undefined && (typeof moduleEvents.capture !== "function" ||
+      (moduleEvents.allowSetNull !== undefined && (moduleEvents.allowSetNull !== true || !hasLogicalStorage)) || (hasLogicalStorage
       ? typeof moduleEvents.validateLogical !== "function" || moduleEvents.validate !== undefined
       : typeof moduleEvents.validate !== "function" || moduleEvents.validateLogical !== undefined)))
       return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -142,6 +145,7 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
       }
     }
     const selected = { participant: member.participant, commands: [...commands],
+      ...(hasLogicalStorage && moduleEvents?.allowSetNull === true ? { allowSetNull: true as const } : {}),
       ...(hasLogicalStorage
         ? moduleEvents?.validateLogical === undefined ? {} : { validateLogical: moduleEvents.validateLogical }
         : moduleEvents?.validate === undefined ? {} : { validate: moduleEvents.validate }),

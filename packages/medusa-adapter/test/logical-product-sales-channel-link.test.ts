@@ -83,7 +83,7 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
       commandName: "linkCreate", mode: "write", input: [], result: [], events: [], fromAttempt: 0, toAttempt: 1,
       fromLifecycle: 0, toLifecycle: 0,
     }], [{ ordinal: 0, table: "product_sales_channel", operation: "insert", before: null,
-      after: { id: "prodsc_orphan", product_id: "p", sales_channel_id: "s", deleted_at: null } }], [], [])));
+      after: { id: "prodsc_orphan", product_id: "p", sales_channel_id: "s", deleted_at: null } }], [], [], [])));
     expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 
@@ -137,7 +137,7 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
         { ordinal: 1, table: "product_sales_channel", operation: "patch",
           before: { id: "prodsc_previous", product_id: "repeat-product", sales_channel_id: "repeat-channel", deleted_at: null },
           after: { id: "prodsc_current", product_id: "repeat-product", sales_channel_id: "repeat-channel", deleted_at: null } },
-      ], [], [])))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+      ], [], [], [])))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
       const reader = await Effect.runPromise(makeCommerceHost(link.hostInput));
       try {
         expect(await Effect.runPromise(reader.read(link.runtime.count, { filters: { product_id: "repeat-product" },

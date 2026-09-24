@@ -124,22 +124,24 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   if (identity.scopeUuid !== scope.scopeUuid) return yield* Effect.fail(commerceError("invalidAuthority"));
   const logicalMembers = logical === undefined ? atomic?.logical ?? [] : [logical];
   const deltas = yield* Effect.forEach(logicalMembers, member => prepareLogicalCommerceContribution(member, publicationClock));
-  const logicalRows = deltas.reduce((sum, delta) => sum + delta.changes.length, 0);
-  if (logicalRows + (physical?.facts.length ?? atomic?.facts.length ?? 0) > (input.kind === "atomic" ? input.factLimit : Infinity))
-    return yield* Effect.fail(commerceError("limitExceeded"));
   const clock = { record: publicationClock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
   const now = yield* publishCommerceAtoms(() => readScopePublicationDatabaseTime(state.tx, scope.scopeId, options));
   const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, now))
     .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
+  const lowered = yield* Effect.forEach(deltas, delta => delta.materialize(allocation.commitSeq));
+  const logicalRows = lowered.flatMap(delta => delta.rowIntents);
+  if (logicalRows.length + (physical?.facts.length ?? atomic?.facts.length ?? 0) >
+    (input.kind === "atomic" ? input.factLimit : Infinity))
+    return yield* Effect.fail(commerceError("limitExceeded"));
   const contribution: ScopePublicationContribution = {
     authorityPins: { scopeId: scope.scopeId, requestKey: identity.requestKey, functionPath: identity.expectedFunctionPath },
-    rowIntents: deltas.flatMap(delta => delta.changes), identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
+    rowIntents: logicalRows, identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
     requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
     ...((physical ?? atomic) === undefined ? {} : { relationalFacts: (physical ?? atomic)?.facts ?? [] }),
     ...(physical?.events !== undefined ? { events: physical.events } : atomic?.events !== undefined ? { events: atomic.events } : {}),
   };
   const kernel: ScopePublicationKernel = { clock, ...allocation,
-    relationAdjacencyChanges: (yield* Effect.forEach(deltas, delta => delta.lower(allocation.commitSeq))).flat() };
+    relationAdjacencyChanges: lowered.flatMap(delta => delta.adjacencyChanges) };
   // The existing owner bridges its Promise-based publication kernel once.
   yield* publishCommerceAtoms(signal => writeScopePublicationPrefix(state.tx, contribution, kernel, options, signal));
   if (physical?.state.bootstrap) {

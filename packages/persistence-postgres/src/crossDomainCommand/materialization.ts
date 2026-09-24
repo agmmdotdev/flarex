@@ -36,7 +36,7 @@ const captureChanges = (value: LogicalDocumentChanges): LogicalDocumentChanges =
   observedRows: Object.freeze([...value.observedRows]),
   noFinalRows: Object.freeze([...value.noFinalRows]), dependencies: Object.freeze([...value.dependencies]),
   scans: Object.freeze([...value.scans]), uniqueReads: Object.freeze([...value.uniqueReads]),
-  indexReads: Object.freeze([...value.indexReads]),
+  indexReads: Object.freeze([...value.indexReads]), setNull: Object.freeze([...value.setNull]),
 });
 
 /** Three source-owned contributions enter one generic row/index delta. This
@@ -59,7 +59,8 @@ export const prepareJointLogicalMaterialization = Effect.fn("CurrencyAnnouncemen
   const payload = yield* requireLogicalDocumentSourceAdmission(payloadAdmission, tx);
   const currency = yield* requireLogicalRelationalAdmission(currencyAdmission, tx);
   const sourceClock = application.clock;
-  if (application.authority.scopeId !== payload.authority.scopeId ||
+  if (payloadChanges.setNull.length !== 0 || currencyChanges.setNull.length !== 0 ||
+    application.authority.scopeId !== payload.authority.scopeId ||
     application.authority.scopeId !== currency.authority.scopeId ||
     application.authority.deploymentId !== payload.authority.deploymentId ||
     application.authority.deploymentId !== currency.authority.deploymentId ||

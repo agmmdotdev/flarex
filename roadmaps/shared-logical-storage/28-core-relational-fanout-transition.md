@@ -1,24 +1,19 @@
 # Core relational fan-out transition
 
-Status: accepted design correction; bounded same-sequence page materialization,
-authenticated indexed reverse selection and neutral `set null` row derivation
-exist in the shared core. A transaction fixture composes the row derivation
-with multi-page materialization and rollback. Sealed transition intent,
-production publication integration, concurrent-writer proof and native Type
-cutover remain pending under the standing shared-storage goal. The selected
-ProductType delete remains safely bounded.
+Status: bounded same-sequence page materialization, authenticated indexed
+reverse selection, sealed `set null` intent and production logical-commerce
+publication are implemented in the shared core. The selected all-logical
+ProductType deletion uses that path without adapter-side Product enumeration. It
+supports up to the declared affected-row, byte and time budgets; broader
+relationship transitions and pending reads after a plan remain separate gates.
 
 ## Trigger and ownership
 
 Native ProductType deletion detaches each Product with the deleted `type_id`
-before removing the Type. On the selected logical source,
-`product-lifecycle.ts` reads one capped referencing page, while the shared
-logical participant retains at most 128 observed identities per command.
-The reverse index correctly avoids unrelated Products, but a Type referenced
-by 128 Products already exceeds the working-set identity budget once its Type
-row is included. The outer request reports `rollbackOnly` with the original
-`limitExceeded` cause, and no partial storage change is permitted. This is a correctness
-boundary, not general native deletion parity. The same structural limit can
+before removing the Type. The former adapter path read a capped referencing
+page and reached the 128 observed-identity limit at high fan-out. The selected
+logical path now seals the root deletion and lets core select and detach
+referencing Products during one settlement. The same structural limit can
 affect Collection detachment, Option deletion with many Values and Variant–Value
 pivots, Product graph cascades and future cross-framework
 relationships; fixing only the Type adapter would retain the wrong owner.
@@ -101,8 +96,9 @@ preserve native fields, set the declared nullable FK to null and update managed
 timestamps. It builds ordinary logical row intents page by page, requires the
 trusted caller to lower each page, then rejects any matching reference left in
 the current index. A multi-page fixture proves 144 derived Product changes at
-one sequence and rollback after a late injected failure. It has no production
-caller yet and does not authorize the root delete or publish native activity.
+one sequence and rollback after a late injected failure. Native Type deletion
+now seals this transition for the existing commerce publisher to settle with
+the root and native event in one transaction.
 
 Use a bounded total affected-row, byte, statement and time budget independent
 of the page size. Keep at most one decoded page and its materialization state
@@ -111,14 +107,11 @@ proof needed by the single publication. The shared materializer now admits
 explicitly selected bounded pages at one commit sequence and defers index and
 unique coverage watermarks until the batch is complete. Repeating the old
 one-shot lower without that deferral fails the next page's coverage validation.
-The remaining `LogicalDocumentChanges`, row-intent array and native mutation
-inspector must be replaced or extended *together* so settlement can consume
-pages and the complete change count/facts remain recoverable. The
-Type event validator currently expects a full Product before/after mutation
-array; it must instead authenticate the root event and the sealed transition
-intent, while core verifies that every derived Product change is exactly the
-declared field detachment and managed timestamp change. It must not accept
-arbitrary adapter-supplied derived mutations.
+The closed logical change set carries sealed transition intents. Settlement
+lowers derived pages and the root under one commit sequence, retains compact
+row identities for the publication prefix, and rejects unadmitted intents.
+The Type event validator authenticates the root event and sealed intent; core
+derives the Product changes from committed rows and the declared nullable FK.
 
 The selected Type command performs no Product read after requesting detach.
 Before exposing this operation to a command that does, core must provide
@@ -130,6 +123,16 @@ logical transition.
 
 ## Coherent implementation and acceptance gate
 
+The private contract seals a declared `set null` intent only after its committed
+target row has been selected for deletion. It forbids later command reads or
+writes, rejects pending source-row overlays, and authenticates the exact FK and
+root. The publisher consumes the intent before making the Type deletion visible.
+
+The publisher gathers compact derived row identities after lowering all
+bounded pages, enforces the materializer's 512-row/16-page budget and the
+atomic host's fact allowance together, then writes one commit prefix, outcome,
+events and clock advancement. No adapter-supplied affected-row list is accepted.
+
 1. Complete the inventory of logical row, index, unique, revision, attempt,
    dependency, publication and recovery writers that consume a closed working
    set. The shared materialization page budget is 512 changed identities,
@@ -138,12 +141,11 @@ logical transition.
 2. Implement and test a neutral declared `set null` transition with indexed
    reverse selection, complete membership, rollback and concurrent insert or
    delete conflict. Keep one outer settlement authority.
-3. Move the native Type delete onto that operation and remove its adapter-side
-   referencing-row enumeration. Exercise more than 128 Products referencing
-   one Type, including exact null detach, row/index/history/fact consistency,
-   event/outcome replay, two-shop isolation and injected late failure on
-   PGlite and ordinary-role PostgreSQL. Repeat with concurrent reference
-   insertion on PostgreSQL.
+3. The native Type delete uses this operation without adapter-side Product
+   enumeration. The selected witnesses cover 128 referencing Products, exact
+   null detach, row/index/history/fact consistency, event/outcome replay,
+   two-shop isolation and rejected receipt rollback on both drivers, plus
+   overlapping reference insertion on ordinary-role PostgreSQL.
 4. Apply the same owner to other declared module-local transitions when their
    existing consumers move, including Option-owned Value/pivot deletion.
    Remove displaced lifecycle loops and any obsolete resource assumptions in
@@ -151,5 +153,5 @@ logical transition.
 
 This preflight changes private core contribution and adapter DAL contracts as
 needed. It does not change public Medusa APIs or authorize a data reset. A
-high-fan-out refusal remains explicit until the new native witness passes; a
-performance claim requires bounded multi-shop and hot-tenant measurements.
+Capacity refusal remains explicit above the declared budget; a performance
+claim requires bounded multi-shop and hot-tenant measurements.

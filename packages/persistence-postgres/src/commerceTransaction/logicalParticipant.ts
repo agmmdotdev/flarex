@@ -8,9 +8,11 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges } from "../logicalDocuments/workingSet";
+import type { CommerceSetNullSelection } from "./commands";
 import { prepareLogicalRelationalRows } from "../logicalDocuments/relationalRows";
 import { validateLogicalDocumentChanges } from "../logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization } from "../logicalDocuments/materialization";
+import { forEachLogicalSetNullPage } from "../logicalDocuments/referencePages";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
 import { defaultCommerceResources } from "./resources";
@@ -27,6 +29,13 @@ export interface LogicalCommerceMutation {
 export interface LogicalCommerceObservedRow {
   readonly table: string;
   readonly row: JsonObject;
+}
+export interface LogicalCommerceSetNull {
+  readonly sourceTable: string;
+  readonly sourceColumn: string;
+  readonly targetTable: string;
+  readonly targetColumn: string;
+  readonly targetKey: string;
 }
 export interface LogicalCommerceLifecycleObservation {
   readonly table: string;
@@ -75,6 +84,14 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
   });
   return Object.freeze({ store, resources: defaultCommerceResources, close,
     attemptCount: working.attemptCount, lifecycleCount: working.lifecycleCount,
+    planSetNull: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.gen(function* () {
+      const admitted = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+      const source = admitted.tables.find(table => table.localName === selection.sourceTable);
+      const target = admitted.tables.find(table => table.localName === selection.targetTable);
+      if (source === undefined || target === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+      yield* working.planSetNull(context, id, { sourceTableId: source.tableId, sourceColumn: selection.sourceColumn,
+        targetTableId: target.tableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey });
+    }),
     table: (context: Parameters<typeof working.relationalTable>[0], table: string) => working.relationalTable(context, id, table) });
 });
 
@@ -113,8 +130,16 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
       return yield* Effect.fail(commerceError("storedCorruption"));
     observedRows.push(Object.freeze({ table, row: observation.value }));
   }
+  const setNull: LogicalCommerceSetNull[] = [];
+  for (const intent of closed.changes.setNull) {
+    const sourceTable = names.get(intent.sourceTableId);
+    const targetTable = names.get(intent.targetTableId);
+    if (sourceTable === undefined || targetTable === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
+    setNull.push(Object.freeze({ sourceTable, sourceColumn: intent.sourceColumn, targetTable,
+      targetColumn: intent.targetColumn, targetKey: intent.targetKey }));
+  }
   return Object.freeze({ mutations: Object.freeze(mutations), lifecycle: Object.freeze(lifecycle),
-    observedRows: Object.freeze(observedRows) });
+    observedRows: Object.freeze(observedRows), setNull: Object.freeze(setNull) });
 });
 
 /** The root consumes exactly once while the source callback is still live. */
@@ -136,10 +161,12 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
   const { state, tx, admission } = closed;
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(projectCommerceRequestFailure));
   const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId: state.authority.scopeId,
-    tables: new Set(state.tables.map(table => table.tableId)), maximumIndexEntries: 128, error: logicalCommerceError }, closed.changes);
-  const requireAdmission = requireLogicalRelationalAdmission(admission, tx).pipe(Effect.asVoid, Effect.mapError(projectCommerceRequestFailure));
+    tables: new Set(state.tables.map(table => table.tableId)), maximumIndexEntries: 128, error: logicalCommerceError,
+    ...(closed.changes.setNull.length === 0 ? {} : { allowSetNull: true as const }) }, closed.changes);
+  const admitted = requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const requireAdmission = admitted.pipe(Effect.asVoid);
   const core = yield* enterLogicalDocumentMaterialization({
-    coverage: "sourceBound",
+    coverage: "sourceBound", ...(closed.changes.setNull.length === 0 ? {} : { batch: true as const }),
     command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(state.authority.deploymentId),
       scopeId: scope.scopeId, schemaVersionId: state.schemaVersionId }, rowIntents: state.tables.map(table => ({ tableId: table.tableId })) },
     intrinsic: state.indexes.filter(index => index.access.kind === "by_creation_time"),
@@ -148,7 +175,27 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
     validateWrites: (_, changes) => Effect.forEach(changes, change => change.kind === "deleted" ? Effect.void :
       Effect.fromResult(state.values.validate(change.tableId, change.document)).pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), { discard: true }),
   }, tx, state.authority, clock).pipe(Effect.mapError(projectCommerceRequestFailure));
-  const delta = yield* core.prepareDelta(contribution.changes, contribution.dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const materialize = Effect.fn("LogicalCommerce.materializeContribution")(function* (commitSeq: Parameters<
+    Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>[0]) {
+    const rowIntents: Array<{ tableId: typeof contribution.changes[number]["tableId"];
+      rowId: typeof contribution.changes[number]["rowId"] }> = [];
+    const adjacencyChanges: Array<Effect.Success<ReturnType<Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>>[number]> = [];
+    for (const intent of closed.changes.setNull) {
+      yield* forEachLogicalSetNullPage({ tx, sourceTableId: intent.sourceTableId,
+        sourceColumn: intent.sourceColumn, targetTableId: intent.targetTableId,
+        targetColumn: intent.targetColumn, targetKey: intent.targetKey,
+        requireAdmission: admitted, error: logicalCommerceError }, changes => Effect.gen(function* () {
+          const delta = yield* core.prepareDelta(changes, changes).pipe(Effect.mapError(projectCommerceRequestFailure));
+          adjacencyChanges.push(...yield* delta.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
+          rowIntents.push(...changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+        }));
+    }
+    const root = yield* core.prepareDelta(contribution.changes, contribution.dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
+    adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
+    if (closed.changes.setNull.length > 0) yield* core.completeBatch().pipe(Effect.mapError(projectCommerceRequestFailure));
+    rowIntents.push(...contribution.changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+    return Object.freeze({ rowIntents: Object.freeze(rowIntents), adjacencyChanges: Object.freeze(adjacencyChanges) });
+  });
   return Object.freeze({ changes: contribution.changes,
-    lower: (commitSeq: Parameters<typeof delta.lower>[0]) => delta.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)) });
+    materialize });
 });

@@ -184,7 +184,7 @@ export function selectedLinkLogicalEventPolicy(definitions: readonly {
           events: eventsByCall[index]?.get(tableName) ?? [],
         }));
         yield* member.policy.validateLogical(projectedCalls, projectedMutations, projectedLifecycle,
-          observedRows.filter(item => item.table === tableName));
+          observedRows.filter(item => item.table === tableName), []);
       }
     });
   return { capture, validateLogical };

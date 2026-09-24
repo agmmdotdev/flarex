@@ -9,6 +9,7 @@ import type { CommerceHostConfiguration } from "../commerceTransaction/hostConfi
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
 import type { RequestLimits } from "../boundedRequestLifetime";
 import { CommerceCallLimit, defaultCommerceResources } from "../commerceTransaction/resources";
+import { logicalMaterializationBatchBudget } from "../logicalDocuments/materialization";
 import { getAtomicCommerceCommand, type AtomicCommerceCommand } from "./commands";
 import {
   prepareAtomicCommerceParticipants,
@@ -121,10 +122,11 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
       ...members.map((member) => member.descriptor.resources.commandBytes),
     ),
   };
-  const factLimit = Math.min(
-    defaultCommerceResources.facts,
-    ...members.map((member) => member.descriptor.resources.facts),
-  );
+  const transitionFacts = members.every(member => member.kind === "logical") &&
+    members.some(member => member.kind === "logical" && member.allowSetNull === true)
+    ? logicalMaterializationBatchBudget.rows : defaultCommerceResources.facts;
+  const factLimit = Math.min(transitionFacts,
+    ...members.filter(member => member.kind === "physical").map(member => member.descriptor.resources.facts));
   const owner = Object.freeze({ hostId: Symbol("atomic.commerce.host") });
   yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, limits, factLimit })
     .pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));

@@ -255,10 +255,12 @@ function makeAtomicCommerceExecution(
         const closure = yield* contribution.working.close();
         const member = members[admissions.indexOf(contribution.token)];
         if (member === undefined || member.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
+        const activity = yield* inspectLogicalCommerceActivity(closure, lifetime);
+        if (activity.setNull.length !== 0 && member.allowSetNull !== true)
+          return yield* Effect.fail(commerceError("invalidAuthority"));
         if (member.validateLogical !== undefined) {
-          const activity = yield* inspectLogicalCommerceActivity(closure, lifetime);
           yield* member.validateLogical(Object.freeze([...(logicalCalls.get(contribution.token) ?? [])]),
-            activity.mutations, activity.lifecycle, activity.observedRows);
+            activity.mutations, activity.lifecycle, activity.observedRows, activity.setNull);
         }
         closed.push({ kind: "logical", closure });
       }

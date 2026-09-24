@@ -20,9 +20,11 @@ export const validateLogicalDocumentChanges = Effect.fn(
   "LogicalDocuments.validateContribution",
 )(function* <Failure>(input: Readonly<{
   tx: FlarexMetadataTransaction; scopeId: ScopeId; tables: ReadonlySet<CatalogTableId>;
-  maximumIndexEntries: number; error: LogicalDocumentFailure<Failure>;
+  maximumIndexEntries: number; error: LogicalDocumentFailure<Failure>; allowSetNull?: true;
 }>, closed: LogicalDocumentChanges) {
   const { tx, scopeId, tables: allowed, maximumIndexEntries, error } = input;
+  if (closed.setNull.length !== 0 && input.allowSetNull !== true)
+    return yield* Effect.fail(error("invalidAuthority"));
   const reads = new Map(
     closed.dependencies.map((row) => [row.documentId, row]),
   );
@@ -43,6 +45,10 @@ export const validateLogicalDocumentChanges = Effect.fn(
         observed.basis.kind !== "noVisibleRevision"
       );
     }) ||
+    closed.setNull.some(intent => !allowed.has(intent.sourceTableId) || !allowed.has(intent.targetTableId) ||
+      !closed.changes.some(change => change.kind === "deleted" && change.tableId === intent.targetTableId)) ||
+    new Set(closed.setNull.map(intent => JSON.stringify([intent.sourceTableId, intent.sourceColumn,
+      intent.targetTableId, intent.targetColumn, intent.targetKey]))).size !== closed.setNull.length ||
     closed.attempts.some(
       (attempt, index) =>
         attempt.ordinal !== index || !attempted.has(attempt.documentId),
