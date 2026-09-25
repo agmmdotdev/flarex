@@ -4,13 +4,13 @@ import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { fxSystemScopeClocks } from "../../../persistence-postgres/src/schema";
 import { commerceInventory } from "../../../persistence-postgres/test/commerceInventory";
-import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
+import { clearLegacyProductRunnerRows, getLegacyProductRunnerFixture, takeLegacyProductRunnerEvents } from "./legacy-product-runner";
 const run = Effect.runPromise;
 
 describe("Product Collection boundary", () => {
-  beforeEach(clearProductRunnerRows);
+  beforeEach(clearLegacyProductRunnerRows);
   it("isolates Collection projections and membership changes from colliding foreign scope rows", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_owned", title: "local", handle: "local" }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCollections, { id: "collection_owned", title: "local collection", handle: "local-collection", product_ids: ["product_owned"] }));
     const clock = (await fixture.persistence.drizzle.select().from(fxSystemScopeClocks))[0];
@@ -51,22 +51,22 @@ describe("Product Collection boundary", () => {
   });
 
   it("rolls back earlier Collection and Product changes when a later upsert member fails", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_rollback", title: "rollback", handle: "rollback" }));
     const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     const input: Json = [{ title: "must-rollback", product_ids: ["product_rollback"] }, { id: "missing-collection", title: "missing" }];
     expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.upsertCollections, input))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: { message: 'ProductCollection with id "missing-collection" not found' } } });
     expect(await commerceInventory(fixture)).toEqual(before);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 
   it("refuses unadmitted inputs without publication or widening ordinary Product queries", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCollections, { id: "collection_refusal", title: "before" }));
     const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     for (const bad of [
       { product_ids: [12] }, { product_ids: "bad" }, { product_ids: Array.from({ length: 257 }, () => "id") },
       { products: [{ id: "product" }] }, { scopeId: "other" }, { created_at: "2000-01-01T00:00:00.000Z" },
@@ -80,6 +80,6 @@ describe("Product Collection boundary", () => {
     expect(await run(Effect.result(fixture.host.read(runtime.commands.list, { filters: { id: { $in: ["product"] } } }))))
       .toMatchObject({ _tag: "Failure", failure: { _tag: "CommerceTransactionError" } });
     expect(await commerceInventory(fixture)).toEqual(before);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 });

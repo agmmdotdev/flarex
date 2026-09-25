@@ -6,15 +6,15 @@ import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { fxSystemScopeClocks } from "../../../persistence-postgres/src/schema";
 import { commerceInventory } from "../../../persistence-postgres/test/commerceInventory";
 import { frameworkMigrationFixturePool } from "../../../persistence-postgres/test/frameworkMigrationPostgresFixture";
-import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
+import { clearLegacyProductRunnerRows, getLegacyProductRunnerFixture, takeLegacyProductRunnerEvents } from "./legacy-product-runner";
 const run = Effect.runPromise;
 const imageTable = ProductImage.parse().tableName;
 const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
 
 describe("Product Variant boundary", () => {
-  beforeEach(clearProductRunnerRows);
+  beforeEach(clearLegacyProductRunnerRows);
   it("isolates parent projections and counts from colliding foreign scope rows", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_owned", title: "local", handle: "local", images: [{ id: "image_owned", url: "local-image" }] }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createVariants, { id: "variant_owned", title: "variant", product_id: "product_owned" }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.addImageToVariant, { variant_id: "variant_owned", image_id: "image_owned" }));
@@ -64,7 +64,7 @@ describe("Product Variant boundary", () => {
   });
 
   it("removes exact image pairs atomically and replays without deleting images", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_images", title: "images", handle: "images",
       images: [{ id: "image_a", url: "a" }, { id: "image_b", url: "b" }],
       variants: [{ id: "variant_a", title: "A" }, { id: "variant_b", title: "B" }],
@@ -73,7 +73,7 @@ describe("Product Variant boundary", () => {
       { variant_id: "variant_a", image_id: "image_a" }, { variant_id: "variant_b", image_id: "image_b" },
       { variant_id: "variant_a", image_id: "image_b" },
     ]));
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     const before = await commerceInventory(fixture);
     expect(before.tables[imageTable]).toHaveLength(2);
     const layout = fixture.descriptor.layout.frame;
@@ -97,7 +97,7 @@ describe("Product Variant boundary", () => {
         .toMatchObject({ _tag: "Failure", failure: { _tag: "CommerceTransactionError" } });
       expect((await fixture.persistence.query("select last_value::integer as last_value, is_called from fx_variant_delete_attempts")).rows).toEqual([{ last_value: 2, is_called: true }]);
       expect(await commerceInventory(fixture)).toEqual(before);
-      expect(takeProductRunnerEvents()).toEqual([]);
+      expect(takeLegacyProductRunnerEvents()).toEqual([]);
     } finally {
       await triggerDdl(`drop trigger fx_variant_delete_fail on ${target}`);
       await fixture.persistence.exec("drop function fx_variant_delete_fail()");
@@ -111,40 +111,40 @@ describe("Product Variant boundary", () => {
     expect(after.tables.product_variant_product_image).toHaveLength(1);
     expect(after.facts.slice(before.facts.length)).toHaveLength(2);
     expect(after.facts.slice(before.facts.length).every(fact => fact.tableId === "product_variant_product_image" && fact.operation === "delete")).toBe(true);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
     expect(await run(fixture.host.run(key, runtime.commands.removeImageFromVariant, pairs))).toEqual(result);
     expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 
   it("soft deletes only the selected Variant with authenticated events and replay", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_shared", title: "shared", handle: "shared",
       options: [{ title: "size", values: ["small", "large"] }, { title: "color", values: ["red"] }],
       variants: [{ id: "variant_small", title: "small", options: { size: "small", color: "red" } }, { id: "variant_large", title: "large", options: { size: "large", color: "red" } }],
     }));
     const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     const key = fixture.host.newRequestKey();
     const result = await run(fixture.host.run(key, runtime.commands.softDeleteVariants, "variant_small"));
     const after = await commerceInventory(fixture);
     for (const name of ["product", "product_option", "product_option_value", "product_variant_option"]) expect(after.tables[name]).toEqual(before.tables[name]);
     expect(after.facts.slice(before.facts.length)).toHaveLength(1);
     expect(after.facts.slice(before.facts.length)[0]).toMatchObject({ tableId: "product_variant", operation: "update" });
-    expect(takeProductRunnerEvents()).toEqual([{ name: ProductEvents.PRODUCT_VARIANT_DELETED,
+    expect(takeLegacyProductRunnerEvents()).toEqual([{ name: ProductEvents.PRODUCT_VARIANT_DELETED,
       metadata: { source: "product", object: "product_variant", action: "deleted" }, data: { id: "variant_small" } }]);
     expect(await run(fixture.host.read(runtime.commands.countVariants, {}))).toMatchObject([[{ id: "variant_large" }], 1]);
     expect(await run(fixture.host.read(runtime.commands.retrieveVariant, { id: "variant_small", config: { withDeleted: true, relations: ["options"] } })))
       .toMatchObject({ id: "variant_small", options: expect.arrayContaining([expect.objectContaining({ value: "red", deleted_at: null })]) });
     expect(await run(fixture.host.run(key, runtime.commands.softDeleteVariants, "variant_small"))).toEqual(result);
     expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 
   it("refuses unsupported Variant inputs without publication", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_refusal", title: "refusal", handle: "refusal", variants: [{ id: "variant_refusal", title: "valid" }] }));
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     const before = await commerceInventory(fixture);
     for (const input of [{ config: { relations: ["product.tags"] } }, { config: { relations: ["options.variants"] } }, { config: { select: ["product.title"] } }, { filters: { scopeId: "foreign" } }, { config: { take: 257 } }])
       expect(await run(Effect.result(fixture.host.read(runtime.commands.listVariants, input)))).toMatchObject({ _tag: "Failure", failure: { _tag: "CommerceTransactionError" } });
@@ -152,6 +152,6 @@ describe("Product Variant boundary", () => {
       expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.removeImageFromVariant, input)))).toMatchObject({ _tag: "Failure", failure: { _tag: "CommerceTransactionError" } });
     expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.softDeleteVariants, { selector: {} })))).toMatchObject({ _tag: "Failure", failure: { _tag: "CommerceTransactionError" } });
     expect(await commerceInventory(fixture)).toEqual(before);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 });

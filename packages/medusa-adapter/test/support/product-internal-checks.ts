@@ -4,13 +4,13 @@ import { commerceInventory } from "../../../persistence-postgres/test/commerceIn
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { productLocalEventPolicy } from "../../src/product-local-events";
-import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
+import { clearLegacyProductRunnerRows, getLegacyProductRunnerFixture, takeLegacyProductRunnerEvents } from "./legacy-product-runner";
 const run = Effect.runPromise;
 
 describe("Internal Product boundary", () => {
-  beforeEach(clearProductRunnerRows);
+  beforeEach(clearLegacyProductRunnerRows);
   it("searches DML fields before paging and combines relation and deleted filters", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.internalProductCreate, [
       { id: "a", title: "Alpha", handle: "alpha" },
       { id: "b", title: "Plain", handle: "beta", subtitle: "NeEdLe" },
@@ -34,7 +34,7 @@ describe("Internal Product boundary", () => {
   });
 
   it("updates every selected internal batch member beyond the public default page", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const products = Array.from({ length: 16 }, (_, index) => ({ id: "batch-" + index, title: "before", handle: "batch-" + index }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.internalProductCreate, products));
     const changes = products.map(product => ({ id: product.id, title: "after" }));
@@ -43,11 +43,11 @@ describe("Internal Product boundary", () => {
     const read = await run(fixture.host.read(runtime.commands.internalProductList, { config: { select: ["id", "title"] } }));
     expect(read).toHaveLength(16);
     expect(read).toEqual(expect.arrayContaining(changes));
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 
   it("retains internal facts and replay with scalar and array results and no publication", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const before = await commerceInventory(fixture);
     const key = fixture.host.newRequestKey();
     const input = { id: "internal", title: "internal", handle: "internal" };
@@ -61,7 +61,7 @@ describe("Internal Product boundary", () => {
       .toMatchObject({ id: "internal", title: "scalar" });
     expect(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.internalProductUpdate, [{ selector: { id: "internal" }, data: { title: "array" } }])))
       .toMatchObject([{ id: "internal", title: "array" }]);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
     const catalog = await run(captureProductSchema("internal-product-events").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const policy = productLocalEventPolicy(fixture.descriptor, catalog, () => Effect.void);
     const facts = after.facts.slice(before.facts.length).map((fact): Parameters<typeof policy.validate>[1][number] => {
@@ -73,18 +73,18 @@ describe("Internal Product boundary", () => {
     for (const command of ["productCreate", "productInternalProductupdate", "productInternalProductsoftDelete"])
       expect(await run(Effect.result(policy.validate([], facts, command)))).toMatchObject({ _tag: "Failure" });
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "public", title: "public" }));
-    const events = takeProductRunnerEvents();
+    const events = takeLegacyProductRunnerEvents();
     expect(events).toHaveLength(1);
     expect(await run(Effect.result(policy.validate(events, facts, "productInternalProductcreate")))).toMatchObject({ _tag: "Failure" });
   });
 
   it("rolls back invalid arrays and authenticates internal lifecycle cascades", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, {
       id: "root", title: "root", options: [{ title: "size", values: ["S"] }],
       variants: [{ id: "variant", title: "small", options: { size: "S" } }],
     }));
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     const before = await commerceInventory(fixture);
     for (const input of [
       [{ id: "root", title: "changed" }, { id: "missing", title: "failure" }],
@@ -100,6 +100,6 @@ describe("Internal Product boundary", () => {
     expect(deletedState.facts.length).toBeGreaterThan(before.facts.length + 1);
     const restored = await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.internalProductRestore, "root"));
     expect(restored).toMatchObject([[{ id: "root", deleted_at: null }], { ProductVariant: [{ id: "variant", deleted_at: null }] }]);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 });

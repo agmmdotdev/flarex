@@ -31,11 +31,13 @@ now use the same Product call policy as Tags. Their preceding-read membership
 workflows and other aggregate receipt consumers retain explicit semantic migration
 gates; this does not admit arbitrary relationship composition.
 Native ProductType CRUD and Product `type_id` references have a selected
-[logical path](./26-product-type-native-cutover.md), while the wider pinned
-Product compatibility runner retains its physical source.
-Native ProductOption/OptionValue operations also have a selected
-[logical path](./27-product-option-native-cutover.md), including the shared
-indexed-conjunction correction; the wider runner remains physical.
+[logical path](./26-product-type-native-cutover.md). Native ProductOption/
+OptionValue operations also have a selected [logical path](./27-product-option-native-cutover.md),
+including the shared indexed-conjunction correction. The canonical admitted
+pinned Product suite now selects the generic logical source. Named physical-only
+boundary suites retain a legacy runner until equivalent generic witnesses and
+durable-data disposition permit its removal under the
+[Product closeout](./44-product-module-closeout.md).
 The owner chooses generic physical storage with logical Application,
 Payload and Medusa tables and permits proper core redesign rather than adapter
 workarounds or preservation of unshipped internals.

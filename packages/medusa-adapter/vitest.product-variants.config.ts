@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import upstream, { admittedProductVariantCases, productCoverage } from "./vitest.product-upstream.config";
+import upstream, { admittedProductVariantCases, productCoverage } from "./vitest.legacy-product.config";
 export default defineConfig({ ...upstream, test: { ...upstream.test,
   include: ["test/product-variants-upstream.test.ts"],
   reporters: ["default", productCoverage([...admittedProductVariantCases,

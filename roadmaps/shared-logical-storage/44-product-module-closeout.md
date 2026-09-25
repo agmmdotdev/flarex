@@ -1,6 +1,6 @@
 # Product-module logical-storage closeout
 
-Status: active preflight under the shared-storage completion goal. This is a
+Status: active implementation under the shared-storage completion goal. This is a
 connected Product-module package, not a declaration that the wider shared
 storage goal or arbitrary Product scale is complete.
 
@@ -29,23 +29,22 @@ gates in the completion plan.
 
 ## Current evidence and displacement inventory
 
-At the preflight checkout, Type and both Category service suites already use
-logical storage, and selected Collection, Option, Product and graph paths have
-direct logical tests. The broad pinned runner still imports Product events,
-Products, Tags, Collections, Options, Variants and the internal Product suite.
-It selects `prepareLocalProductScaleProfile`, a physical `commerceHostFixture`,
-`productLocalEventPolicy` and `productFixtureResetSql`. The selected logical
-probe now runs the complete admitted native Product suite through the generic
-source, including internal Product operations, direct Images, event receipts
-and the 1,000-Image case. Its trusted resource allowances are selected by the
-outer host identity. The canonical runner and physical Product installation
-remain until the physical-only witnesses, source inventory and durable-data
-disposition move; the probe is not the final cutover.
+The canonical pinned Product runner now uses the generic logical source for
+Product events, Products, Tags, Collections, Options, Variants and internal
+Product service calls. Its exact admitted-case reporter covers the unchanged
+native suite, including the 1,000-Image case. Trusted resource allowances are
+selected by outer host identity. The temporary logical probe configuration is
+removed. The physical runner is named `legacy-product-runner` and is selected
+only by the still-unmigrated physical boundary configurations; it is not the
+canonical Product test path.
 
-Named physical consumers include the broad pinned runner; Product local,
-failure, fixture-reset, installation and exact-numeric tests; Category,
-internal Product and scale checks; and the remaining mixed physical binding,
+Named physical consumers include Product local, failure, fixture-reset,
+installation and exact-numeric tests; Category, internal Product and scale
+boundary checks; and the remaining mixed physical binding,
 link, population and persistence-core fixtures found by the reference inventory.
+The explicit legacy runner configurations are `product-categories`,
+`product-collections`, `product-failure`, `product-fixture`, `product-internal`,
+`product-options`, `product-scale`, `product-tags` and `product-variants`.
 For each, either migrate the same behavioral claim to generic storage or
 identify the framework-neutral core claim that already replaces it. A physical
 fixture is not retained merely to repeat a migrated claim. The physical
@@ -149,3 +148,7 @@ integrity check for explicit repair users.
    reviews on each significant checkpoint, fix findings, and make coherent
    scoped commits. Do not claim hot-shop throughput or unlimited fan-out from
    these functional tests.
+
+The canonical native runner and exact admitted-case coverage gate have moved
+to logical storage. Gate 3 remains open for physical-only witnesses, the
+Product profile/DDL compiler and the named durable-installation decision.

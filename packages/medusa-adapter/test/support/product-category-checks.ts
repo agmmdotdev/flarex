@@ -8,14 +8,14 @@ import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { productLocalEventPolicy } from "../../src/product-local-events";
 import { decodeCategoryProjection } from "../../src/product-category-projection";
-import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
+import { clearLegacyProductRunnerRows, getLegacyProductRunnerFixture, takeLegacyProductRunnerEvents } from "./legacy-product-runner";
 const run = Effect.runPromise;
 const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
 
 describe("Product Category boundary", () => {
-  beforeEach(clearProductRunnerRows);
+  beforeEach(clearLegacyProductRunnerRows);
   it("isolates inverse products and tree reads from colliding foreign scope rows", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product_owned", title: "local", handle: "local" }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "root", name: "local root", products: [{ id: "product_owned" }] }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "child", name: "local child", parent_category_id: "root" }));
@@ -52,7 +52,7 @@ describe("Product Category boundary", () => {
   });
 
   it("rolls back sibling and descendant changes after a late move failure and replays", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     for (const category of [{ id: "old", name: "old" }, { id: "new", name: "new" }, { id: "moving", name: "moving", parent_category_id: "old" }, { id: "leaf", name: "leaf", parent_category_id: "moving" }, { id: "sibling", name: "sibling", parent_category_id: "old" }])
       await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, category));
     const layout = fixture.descriptor.layout.frame;
@@ -61,7 +61,7 @@ describe("Product Category boundary", () => {
     if (table === undefined || idColumn === undefined) throw new Error("Missing Category layout");
     const target = quote(layout.targetNamespace.schemaName) + "." + quote(table.name);
     const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     await fixture.persistence.exec("create sequence fx_category_move_attempts");
     await fixture.persistence.exec(`create function fx_category_move_fail() returns trigger language plpgsql as $$ begin if old.${quote(idColumn.name)} = 'leaf' then perform nextval('fx_category_move_attempts'); raise exception 'injected descendant failure'; end if; return new; end $$`);
     const adminUrl = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
@@ -80,7 +80,7 @@ describe("Product Category boundary", () => {
       expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, input)))).toMatchObject({ _tag: "Failure" });
       expect((await fixture.persistence.query("select last_value::integer as last_value, is_called from fx_category_move_attempts")).rows).toEqual([{ last_value: 1, is_called: true }]);
       expect(await commerceInventory(fixture)).toEqual(before);
-      expect(takeProductRunnerEvents()).toEqual([]);
+      expect(takeLegacyProductRunnerEvents()).toEqual([]);
     } finally {
       try {
         if (triggerCreated) await triggerDdl(`drop trigger fx_category_move_fail on ${target}`);
@@ -97,20 +97,20 @@ describe("Product Category boundary", () => {
       expect.objectContaining({ id: "sibling", rank: 0 }),
     ]));
     expect(after.facts.slice(before.facts.length)).toHaveLength(3);
-    expect(takeProductRunnerEvents()).toHaveLength(3);
+    expect(takeLegacyProductRunnerEvents()).toHaveLength(3);
     expect(await run(fixture.host.run(key, runtime.commands.updateCategories, input))).toEqual(result);
     expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 
   it("preserves products while deleting leaf membership and closing sibling ranks", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product", title: "product", handle: "product" }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "root", name: "root" }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "leaf", name: "leaf", parent_category_id: "root", products: [{ id: "product" }] }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "sibling", name: "sibling", parent_category_id: "root" }));
     const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     const key = fixture.host.newRequestKey();
     const result = await run(fixture.host.run(key, runtime.commands.deleteCategories, "leaf"));
     const after = await commerceInventory(fixture);
@@ -121,17 +121,17 @@ describe("Product Category boundary", () => {
     const facts = after.facts.slice(before.facts.length);
     expect(facts).toHaveLength(3);
     expect(facts.filter(fact => fact.operation === "delete")).toHaveLength(2);
-    expect(takeProductRunnerEvents()).toHaveLength(2);
+    expect(takeLegacyProductRunnerEvents()).toHaveLength(2);
     expect(await run(fixture.host.run(key, runtime.commands.deleteCategories, "leaf"))).toEqual(result);
     expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 
   it("retains repeated rank facts while authenticating aggregated batch events and replay", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, { id: "existing", name: "existing" }));
     const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     const key = fixture.host.newRequestKey();
     const input = [{ id: "first", name: "first", rank: 0 }, { id: "second", name: "second", rank: 0 }];
     const result = await run(fixture.host.run(key, runtime.commands.createCategories, input));
@@ -142,7 +142,7 @@ describe("Product Category boundary", () => {
     const facts = after.facts.slice(before.facts.length);
     expect(facts).toHaveLength(5);
     expect(facts.filter(fact => fact.operation === "update")).toHaveLength(3);
-    const events = takeProductRunnerEvents();
+    const events = takeLegacyProductRunnerEvents();
     expect(events).toHaveLength(3);
     const catalog = await run(captureProductSchema("category-batch-events").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const policy = productLocalEventPolicy(fixture.descriptor, catalog, () => Effect.void);
@@ -156,15 +156,15 @@ describe("Product Category boundary", () => {
     expect(await run(Effect.result(policy.validate(events, rowFacts, "productOtherCommand")))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     expect(await run(fixture.host.run(key, runtime.commands.createCategories, input))).toEqual(result);
     expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 
   it("refuses cycles, forged paths, invalid ranks and foreign inputs without publication", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     for (const category of [{ id: "root", name: "root" }, { id: "other", name: "other" }, { id: "child", name: "child", parent_category_id: "root" }])
       await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, category));
     const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     for (const input of [{ id: "root", data: { parent_category_id: "child" } }, { id: "root", data: { parent_category_id: "root" } }, { id: "child", data: { mpath: "forged" } }, { id: "child", data: { rank: -1 } }, { id: "child", data: { scopeId: "foreign" } }])
       expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, input)))).toMatchObject({ _tag: "Failure" });
     expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.upsertCategories, [
@@ -173,6 +173,6 @@ describe("Product Category boundary", () => {
     for (const input of [{ id: "ambiguous.id", name: "bad" }, { id: "__root__", name: "bad" }, { name: "bad", parent_category_id: "__root__" }, { name: "bad", products: [{ id: "missing" }] }])
       expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCategories, input)))).toMatchObject({ _tag: "Failure" });
     expect(await commerceInventory(fixture)).toEqual(before);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 });

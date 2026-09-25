@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import upstream from "./vitest.product-upstream.config";
+import upstream from "./vitest.legacy-product.config";
 
 /** The unchanged scale case, independently of the admitted-suite coverage gate. */
 export default defineConfig({

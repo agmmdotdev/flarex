@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
 import { commerceInventory } from "../../persistence-postgres/test/commerceInventory";
-import { clearProductRunnerRows, getProductRunnerFixture, productIntegrationTestRunner, takeProductRunnerEvents } from "./support/product-runner";
+import { clearLegacyProductRunnerRows, getLegacyProductRunnerFixture, legacyProductIntegrationTestRunner, takeLegacyProductRunnerEvents } from "./support/legacy-product-runner";
 import { productFixtureResetSql } from "./support/product-fixture-reset";
 
 const run = Effect.runPromise;
@@ -12,7 +12,7 @@ const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
 // Snapshot every non-application table, including installation/readiness and
 // authenticated history. Row order is irrelevant; row values must be identical.
 async function retainedRows() {
-  const { fixture } = getProductRunnerFixture();
+  const { fixture } = getLegacyProductRunnerFixture();
   const layout = fixture.descriptor.layout.frame;
   const names = await fixture.persistence.query<{ table_name: string }>(
     "select table_name from information_schema.tables where table_schema = $1 and table_type = 'BASE TABLE' order by table_name",
@@ -31,9 +31,9 @@ async function retainedRows() {
   return rows;
 }
 
-productIntegrationTestRunner({ moduleName: "product", testSuite() {
+legacyProductIntegrationTestRunner({ moduleName: "product", testSuite() {
   it("clears the full graph in every scope while preserving installation, history and replay", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTags, { id: "tag", value: "tag" }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTypes, { id: "type", value: "type" }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCollections, { id: "collection", title: "collection" }));
@@ -69,21 +69,21 @@ productIntegrationTestRunner({ moduleName: "product", testSuite() {
     }
     expect(populated.facts.length).toBeGreaterThan(0);
     const retained = await retainedRows();
-    await clearProductRunnerRows();
+    await clearLegacyProductRunnerRows();
     for (const rows of Object.values((await commerceInventory(fixture)).tables)) expect(rows).toEqual([]);
     expect(await retainedRows()).toEqual(retained);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
     expect(fixture.takeDeliveries()).toEqual([]);
     expect(await run(fixture.host.run(key, runtime.commands.create, input))).toEqual(result);
     expect(await run(fixture.host.read(runtime.commands.list, { filters: {}, config: {} }))).toEqual([]);
     expect(await retainedRows()).toEqual(retained);
-    expect(takeProductRunnerEvents()).toEqual([]);
-    await clearProductRunnerRows();
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
+    await clearLegacyProductRunnerRows();
     expect(await retainedRows()).toEqual(retained);
   });
 
   it("rolls back every deletion when a later table rejects cleanup", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTypes, { id: "type", value: "type" }));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, { id: "product", title: "product", type_id: "type" }));
     const layout = fixture.descriptor.layout.frame;
@@ -99,19 +99,19 @@ productIntegrationTestRunner({ moduleName: "product", testSuite() {
       raise exception 'injected fixture reset failure'; end $$`);
     await fixture.persistence.exec(`create trigger fx_fixture_reset_fail before delete on ${target} for each row execute function fx_fixture_reset_fail()`);
     try {
-      await expect(clearProductRunnerRows()).rejects.toThrow("injected fixture reset failure");
+      await expect(clearLegacyProductRunnerRows()).rejects.toThrow("injected fixture reset failure");
       expect(await commerceInventory(fixture)).toEqual(before);
-      expect(takeProductRunnerEvents()).toHaveLength(2);
+      expect(takeLegacyProductRunnerEvents()).toHaveLength(2);
     } finally {
       await fixture.persistence.exec(`drop trigger fx_fixture_reset_fail on ${target}`);
       await fixture.persistence.exec("drop function fx_fixture_reset_fail()");
     }
-    await clearProductRunnerRows();
+    await clearLegacyProductRunnerRows();
     for (const rows of Object.values((await commerceInventory(fixture)).tables)) expect(rows).toEqual([]);
   });
 
   it("refuses an unsupported cross-table cycle before issuing cleanup SQL", () => {
-    const { fixture } = getProductRunnerFixture();
+    const { fixture } = getLegacyProductRunnerFixture();
     const layout = fixture.descriptor.layout.frame;
     const edge = layout.foreignKeys.find(key => key.kind === "foreignKey" && key.sourceTable.tableId !== key.targetTable.tableId);
     if (edge === undefined || edge.kind !== "foreignKey") throw new Error("Missing fixture dependency");

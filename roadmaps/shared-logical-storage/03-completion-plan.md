@@ -163,8 +163,9 @@ remain distinct from logical schema evolution.
   Product `type_id` reference now share the Product logical source, including
   active-value uniqueness, nullable detachment, event receipts and two-shop
   confinement. The Type-only physical boundary fixture is retired under the
-  [selected Type cutover](./26-product-type-native-cutover.md); the broader
-  Product compatibility runner still uses physical storage for unported methods.
+  [selected Type cutover](./26-product-type-native-cutover.md); the canonical
+  admitted pinned Product runner now uses logical storage. Named physical-only
+  boundary suites retain the legacy runner until their generic witnesses move.
   The private Category/Currency atomic command now composes logical Product
   and Currency sources; its physical Product installer and binding fixture are
   retired under the [composition cutover](./36-category-currency-logical-composition.md).
@@ -201,8 +202,8 @@ remain distinct from logical schema evolution.
   logical Product runner for create, update, delete, list, count and retrieve.
   Its duplicate broad physical registration is retired under the
   [public Type suite cutover](./40-native-public-type-suite-cutover.md).
-  The physical runner still owns the separate Product event-bus Type cases
-  and other unported Product operations.
+  The canonical logical runner also covers the admitted Product event-bus Type
+  cases; physical-only boundary suites retain their separate removal gate.
   The selected native Pricing test runner and base-price admission tests now
   use the same logical Pricing source as the workflow. Their last combined
   18-table physical Product/Pricing/Link fixture builder is retired under the
@@ -217,8 +218,8 @@ remain distinct from logical schema evolution.
   branch still refuses. The [null-index residual correction](./29-relational-null-residual-anchor.md)
   defers admission until the shared working set proves an actual installed
   nullable-field index; a primary-identity fallback cannot authorize it.
-  The full Product runner remains physical for other
-  unported methods.
+  The canonical admitted Product runner is logical; physical-only boundary
+  configurations retain a legacy runner for their still-unmigrated witnesses.
   The selected native Type delete now uses the core-owned indexed,
   resource-accounted atomic `set null` transition specified in the
   [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions).
@@ -241,8 +242,8 @@ remain distinct from logical schema evolution.
   The [shared event delivery batch](./35-core-event-delivery-batches.md)
   keeps the admitted larger event family from being reread for each claim;
   higher-fan-out delivery and hot-shop throughput remain unmeasured.
-  More complex membership batches and other unported Product methods remain
-  with the named physical compatibility runner;
+  Physical-only membership boundary witnesses and unported Product methods
+  remain with the named legacy boundary runner;
   other relationship kinds still need their own coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.

@@ -7,7 +7,7 @@ import { commerceInventory } from "../../../persistence-postgres/test/commerceIn
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { productLocalEventPolicy } from "../../src/product-local-events";
-import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
+import { clearLegacyProductRunnerRows, getLegacyProductRunnerFixture, takeLegacyProductRunnerEvents } from "./legacy-product-runner";
 
 const run = Effect.runPromise;
 const object = (value: Json | undefined): JsonObject => {
@@ -22,17 +22,17 @@ const product = (count: number) => ({ title: "Scale receipts", images: Array.fro
 const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
 
 const localHost = Effect.fn("ProductScale.host")(function* (commands: readonly CommerceCommand[], delivered: Json[]) {
-  const { fixture } = getProductRunnerFixture();
+  const { fixture } = getLegacyProductRunnerFixture();
   const catalog = yield* captureProductSchema("scale-policy").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame)));
   return yield* makeLocalCommerceHost({ ...fixture.hostInput, commands: [...fixture.hostInput.commands, ...commands] },
     productLocalEventPolicy(fixture.descriptor, catalog, events => Effect.sync(() => { delivered.push(...events); })));
 });
 
 describe("Product scale checks", () => {
-  beforeEach(clearProductRunnerRows);
+  beforeEach(clearLegacyProductRunnerRows);
 
   it("retains every row, ordinal and scalar event and replays without another publication", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const before = await commerceInventory(fixture);
     const args = { ...product(1000), options: [{ title: "size", values: ["one"] }], variants: [{ title: "One", options: { size: "one" } }] };
     const key = fixture.host.newRequestKey();
@@ -49,14 +49,14 @@ describe("Product scale checks", () => {
     expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
     expect(after.wakes).toHaveLength(before.wakes.length + 1);
     expect(after.tables.image).toHaveLength(1000);
-    const events = takeProductRunnerEvents().map(object);
+    const events = takeLegacyProductRunnerEvents().map(object);
     expect(events).toHaveLength(1004);
     const imageEvents = events.filter(event => object(event.metadata).object === "product_image");
     expect(imageEvents).toHaveLength(1000);
     expect(imageEvents.map(event => object(event.data).id).toSorted()).toEqual(images.map(image => image.id).toSorted());
     expect(events.every(event => typeof object(event.data).id === "string")).toBe(true);
     expect(await run(fixture.host.run(key, runtime.commands.create, args))).toEqual(result);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
     expect(await commerceInventory(fixture)).toEqual(after);
     process.stdout.write(JSON.stringify({ scaleReceipt: { graphRows: 1005, facts: facts.length, events: events.length,
       inputBytes: Buffer.byteLength(JSON.stringify(args)), resultBytes: Buffer.byteLength(JSON.stringify(result)),
@@ -64,17 +64,17 @@ describe("Product scale checks", () => {
   });
 
   it.each([255, 256, 257])("preserves complete results across the %i-image write boundary", async count => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const result = object(await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, product(count))));
     expect(array(result.images)).toHaveLength(count);
     if (typeof result.id !== "string") throw new Error("Missing Product ID");
     const retrieved = object(await run(fixture.host.read(runtime.commands.retrieve, { id: result.id, config: { relations: ["images"] } })));
     expect(array(retrieved.images).map(image => object(image).url)).toEqual(product(count).images.map(image => image.url));
-    expect(takeProductRunnerEvents()).toHaveLength(count + 1);
+    expect(takeLegacyProductRunnerEvents()).toHaveLength(count + 1);
   });
 
   it("rolls back the earlier image batch when the final batch fails", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const layout = fixture.descriptor.layout.frame;
     const image = layout.tables.find(table => table.identity.tableId === "image");
     if (image === undefined) throw new Error("Missing image table");
@@ -95,7 +95,7 @@ describe("Product scale checks", () => {
       expect((await fixture.persistence.query<{ last_value: string | number }>("select last_value from fx_scale_attempts")).rows.map(row => Number(row.last_value))).toEqual([257]);
       expect((await fixture.persistence.query("select last_value::integer as completed, is_called from fx_scale_batches")).rows).toEqual([{ completed: 1, is_called: true }]);
       expect(await commerceInventory(fixture)).toEqual(before);
-      expect(takeProductRunnerEvents()).toEqual([]);
+      expect(takeLegacyProductRunnerEvents()).toEqual([]);
     } finally {
       await fixture.persistence.exec(`drop trigger if exists fx_scale_completed on ${target}`);
       await fixture.persistence.exec("drop function fx_scale_completed()");
@@ -107,7 +107,7 @@ describe("Product scale checks", () => {
   });
 
   it("rolls back every batch and event when cancelled after nested creation", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const reached = await run(Deferred.make<void>());
     const command = defineCommerceCommand("productScaleCancellation", "write", Effect.fn("ProductScale.cancel")(function* (ctx) {
       const value = object(yield* ctx.nested(runtime.commands.create, product(257)));
@@ -130,7 +130,7 @@ describe("Product scale checks", () => {
   });
 
   it("refuses an oversized command result without publication", async () => {
-    const { fixture } = getProductRunnerFixture();
+    const { fixture } = getLegacyProductRunnerFixture();
     const command = defineCommerceCommand("productScaleOversizedResult", "write", ctx => Effect.succeed("x".repeat(ctx.resources.commandBytes)));
     const delivered: Json[] = [];
     const local = await run(localHost([command], delivered));
@@ -141,12 +141,12 @@ describe("Product scale checks", () => {
   });
 
   it("refuses an oversized image and a graph beyond the fact budget atomically", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const before = await commerceInventory(fixture);
     for (const input of [{ title: "Oversized", images: [{ url: "x".repeat(65_537) }] }, product(2048)]) {
       expect(Exit.isFailure(await Effect.runPromiseExit(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.create, input)))).toBe(true);
       expect(await commerceInventory(fixture)).toEqual(before);
-      expect(takeProductRunnerEvents()).toEqual([]);
+      expect(takeLegacyProductRunnerEvents()).toEqual([]);
     }
   });
 });

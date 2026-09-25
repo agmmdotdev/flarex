@@ -6,13 +6,13 @@ import { fxSystemScopeClocks } from "../../../persistence-postgres/src/schema";
 import { commerceInventory } from "../../../persistence-postgres/test/commerceInventory";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
-import { clearProductRunnerRows, getProductRunnerFixture, takeProductRunnerEvents } from "./product-runner";
+import { clearLegacyProductRunnerRows, getLegacyProductRunnerFixture, takeLegacyProductRunnerEvents } from "./legacy-product-runner";
 const run = Effect.runPromise;
 
 describe("Product Tag boundary", () => {
-  beforeEach(clearProductRunnerRows);
+  beforeEach(clearLegacyProductRunnerRows);
   it("isolates inverse relations and preserves empty and collection projections", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const metadata = await run(captureProductSchema("tag-checks").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTags, [{ id: "tag_owned", value: "shared" }, { id: "tag_empty", value: "empty" }]));
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createCollections, { id: "collection_owned", title: "collection", handle: "collection" }));
@@ -59,7 +59,7 @@ describe("Product Tag boundary", () => {
   });
 
   it("authenticates DTO echoes and refuses unsupported inputs without publication", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     await run(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.createTags, { id: "tag_echo", value: "before" }));
     const original = await run(fixture.host.read(runtime.commands.retrieveTag, { id: "tag_echo" }));
     if (!isJsonObject(original) || typeof original.created_at !== "string" || typeof original.updated_at !== "string") throw new Error("Missing Tag DTO");
@@ -92,13 +92,13 @@ describe("Product Tag boundary", () => {
   });
 
   it("rolls back a new Tag when a later upsert member is missing", async () => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const before = await commerceInventory(fixture);
-    takeProductRunnerEvents();
+    takeLegacyProductRunnerEvents();
     const input: Json = [{ value: "must-rollback" }, { id: "missing-tag", value: "missing" }];
     expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.upsertTags, input))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "adapterFailure", cause: { message: 'ProductTag with id "missing-tag" not found' } } });
     expect(await commerceInventory(fixture)).toEqual(before);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 });

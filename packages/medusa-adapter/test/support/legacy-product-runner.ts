@@ -2,6 +2,7 @@ import { decodeCategoryProjection } from "../../src/product-category-projection"
 import { afterAll, beforeAll, beforeEach, afterEach, describe } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 import type { IEventBusModuleService } from "@medusajs/framework/types";
+export { default as MockEventBusService } from "@medusajs/test-utils/mock-event-bus-service";
 import { makeLocalProductCommands } from "../../src/product-service";
 import { prepareLocalProductProfile, prepareLocalProductScaleProfile } from "../../src/product-profile";
 import { captureProductSchema } from "../../src/product-schema";
@@ -24,11 +25,11 @@ let registered = false;
 let current = Option.none<{ fixture: CommerceHostTestFixture; runtime: Effect.Success<ReturnType<typeof makeLocalProductCommands>>; resetSql: string }>();
 let destination = Option.none<IEventBusModuleService>();
 const cleanup: Array<() => Promise<void>> = [];
-export const getProductRunnerFixture = () => Option.getOrThrow(current);
-const get = getProductRunnerFixture;
+export const getLegacyProductRunnerFixture = () => Option.getOrThrow(current);
+const get = getLegacyProductRunnerFixture;
 const observedEvents: Json[] = [];
-export const takeProductRunnerEvents = () => observedEvents.splice(0);
-export async function clearProductRunnerRows() {
+export const takeLegacyProductRunnerEvents = () => observedEvents.splice(0);
+export async function clearLegacyProductRunnerRows() {
   const { fixture, resetSql } = get();
   await fixture.persistence.exec(resetSql);
   fixture.takeDeliveries(); observedEvents.length = 0;
@@ -40,7 +41,7 @@ function isCapturedMessage(event: Json): event is Json & { name: string; data: J
     && typeof event.metadata.source === "string" && typeof event.metadata.object === "string" && typeof event.metadata.action === "string";
 }
 
-export function registerProductFixture() {
+export function registerLegacyProductFixture() {
   if (registered) return;
   registered = true;
   beforeAll(async () => {
@@ -185,12 +186,12 @@ const service = new Proxy<object>({}, {
   },
 }) as ProductTestService; // Test-only compatibility boundary for the original full-service callback.
 
-export function productIntegrationTestRunner(options: ProductRunnerOptions) {
-  registerProductFixture();
+export function legacyProductIntegrationTestRunner(options: ProductRunnerOptions) {
+  registerLegacyProductFixture();
   describe(options.injectedDependencies ? "Product injected event bus" : "Product service", () => {
     beforeEach(async () => {
       destination = Option.fromUndefinedOr(options.injectedDependencies?.event_bus);
-      await clearProductRunnerRows();
+      await clearLegacyProductRunnerRows();
     });
     afterEach(() => {
       destination = Option.none();
@@ -200,3 +201,4 @@ export function productIntegrationTestRunner(options: ProductRunnerOptions) {
     options.testSuite({ service });
   });
 }
+export const moduleIntegrationTestRunner = legacyProductIntegrationTestRunner;

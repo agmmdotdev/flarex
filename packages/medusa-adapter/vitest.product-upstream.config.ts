@@ -243,7 +243,7 @@ export const productCoverage = (expected: readonly string[]): Reporter => {
 };
 export default defineConfig({
   resolve: { alias: [
-    { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/runner.ts", import.meta.url)) },
+    { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/logical-product-runner.ts", import.meta.url)) },
     { find: /^@services$/, replacement: fileURLToPath(new URL("../medusa-product/src/services/index.ts", import.meta.url)) },
     { find: /^@models$/, replacement: fileURLToPath(new URL("../medusa-product/src/models/index.ts", import.meta.url)) },
     { find: /^@types$/, replacement: fileURLToPath(new URL("../medusa-product/src/types/index.ts", import.meta.url)) },

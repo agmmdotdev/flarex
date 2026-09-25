@@ -2,7 +2,7 @@ import { Cause, Effect } from "effect";
 import { expect, it } from "vitest";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { commerceInventory } from "../../persistence-postgres/test/commerceInventory";
-import { getProductRunnerFixture, productIntegrationTestRunner, takeProductRunnerEvents } from "./support/product-runner";
+import { getLegacyProductRunnerFixture, legacyProductIntegrationTestRunner, takeLegacyProductRunnerEvents } from "./support/legacy-product-runner";
 
 const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
 
@@ -13,9 +13,9 @@ function hasStatementCancellation(error: unknown): boolean {
   return isNonArrayRecord(error) && (error.code === "57014" || hasStatementCancellation(error.cause));
 }
 
-productIntegrationTestRunner({ moduleName: "product", testSuite: () => {
+legacyProductIntegrationTestRunner({ moduleName: "product", testSuite: () => {
   it.each(["product", "outcome"] as const)("preserves a %s statement cancellation and rolls back the complete command", async stage => {
-    const { fixture, runtime } = getProductRunnerFixture();
+    const { fixture, runtime } = getLegacyProductRunnerFixture();
     const layout = fixture.descriptor.layout.frame;
     const product = layout.tables.find(table => table.identity.tableId === "product");
     if (product === undefined) throw new Error("Missing Product table");
@@ -36,7 +36,7 @@ productIntegrationTestRunner({ moduleName: "product", testSuite: () => {
       expect(error.reason).toBe(stage === "product" ? "rollbackOnly" : "statementFailure");
       expect(hasStatementCancellation(error)).toBe(true);
       expect(await commerceInventory(fixture)).toEqual(before);
-      expect(takeProductRunnerEvents()).toEqual([]);
+      expect(takeLegacyProductRunnerEvents()).toEqual([]);
       expect(fixture.takeDeliveries()).toEqual([]);
       // Sequences survive rollback: exactly one trigger visit proves that the
       // failed statement was not automatically replayed inside this request.
@@ -47,12 +47,12 @@ productIntegrationTestRunner({ moduleName: "product", testSuite: () => {
       await fixture.persistence.exec(`drop sequence ${schema}.fx_failure_calls`);
     }
     const created = await Effect.runPromise(fixture.host.run(key, runtime.commands.create, input));
-    expect(takeProductRunnerEvents()).toHaveLength(1);
+    expect(takeLegacyProductRunnerEvents()).toHaveLength(1);
     const after = await commerceInventory(fixture);
     expect(after.commits).toHaveLength(before.commits.length + 1);
     expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
     expect(await Effect.runPromise(fixture.host.run(key, runtime.commands.create, input))).toEqual(created);
     expect(await commerceInventory(fixture)).toEqual(after);
-    expect(takeProductRunnerEvents()).toEqual([]);
+    expect(takeLegacyProductRunnerEvents()).toEqual([]);
   });
 } });
