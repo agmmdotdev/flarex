@@ -42,8 +42,8 @@ Named physical consumers include Product local, fixture-reset,
 installation and exact-numeric tests; Category boundary checks; and the remaining mixed physical binding,
 link, population and persistence-core fixtures found by the reference inventory.
 The explicit legacy runner configurations are `product-categories`,
-`product-fixture`, `product-internal-deleted-search`, `product-options`,
-`product-tags` and `product-variants`. The failure and scale boundary suites
+`product-fixture`, `product-internal-deleted-search` and
+`product-variants`. The failure and scale boundary suites
 now select the logical runner: SQLSTATE cancellation targets generic row or
 outcome storage, while graph pages, ordered facts, native events, replay,
 late-page rollback, cancellation and capacity refusal use the same logical
@@ -58,6 +58,13 @@ membership refusal and selector isolation. Internal Product's active search,
 bulk update, silent facts/replay and lifecycle rollback are logical witnesses.
 The bulk-update receipt matches each native result to its selected Product ID;
 the native DAL may return a different order from its input array.
+The Tag boundary suite also selects the logical runner: it covers two shops
+with colliding Tag, Collection and Product IDs, an empty inverse projection,
+DTO-echo and input refusals, and upsert rollback. Its duplicate physical native
+registration is removed. The stale physical Option configuration listed four
+boundary cases that were no longer registered; the canonical native Option
+suite and the dedicated logical Option/Value scope, cascade, rollback, replay
+and refusal witnesses remain.
 
 The one retained physical internal-Product search witness covers `q` together
 with `withDeleted: true`. The shared logical query planner currently refuses

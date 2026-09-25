@@ -157,8 +157,9 @@ references on Product creation, Tag list/count/retrieve and scalar value queries
 and inverse Products reads with optional Collection population. Selected fields,
 primary keys, Collection foreign keys and null/empty relations follow the pinned
 service. Other relation paths remain unadmitted.
-Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-tags.config.ts`
-for 15 unchanged originals plus three scope, input and rollback checks.
+The 15 unchanged originals run in the canonical `vitest.product-upstream.config.ts`
+suite. Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-tags.config.ts`
+for three logical-storage scope, input and rollback checks.
 Tag upserts may echo a complete created_at/updated_at/deleted_at trio only when
 it exactly matches the existing scoped row; the adapter removes those echoes
 before the service call. Stale/forged/new-row echoes are refused and managed
@@ -191,8 +192,10 @@ Products and Variants survive Option deletion; dependent Values and pivots have
 complete deletion facts, while Medusa emits only the root Option deletion event.
 Creation, value normalization and updates continue through the existing service.
 
-Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-options.config.ts`
-for 13 originals and four scope, cascade/rollback, replay and input-refusal checks.
+The 13 unchanged originals run in the canonical `vitest.product-upstream.config.ts`
+suite. Logical Option/Value scope, cascade, rollback, replay and input-refusal
+checks run in `test/logical-product-option-storage.test.ts`. The earlier
+physical-only Option wrapper and its stale four-case coverage list are retired.
 At the Options checkpoint, the combined gate covered 115 originals plus its
 retained upstream skip. Record 41 continues with Variants.
 [Record 40](../../roadmaps/flarexdb-framework-integration/preflight/40-medusa-product-options.md)

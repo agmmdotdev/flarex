@@ -2080,8 +2080,11 @@ function tagCallEventPolicy(catalog: ProductRuntimeMetadata) {
     validateLogicalCall: productLogicalDirectEntityUpdateEventPolicy(catalog, catalog.tag, "productupdatetag") };
   const deleted = productLogicalEntityEventPolicy(catalog, catalog.tag, "productSoftDeleteTag", "deleted");
   const upsert: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalTagUpsert")(function* (call, activity) {
-    if (call.commandName !== "productupserttag" || !Array.isArray(call.input) ||
-      !Array.isArray(call.result) || call.input.length !== call.result.length ||
+    const many = Array.isArray(call.input);
+    const requested = many ? call.input : [call.input];
+    const results = Array.isArray(call.result) ? call.result : [call.result];
+    if (call.commandName !== "productupserttag" || many !== Array.isArray(call.result) ||
+      requested.length !== results.length ||
       activity.lifecycle.length !== 0 || activity.setNull.length !== 0 ||
       activity.referenceReplacements.length !== 0)
       return yield* Effect.fail(commerceError("receiptMismatch"));
@@ -2099,10 +2102,10 @@ function tagCallEventPolicy(catalog: ProductRuntimeMetadata) {
       mutations.set(id, mutation);
       expected.add((action === CommonEvents.CREATED ? catalog.tag.createdEvent : catalog.tag.updatedEvent) + ":" + id);
     }
-    if (mutations.size !== call.result.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+    if (mutations.size !== results.length) return yield* Effect.fail(commerceError("receiptMismatch"));
     const requestedExisting = new Map<string, string>();
     const requestedNew = new Set<string>();
-    for (const input of call.input) {
+    for (const input of requested) {
       if (!isJsonObject(input) || typeof input.value !== "string")
         return yield* Effect.fail(commerceError("receiptMismatch"));
       if (typeof input.id === "string") {
@@ -2114,7 +2117,7 @@ function tagCallEventPolicy(catalog: ProductRuntimeMetadata) {
       }
     }
     const returned = new Set<string>();
-    for (const result of call.result) {
+    for (const result of results) {
       if (!isJsonObject(result) || typeof result.id !== "string" ||
         typeof result.value !== "string" || returned.has(result.id))
         return yield* Effect.fail(commerceError("receiptMismatch"));
