@@ -162,6 +162,13 @@ remain distinct from logical schema evolution.
   its physical runner registration is retired under the
   [native internal Category suite cutover](./39-native-internal-category-suite-cutover.md).
   The pinned public Category suite remains on the physical Product runner.
+  Internal Category cycle admission now follows selected ancestry through the
+  scoped logical identity index rather than reading the entire active catalog;
+  the [indexed ancestry correction](./41-category-indexed-ancestry.md) proves
+  selected creation and atomic cycle refusal beyond 256 unrelated rows.
+  Complete sibling-count and rank-shift reads still bound a single wide
+  sibling group; the public Category suite and larger-scale tree operations
+  remain separate cutovers.
   The unchanged 13-case pinned public Type service suite now uses a focused
   logical Product runner for create, update, delete, list, count and retrieve.
   Its duplicate broad physical registration is retired under the

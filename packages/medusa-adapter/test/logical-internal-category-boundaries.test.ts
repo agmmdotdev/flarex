@@ -258,4 +258,29 @@ describe("internal Category boundaries on shared logical Product storage", () =>
     [], [{ table: catalog.category.table.name, row: { id: "right", mpath: "right" } }], [])))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
   });
+
+  it("validates selected ancestry beyond the unrelated Category row bound", async () => {
+    const create = await command("create"), update = await command("update");
+    const before = await logicalCurrencyInventory(source);
+    for (let start = 0; start < 90; start++) {
+      const id = `indexed-root-${start}`;
+      await run(create.run([{ id, name: id, handle: id }]));
+    }
+    for (let number = 0; number < 180; number++) {
+      const id = `indexed-child-${number}`;
+      await run(create.run([{ id, name: id, handle: id, parent_category_id: `indexed-root-${number % 90}` }]));
+    }
+    const populated = await logicalCurrencyInventory(source);
+    expect(populated.rows.length - before.rows.length).toBe(270);
+    const selected = { id: "indexed-selected", name: "Selected", handle: "indexed-selected",
+      parent_category_id: "indexed-child-0" };
+    await run(create.run([selected]));
+    expect(await run(reader.read(product.runtime.commands.internalCategoryList,
+      { filters: { id: "indexed-selected" } }).pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value))))))
+      .toMatchObject([{ id: "indexed-selected", mpath: "indexed-root-0.indexed-child-0.indexed-selected" }]);
+    const after = await logicalCurrencyInventory(source);
+    await expect(run(update.run([{ id: "indexed-root-0", parent_category_id: "indexed-selected" }])))
+      .rejects.toMatchObject({ _tag: "CommerceTransactionError", reason: "invalidInput" });
+    expect(await logicalCurrencyInventory(source)).toEqual(after);
+  }, 300_000);
 });

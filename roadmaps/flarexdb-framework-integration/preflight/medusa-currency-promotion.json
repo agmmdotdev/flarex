@@ -637,7 +637,7 @@
     {
       "target": "packages/medusa-adapter/src/product-category-input.ts",
       "classification": "authored",
-      "targetSha256": "4028e337c862c55eb07a7bd371e3897fd258014e4d8b6f6e66a2974c163f5513"
+      "targetSha256": "d06c97c9dbe349e96a70eb529c24fa38469119370be42fedaab5f2533b29a2cf"
     },
     {
       "target": "packages/medusa-adapter/src/product-category-projection.ts",
@@ -4361,7 +4361,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-internal-category-boundaries.test.ts",
       "classification": "authored",
-      "targetSha256": "888766645c2a4aa9a85830991ab93b6e4785a5bb0a5f7dc40d4910dcf050935b"
+      "targetSha256": "7ee2bc6d69db3588794b36892da23c6ca32945aa11a1b44c6b203558374d2e06"
     },
     {
       "target": "packages/medusa-adapter/test/logical-cross-source-admission.test.ts",

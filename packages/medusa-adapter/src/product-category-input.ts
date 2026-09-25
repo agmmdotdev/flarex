@@ -14,12 +14,25 @@ export const validateCategoryCommand = Effect.fn("ProductCategory.validateComman
 ) {
   const entries = Array.isArray(input) ? input : [input];
   if (entries.length > 256) return yield* ctx.refuse(commerceError("limitExceeded"));
-  const rows = yield* readCommerceRelationRows(ctx, metadata.category.table.name, { kind: "isNull", column: "deleted_at" });
-  const parents = new Map<string, string | null>();
-  for (const row of rows) {
-    if (typeof row.id !== "string" || (row.parent_category_id !== null && typeof row.parent_category_id !== "string")) return yield* ctx.refuse(commerceError("storedCorruption"));
-    parents.set(row.id, row.parent_category_id);
-  }
+  // Only changed ancestry can introduce a cycle. Fetch each committed parent
+  // through the shared scoped identity index; the same store sees pending rows.
+  // An unrelated Category catalog must not consume this command's row budget.
+  const proposed = new Map<string, string | null>();
+  const observed = new Map<string, string | null | undefined>();
+  const parentOf = Effect.fn("ProductCategory.parentOf")(function* (id: string) {
+    if (proposed.has(id)) return proposed.get(id);
+    if (observed.has(id)) return observed.get(id);
+    const rows = yield* readCommerceRelationRows(ctx, metadata.category.table.name, { kind: "and", children: [
+      { kind: "in", column: "id", values: [id] }, { kind: "isNull", column: "deleted_at" },
+    ] });
+    if (rows.length > 1) return yield* ctx.refuse(commerceError("storedCorruption"));
+    const row = rows[0];
+    if (row === undefined) { observed.set(id, undefined); return undefined; }
+    if (row.id !== id || (row.parent_category_id !== null && typeof row.parent_category_id !== "string"))
+      return yield* ctx.refuse(commerceError("storedCorruption"));
+    observed.set(id, row.parent_category_id);
+    return row.parent_category_id;
+  });
   for (const entry of entries) {
     if (!isJsonObject(entry)) return yield* ctx.refuse(commerceError("invalidInput"));
     const id = entry.id, parent = entry.parent_category_id;
@@ -28,13 +41,14 @@ export const validateCategoryCommand = Effect.fn("ProductCategory.validateComman
     if (entry.rank !== undefined) yield* Effect.fromResult(decodeRank(entry.rank)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     if (typeof id !== "string" || parent === undefined) continue;
     if (parent !== null && typeof parent !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
-    parents.set(id, parent);
+    proposed.set(id, parent);
     const visited = new Set<string>();
     let cursor: string | null | undefined = id;
     while (cursor !== null && cursor !== undefined) {
       if (visited.has(cursor)) return yield* ctx.refuse(commerceError("invalidInput"));
+      if (visited.size >= ctx.resources.queryRows) return yield* ctx.refuse(commerceError("limitExceeded"));
       visited.add(cursor);
-      cursor = parents.get(cursor);
+      cursor = yield* parentOf(cursor);
     }
   }
 });
