@@ -6,6 +6,7 @@ import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from 
 import { productLogicalCategoryCreateEventPolicy, productLogicalCategoryMembershipEventPolicy,
   productLogicalCollectionCreateEventPolicy, productLogicalCollectionMembershipEventPolicy,
   productLogicalCreateEventPolicy, productLogicalRelationshipsEventPolicy } from "../src/product-local-events";
+import { decodeCategoryProjection } from "../src/product-category-projection";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductCollectionMembershipWorkflow } from "../src/product-collection-workflow";
 import { prepareProductCategoryMembershipWorkflow } from "../src/product-category-workflow";
@@ -89,14 +90,18 @@ async function prepareCategoryCreationHost(catalog: Awaited<ReturnType<typeof pr
   const root = defineAtomicCommerceCommand("productCategoryCreateRoot", (ctx, input) =>
     ctx.call(participant, product.runtime.commands.createCategories, input));
   const revision = createHash("sha256").update("logical-product-category-create").digest("hex");
-  const contract = defineCommerceEventContract({ name: catalog.category.createdEvent, revision,
+  const created = defineCommerceEventContract({ name: catalog.category.createdEvent, revision,
     internal: true, decode: policy.capture });
+  const updated = defineCommerceEventContract({ name: catalog.category.updatedEvent, revision,
+    internal: true, decode: policy.capture });
+  const contracts = [created, updated];
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
     identityAndAccessPolicy: { profile: "logical-product-category-create" },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
       commands: [product.runtime.commands.createCategories], validateLogical: policy.validateLogical,
-      events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
-    commands: [root], events: { producerRevision: revision, contracts: [contract],
+      events: { contracts, select: (message: Json) => isJsonObject(message) && message.name === catalog.category.updatedEvent
+        ? Effect.succeed(updated) : Effect.succeed(created) } }],
+    commands: [root], events: { producerRevision: revision, contracts,
       subscribers: [{ id: "logical-product-category-create", revision: "a".repeat(64) }],
       validate: events => events.some(event => !event.internal)
         ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
@@ -619,6 +624,104 @@ describe("native Product creation on shared logical storage", () => {
       await Effect.runPromise(collection.host.close);
       await Effect.runPromise(membership.close);
       await Effect.runPromise(seedHost.close);
+    }
+  }, 120_000);
+
+  it("creates a native Category with requested Products and authenticates sibling maintenance", async () => {
+    const { catalog, host: create } = await prepareCreationHost();
+    const category = await prepareCategoryCreationHost(catalog);
+    const read = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [product.runtime.commands.countCategories],
+    }));
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [
+        { id: "prod_category_create_a", title: "Category Product A" },
+        { id: "prod_category_create_b", title: "Category Product B" },
+      ] }));
+      await Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root,
+        { id: "pcat_create_first", name: "First", products: [{ id: "prod_category_create_a" }] }));
+      const key = category.host.newRequestKey();
+      const input = { id: "pcat_create_second", name: "Second", rank: 0,
+        products: [{ id: "prod_category_create_b" }] };
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const result = await Effect.runPromise(category.host.run(key, category.root, input));
+      expect(result).toMatchObject({ id: input.id, rank: 0 });
+      const selected = await Effect.runPromise(read.read(product.runtime.commands.countCategories, {
+        filters: { id: ["pcat_create_first", "pcat_create_second"] },
+        config: { relations: ["products"], select: ["id", "rank", "products.title"] },
+      }).pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value)))));
+      expect(selected).toMatchObject([[
+        { id: "pcat_create_first", rank: 1, products: [{ id: "prod_category_create_a", title: "Category Product A" }] },
+        { id: "pcat_create_second", rank: 0, products: [{ id: "prod_category_create_b", title: "Category Product B" }] },
+      ], 2]);
+      const afterRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
+      const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
+        .toEqual([catalog.category.updatedEvent, catalog.category.createdEvent]);
+      expect(await Effect.runPromise(category.host.run(key, category.root, input))).toEqual(result);
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
+      await expect(Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root,
+        { id: "pcat_create_missing_product", name: "Missing Product", products: [{ id: "missing" }] })))
+        .rejects.toMatchObject({ reason: "invalidInput" });
+      expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(category.host.close);
+      await Effect.runPromise(read.close);
+    }
+  }, 120_000);
+
+  it("refuses a public Category receipt with an unrequested Product pivot", async () => {
+    const catalog = await Effect.runPromise(captureProductSchema("category-pivot-receipt")
+      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
+    const policy = productLogicalCategoryCreateEventPolicy(catalog);
+    const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
+    if (relation?.join.type !== "manyToMany") throw new Error("Missing Category Product pivot");
+    const [categoryColumn] = relation.join.sourceColumns;
+    const [productColumn] = relation.join.targetColumns;
+    if (categoryColumn === undefined || productColumn === undefined) throw new Error("Invalid Category Product pivot");
+    const id = "pcat_pivot_receipt";
+    const created = { name: catalog.category.createdEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.category.eventObject, action: CommonEvents.CREATED },
+      data: { id } };
+    const calls = [{ commandName: "productCreatecategory", mode: "write" as const,
+      input: { id, name: "Receipt", products: [{ id: "requested" }] },
+      result: { id, rank: 0 }, events: [created], fromAttempt: 0, toAttempt: 3,
+      fromLifecycle: 0, toLifecycle: 0 }];
+    const mutations = [
+      { ordinal: 0, table: catalog.category.table.name, operation: "insert" as const, before: null,
+        after: { id, name: "Receipt", rank: 0, parent_category_id: null, mpath: id, deleted_at: null } },
+      { ordinal: 1, table: relation.join.pivotTable, operation: "insert" as const, before: null,
+        after: { [categoryColumn]: id, [productColumn]: "requested" } },
+      { ordinal: 2, table: relation.join.pivotTable, operation: "insert" as const, before: null,
+        after: { [categoryColumn]: id, [productColumn]: "unrequested" } },
+    ];
+    await expect(Effect.runPromise(policy.validateLogical(calls, mutations, [], [], [])))
+      .rejects.toMatchObject({ reason: "receiptMismatch" });
+  });
+
+  it("keeps native batch Category results and Product memberships in input order", async () => {
+    const { catalog, host: create } = await prepareCreationHost();
+    const category = await prepareCategoryCreationHost(catalog);
+    try {
+      await Effect.runPromise(create.run(create.newRequestKey(), { products: [
+        { id: "prod_category_batch_a", title: "Batch A" },
+        { id: "prod_category_batch_b", title: "Batch B" },
+      ] }));
+      const input = [
+        { id: "pcat_batch_b", name: "Batch B", products: [{ id: "prod_category_batch_b" }] },
+        { id: "pcat_batch_a", name: "Batch A", products: [{ id: "prod_category_batch_a" }] },
+      ];
+      const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const result = await Effect.runPromise(category.host.run(category.host.newRequestKey(), category.root, input));
+      expect(result).toMatchObject([{ id: "pcat_batch_b" }, { id: "pcat_batch_a" }]);
+      const events = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      expect(events.slice(beforeEvents.length).map(event => event.envelope.contract))
+        .toEqual([catalog.category.createdEvent]);
+    } finally {
+      await Effect.runPromise(create.close);
+      await Effect.runPromise(category.host.close);
     }
   }, 120_000);
 

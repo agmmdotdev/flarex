@@ -169,6 +169,12 @@ remain distinct from logical schema evolution.
   Complete sibling-count and rank-shift reads still bound a single wide
   sibling group; the public Category suite and larger-scale tree operations
   remain separate cutovers.
+  Public Category creation now authenticates native Product membership pivots,
+  sibling rank changes and their module messages on the same generic Product
+  source. The [connected creation proof](./42-public-category-create-membership.md)
+  covers inverse Product reads, replay and missing-target refusal. The full
+  21-case public Category suite still needs its update/delete receipts and
+  focused logical runner before its physical registration can retire.
   The unchanged 13-case pinned public Type service suite now uses a focused
   logical Product runner for create, update, delete, list, count and retrieve.
   Its duplicate broad physical registration is retired under the

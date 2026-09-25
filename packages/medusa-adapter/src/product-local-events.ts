@@ -5,7 +5,7 @@ import { commerceError, isJsonObject, type CommerceTransactionError, type Json, 
 import { defaultCommerceResources, type CommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "./commerce-input";
-import { decodeCategoryProjection } from "./product-category-projection";
+import { captureCategoryProjection, decodeCategoryProjection } from "./product-category-projection";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductEntityMetadata, ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { VariantImagePairs, decodeVariantThumbnailUpdate } from "./product-variant-workflow-input";
@@ -237,14 +237,90 @@ function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity
   return { capture, validateLogical };
 }
 
-/** A selected native root Category create, before sibling or path maintenance. */
+/** Bind public Category creation to the native tree transition, requested
+ * Product memberships and the module messages for every affected Category. */
 export function productLogicalCategoryCreateEventPolicy(catalog: ProductRuntimeMetadata) {
-  return productLogicalEntityEventPolicy(catalog, catalog.category, "productCreatecategory", "created");
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  const tree = productLogicalInternalCategoryPolicy(catalog, "create");
+  const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
+  const join = relation?.join;
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCategoryCreate")(
+    function* (calls, mutations, lifecycle, observedRows, setNull, referenceReplacements = []) {
+      const mismatch = () => commerceError("receiptMismatch");
+      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productCreatecategory");
+      const write = calls.find(call => call.mode === "write");
+      if (write === undefined || lifecycle.length !== 0 || setNull.length !== 0 ||
+        referenceReplacements.length !== 0 || join?.type !== "manyToMany" ||
+        join.sourceColumns.length !== 1 || join.targetColumns.length !== 1 ||
+        mutations.some((mutation, index) => mutation.ordinal !== index))
+        return yield* Effect.fail(mismatch());
+      const categoryColumn = join.sourceColumns[0], productColumn = join.targetColumns[0];
+      if (categoryColumn === undefined || productColumn === undefined) return yield* Effect.fail(mismatch());
+      const input = Array.isArray(write.input) ? write.input : [write.input];
+      const result = Array.isArray(write.result) ? write.result : [write.result];
+      if (input.length === 0 || input.length !== result.length ||
+        input.some(row => !isJsonObject(row)) || result.some(row => !isJsonObject(row)))
+        return yield* Effect.fail(mismatch());
+      const expectedPivots = new Set<string>();
+      const treeInput: JsonObject[] = [];
+      for (const [index, inputRow] of input.entries()) {
+        const resultRow = result[index];
+        if (!isJsonObject(inputRow) || !isJsonObject(resultRow) || typeof resultRow.id !== "string")
+          return yield* Effect.fail(mismatch());
+        const { products, ...category } = inputRow;
+        treeInput.push(category);
+        if (products === undefined) continue;
+        if (!Array.isArray(products)) return yield* Effect.fail(mismatch());
+        for (const product of products) {
+          if (!isJsonObject(product) || typeof product.id !== "string") return yield* Effect.fail(mismatch());
+          const key = JSON.stringify([resultRow.id, product.id]);
+          if (expectedPivots.has(key)) return yield* Effect.fail(mismatch());
+          expectedPivots.add(key);
+        }
+      }
+      const categories: Array<(typeof mutations)[number]> = [];
+      const expectedEvents = new Set<string>();
+      for (const mutation of mutations) {
+        if (mutation.table === join.pivotTable) {
+          const categoryId = mutation.after?.[categoryColumn];
+          const productId = mutation.after?.[productColumn];
+          if (mutation.operation !== "insert" || mutation.before !== null ||
+            typeof categoryId !== "string" || typeof productId !== "string" ||
+            !expectedPivots.delete(JSON.stringify([categoryId, productId])))
+            return yield* Effect.fail(mismatch());
+          continue;
+        }
+        if (mutation.table !== catalog.category.table.name) return yield* Effect.fail(mismatch());
+        const id = mutation.after?.id;
+        const action = mutation.operation === "insert" ? CommonEvents.CREATED : CommonEvents.UPDATED;
+        if (typeof id !== "string" || !["insert", "patch", "replace"].includes(mutation.operation))
+          return yield* Effect.fail(mismatch());
+        expectedEvents.add(action + ":" + id);
+        categories.push({ ...mutation, ordinal: categories.length });
+      }
+      if (expectedPivots.size !== 0) return yield* Effect.fail(mismatch());
+      const syntheticResult = yield* Effect.fromResult(captureCategoryProjection(result, defaultCommerceResources))
+        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      yield* tree.validateLogical([{ ...write, commandName: "productInternalCategorycreate",
+        input: treeInput, result: syntheticResult, events: [], fromAttempt: 0, toAttempt: categories.length }],
+      categories, [], observedRows, [], []);
+      for (const event of emitted) {
+        const message = yield* capture(event);
+        if (message.metadata.object !== catalog.category.eventObject ||
+          (message.metadata.action === CommonEvents.CREATED ? message.name !== catalog.category.createdEvent
+            : message.metadata.action === CommonEvents.UPDATED ? message.name !== catalog.category.updatedEvent : true))
+          return yield* Effect.fail(mismatch());
+        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+          if (!expectedEvents.delete(message.metadata.action + ":" + id)) return yield* Effect.fail(mismatch());
+      }
+      if (expectedEvents.size !== 0) return yield* Effect.fail(mismatch());
+    });
+  return { capture, validateLogical };
 }
 
 const InternalCategoryCreateRows = Schema.Array(Schema.StructWithRest(Schema.Struct({
   id: Schema.optionalKey(EventId), name: Schema.String,
-  handle: Schema.String,
+  handle: Schema.optionalKey(Schema.String),
   parent_category_id: Schema.optionalKey(Schema.NullOr(EventId)),
   rank: Schema.optionalKey(Schema.Int),
 }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 256));

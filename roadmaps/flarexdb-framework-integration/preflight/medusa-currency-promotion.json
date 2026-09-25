@@ -682,7 +682,7 @@
     {
       "target": "packages/medusa-adapter/src/product-local-events.ts",
       "classification": "authored",
-      "targetSha256": "634e07023d95edb94825899d2b7a2078ab1d4f2441a27ea9b31a662509068713"
+      "targetSha256": "8d9d98e51787161142163b40cb5735790c7c51d298d87831f5929158c00242ae"
     },
     {
       "target": "packages/medusa-adapter/src/product-module.ts",
@@ -4476,7 +4476,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-create-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "20f014ff921846059141f2e04da55054ea8f98d26f0847b5e1dfc5cbae701d8e"
+      "targetSha256": "f26deb9bbc79820a3d216db080cf52fda4c16fa381429fbab561546c71f42580"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-lifecycle-storage.test.ts",
