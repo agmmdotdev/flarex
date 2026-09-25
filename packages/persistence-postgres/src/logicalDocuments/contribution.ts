@@ -14,7 +14,7 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { isJsonObject } from "flarex-protocol/json";
-import { readLogicalIndexRange, sameLogicalIndexMembership } from "./indexReads";
+import { readLogicalIndexRange, readLogicalIndexPage, sameLogicalIndexMembership } from "./indexReads";
 
 /** Validate the complete command, including decisions that did not produce writes. */
 export const validateLogicalDocumentChanges = Effect.fn(
@@ -54,7 +54,7 @@ export const validateLogicalDocumentChanges = Effect.fn(
     closed.referenceReplacements.some(intent => !allowed.has(intent.sourceTableId) ||
       !allowed.has(intent.targetTableId) || intent.desiredKeys.length > 256 ||
       new Set(intent.desiredKeys).size !== intent.desiredKeys.length ||
-      closed.setNull.length !== 0 || closed.changes.some(change => change.tableId === intent.sourceTableId) ||
+      closed.setNull.length !== 0 ||
       !closed.changes.some(change => change.kind === "live" && change.tableId === intent.targetTableId &&
         isJsonObject(change.document.valueJson) && change.document.valueJson[intent.targetColumn] === intent.targetKey)) ||
     new Set(closed.setNull.map(intent => JSON.stringify([intent.sourceTableId, intent.sourceColumn,
@@ -126,6 +126,13 @@ export const validateLogicalDocumentChanges = Effect.fn(
     }
     const current = yield* readLogicalIndexRange(tx, scopeId, read, maximumIndexEntries, error);
     if (!sameLogicalIndexMembership(read.entries, current)) return yield* Effect.fail(error("writeConflict"));
+  }
+  for (const read of closed.pageReads) {
+    if (read.definition.access.kind !== "developer" || !allowed.has(read.definition.access.tableId) ||
+      read.entries.length > maximumIndexEntries) return yield* Effect.fail(error("invalidAuthority"));
+    const current = yield* readLogicalIndexPage(tx, scopeId, read, Math.max(1, read.entries.length), error);
+    if (!sameLogicalIndexMembership(read.entries, current.entries) || read.isDone && !current.isDone)
+      return yield* Effect.fail(error("writeConflict"));
   }
   // Materialization requires the actual final-change objects in its dependency
   // set. Preserve every other observation instead of equating reads with writes.

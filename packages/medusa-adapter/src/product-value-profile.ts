@@ -7,6 +7,10 @@ import type { ProductEntityMetadata } from "./product-runtime-metadata";
 
 export const ProductRelationshipId = Schema.String.check(Schema.isLengthBetween(1, 256));
 export const ProductRelationshipIds = Schema.Array(ProductRelationshipId).check(Schema.isMaxLength(256));
+export const ProductRelationshipUpsertRows = Schema.Array(Schema.Struct({
+  id: ProductRelationshipId, category_ids: ProductRelationshipIds,
+})).check(Schema.isMaxLength(256));
+export const decodeProductRelationshipUpsert = commerceDecoder(ProductRelationshipUpsertRows, "invalidInput");
 
 export const decodeGraphArray = commerceDecoder(Schema.Array(Schema.Json), "invalidInput");
 export const decodeProductProjection = commerceDecoder(Schema.Union([

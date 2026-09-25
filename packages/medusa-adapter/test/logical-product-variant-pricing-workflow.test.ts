@@ -13,8 +13,8 @@ import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCreateEventPolicy, productLogicalVariantCreateEventPolicy } from "../src/product-local-events";
-import { pricingLogicalCreateEventPolicy } from "../src/pricing-events";
+import { productCallReceipts } from "../src/product-local-events";
+
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductVariantPricingWorkflow, productVariantPricingWorkflow,
   ProductVariantPricingInput, ProductVariantPricingOutput } from "../src/product-variant-pricing-workflow";
@@ -45,7 +45,7 @@ const revision = (name: string) => createHash("sha256").update(name).digest("hex
 async function seedProduct(connected: Connected, id: string) {
   const host = await Effect.runPromise(prepareProductCreateWorkflow({
     execution: execution(connected), modules: { product: { module: connected.product.runtime.workflow,
-      logicalStorage: connected.product.hostInput.logicalStorage, moduleEvents: productLogicalCreateEventPolicy(connected.catalog) } },
+      logicalStorage: connected.product.hostInput.logicalStorage } },
     revision: revision("logical-priced-variant-product-create"),
     subscribers: [{ id: "logical-priced-variant-seed", revision: "a".repeat(64) }],
   }));
@@ -56,12 +56,9 @@ async function seedProduct(connected: Connected, id: string) {
 }
 
 const modules = (connected: Connected) => ({
-  product: { module: connected.product.runtime.workflow, logicalStorage: connected.product.hostInput.logicalStorage,
-    moduleEvents: productLogicalVariantCreateEventPolicy(connected.catalog) },
-  pricing: { module: connected.pricing.runtime.workflow, logicalStorage: connected.pricing.hostInput.logicalStorage,
-    moduleEvents: pricingLogicalCreateEventPolicy() },
-  link: { module: connected.link.runtime.workflow, logicalStorage: connected.link.hostInput.logicalStorage,
-    moduleEvents: connected.link.runtime.logicalEventPolicy() },
+  product: { module: connected.product.runtime.workflow, logicalStorage: connected.product.hostInput.logicalStorage },
+  pricing: { module: connected.pricing.runtime.workflow, logicalStorage: connected.pricing.hostInput.logicalStorage },
+  link: { module: connected.link.runtime.workflow, logicalStorage: connected.link.hostInput.logicalStorage },
 });
 
 async function prepareConnectedHost(connected: Connected, selectedExecution: AtomicWorkflowExecution = execution(connected),
@@ -122,23 +119,23 @@ describe("native Product Variant Pricing workflow on shared logical storage", ()
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
   it("refuses a Variant pivot whose observed option belongs to another Product", async () => {
-    const policy = productLogicalVariantCreateEventPolicy(selected.catalog);
-    const result = await Effect.runPromise(Effect.result(policy.validateLogical([{
+    const policy = productCallReceipts(selected.catalog);
+    const result = await Effect.runPromise(Effect.result(policy.validateLogicalCall({
       commandName: "productCreatevariant", mode: "write", input: [], result: [], fromAttempt: 0, toAttempt: 2,
       fromLifecycle: 0, toLifecycle: 0,
       events: [{ name: selected.catalog.variant.createdEvent,
         metadata: { source: "product", object: selected.catalog.variant.eventObject, action: "created" },
         data: { id: "variant_wrong_owner" } }],
-    }], [
+    }, { mutations: [
       { ordinal: 0, table: selected.catalog.variant.table.name, operation: "insert", before: null,
         after: { id: "variant_wrong_owner", product_id: "product_a", deleted_at: null } },
       { ordinal: 1, table: selected.catalog.pivot.table.name, operation: "insert", before: null,
         after: { [selected.catalog.pivot.variantColumn]: "variant_wrong_owner",
           [selected.catalog.pivot.valueColumn]: "value_b" } },
-    ], [], [
+    ], lifecycle: [], observedRows: [
       { table: selected.catalog.option.table.name, row: { id: "option_b", product_id: "product_b", deleted_at: null } },
       { table: selected.catalog.value.table.name, row: { id: "value_b", option_id: "option_b", deleted_at: null } },
-    ], [])));
+    ], setNull: [], referenceReplacements: [] })));
     expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 

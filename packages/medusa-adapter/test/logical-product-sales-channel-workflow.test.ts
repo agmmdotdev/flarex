@@ -1,3 +1,4 @@
+import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Result } from "effect";
 import { createHash } from "node:crypto";
@@ -10,9 +11,9 @@ import { makeCommitEventPump } from "../../persistence-postgres/src/commitEvents
 import { CommitEventSubscriberFailure } from "../../persistence-postgres/src/commitEvents/model";
 import { issueRelationalSession, runRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCreateEventPolicy } from "../src/product-local-events";
+
+
+
 import { prepareProductSalesChannelWorkflow, productSalesChannelWorkflow, ProductSalesChannelInput,
   ProductSalesChannelOutput } from "../src/product-sales-channel-workflow";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type AtomicWorkflowHostComposition } from "../src/workflow/host";
@@ -31,20 +32,16 @@ let selected: {
   product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
   sales: Awaited<ReturnType<typeof prepareLogicalSalesChannelHost>>;
   link: Awaited<ReturnType<typeof prepareLogicalProductSalesChannelLinkHost>>;
-  catalog: Effect.Success<ReturnType<typeof productRuntimeMetadata>>;
 };
 const revision = (value: string) => createHash("sha256").update(value).digest("hex");
 const input = (prefix: string, count = 1) => ({ salesChannel: { id: prefix + "-channel", name: prefix },
   products: Array.from({ length: count }, (_, index) => ({ id: prefix + "-" + index, title: prefix + "-" + index })) });
 const modules = () => {
-  const { product, sales, link, catalog } = selected;
+  const { product, sales, link } = selected;
   return {
-      product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalCreateEventPolicy(catalog) },
-      sales_channel: { module: sales.runtime.workflow, logicalStorage: sales.hostInput.logicalStorage,
-        moduleEvents: sales.runtime.logicalEventPolicy() },
-      link: { module: link.runtime.workflow, logicalStorage: link.hostInput.logicalStorage,
-        moduleEvents: link.runtime.logicalEventPolicy() },
+      product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
+      sales_channel: { module: sales.runtime.workflow, logicalStorage: sales.hostInput.logicalStorage },
+      link: { module: link.runtime.workflow, logicalStorage: link.hostInput.logicalStorage },
     };
 };
 const execution = (session = selected.fixture.session) => ({ identityAndAccessPolicy: selected.fixture.hostInput.identityAndAccessPolicy,
@@ -87,9 +84,7 @@ describe("native Product–SalesChannel workflow on shared logical storage", () 
       await Effect.runPromise(member.host.initialize([]));
       await Effect.runPromise(member.host.close);
     }
-    const catalog = await Effect.runPromise(captureProductSchema("logical-product-sales-channel")
-      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    selected = { fixture, product, sales, link, catalog };
+    selected = { fixture, product, sales, link };
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
@@ -153,20 +148,20 @@ describe("native Product–SalesChannel workflow on shared logical storage", () 
 
   it("rejects a forged Link event and retains no endpoint writes", async () => {
     const selectedModules = modules();
-    const policy = selectedModules.link.moduleEvents;
+    const policy = selected.link.runtime.logicalEventPolicy();
     if (policy === undefined) throw new Error("Missing Link event policy");
     const capture = vi.fn((value: unknown) => policy.capture(value).pipe(Effect.map(message => {
       if (typeof message !== "object" || message === null || Array.isArray(message)) throw new Error("Missing Link event");
       return { ...message, data: { id: "prodsc_forged" } };
     })));
     const host = await observe(value => value, { ...selectedModules,
-      link: { ...selectedModules.link, moduleEvents: { ...policy, capture } },
+      link: { ...selectedModules.link, module: withWorkflowPolicy(selectedModules.link.module, policy => ({ ...policy, capture })) },
     });
     try {
       const beforeRows = await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent);
       const beforeEvents = await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
       await expect(Effect.runPromise(host.run(host.newRequestKey(), input("forged-event"))))
-        .rejects.toMatchObject({ reason: "receiptMismatch" });
+        .rejects.toMatchObject({ reason: "rollbackOnly" });
       expect(capture).toHaveBeenCalled();
       expect(await selected.fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
       expect(await selected.fixture.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);

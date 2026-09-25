@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
-import { productLogicalCreateEventPolicy, productLogicalTypeEventPolicy } from "../src/product-local-events";
+
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { captureProductSchema } from "../src/product-schema";
@@ -44,7 +44,7 @@ describe("native Product Type on shared logical Product storage", () => {
     afterValidation?: () => Promise<void>) {
     const command = operation === "create" ? selectedProduct.runtime.commands.createTypes
       : operation === "update" ? selectedProduct.runtime.commands.updateTypes : selectedProduct.runtime.commands.deleteTypes;
-    const policy = productLogicalTypeEventPolicy(catalog, operation);
+    const policy = selectedProduct.runtime.logicalPolicy;
     const name = operation === "create" ? catalog.type.createdEvent
       : operation === "update" ? catalog.type.updatedEvent : catalog.type.deletedEvent;
     const revision = createHash("sha256").update(`logical-product-type-${operation}`).digest("hex");
@@ -54,11 +54,11 @@ describe("native Product Type on shared logical Product storage", () => {
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
       identityAndAccessPolicy: { profile: `logical-product-type-${operation}` },
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
-        commands: [command], validateLogical: rejectReceipt || afterValidation !== undefined
-          ? (...args) => policy.validateLogical(...args).pipe(Effect.andThen(rejectReceipt
+        commands: [command], validateLogicalCall: rejectReceipt || afterValidation !== undefined
+          ? (...args) => policy.validateLogicalCall(...args).pipe(Effect.andThen(rejectReceipt
             ? Effect.fail(commerceError("receiptMismatch"))
             : afterValidation === undefined ? Effect.void : Effect.promise(afterValidation)))
-          : policy.validateLogical,
+          : policy.validateLogicalCall,
         ...(operation === "delete" ? { allowSetNull: true as const } : {}),
         events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
       commands: [root], events: { producerRevision: revision, contracts: [contract],
@@ -71,7 +71,7 @@ describe("native Product Type on shared logical Product storage", () => {
 
   async function productCreation(selectedFixture = fixture, selectedProduct = product) {
     const command = selectedProduct.runtime.commands.create;
-    const policy = productLogicalCreateEventPolicy(catalog);
+    const policy = selectedProduct.runtime.logicalPolicy;
     const revision = createHash("sha256").update("logical-typed-product-create").digest("hex");
     const contracts = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image].map(entity => ({
       name: entity.createdEvent,
@@ -83,7 +83,7 @@ describe("native Product Type on shared logical Product storage", () => {
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
       identityAndAccessPolicy: { profile: "logical-typed-product-create" },
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
-        commands: [command], validateLogical: policy.validateLogical,
+        commands: [command], validateLogicalCall: policy.validateLogicalCall,
         events: { contracts: tokens, select: event => {
           const contract = isJsonObject(event) && typeof event.name === "string"
             ? contracts.find(candidate => candidate.name === event.name) : undefined;
@@ -113,8 +113,7 @@ describe("native Product Type on shared logical Product storage", () => {
         forwarded = composition.participants[0]?.allowSetNull === true;
         return Effect.fail(commerceError("invalidAuthority"));
       } },
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: { ...productLogicalTypeEventPolicy(catalog, "delete"), allowSetNull: true } } },
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
       workflow: { name: "typeTransitionComposition", resources, prepared: Result.getOrThrow(workflow.prepare()),
         input: Schema.Json, output: Schema.Json }, revision: "a".repeat(64),
     }))).rejects.toMatchObject({ reason: "invalidAuthority" });

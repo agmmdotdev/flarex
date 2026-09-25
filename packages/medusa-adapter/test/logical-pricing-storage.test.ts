@@ -6,7 +6,7 @@ import { createWorkflow, transform, WorkflowResponse, type WorkflowData } from "
 import { createPriceSetsStep } from "@medusajs/core-flows/pricing/create-price-sets-step";
 import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
 import { PriceSetsInput } from "../src/pricing-input";
-import { pricingLogicalCreateEventPolicy } from "../src/pricing-events";
+
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";
@@ -88,16 +88,17 @@ describe("native Pricing on shared logical storage", () => {
           ...(price.rules === undefined ? {} : { rules: { ...price.rules } }),
         })) }),
       }))));
-      const ids = transform(created, sets => sets.map(set => set.id));
+      const second = createPriceSetsStep(transform(created, sets => sets.map(set => ({ id: set.id + "-second", prices: [] })))).config({ name: "second-price-set-call" });
+      const ids = transform({ created, second }, sets => [...sets.created, ...sets.second].map(set => set.id));
       const pending = useQueryGraphStep({ entity: "price_set", fields: ["id", "prices.id", "prices.amount", "prices.raw_amount", "prices.price_rules.id"],
         filters: { id: ids }, pagination: { take: 4 } });
-      return new WorkflowResponse({ created, pending: pending.data });
+      return new WorkflowResponse({ created, second, pending: pending.data });
     });
     const host = await Effect.runPromise(prepareAtomicWorkflowHost({
       execution: { identityAndAccessPolicy: fixture.pricing.hostInput.identityAndAccessPolicy,
         prepare: composition => makeAtomicCommerceHost({ ...fixture.pricing.hostInput, ...composition }) },
       modules: { pricing: { module: fixture.pricing.runtime.workflow,
-        logicalStorage: fixture.pricing.hostInput.logicalStorage, moduleEvents: pricingLogicalCreateEventPolicy() } },
+        logicalStorage: fixture.pricing.hostInput.logicalStorage } },
       revision: "a".repeat(64), subscribers: [{ id: "pricing-logical", revision: "b".repeat(64) }],
       workflow: { name: "logicalBasePrices", resources, prepared: Result.getOrThrow(flow.prepare()),
         input: PriceSetsInput, output: Schema.Json, events: internalModuleWorkflowEvents },
@@ -109,11 +110,12 @@ describe("native Pricing on shared logical storage", () => {
         currency_code: "USD", amount: "123.4567890123456789", rules: { region_id: "region" } }] }]));
       expect(value).toMatchObject({ created: [{ id: "exact", prices: [{ id: "exact-price",
         raw_amount: { value: "123.45678901234567890", precision: 20 } }] }],
+        second: [{ id: "exact-second" }],
         pending: [{ id: "exact", prices: [{ id: "exact-price",
-          raw_amount: { value: "123.45678901234567890", precision: 20 } }] }] });
+          raw_amount: { value: "123.45678901234567890", precision: 20 } }] }, { id: "exact-second", prices: [] }] });
       const events = (await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents)).slice(before.length);
       expect(events.map(event => event.envelope.contract).sort()).toEqual([
-        "pricing.price-set.created", "pricing.price.created", "pricing.price-rule.created",
+        "pricing.price-set.created", "pricing.price.created", "pricing.price-rule.created", "pricing.price-set.created",
       ].sort());
       expect(await Effect.runPromise(host.run(key, [{ id: "exact", prices: [{ id: "exact-price",
         currency_code: "USD", amount: "123.4567890123456789", rules: { region_id: "region" } }] }]))).toEqual(value);

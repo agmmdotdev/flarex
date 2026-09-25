@@ -222,13 +222,16 @@ export const forEachLogicalSetNullPage = Effect.fn("LogicalReferences.forEachSet
 });
 
 export interface LogicalReferenceReplacementSelection {
-  readonly detach: readonly Readonly<{ key: string; rowId: AppRowIdHexV1; commitSeq: CommitSeq }>[];
-  readonly associate: readonly Readonly<{ key: string; rowId: AppRowIdHexV1; commitSeq: CommitSeq }>[];
+  readonly detach: readonly Readonly<{ key: string; rowId: AppRowIdHexV1; commitSeq: CommitSeq | null }>[];
+  readonly associate: readonly Readonly<{ key: string; rowId: AppRowIdHexV1; commitSeq: CommitSeq | null }>[];
+  /** Coalesced pending afterimages, lowered once with the complete native root. */
+  readonly pendingChanges: readonly LogicalDocumentChange[];
 }
 const replacementSelections = new WeakMap<object, Readonly<{
   tx: FlarexMetadataTransaction; scopeId: string; sourceTableId: CatalogTableId; sourceColumn: string;
   targetTableId: CatalogTableId; targetColumn: string; targetKey: string;
   clock: ScopeClockRecord; readBytes: number;
+  pendingIds: ReadonlySet<AppRowIdHexV1>;
 }>>();
 
 /** Select exactly the active rows a native nullable-reference replacement
@@ -236,7 +239,8 @@ const replacementSelections = new WeakMap<object, Readonly<{
  * these row identities to framework code. Materialization must recheck every
  * selected revision before lowering and must account for all rows and events. */
 export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.selectReplacement")(function* <Failure>(
-  input: Readonly<LogicalReferencePageInput<Failure> & { readonly desiredKeys: readonly string[] }>,
+  input: Readonly<LogicalReferencePageInput<Failure> & { readonly desiredKeys: readonly string[];
+    readonly pendingChanges: readonly LogicalDocumentChange[] }>,
 ) {
   const admission = yield* input.requireAdmission;
   if (admission.tx !== input.tx) return yield* Effect.fail(input.error("invalidAuthority"));
@@ -250,6 +254,9 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
     new Set(input.desiredKeys).size !== input.desiredKeys.length)
     return yield* Effect.fail(input.error("invalidInput"));
   const desired = new Set(input.desiredKeys);
+  const pending = new Map(input.pendingChanges.filter(change => change.tableId === input.sourceTableId).map(change => [change.rowId, change]));
+  const pendingKeys = new Set<string>();
+  const pendingChanges: LogicalDocumentChange[] = [];
   const detach: LogicalReferenceReplacementSelection["detach"][number][] = [];
   const associate: LogicalReferenceReplacementSelection["associate"][number][] = [];
   let selectedBytes = 0;
@@ -257,11 +264,40 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
   const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(input.tx, admission.authority.scopeId)
     .pipe(Effect.mapError(cause => input.error(cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
       ? "statementFailure" : cause instanceof ScopeClockNotFoundError ? "invalidAuthority" : "storedCorruption", cause)));
+  const time = yield* runDrizzleStatementEffect(input.tx.select({ timestamp: sql<unknown>`current_timestamp` })
+    .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, admission.authority.scopeId)), cause => input.error("statementFailure", cause));
+  const timestamp = databaseTimestampFromUnknown(time[0]?.timestamp);
+  if (timestamp === null) return yield* Effect.fail(input.error("storedCorruption"));
+  for (const change of pending.values()) {
+    if (change.kind !== "live") continue;
+    const value = change.document.valueJson;
+    if (!isJsonObject(value) || value._id !== change.documentId || value._creationTime !== change.creationTime)
+      return yield* Effect.fail(input.error("storedCorruption"));
+    const native = Object.fromEntries(Object.entries(value).filter(([name]) => name !== "_id" && name !== "_creationTime"));
+    yield* Effect.fromResult(policy.validate(native, "storedCorruption"));
+    const key = native[identity];
+    if (typeof key !== "string" || pendingKeys.has(key)) return yield* Effect.fail(input.error("invalidAuthority"));
+    pendingKeys.add(key);
+    selectedBytes += 256 + change.document.canonicalBytes.byteLength;
+    if (selectedBytes > logicalReferenceTransitionBudget.totalReadBytes) return yield* Effect.fail(input.error("limitExceeded"));
+    if (policy.deletedAt !== undefined && native[policy.deletedAt] !== null) continue;
+    const associateRow = desired.has(key);
+    if (!associateRow && native[input.sourceColumn] !== input.targetKey) continue;
+    const selectedRow = Object.freeze({ key, rowId: change.rowId,
+      commitSeq: change.dependency.observed.kind === "present" ? change.dependency.observed.revisionCommitSeq : null });
+    (associateRow ? associate : detach).push(selectedRow);
+    const updated = yield* Effect.fromResult(policy.normalize({ [input.sourceColumn]: associateRow ? input.targetKey : null }, native,
+      timestamp.toISOString()).pipe(Result.mapError(cause => input.error("storedCorruption", cause))));
+    const document = yield* canonicalizeFlarexValueV1Effect({ ...updated, _id: change.documentId, _creationTime: change.creationTime }, "appDocument")
+      .pipe(Effect.mapError(cause => input.error("storedCorruption", cause)));
+    pendingChanges.push(Object.freeze({ ...change, document }));
+  }
   const oldCount = yield* forEachLogicalReferencePage(input, (rows, current) => Effect.gen(function* () {
     if (clock.scopeId !== current.scopeId || clock.epoch !== current.epoch ||
       clock.storageGeneration !== current.storageGeneration || clock.lastCommitSeq !== current.lastCommitSeq)
       return yield* Effect.fail(input.error("invalidAuthority"));
     for (const row of rows) {
+      if (pending.has(row.rowId)) continue;
       const value = row.document.valueJson;
       selectedBytes += 256 + row.document.canonicalBytes.byteLength;
       if (selectedBytes > logicalReferenceTransitionBudget.totalReadBytes)
@@ -280,13 +316,14 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
       }
       if (!desired.has(value[identity])) detach.push(Object.freeze({ key: value[identity],
         rowId: row.rowId, commitSeq: row.commitSeq }));
-      if (detach.length > 255) return yield* Effect.fail(input.error("limitExceeded"));
+      if (detach.length + associate.length > 255) return yield* Effect.fail(input.error("limitExceeded"));
     }
   }));
   if (oldCount > logicalReferenceTransitionBudget.affectedRows)
     return yield* Effect.fail(input.error("invalidAuthority"));
   const ready = new Set<CatalogIndexDefinitionId>();
   for (const key of desired) {
+    if (pendingKeys.has(key)) continue;
     if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
       return yield* Effect.fail(input.error("limitExceeded"));
     const where: LogicalWhere = { [identity]: key,
@@ -306,6 +343,7 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
     if (entries.length > 1) return yield* Effect.fail(input.error("storedCorruption"));
     const entry = entries[0];
     if (entry === undefined) continue;
+    if (pending.has(entry.rowId)) continue;
     if (entry.tableId !== input.sourceTableId) return yield* Effect.fail(input.error("storedCorruption"));
     const captured = yield* readBoundedCurrentAppRowsInTransactionEffect(input.tx, {
       scopeId: admission.authority.scopeId, tableId: input.sourceTableId,
@@ -338,12 +376,13 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
     associate.push(Object.freeze({ key, rowId: row.rowId, commitSeq: row.commitSeq }));
   }
   // The native selector updates each phase in ascending Product ID order.
+  if (detach.length + associate.length > 255) return yield* Effect.fail(input.error("limitExceeded"));
   const selection = Object.freeze({ detach: Object.freeze(detach.toSorted(compareReferenceKeys)),
-    associate: Object.freeze(associate.toSorted(compareReferenceKeys)) }) satisfies LogicalReferenceReplacementSelection;
+    associate: Object.freeze(associate.toSorted(compareReferenceKeys)), pendingChanges: Object.freeze(pendingChanges) }) satisfies LogicalReferenceReplacementSelection;
   replacementSelections.set(selection, Object.freeze({ tx: input.tx, scopeId: admission.authority.scopeId,
     sourceTableId: input.sourceTableId, sourceColumn: input.sourceColumn,
     targetTableId: input.targetTableId, targetColumn: input.targetColumn, targetKey: input.targetKey,
-    clock, readBytes: selectedBytes }));
+    clock, readBytes: selectedBytes, pendingIds: new Set(pending.keys()) }));
   return selection;
 });
 
@@ -387,9 +426,10 @@ export const forEachLogicalReferenceReplacementPage = Effect.fn("LogicalReferenc
   const started = yield* Clock.currentTimeMillis;
   let readBytes = sealed.readBytes;
   let processed = 0;
-  for (const [rows, replacement] of [
+  for (const [selectedRows, replacement] of [
     [input.selection.detach, null], [input.selection.associate, input.targetKey],
   ] as const) {
+    const rows = selectedRows.filter(row => !sealed.pendingIds.has(row.rowId));
     for (let offset = 0; offset < rows.length; offset += logicalReferenceTransitionBudget.pageRows) {
       if ((yield* input.requireAdmission) !== admission)
         return yield* Effect.fail(input.error("invalidAuthority"));

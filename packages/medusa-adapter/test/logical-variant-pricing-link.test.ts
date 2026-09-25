@@ -36,8 +36,7 @@ async function prepareAttachHost(selected: Awaited<ReturnType<typeof prepareLogi
   return Effect.runPromise(prepareAtomicWorkflowHost({
     execution: { identityAndAccessPolicy: selected.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...selected.hostInput, ...composition }) },
-    modules: { link: { module: selected.runtime.workflow, logicalStorage: selected.hostInput.logicalStorage,
-      moduleEvents: selected.runtime.logicalEventPolicy() } },
+    modules: { link: { module: selected.runtime.workflow, logicalStorage: selected.hostInput.logicalStorage } },
     revision: "c".repeat(64), subscribers: [{ id: "logical-variant-pricing-link", revision: "d".repeat(64) }],
     workflow: { name: "logicalVariantPricingLinkAttach", resources, prepared: Result.getOrThrow(flow.prepare()),
       input: Input, output: Output, events: internalModuleWorkflowEvents },
@@ -74,11 +73,9 @@ describe("native Variant–PriceSet Link on shared logical storage", () => {
 
   it("refuses a Link row whose native attached message is missing", async () => {
     const policy = link.runtime.logicalEventPolicy();
-    expect(await Effect.runPromise(Effect.result(policy.validateLogical([
-      { commandName: "linkCreate", mode: "write", input: [], result: [], events: [], fromAttempt: 0, toAttempt: 1,
-        fromLifecycle: 0, toLifecycle: 0 },
-    ], [{ ordinal: 0, table: "product_variant_price_set", operation: "insert", before: null,
-      after: { id: "pvps_orphan", variant_id: "variant", price_set_id: "pset", deleted_at: null } }], [], [], []))))
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ commandName: "linkCreate", mode: "write", input: [], result: [], events: [], fromAttempt: 0, toAttempt: 1,
+        fromLifecycle: 0, toLifecycle: 0 }, { mutations: [{ ordinal: 0, table: "product_variant_price_set", operation: "insert", before: null,
+      after: { id: "pvps_orphan", variant_id: "variant", price_set_id: "pset", deleted_at: null } }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 

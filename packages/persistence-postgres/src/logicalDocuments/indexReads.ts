@@ -3,7 +3,7 @@ import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { OrderedIndexBoundsV1 } from "flarex-protocol/ordered-index";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError,
-  type AppIndexRangeEntryV1, type AppIndexEntryTransaction } from "../appIndexEntries";
+  type AppIndexRangeEntryV1, type AppIndexEntryTransaction, type AppIndexRangeCursorV1 } from "../appIndexEntries";
 import type { LogicalDocumentFailure } from "./model";
 
 export interface LogicalIndexRead {
@@ -11,6 +11,22 @@ export interface LogicalIndexRead {
   readonly bounds: OrderedIndexBoundsV1;
   readonly entries: readonly AppIndexRangeEntryV1[];
 }
+/** An examined keyset window, including its negative interval and EOF proof. */
+export interface LogicalIndexPageRead extends LogicalIndexRead {
+  readonly after?: AppIndexRangeCursorV1;
+  readonly isDone: boolean;
+}
+
+export const readLogicalIndexPage = Effect.fn("LogicalDocuments.readIndexPage")(function* <Failure>(
+  tx: AppIndexEntryTransaction, scopeId: ScopeId,
+  selection: Pick<LogicalIndexPageRead, "definition" | "bounds" | "after">,
+  limit: number, error: LogicalDocumentFailure<Failure>,
+  observer?: Parameters<typeof scanCurrentAppIndexInTransactionEffect>[2],
+) {
+  return yield* scanCurrentAppIndexInTransactionEffect(tx, { scopeId, ...selection, limit }, observer)
+    .pipe(Effect.mapError(cause => error(cause instanceof AppIndexEntryReadPersistenceError ? "statementFailure" :
+      cause instanceof AppIndexEntryHashError ? "resourceFailure" : "storedCorruption", cause)));
+});
 
 /** Complete bounded membership, shared by request capture and settlement. */
 export const readLogicalIndexRange = Effect.fn("LogicalDocuments.readIndexRange")(function* <Failure>(

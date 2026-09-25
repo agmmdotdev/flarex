@@ -1,3 +1,4 @@
+import type { LogicalCallReceiptValidation } from "./logical-call-receipt";
 import { Effect, Schema } from "effect";
 import type { CommerceProfileState, LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -5,7 +6,7 @@ import { scalarEventPolicy } from "./scalar-events";
 import { captureCommerceInput } from "./commerce-input";
 import { CommonEvents, Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
 
 /** Reuse scalar fact authentication for each member of the native create graph. */
@@ -52,25 +53,18 @@ export function pricingLogicalCreateEventPolicy() {
     })) return yield* Effect.fail(commerceError("unadmittedEvent"));
     return { ...message, metadata: { ...message.metadata }, data: { ...message.data } } satisfies Json;
   });
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("PricingEvents.validateLogicalCreate")(
-    function* (calls, mutations, lifecycle) {
-      if (lifecycle.length !== 0 || mutations.some((mutation, index) => mutation.ordinal !== index))
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("PricingEvents.validateLogicalCreate")(
+    function* (call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1]) {
+      const { mutations, lifecycle, setNull, referenceReplacements } = activity;
+      if (lifecycle.length || setNull.length || referenceReplacements.length ||
+        mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(commerceError("receiptMismatch"));
-      let cursor = 0;
-      let writes = 0;
-      let emitted: readonly Json[] = [];
-      for (const call of calls) {
-        if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
-        if (call.mode === "read") {
-          if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-          continue;
-        }
-        if (++writes !== 1 || call.commandName !== "pricingCreate" || call.toAttempt !== mutations.length)
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-        cursor = call.toAttempt;
-        emitted = call.events;
+      if (call.mode === "read") {
+        if (mutations.length || call.events.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+        return;
       }
-      if (cursor !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (call.commandName !== "pricingCreate") return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
       const expected = new Set<string>();
       for (const mutation of mutations) {
         const id = mutation.after?.id;
@@ -88,5 +82,5 @@ export function pricingLogicalCreateEventPolicy() {
       }
       if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }

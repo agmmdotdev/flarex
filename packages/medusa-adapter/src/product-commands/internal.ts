@@ -5,7 +5,6 @@ import type { FindConfig } from "@medusajs/framework/types";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { productInternalInput } from "../product-internal-input";
-import { validateCategoryCommand } from "../product-category-input";
 import { decodeProductRead, decodeProductCategoryRead, decodeProductFindConfig, productReadFilters } from "../product-service-input";
 import { decodeProductLifecycleIds } from "../product-lifecycle";
 
@@ -55,7 +54,6 @@ export function productInternalCommands({ metadata, withInternalProduct, withInt
       if (typeof ids === "string") return yield* ctx.refuse(commerceError("invalidInput"));
       return yield* withInternalCategory(ctx, ({ categoryService, context }) => categoryService.delete([...ids], context));
     }
-    yield* validateCategoryCommand(ctx, metadata, input);
     for (const row of input) {
       if (!isJsonObject(row)) return yield* ctx.refuse(commerceError("invalidInput"));
       if (kind === "update") {

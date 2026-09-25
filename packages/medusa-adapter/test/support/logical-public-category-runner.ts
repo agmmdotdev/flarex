@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { Cause, Effect, Option } from "effect";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
-import { productLogicalCallEventPolicy, productLogicalCreateEventPolicy, productLogicalDeleteEventPolicy } from "../../src/product-local-events";
+
 import { captureCommerceInput } from "../../src/commerce-input";
 import { decodeCategoryProjection } from "../../src/product-category-projection";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -62,9 +62,7 @@ export function moduleIntegrationTestRunner(options: ProductRunnerOptions): void
           : operation === "createCategory" ? product.runtime.commands.createCategories
             : operation === "updateCategory" ? product.runtime.commands.updateCategories
               : product.runtime.commands.deleteCategories;
-      const policy = operation === "createProduct" ? productLogicalCreateEventPolicy(catalog)
-        : operation === "deleteProduct" ? productLogicalDeleteEventPolicy(catalog)
-          : productLogicalCallEventPolicy(catalog);
+      const policy = product.runtime.logicalPolicy;
       const names = operation === "createProduct" ? [catalog.product.createdEvent]
         : operation === "deleteProduct" ? [catalog.product.deletedEvent]
           : operation === "createCategory" ? [catalog.category.createdEvent, catalog.category.updatedEvent]
@@ -76,8 +74,7 @@ export function moduleIntegrationTestRunner(options: ProductRunnerOptions): void
       const host = await run(makeAtomicCommerceHost({ ...fixture.hostInput,
         identityAndAccessPolicy: { profile: "native-public-category-" + operation },
         participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-          commands: [selected], ...("validateLogicalCall" in policy
-            ? { validateLogicalCall: policy.validateLogicalCall } : { validateLogical: policy.validateLogical }),
+          commands: [selected], validateLogicalCall: policy.validateLogicalCall,
           events: { contracts, select: (message: Json) => {
             const contract = isJsonObject(message) && typeof message.name === "string"
               ? byName.get(message.name) : undefined;

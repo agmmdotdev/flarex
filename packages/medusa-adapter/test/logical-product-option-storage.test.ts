@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import { productLogicalCreateEventPolicy, productLogicalOptionEventPolicy } from "../src/product-local-events";
+
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
@@ -43,7 +43,7 @@ describe("native Product Option on shared logical Product storage", () => {
       : operation === "update" ? selectedProduct.runtime.commands.updateOptions
       : operation === "upsert" ? selectedProduct.runtime.commands.upsertOptions
       : selectedProduct.runtime.commands.deleteOptions;
-    const policy = productLogicalOptionEventPolicy(catalog, operation);
+    const policy = selectedProduct.runtime.logicalPolicy;
     const profile = `logical-product-option-${operation}${failAfterValidation ? "-late-failure" : ""}`;
     const revision = createHash("sha256").update(profile).digest("hex");
     const contracts = [catalog.option, catalog.value].flatMap(entity => [entity.createdEvent, entity.updatedEvent, entity.deletedEvent])
@@ -54,9 +54,9 @@ describe("native Product Option on shared logical Product storage", () => {
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
       identityAndAccessPolicy: { profile },
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
-        commands: [command], validateLogical: failAfterValidation
-          ? (...args: Parameters<typeof policy.validateLogical>) => policy.validateLogical(...args)
-            .pipe(Effect.flatMap(() => Effect.fail(commerceError("receiptMismatch")))) : policy.validateLogical,
+        commands: [command], validateLogicalCall: failAfterValidation
+          ? (...args: Parameters<typeof policy.validateLogicalCall>) => policy.validateLogicalCall(...args)
+            .pipe(Effect.flatMap(() => Effect.fail(commerceError("receiptMismatch")))) : policy.validateLogicalCall,
         events: { contracts: tokens, select: event => {
           const token = isJsonObject(event) && typeof event.name === "string"
             ? contracts.find(entry => entry.name === event.name)?.token : undefined;
@@ -73,7 +73,7 @@ describe("native Product Option on shared logical Product storage", () => {
 
   async function productCreation(selectedFixture = fixture, selectedProduct = product) {
     const command = selectedProduct.runtime.commands.create;
-    const policy = productLogicalCreateEventPolicy(catalog);
+    const policy = selectedProduct.runtime.logicalPolicy;
     const revision = createHash("sha256").update("logical-option-product-create").digest("hex");
     const contracts = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image]
       .map(entity => ({ name: entity.createdEvent,
@@ -84,7 +84,7 @@ describe("native Product Option on shared logical Product storage", () => {
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
       identityAndAccessPolicy: { profile: "logical-option-product-create" },
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
-        commands: [command], validateLogical: policy.validateLogical,
+        commands: [command], validateLogicalCall: policy.validateLogicalCall,
         events: { contracts: tokens, select: event => {
           const token = isJsonObject(event) && typeof event.name === "string"
             ? contracts.find(entry => entry.name === event.name)?.token : undefined;

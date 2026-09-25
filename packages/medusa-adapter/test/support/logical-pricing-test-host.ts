@@ -29,7 +29,7 @@ export async function logicalPricingTestHost(registerCleanup: (close: () => Prom
   const writer = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
     identityAndAccessPolicy: { profile: "logical-pricing-base-test" },
     participants: [{ participant, logicalStorage: pricing.hostInput.logicalStorage,
-      commands: [pricing.runtime.create], validateLogical: policy.validateLogical,
+      commands: [pricing.runtime.create], validateLogicalCall: policy.validateLogicalCall,
       events: { contracts: tokens, select: event => {
         const contract = isJsonObject(event) && typeof event.name === "string"
           ? contracts.find(candidate => candidate.name === event.name) : undefined;

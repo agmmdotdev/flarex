@@ -4,13 +4,12 @@ import type { ProductCommandServices } from "./services";
 import type { ProductTypes } from "@medusajs/framework/types";
 import { defineCommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { validateCategoryCommand } from "../product-category-input";
 import { decodeVariantImageInput, decodeProductCreateInput } from "../product-service-input";
 import { captureProductTagUpsert } from "../product-tag-input";
 import { decodeProductTagUpdateInput } from "../product-tag-update-input";
 import { decodeVariantThumbnailUpdate } from "../product-variant-workflow-input";
 import { validateProductCreate } from "../product-graph";
-import { decodeRelatedUpdate } from "../product-value-profile";
+import { decodeRelatedUpdate, decodeProductRelationshipUpsert } from "../product-value-profile";
 import { decodeProductLifecycleIds } from "../product-lifecycle";
 
 type Context = Parameters<ProductCommandServices["withService"]>[0];
@@ -47,23 +46,10 @@ export function productMutationCommands({ metadata, withService, withCollectionS
       .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
     return copyRelatedInput(input);
   });
-  const categoryCreate = createInput(metadata.category.table.name);
-  const categoryUpdate = decodeUpdate(metadata.category.table.name);
-  const categoryUpsert = upsertInput(metadata.category.table.name);
+  const createCategoryInput = createInput(metadata.category.table.name);
+  const updateCategoryInput = updateInput(metadata.category.table.name);
+  const upsertCategoryInput = upsertInput(metadata.category.table.name);
   const tagUpsert = upsertInput(metadata.tag.table.name);
-  const createCategoryInput = Effect.fn("ProductAdapter.categoryCreateInput")(function* (ctx: Context, input: Json) {
-    yield* validateCategoryCommand(ctx, metadata, input);
-    return yield* categoryCreate(ctx, input);
-  });
-  const updateCategoryInput = Effect.fn("ProductAdapter.categoryUpdateInput")(function* (ctx: Context, input: Json) {
-    const decoded = yield* categoryUpdate(ctx, input);
-    yield* validateCategoryCommand(ctx, metadata, { ...decoded.data, id: decoded.id });
-    return { id: decoded.id, data: structuredClone(decoded.data) };
-  });
-  const upsertCategoryInput = Effect.fn("ProductAdapter.categoryUpsertInput")(function* (ctx: Context, input: Json) {
-    yield* validateCategoryCommand(ctx, metadata, input);
-    return yield* categoryUpsert(ctx, input);
-  });
   const upsertTagInput = Effect.fn("ProductAdapter.tagUpsertInput")(function* (ctx: Context, input: Json) {
     const admitted = yield* captureProductTagUpsert(ctx, metadata.tag, input);
     const prepared = yield* tagUpsert(ctx, admitted);
@@ -143,6 +129,12 @@ export function productMutationCommands({ metadata, withService, withCollectionS
   // assertions. The selected DAL/core still validate normalized rows and authority.
   return {
     create, update: productChange("update"), upsert: productChange("upsert"),
+    upsertRelationships: defineCommerceCommand("productUpsertRelationships", "write", Effect.fn("ProductAdapter.upsertRelationships")(function* (ctx, input) {
+      const rows = yield* Effect.fromResult(decodeProductRelationshipUpsert(input))
+        .pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      if (new Set(rows.map(row => row.id)).size !== rows.length) return yield* ctx.refuse(commerceError("invalidInput"));
+      return yield* withService(ctx, ({ service, context }) => service.upsertProducts(structuredClone(rows), context));
+    })),
     removeImageFromVariant, softDeleteTags, updateTagsBySelector, updateVariantsBySelector,
     createTags: commands.write("productCreatetag", createInput(metadata.tag.table.name), ({ service, context }, args) => service.createProductTags(args.rows as ProductTypes.CreateProductTagDTO[], context), relatedResult),
     createTypes: commands.write("productCreatetype", createInput(metadata.type.table.name), ({ service, context }, args) => service.createProductTypes(args.rows as ProductTypes.CreateProductTypeDTO[], context), relatedResult),

@@ -8,7 +8,7 @@ import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
 import { moduleAliases } from "./local-graph/module";
 import { decodeGraphCount } from "./local-graph/query";
 import type { GraphModuleDefinition } from "./local-graph/model";
-import type { IFulfillmentModuleService, DAL, IEventBusModuleService, FindConfig, ShippingProfileDTO, CreateShippingProfileDTO, FilterableShippingProfileProps } from "@medusajs/framework/types";
+import type { DAL, IEventBusModuleService, FindConfig, ShippingProfileDTO, CreateShippingProfileDTO, FilterableShippingProfileProps } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineCommerceModule } from "./module-definition";
@@ -123,7 +123,7 @@ export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapte
     const createShippingProfiles = yield* defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
       encode: ([profiles]) => profiles, output: decodeCreatedProfiles,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: "shipping_profile", action: "created" })] });
-    const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description, methods: { createShippingProfiles }, graph });
+    const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description, methods: { createShippingProfiles }, graph, logical: { ...shippingProfileLogicalEventPolicy(), commands: [create, list, count, retrieve] } });
     return { create, list, count, retrieve, graph, workflow,
       commands: [create, list, count, retrieve],
       withService: module.use,

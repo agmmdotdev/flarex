@@ -33,7 +33,7 @@ export const makeCategoryCurrencyAtomicCommand = Effect.fn("CommerceAdapter.cate
     const reread = yield* ctx.call(currencyParticipant, currencyCommands.retrieve, { code: args.currency.code });
     return { parent, child, currency, tree, counted, reread };
   }));
-  return { command, productParticipant, currencyParticipant, graph,
+  return { command, productParticipant, currencyParticipant, graph, productLogicalPolicy: product.logicalPolicy,
     productCommands: [product.commands.internalCategoryCreate, product.commands.internalCategoryRetrieve, product.commands.internalCategoryCount,
       ...product.graph.reads.map(read => read.command)],
     currencyCommands: [currencyAnnouncementWrite, currencyCommands.retrieve, ...currencyQueries.reads.map(read => read.command)],

@@ -2,7 +2,8 @@ import { Result, Schema } from "effect";
 import type { CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "./commerce-decoder";
 import { defineWorkflowMethod } from "./workflow/module";
-import { ProductRelationshipId as Id, ProductRelationshipIds as Ids } from "./product-value-profile";
+import { ProductRelationshipId as Id, ProductRelationshipIds as Ids, ProductRelationshipUpsertRows } from "./product-value-profile";
+import type { ProductTypes } from "@medusajs/framework/types";
 
 export const ProductMembershipChange = Schema.Struct({ id: Id, add: Schema.optionalKey(Ids), remove: Schema.optionalKey(Ids) });
 /** The pinned Category step concatenates add and remove before one bounded list. */
@@ -18,9 +19,20 @@ export const ProductRelationshipsInput = Schema.Struct({ collection: ProductMemb
 const Identity = Schema.Struct({ id: Id });
 const IdRows = Schema.Array(Identity).check(Schema.isMaxLength(256));
 export const ProductRelationshipsOutput = Schema.Struct({
-  products: Schema.Array(Schema.Struct({ id: Id, collection_id: Schema.NullOr(Id), categories: IdRows })).check(Schema.isMaxLength(256)),
-  collections: Schema.Array(Schema.Struct({ id: Id, products: IdRows })).check(Schema.isMaxLength(256)),
+  productsAfterCategory: Schema.Array(Schema.Struct({ id: Id, categories: IdRows })).check(Schema.isMaxLength(256)),
+  collection: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("skipped"), id: Id }),
+    Schema.Struct({ kind: Schema.Literal("replacementRequested"), id: Id, requestedProductIds: Ids }),
+  ]),
 });
+export const ProductCollectionMembershipOutput = ProductRelationshipsOutput.fields.collection;
+/** Native update returns requested stubs, including IDs absent from storage.
+ * This private result deliberately does not claim a final membership graph. */
+export function collectionReplacementResult(id: string, updated: ProductTypes.ProductCollectionDTO | undefined) {
+  return updated === undefined ? { kind: "skipped" as const, id }
+    : { kind: "replacementRequested" as const, id: updated.id,
+      requestedProductIds: [...new Set((updated.products ?? []).map(product => product.id))] };
+}
 
 const CategoryListFilters = Schema.Struct({ id: Ids });
 const CategoryListConfig = Schema.Struct({ select: Schema.Tuple([Schema.Literal("id")]),
@@ -29,7 +41,6 @@ const decodeListArguments = commerceDecoder(Schema.Tuple([CategoryListFilters, C
 const CollectionRetrieveConfig = Schema.Struct({ select: Schema.Tuple([Schema.Literal("id"), Schema.Literal("products.id")]),
   relations: Schema.Tuple([Schema.Literal("products")]) });
 const decodeRetrieveArguments = commerceDecoder(Schema.Tuple([Id, CollectionRetrieveConfig]), "invalidInput");
-export const ProductRelationshipUpsertRows = Schema.Array(Schema.Struct({ id: Id, category_ids: Ids })).check(Schema.isMaxLength(256));
 const decodeUpsertArguments = commerceDecoder(Schema.Tuple([ProductRelationshipUpsertRows]), "invalidInput");
 const CollectionUpdateData = Schema.Struct({ product_ids: Ids });
 const decodeUpdateArguments = commerceDecoder(Schema.Tuple([Id, CollectionUpdateData]), "invalidInput");
@@ -38,17 +49,10 @@ const Row = Schema.StructWithRest(Identity, [Schema.Record(Schema.String, Schema
 export const ProductRelationshipResultRows = Schema.Array(Row).check(Schema.isMaxLength(256));
 const decodeRows = commerceDecoder(ProductRelationshipResultRows, "storedCorruption");
 const decodeRow = commerceDecoder(Row, "storedCorruption");
-export const ProductRelationshipCollectionReadCall = Schema.Struct({ id: Id, config: CollectionRetrieveConfig });
-export const ProductRelationshipCollectionWriteCall = Schema.Struct({ id: Id, data: CollectionUpdateData });
-export const ProductRelationshipCollectionWriteResult = Row;
 export const ProductRelationshipCategoryProducts = Schema.Array(Schema.StructWithRest(Schema.Struct({ id: Id,
   categories: Schema.Array(Row).check(Schema.isMaxLength(256)),
 }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(256));
 const decodeCategoryProducts = commerceDecoder(ProductRelationshipCategoryProducts, "storedCorruption");
-export const ProductRelationshipCategoryListCall = Schema.Struct({
-  filters: CategoryListFilters,
-  config: CategoryListConfig,
-});
 export const ProductRelationshipCollectionReadResult = Schema.StructWithRest(Schema.Struct({ id: Id,
   products: Schema.Array(Row).check(Schema.isMaxLength(256)),
 }), [Schema.Record(Schema.String, Schema.Json)]);
@@ -58,14 +62,14 @@ const decodeCollection = commerceDecoder(ProductRelationshipCollectionReadResult
  * compatibility method name does not grant arbitrary Product creation/update. */
 export function productRelationshipWorkflowMethods(commands: {
   readonly list: CommerceCommand; readonly retrieveCollection: CommerceCommand;
-  readonly upsert: CommerceCommand; readonly updateCollections: CommerceCommand;
+  readonly upsertRelationships: CommerceCommand; readonly updateCollections: CommerceCommand;
 }, events: { readonly productUpdated: string; readonly collectionUpdated: string }) {
   return Result.gen(function* () {
     const listProducts = yield* defineWorkflowMethod({ command: commands.list, arguments: decodeListArguments,
       encode: ([filters, config]) => ({ filters, config }), output: decodeCategoryProducts });
     const retrieveProductCollection = yield* defineWorkflowMethod({ command: commands.retrieveCollection, arguments: decodeRetrieveArguments,
       encode: ([id, config]) => ({ id, config }), output: decodeCollection });
-    const upsertProducts = yield* defineWorkflowMethod({ command: commands.upsert, arguments: decodeUpsertArguments,
+    const upsertProducts = yield* defineWorkflowMethod({ command: commands.upsertRelationships, arguments: decodeUpsertArguments,
       encode: ([products]) => products, output: decodeRows, moduleEvents: [events.productUpdated] });
     const updateProductCollections = yield* defineWorkflowMethod({ command: commands.updateCollections, arguments: decodeUpdateArguments,
       encode: ([id, data]) => ({ id, data }), output: decodeRow, moduleEvents: [events.collectionUpdated, events.productUpdated] });

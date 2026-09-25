@@ -13,7 +13,7 @@ export interface CatalogSelection {
   readonly count: number;
 }
 export type ReadWindow =
-  | { readonly kind: "database"; readonly countAt: "beforePopulation" | "afterPopulation" }
+  | { readonly kind: "database" | "page"; readonly countAt: "beforePopulation" | "afterPopulation" }
   | { readonly kind: "catalog"; readonly order: string; readonly select: (rows: readonly JsonObject[]) => CatalogSelection };
 export interface ReadPlan {
   readonly table: string;
@@ -61,7 +61,7 @@ export const executeRead: (
 });
 
 type BoundReadWindow = Extract<ReadWindow, { readonly kind: "catalog" }>
-  | (Extract<ReadWindow, { readonly kind: "database" }> & { readonly store: CommerceCommandContext["store"] });
+  | (Exclude<ReadWindow, { readonly kind: "catalog" }> & { readonly store: CommerceCommandContext["store"] });
 
 /** Keep the store and deferred count inside this request's execution boundary. */
 const readWindow = Effect.fn("MedusaRead.window")(function* (
@@ -72,7 +72,8 @@ const readWindow = Effect.fn("MedusaRead.window")(function* (
     const selected = window.select(rows);
     return { rows: selected.rows, count: Effect.succeed(selected.count) };
   }
-  const rows = yield* window.store.find(ctx.manager, query);
+  const rows = window.kind === "page" ? (yield* window.store.findPage(ctx.manager, query)).rows
+    : yield* window.store.find(ctx.manager, query);
   return { rows, count: Effect.suspend(() => window.store.count(ctx.manager, query)) };
 });
 

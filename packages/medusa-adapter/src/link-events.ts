@@ -1,9 +1,10 @@
+import type { LogicalCallReceiptValidation } from "./logical-call-receipt";
 import { Effect, Schema } from "effect";
 import type { CommerceProfileState, LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 
 /** The selected Link receipt binds native events to attempted rows or an
  * authenticated unchanged-restore observation, never a final-row reread. */
@@ -23,29 +24,22 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
       return yield* Effect.fail(commerceError("unadmittedEvent"));
     return message satisfies Json;
   });
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("LinkEvents.validateLogical")(
-    function* (calls, mutations, lifecycle) {
-      if (mutations.some((mutation, index) => mutation.ordinal !== index))
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("LinkEvents.validateLogicalCall")(
+    function* (call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1]) {
+      const { mutations, lifecycle, setNull, referenceReplacements } = activity;
+      if (setNull.length || referenceReplacements.length || mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(commerceError("receiptMismatch"));
-      let cursor = 0;
-      let lifecycleCursor = 0;
-      for (const call of calls) {
-        if (call.fromAttempt !== cursor || call.fromLifecycle !== lifecycleCursor ||
-          call.toAttempt < cursor || call.toAttempt > mutations.length ||
-          call.toLifecycle < lifecycleCursor || call.toLifecycle > lifecycle.length)
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-        if (call.mode === "read") {
-          if (call.toAttempt !== cursor || call.toLifecycle !== lifecycleCursor || call.events.length !== 0)
-            return yield* Effect.fail(commerceError("receiptMismatch"));
-          continue;
-        }
+      if (call.mode === "read") {
+        if (mutations.length || lifecycle.length || call.events.length) return yield* Effect.fail(commerceError("receiptMismatch"));
+        return;
+      }
         if (call.commandName !== "linkCreate" && call.commandName !== "linkDismiss"
           && call.commandName !== "linkDelete" && call.commandName !== "linkRestore")
           return yield* Effect.fail(commerceError("receiptMismatch"));
         const command = call.commandName;
         const expected: string[] = [];
         const expectedAction = command === "linkDismiss" || command === "linkDelete" ? "detached" : "attached";
-        for (const mutation of mutations.slice(cursor, call.toAttempt)) {
+        for (const mutation of mutations) {
           const row = mutation.after;
           const id = row?.id;
           if (mutation.table !== tableName ||
@@ -58,10 +52,10 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
             return yield* Effect.fail(commerceError("receiptMismatch"));
           expected.push(id);
         }
-        if (command === "linkCreate" && call.toLifecycle !== lifecycleCursor)
+        if (command === "linkCreate" && lifecycle.length !== 0)
           return yield* Effect.fail(commerceError("receiptMismatch"));
         const seen = new Set<number>();
-        for (const change of lifecycle.slice(lifecycleCursor, call.toLifecycle)) {
+        for (const change of lifecycle) {
           if (change.table !== tableName || change.operation !== (command === "linkDismiss" || command === "linkDelete" ? "softDelete" : "restore") ||
             typeof change.key[primary] !== "string" || typeof change.key[foreign] !== "string" ||
             Object.keys(change.key).length !== 2 ||
@@ -79,14 +73,14 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
             continue;
           }
           const mutation = mutations[change.attemptOrdinal];
-          if (change.attemptOrdinal < cursor || change.attemptOrdinal >= call.toAttempt ||
+          if (change.attemptOrdinal < 0 || change.attemptOrdinal >= mutations.length ||
             mutation === undefined || seen.has(change.attemptOrdinal) || mutation.after === null || mutation.before === null ||
             mutation.after[primary] !== change.key[primary] || mutation.after[foreign] !== change.key[foreign] ||
             mutation.before.deleted_at !== change.beforeDeletedAt || mutation.after.deleted_at !== change.afterDeletedAt)
             return yield* Effect.fail(commerceError("receiptMismatch"));
           seen.add(change.attemptOrdinal);
         }
-        if (command !== "linkCreate" && seen.size !== call.toAttempt - cursor)
+        if (command !== "linkCreate" && seen.size !== mutations.length)
           return yield* Effect.fail(commerceError("receiptMismatch"));
         for (const event of call.events) {
           const message = yield* capture(event);
@@ -98,18 +92,13 @@ export function linkLogicalEventPolicy(tableName: string, serviceName: string, e
           }
         }
         if (expected.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-        cursor = call.toAttempt;
-        lifecycleCursor = call.toLifecycle;
-      }
-      if (cursor !== mutations.length || lifecycleCursor !== lifecycle.length)
-        return yield* Effect.fail(commerceError("receiptMismatch"));
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** One native router may touch several admitted Link tables, but each borrowed
- * call must remain in one family. Project its ordered evidence into the exact
- * single-Link receipts without dropping or reordering a mutation or event. */
+ * call must remain in one family. Validate its local evidence directly; prior
+ * calls and pending observations do not choose the current family. */
 export function selectedLinkLogicalEventPolicy(definitions: readonly {
   readonly tableName: string; readonly serviceName: string; readonly entityName: string;
   readonly endpoints: readonly [string, string];
@@ -134,60 +123,26 @@ export function selectedLinkLogicalEventPolicy(definitions: readonly {
   });
   const capture = Effect.fn("LinkEvents.captureSelectedLogical")((input: unknown) =>
     identify(input).pipe(Effect.map(value => value.message)));
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("LinkEvents.validateSelectedLogical")(
-    function* (calls, mutations, lifecycle, observedRows) {
-      if (!valid || mutations.some((mutation, ordinal) => mutation.ordinal !== ordinal
-        || !selected.some(item => item.tableName === mutation.table))
-        || lifecycle.some(change => !selected.some(item => item.tableName === change.table))
-        || observedRows.some(row => !selected.some(item => item.tableName === row.table)))
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("LinkEvents.validateSelectedLogicalCall")(
+    function* (call: Parameters<LogicalCommerceCallValidation>[0], activity: Parameters<LogicalCommerceCallValidation>[1]) {
+      const { mutations, lifecycle, observedRows, setNull, referenceReplacements } = activity;
+      if (!valid || setNull.length || referenceReplacements.length ||
+        mutations.some((mutation, ordinal) => mutation.ordinal !== ordinal || !selected.some(item => item.tableName === mutation.table)) ||
+        lifecycle.some(change => !selected.some(item => item.tableName === change.table)) ||
+        observedRows.some(row => !selected.some(item => item.tableName === row.table)))
         return yield* Effect.fail(commerceError("receiptMismatch"));
-      let attemptCursor = 0, lifecycleCursor = 0;
-      const eventsByCall: Array<Map<string, Json[]>> = [];
-      for (const call of calls) {
-        if (call.fromAttempt !== attemptCursor || call.fromLifecycle !== lifecycleCursor
-          || call.toAttempt < attemptCursor || call.toAttempt > mutations.length
-          || call.toLifecycle < lifecycleCursor || call.toLifecycle > lifecycle.length)
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-        const touched = new Set([...mutations.slice(attemptCursor, call.toAttempt).map(item => item.table),
-          ...lifecycle.slice(lifecycleCursor, call.toLifecycle).map(item => item.table)]);
-        const messages = new Map<string, Json[]>();
-        for (const event of call.events) {
-          const { member, message } = yield* identify(event);
-          touched.add(member.tableName);
-          const events = messages.get(member.tableName) ?? [];
-          events.push(message); messages.set(member.tableName, events);
-        }
-        if (touched.size > 1 || (call.mode === "read" && touched.size !== 0))
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-        eventsByCall.push(messages);
-        attemptCursor = call.toAttempt; lifecycleCursor = call.toLifecycle;
-      }
-      if (attemptCursor !== mutations.length || lifecycleCursor !== lifecycle.length)
+      const touched = new Set([...mutations.map(item => item.table), ...lifecycle.map(item => item.table)]);
+      for (const event of call.events) touched.add((yield* identify(event)).member.tableName);
+      if (touched.size > 1 || call.mode === "read" && touched.size !== 0)
         return yield* Effect.fail(commerceError("receiptMismatch"));
-      for (const member of selected) {
-        const tableName = member.tableName;
-        const ordinals = new Map(mutations.filter(item => item.table === tableName)
-          .map((item, ordinal) => [item.ordinal, ordinal]));
-        const projectedMutations = mutations.filter(item => item.table === tableName)
-          .map((item, ordinal) => ({ ...item, ordinal }));
-        const projectedLifecycle = [];
-        for (const change of lifecycle.filter(item => item.table === tableName)) {
-          const ordinal = change.attemptOrdinal === null ? null : ordinals.get(change.attemptOrdinal);
-          if (ordinal === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
-          projectedLifecycle.push({ ...change, attemptOrdinal: ordinal });
-        }
-        const countAttempts = (until: number) => mutations.slice(0, until).filter(item => item.table === tableName).length;
-        const countLifecycle = (until: number) => lifecycle.slice(0, until).filter(item => item.table === tableName).length;
-        const projectedCalls = calls.map((call, index) => ({ ...call,
-          fromAttempt: countAttempts(call.fromAttempt), toAttempt: countAttempts(call.toAttempt),
-          fromLifecycle: countLifecycle(call.fromLifecycle), toLifecycle: countLifecycle(call.toLifecycle),
-          events: eventsByCall[index]?.get(tableName) ?? [],
-        }));
-        yield* member.policy.validateLogical(projectedCalls, projectedMutations, projectedLifecycle,
-          observedRows.filter(item => item.table === tableName), []);
-      }
+      const table = touched.values().next().value;
+      // No-op native writes have no family evidence and publish nothing.
+      if (table === undefined) return;
+      const member = selected.find(item => item.tableName === table);
+      if (member === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
+      yield* member.policy.validateLogicalCall(call, activity);
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** Authenticate native non-key event IDs from operation-local storage evidence,

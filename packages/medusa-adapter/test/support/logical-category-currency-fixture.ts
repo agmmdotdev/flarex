@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { makeCategoryCurrencyAtomicCommand } from "../../src/category-currency-atomic-command";
-import { captureProductSchema } from "../../src/product-schema";
-import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
-import { productLogicalCallEventPolicy } from "../../src/product-local-events";
+
+
+
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../../persistence-postgres/src/atomicCommerce/host";
 import type { AtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/commands";
 import { runEffect } from "../../../persistence-postgres/test/effectTestRuntime";
@@ -44,13 +44,11 @@ export async function logicalCategoryCurrencyFixture(
     commands: [product.runtime.commands.internalCategoryList] }));
   registerCleanup(() => runEffect(categoryReadHost.close));
   const proof = await runEffect(makeCategoryCurrencyAtomicCommand());
-  const metadata = await runEffect(captureProductSchema("atomic-commerce")
-    .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
   const input = { ...currency.hostInput,
     commands: [proof.command], participants: [
       { participant: proof.productParticipant, logicalStorage: product.hostInput.logicalStorage,
         commands: proof.productCommands,
-        validateLogicalCall: productLogicalCallEventPolicy(metadata).validateLogicalCall },
+        validateLogicalCall: proof.productLogicalPolicy.validateLogicalCall },
       { participant: proof.currencyParticipant, logicalStorage: currency.hostInput.logicalStorage,
         commands: proof.currencyCommands },
     ] } satisfies AtomicCommerceHostInput<unknown>;

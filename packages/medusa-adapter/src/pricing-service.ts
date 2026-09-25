@@ -3,7 +3,7 @@ import { Price, PriceSet, PriceRule, PriceList, PriceListRule, PricePreference }
 import { PricingModuleService } from "@medusajs/pricing/services";
 import { pricingStaticResources } from "@medusajs/pricing/static-manifest";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
-import type { CreatePriceSetDTO, PriceSetDTO, FilterablePriceSetProps, FindConfig, IEventBusModuleService, IPricingModuleService, PricingRepositoryService } from "@medusajs/framework/types";
+import type { CreatePriceSetDTO, PriceSetDTO, FilterablePriceSetProps, FindConfig, IEventBusModuleService, PricingRepositoryService } from "@medusajs/framework/types";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { capturePricingMetadata } from "./pricing-schema";
@@ -19,7 +19,7 @@ import { moduleAliases } from "./local-graph/module";
 import { decodeGraphCount } from "./local-graph/query";
 import type { GraphModuleDefinition } from "./local-graph/model";
 import { PriceSetsInput, PricingId, decodePriceSetCreate, decodePriceSetRead, decodePriceSetRetrieve } from "./pricing-input";
-import { pricingEventPolicy } from "./pricing-events";
+import { pricingEventPolicy, pricingLogicalCreateEventPolicy } from "./pricing-events";
 const decodeCreateArguments = commerceDecoder(Schema.Tuple([PriceSetsInput]), "invalidInput");
 
 export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(function* () {
@@ -71,7 +71,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       output: commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: PricingId }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4)), "storedCorruption"),
       moduleEvents: ["price_set", "price", "price_rule"].map(objectName => buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action: "created" })),
     });
-    const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description, methods: { createPriceSets }, graph,
+    const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description, methods: { createPriceSets }, graph, logical: { ...pricingLogicalCreateEventPolicy(), commands: [create, list, count, retrieve] },
     });
     return { create, list, count, retrieve, commands: [create, list, count, retrieve], graph, workflow, withService: module.use, eventPolicy: pricingEventPolicy };
   }));

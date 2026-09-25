@@ -142,9 +142,10 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-link-modules/src/definitions/product-shipping-profile.ts",
       "packages/medusa-link-modules/src/definitions/product-variant-price-set.ts",
     ].includes(file.target)) throw new Error("Link adaptation outside its approved finite source closure");
-    if (file.classification === "productServiceFork" &&
-      file.target !== "packages/medusa-product/src/services/product-module-service.ts")
-      throw new Error("Product service adaptation outside its approved source file");
+    if (file.classification === "productServiceFork" && ![
+      "packages/medusa-product/src/services/product-module-service.ts",
+      "packages/medusa-product/src/services/product-category.ts",
+    ].includes(file.target)) throw new Error("Product service adaptation outside its approved source files");
     const owned = [...owners.keys()].some((owner) => file.target.startsWith(owner + "/"))
       || file.target === "tools/medusa/tsconfig.fork.json";
     if (!validPath(file.target) || !owned) throw new Error(`Unadmitted promotion target: ${file.target}`);

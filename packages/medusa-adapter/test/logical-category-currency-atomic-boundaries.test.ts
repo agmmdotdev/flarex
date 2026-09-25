@@ -5,7 +5,7 @@ import { isJsonObject, type Json } from "flarex-protocol/json";
 import { currencyCommands } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCallEventPolicy, productLogicalCreateEventPolicy, productLogicalTypeEventPolicy } from "../src/product-local-events";
+
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, getAtomicCommerceCommand,
   type AtomicCommerceContext } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from
@@ -77,17 +77,17 @@ describe("mixed Category/Currency atomic boundaries on logical Currency", () => 
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const fixtures = [
       { command: product.runtime.commands.createTags, value: { id: "graph-tag", value: "Graph tag" },
-        policy: productLogicalCallEventPolicy(catalog), entities: [catalog.tag] },
+        policy: product.runtime.logicalPolicy, entities: [catalog.tag] },
       { command: product.runtime.commands.createTypes, value: { id: "graph-type", value: "Graph type" },
-        policy: productLogicalTypeEventPolicy(catalog, "create"), entities: [catalog.type] },
+        policy: product.runtime.logicalPolicy, entities: [catalog.type] },
       { command: product.runtime.commands.createCollections,
         value: { id: "graph-collection", title: "Graph collection", handle: "graph-collection" },
-        policy: productLogicalCallEventPolicy(catalog), entities: [catalog.collection] },
+        policy: product.runtime.logicalPolicy, entities: [catalog.collection] },
       { command: product.runtime.commands.create,
         value: { title: "Graph shirt", handle: "graph-shirt", type_id: "graph-type", collection_id: "graph-collection",
           tags: [{ id: "graph-tag" }], images: [{ url: "graph.png" }], options: [{ title: "Size", values: ["S"] }],
           variants: [{ title: "Graph small", options: { Size: "S" } }] },
-        policy: productLogicalCreateEventPolicy(catalog),
+        policy: product.runtime.logicalPolicy,
         entities: [catalog.product, catalog.image, catalog.option, catalog.value, catalog.variant] },
     ];
     for (const [index, fixtureRow] of fixtures.entries()) {
@@ -100,8 +100,7 @@ describe("mixed Category/Currency atomic boundaries on logical Currency", () => 
         ctx.call(proof.productParticipant, fixtureRow.command, value));
       const setup = await selected({ ...currency.hostInput, commands: [root],
         participants: [{ participant: proof.productParticipant, logicalStorage: product.hostInput.logicalStorage,
-          commands: [fixtureRow.command], ...("validateLogicalCall" in fixtureRow.policy ? { validateLogicalCall: fixtureRow.policy.validateLogicalCall }
-            : { validateLogical: fixtureRow.policy.validateLogical }),
+          commands: [fixtureRow.command], validateLogicalCall: fixtureRow.policy.validateLogicalCall,
           events: { contracts, select: event => {
             const contract = isJsonObject(event) && typeof event.name === "string"
               ? named.find(entry => entry.name === event.name)?.contract : undefined;

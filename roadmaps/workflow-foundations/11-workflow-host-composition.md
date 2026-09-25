@@ -7,7 +7,9 @@ registrations and one shared host now assemble commands, graph reads, events and
 scoped resources. The Product-tag consumer uses this assembly; its displaced
 manual wrappers and outer participant-list construction are removed.
 
-Product and Currency remain the admitted consumers. The approved
+Product, Currency, Pricing, SalesChannel, ShippingProfile and the admitted Link
+modules use this host. The [design-quality refactor](../medusa-design-quality/README.md)
+owns current module policy and query contracts. The approved
 [Product-tag update capability](./12-product-tag-updates.md) extends admission
 to one through eight selected participants. Command limits, transaction ownership
 and recovery contracts remain in force. This adds no Task, suspension, remote effect, lock, relational OCC,
@@ -130,9 +132,12 @@ const host = yield* prepareProductTagWorkflow({
 const tags = yield* host.run(requestKey, input)
 ```
 
-Each installed binding pairs a module registration with its already prepared
-profile/installation and optional module-event capture/validation. It neither
-installs a schema nor authorizes itself. The shared host derives the exact
+Each installed binding contains only a module registration and its scoped
+`logicalStorage`. The module owner binds native command provenance, call receipts,
+event capture and required capabilities in its authenticated definition. The
+unused physical workflow binding and caller-installed policy bags are removed;
+lower-level physical Commerce hosts retain their separate consumers. A workflow
+binding neither installs a schema nor authorizes itself. The shared host derives the exact
 participant tokens, command allowlists, graph and event policy and delegates to
 core. Ordinary callers no longer construct those lists or a resolver.
 

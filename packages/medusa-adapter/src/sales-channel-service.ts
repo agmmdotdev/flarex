@@ -113,7 +113,7 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     const createSalesChannels = yield* defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
       encode: ([channels]) => channels, output: decodeCreatedChannels,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.SALES_CHANNEL, objectName: "sales_channel", action: "created" })] });
-    const workflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: module.description, methods: { createSalesChannels }, graph });
+    const workflow = yield* defineWorkflowModule({ name: Modules.SALES_CHANNEL, source: module.description, methods: { createSalesChannels }, graph, logical: { ...salesChannelLogicalEventPolicy(), commands: [create, update, remove, list, count, retrieve] } });
     return { create, update, delete: remove, list, count, retrieve, graph, workflow,
       commands: [create, update, remove, list, count, retrieve],
       withService: module.use,

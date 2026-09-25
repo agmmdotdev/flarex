@@ -153,8 +153,8 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     return attempted > commerceLimits.calls
       ? Effect.fail(commerceError("limitExceeded", { boundary: "statements", attempted, tableId: capability.tableId })) : runOwnedPromise(() => Promise.resolve(query), cause => commerceError("statementFailure", cause));
   });
-  const decodeRows = Effect.fn("CommerceStore.decodeRows")(function* (rows: readonly unknown[] | undefined) {
-    if (rows === undefined || rows.length > resources.queryRows) return yield* Effect.fail(commerceError("storedCorruption"));
+  const decodeRows = Effect.fn("CommerceStore.decodeRows")(function* (rows: readonly unknown[] | undefined, maximum = resources.queryRows) {
+    if (rows === undefined || rows.length > maximum) return yield* Effect.fail(commerceError("storedCorruption"));
     const values: JsonObject[] = [];
     for (const row of rows) {
       if (!isNonArrayRecord(row)) return yield* Effect.fail(commerceError("storedCorruption"));
@@ -290,6 +290,14 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     const row = rows?.[0];
     if (rows?.length !== 1 || !isNonArrayRecord(row) || !countWithin(row.total, resources.catalogRows)) return yield* Effect.fail(commerceError("storedCorruption"));
     return row.total;
+  })));
+  const findPage: CommerceStore["findPage"] = Effect.fn("CommerceStore.findPage")((context, input) => guard(context, "read", Effect.gen(function* () {
+    const query = yield* Effect.fromResult(parseRead(input));
+    // The retained physical compatibility profile has an explicit catalog cap.
+    // Its own SQL owner supplies page lookahead within that bounded catalog.
+    yield* catalogBound();
+    const rows = yield* statement(state.tx.execute(sql`select ${query.selected} from ${target} where ${scoped} and (${query.filter}) order by ${query.order} offset ${query.skip} limit ${query.take + 1}`)).pipe(Effect.flatMap(driverRows), Effect.flatMap(found => decodeRows(found, resources.queryRows + 1)));
+    return Object.freeze({ rows: Object.freeze(rows.slice(0, query.take)), hasMore: rows.length > query.take });
   })));
   const observe = Effect.fn("CommerceStore.observe")(function* (row: JsonObject, operation: CommerceRowObservation["operation"], changed: boolean) {
     if (capability.observeRows !== true) return;
@@ -650,7 +658,9 @@ const makeCommerceTableStore = Effect.fn("CommerceStore.makeTable")(function* (
     }
     return Object.freeze(result);
   })));
-  return Object.freeze({ find, count, write, delete: remove, lifecycle } satisfies CommerceStore);
+  return Object.freeze({ find, findPage, count,
+    aggregate: (context) => guard(context, "read", Effect.fail(commerceError("unsupportedProfile"))),
+    write, delete: remove, lifecycle } satisfies CommerceStore);
 });
 
 export const consumeCommerceRows = Effect.fn("CommerceStore.consume")(function* (

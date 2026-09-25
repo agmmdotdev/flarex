@@ -124,6 +124,15 @@ const reactivateFirst = defineCommerceCommand("pairReactivateFirst", "write", ct
 const deleteFirst = defineCommerceCommand("pairDeleteFirst", "write", ctx => Effect.gen(function* () {
   return yield* (yield* ctx.table("pair")).delete(ctx.manager, [{ left_id: "a", right_id: "1" }]);
 }));
+const pageAfterRekey = defineCommerceCommand("pairPageAfterRekey", "write", ctx => Effect.gen(function* () {
+  const store = yield* ctx.table("pair");
+  yield* store.write(ctx.manager, "update", [{ left_id: "a", right_id: "1", label: "second" }]);
+  const query = { fields: ["left_id", "right_id", "label"], order: { column: "label", direction: "asc" },
+    predicate: { kind: "isNull", column: "deleted_at" }, take: 1 };
+  const first = yield* store.findPage(ctx.manager, query);
+  const second = yield* store.findPage(ctx.manager, { ...query, skip: 1 });
+  return { first, second };
+}));
 
 describe("shared relational composite identity", () => {
   it("executes a neutral composite key on PGlite", async () => {
@@ -185,7 +194,7 @@ const witness = Effect.fn("CompositeIdentity.witness")(function* <Persistence ex
           unique: fixture.uniqueConstraintEligibility, schemaVersionId, source: sourceInput,
           initialization: { stepId: "pair.empty", datasetSha256: dataset.sha256Hex, expectedRowCount: 0 } },
         commands: [list, listByRight, listByEither, listActiveLabel, listActiveEither, listLabelWithoutActive,
-          insertFirst, insertSecond, upsertFirst, deactivateFirst, reactivateFirst, deleteFirst],
+          insertFirst, insertSecond, upsertFirst, deactivateFirst, reactivateFirst, deleteFirst, pageAfterRekey],
       }), host => Effect.gen(function* () {
         expect(yield* host.initialize([])).toEqual({ rowCount: 0 });
         expect(yield* host.run(host.newRequestKey(), insertFirst, {})).toMatchObject([{ left_id: "a", right_id: "1" }]);
@@ -201,6 +210,11 @@ const witness = Effect.fn("CompositeIdentity.witness")(function* <Persistence ex
         expect(yield* host.read(listActiveEither, {})).toMatchObject([{ right_id: "1" }, { right_id: "2" }]);
         expect(yield* Effect.result(host.run(host.newRequestKey(), insertFirst, {})))
           .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+        const pageKey = host.newRequestKey();
+        const paged = yield* host.run(pageKey, pageAfterRekey, null);
+        expect(paged).toEqual({ first: { rows: [{ left_id: "a", right_id: "1", label: "second" }], hasMore: true },
+          second: { rows: [{ left_id: "a", right_id: "2", label: "second" }], hasMore: false } });
+        expect(yield* host.run(pageKey, pageAfterRekey, null)).toEqual(paged);
         expect(yield* host.run(host.newRequestKey(), upsertFirst, {})).toMatchObject({
           written: [{ label: "updated" }], selected: [{ right_id: "1", label: "updated" }], active: [{ label: "updated" }],
         });

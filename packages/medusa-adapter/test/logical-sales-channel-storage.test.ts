@@ -18,7 +18,7 @@ import { prepareLogicalSalesChannelHost } from "./support/logical-sales-channel-
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCreateEventPolicy } from "../src/product-local-events";
+
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid SalesChannel test driver");
@@ -55,9 +55,9 @@ async function prepareNativeHost(selectedFixture = fixture, selectedSales = sale
     return { pending, result };
   }).pipe(Effect.catch(error => Effect.sync(() => { caught.push(error); return "caught"; }))));
   const policy = selectedSales.runtime.logicalEventPolicy();
-  const validateLogicalCall: LogicalCommerceCallValidation = (call, activity) => policy.validateLogicalCall(
+  const validateLogicalCall: LogicalCommerceCallValidation = (call, activity, command) => policy.validateLogicalCall(
     substituteEvents !== undefined && call.mode === "write" ? { ...call, events: substituteEvents(call.events) } : call,
-    activity).pipe(Effect.andThen(() => observe?.(call, activity) ?? Effect.void));
+    activity).pipe(Effect.andThen(() => observe?.(call, activity, command) ?? Effect.void));
   const revision = "1".repeat(64);
   const contracts = {
     created: defineCommerceEventContract({ name: eventName("created"), revision, internal: true, decode: policy.capture }),
@@ -442,7 +442,7 @@ describe("native SalesChannel service on shared logical storage", () => {
   it("commits native Product and SalesChannel writes with distinct events in one logical root", async () => {
     const catalog = await Effect.runPromise(captureProductSchema("logical-sales-endpoints")
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const productPolicy = productLogicalCreateEventPolicy(catalog);
+    const productPolicy = product.runtime.logicalPolicy;
     const salesPolicy = sales.runtime.logicalEventPolicy();
     const productParticipant = defineAtomicCommerceParticipant("product");
     const salesParticipant = defineAtomicCommerceParticipant("salesChannel");
@@ -467,7 +467,7 @@ describe("native SalesChannel service on shared logical storage", () => {
       participants: [
         { participant: productParticipant, logicalStorage: product.hostInput.logicalStorage,
           commands: [product.runtime.commands.create, product.runtime.commands.list],
-          validateLogical: productPolicy.validateLogical,
+          validateLogicalCall: productPolicy.validateLogicalCall,
           events: { contracts: [productCreated], select: () => Effect.succeed(productCreated) } },
         { participant: salesParticipant, logicalStorage: sales.hostInput.logicalStorage,
           commands: [sales.runtime.create, sales.runtime.count], validateLogicalCall: salesPolicy.validateLogicalCall,

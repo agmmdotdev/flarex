@@ -53,6 +53,10 @@ roadmap merely to legitimize an unreviewed divergence.
 
 ## Shared Storage Architecture Replacement
 
+The separate [Medusa design-quality refactor](./medusa-design-quality/README.md)
+tracks construction/composition, semantic ownership, query contracts and extension
+cost. Its completion is distinct from the storage consumer migration below.
+
 The accepted [shared logical storage redesign](./shared-logical-storage/README.md)
 replaces deployment-owned physical Medusa module tables with logical commerce
 records over generic physical families shared with Application and Payload.

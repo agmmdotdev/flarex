@@ -43,6 +43,8 @@ describe("shared Medusa read compilation and execution", () => {
       reason => commerceError(reason), commerceLimits, {}, {}, "currency-budget", "read"));
     const unused = () => Effect.fail(commerceError("unsupportedProfile"));
     const store: CommerceCommandContext["store"] = {
+      findPage: manager => lifetime.operation(manager, "currency-budget", "read", Effect.succeed({ rows: [{ code: "usd" }], hasMore: false })),
+      aggregate: unused,
       find: manager => lifetime.operation(manager, "currency-budget", "read", Effect.succeed([{ code: "usd" }])),
       count: manager => lifetime.operation(manager, "currency-budget", "read", Effect.succeed(1)),
       write: unused, delete: unused, lifecycle: unused,
@@ -125,7 +127,7 @@ describe("shared Medusa read compilation and execution", () => {
       ]);
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const ctx = { manager: lifetime.context, resources: defaultCommerceResources,
-        table: (table: string) => Effect.succeed({
+        table: (table: string) => Effect.succeed({ findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")),
           find: (manager: unknown, query: unknown) => Effect.sync(() => {
             expect(manager).toBe(lifetime.context); operations.push({ table, kind: "find", query });
             const rows = responses.get(table)?.shift();

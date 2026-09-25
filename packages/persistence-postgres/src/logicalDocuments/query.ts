@@ -23,6 +23,43 @@ export const decodeLogicalFindQuery = Schema.decodeUnknownResult(LogicalFindQuer
 export type LogicalWhere = typeof LogicalFindQuery.Type["where"];
 export const isLogicalRange = (value: LogicalWhere[string] | undefined): value is typeof Range.Type => value !== null && typeof value === "object";
 
+/** A page's physical order must be equality-prefix + requested column, with
+ * only the intrinsic creation time and core row identity as tie-breaks. A longer suffix cannot be sorted
+ * away without changing the bounded-work contract. */
+export function selectLogicalPageIndex<Failure>(definitions: readonly LocatedAppIndexDefinitionV1[], tableId: CatalogTableId,
+  orderColumn: string, equality: Readonly<{ column: string; value: string | boolean }> | undefined,
+  requiredNulls: readonly string[], error: LogicalDocumentFailure<Failure>) {
+  return Result.try({ try: () => {
+    for (const definition of definitions) {
+      if (definition.access.kind !== "developer" || definition.access.tableId !== tableId) continue;
+      const predicate = definition.physicalSpec.predicate;
+      if (predicate !== undefined && !(predicate.kind === "fieldIsNull" ? requiredNulls.includes(predicate.field)
+        : requiredNulls.includes(predicate.nullField) && equality?.column === predicate.textField && equality.value === predicate.value)) continue;
+      const ordered = definition.physicalSpec.orderedFields;
+      if (ordered.at(-1)?.kind !== "systemCreationTime") continue;
+      const fields = ordered.slice(0, -1);
+      if (equality !== undefined && equality.column !== orderColumn && fields.length !== 2) continue;
+      const last = fields[fields.length - 1];
+      if (last?.kind !== "documentPath" || last.path !== orderColumn || last.valueFormat !== undefined) continue;
+      const expressions: OrderedIndexRangeExpressionV1[] = [];
+      let aligned = true;
+      for (const field of fields.slice(0, -1)) {
+        if (field.kind !== "documentPath" || field.valueFormat !== undefined || field.path !== equality?.column) { aligned = false; break; }
+        expressions.push({ op: "eq", field, value: orderedIndexValueForAppFieldV1(field, equality.value) });
+      }
+      if (!aligned) continue;
+      if (equality?.column === orderColumn) expressions.push({ op: "eq", field: last,
+        value: orderedIndexValueForAppFieldV1(last, equality.value) });
+      return Option.some(Object.freeze({ definition, bounds: compileAppOrderedIndexBoundsV1({ spec: definition.physicalSpec, expressions }) }));
+    }
+    return Option.none();
+  }, catch: cause => {
+    if (cause instanceof InvalidOrderedIndexRangeV1Error || cause instanceof OrderedIndexCodecV1InputError ||
+      cause instanceof OrderedIndexKeyTooLargeError || cause instanceof FlarexValueCodecV1Error) return error("invalidInput", cause);
+    throw cause;
+  } });
+}
+
 /** Select a declared equality prefix and at most one following range. The shared
  * ordered codec owns bounds and value ordering; this does not grant authority. */
 export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppIndexDefinitionV1[], tableId: CatalogTableId, where: LogicalWhere, error: LogicalDocumentFailure<Failure>) {

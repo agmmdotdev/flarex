@@ -39,7 +39,7 @@ async function prepareLifecycleHost(selectedFixture = fixture, selectedLink = li
     identityAndAccessPolicy: { profile: "logical-variant-pricing-link-lifecycle" },
     participants: [{ participant, logicalStorage: selectedLink.hostInput.logicalStorage,
       commands: [selectedLink.runtime.create, selectedLink.runtime.dismiss, selectedLink.runtime.restore],
-      validateLogical: policy.validateLogical, events: { contracts: [attached, detached], select } }],
+      validateLogicalCall: policy.validateLogicalCall, events: { contracts: [attached, detached], select } }],
     commands: [create, dismiss, restore], events: { producerRevision: revision, contracts: [attached, detached],
       subscribers: [{ id: "logical-variant-pricing-link-lifecycle", revision: "f".repeat(64) }],
       validate: emitted => emitted.some(event => !event.internal)
@@ -61,11 +61,9 @@ describe("native Variant–PriceSet Link lifecycle on shared logical storage", (
 
   it("refuses an unchanged restore without its authenticated row observation", async () => {
     const policy = link.runtime.logicalEventPolicy();
-    expect(await Effect.runPromise(Effect.result(policy.validateLogical([
-      { commandName: "linkRestore", mode: "write", input: { price_set_id: "forged-set" }, result: null,
-        events: [], fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 1 },
-    ], [], [{ table: "product_variant_price_set", key: { variant_id: "forged-variant", price_set_id: "forged-set" },
-      operation: "restore", beforeDeletedAt: null, afterDeletedAt: null, attemptOrdinal: null, rowAtOperation: null }], [], []))))
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ commandName: "linkRestore", mode: "write", input: { price_set_id: "forged-set" }, result: null,
+        events: [], fromAttempt: 0, toAttempt: 0, fromLifecycle: 0, toLifecycle: 1 }, { mutations: [], lifecycle: [{ table: "product_variant_price_set", key: { variant_id: "forged-variant", price_set_id: "forged-set" },
+      operation: "restore", beforeDeletedAt: null, afterDeletedAt: null, attemptOrdinal: null, rowAtOperation: null }], observedRows: [], setNull: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 

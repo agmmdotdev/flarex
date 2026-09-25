@@ -219,8 +219,11 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
     ...(allowReferenceReplacement ? { allowReferenceReplacement: true as const } : {}) }, closed.changes);
   const admitted = requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   const replacements = yield* Effect.forEach(closed.changes.referenceReplacements, intent =>
-    selectLogicalReferenceReplacement({ tx, ...intent, requireAdmission: admitted,
+    selectLogicalReferenceReplacement({ tx, ...intent, pendingChanges: contribution.changes, requireAdmission: admitted,
       error: logicalCommerceError }).pipe(Effect.map(selection => Object.freeze({ intent, selection }))));
+  const pending = new Map(replacements.flatMap(({ selection }) => selection.pendingChanges.map(change => [change.documentId, change] as const)));
+  const rootChanges = contribution.changes.map(change => pending.get(change.documentId) ?? change);
+  const rootDependencies = contribution.dependencies.map(row => pending.get(row.documentId) ?? row);
   const derivedIds = Object.freeze(replacements.flatMap(({ selection }) =>
     [...selection.detach, ...selection.associate].map(row => row.key)));
   const requireAdmission = admitted.pipe(Effect.asVoid);
@@ -241,6 +244,14 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
       readonly rowId: typeof contribution.changes[number]["rowId"] }[]) => Effect.Effect<void, CommerceTransactionError>) {
     let rowCount = 0;
     const adjacencyChanges: Array<Effect.Success<ReturnType<Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>>[number]> = [];
+    const lowerRoot = Effect.fn("LogicalCommerce.lowerRoot")(function* () {
+    const root = yield* core.prepareDelta(rootChanges, rootDependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
+    adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
+    yield* appendRows(rootChanges.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+    });
+    // Validate all original reads before any derived self-write; keep all native
+    // changes together for their unique-key and foreign-key transitions.
+    if (replacements.length !== 0) yield* lowerRoot();
     for (const intent of closed.changes.setNull) {
       yield* forEachLogicalSetNullPage({ tx, sourceTableId: intent.sourceTableId,
         sourceColumn: intent.sourceColumn, targetTableId: intent.targetTableId,
@@ -262,18 +273,18 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
           rowCount += changes.length;
           loweredIds.push(...keys);
         }));
-      if (loweredIds.length !== derivedIds.length ||
-        loweredIds.some((key, index) => key !== derivedIds[index]))
+      const pendingRows = new Set(selection.pendingChanges.map(change => change.rowId));
+      const streamedIds = [...selection.detach, ...selection.associate].filter(row => !pendingRows.has(row.rowId)).map(row => row.key);
+      if (loweredIds.length !== streamedIds.length ||
+        loweredIds.some((key, index) => key !== streamedIds[index]))
         return yield* Effect.fail(commerceError("invalidAuthority"));
     }
-    const root = yield* core.prepareDelta(contribution.changes, contribution.dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
-    adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
-    yield* appendRows(contribution.changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+    if (replacements.length === 0) yield* lowerRoot();
     if (closed.changes.setNull.length > 0 || replacements.length > 0)
       yield* core.completeBatch().pipe(Effect.mapError(projectCommerceRequestFailure));
     rowCount += contribution.changes.length;
     return Object.freeze({ rowCount, adjacencyChanges: Object.freeze(adjacencyChanges) });
   });
-  return Object.freeze({ changes: contribution.changes, derivedIds, hasReferenceReplacement: replacements.length > 0,
+  return Object.freeze({ changes: Object.freeze(rootChanges), derivedIds, hasReferenceReplacement: replacements.length > 0,
     materialize });
 });

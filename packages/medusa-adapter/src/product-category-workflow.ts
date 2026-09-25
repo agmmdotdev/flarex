@@ -33,7 +33,7 @@ const productCategoryMembershipWorkflow = createWorkflow("assign-products-to-cat
 
 export const prepareProductCategoryMembershipWorkflow = Effect.fn("MedusaWorkflow.prepareCategoryMembership")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical"> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {

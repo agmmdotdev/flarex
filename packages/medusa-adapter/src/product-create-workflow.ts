@@ -54,7 +54,7 @@ const productCreateWorkflow = createWorkflow("create-products-owned-graph", (inp
 
 export const prepareProductCreateWorkflow = Effect.fn("MedusaWorkflow.prepareProductCreate")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical"> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {

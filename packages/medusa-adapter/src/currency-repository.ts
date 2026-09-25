@@ -18,7 +18,8 @@ export function currencyReadPlan(input: unknown) {
     const catalog = yield* currencyReadCatalog;
     const projection = yield* compileProjection(catalog, "currency", value.fields, [], currencyReadProjection);
     return { table: "currency", projection, paths: [], relationFilters: [], ordering: new Map(), withDeleted: value.withDeleted,
-      window: { kind: "database", countAt: "beforePopulation" },
+      window: { kind: value.order === "asc" && value.predicate.kind === "and" && value.predicate.children.length === 0
+        ? "page" : "database", countAt: "beforePopulation" },
       query: { fields: projection.storageFields, skip: value.skip, take: value.take,
         order: { column: "code", direction: value.order }, predicate: { kind: "and", children: [value.predicate,
           ...(value.withDeleted ? [] : [{ kind: "isNull", column: "deleted_at" }])] } },

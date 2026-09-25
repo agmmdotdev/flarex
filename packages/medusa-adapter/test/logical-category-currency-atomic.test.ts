@@ -73,10 +73,10 @@ describe("Category/Currency on two logical participants", () => {
       participants: input.participants.map(member => {
         const validate = member.validateLogicalCall;
         return member.participant !== proof.productParticipant || validate === undefined ? member
-          : { ...member, validateLogicalCall: (call, activity) => validate(call, { ...activity,
+          : { ...member, validateLogicalCall: (call, activity, command) => validate(call, { ...activity,
             mutations: activity.mutations.map(mutation => ({ ...mutation,
               after: mutation.after === null ? null : { ...mutation.after, is_active: false } })),
-          }) };
+          }, command) };
       }) }));
     try {
       const before = await inventory();

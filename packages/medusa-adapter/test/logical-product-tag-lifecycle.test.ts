@@ -1,14 +1,15 @@
+import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { currencyWorkflowModule } from "../src/currency-service";
-import { productLogicalCallEventPolicy } from "../src/product-local-events";
+
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
 import { prepareProductTagUpdateWorkflow } from "../src/product-tag-update-workflow";
 import { prepareProductTagDeleteWorkflow } from "../src/product-tag-delete-workflow";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+
+
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
@@ -24,9 +25,9 @@ const cleanup: Array<() => Promise<void>> = [];
 let currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
 let product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
 
-function forgeModuleId(policy: ReturnType<typeof productLogicalCallEventPolicy>) {
+function forgeModuleId(policy: import("../src/workflow/module").WorkflowLogicalPolicy) {
   return { ...policy, capture: (event: unknown) => policy.capture(event).pipe(Effect.map(message =>
-    isJsonObject(message) && isJsonObject(message.data)
+    isJsonObject(message) && message.data !== undefined && isJsonObject(message.data)
       ? { ...message, data: { ...message.data, id: "ptag_forged" } } : message)) };
 }
 
@@ -42,23 +43,16 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
   }, 120_000);
 
   it("updates and deletes native tags against logical row transitions", async () => {
-    const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
-      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const createdPolicy = productLogicalCallEventPolicy(metadata);
-    const updatedPolicy = productLogicalCallEventPolicy(metadata);
-    const deletedPolicy = productLogicalCallEventPolicy(metadata);
     const revision = createHash("sha256").update("logical-product-tag-lifecycle").digest("hex");
     const subscribers = [{ id: "logical-product-tags", revision: "a".repeat(64) }];
     const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) };
     const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: createdPolicy }, currency: { module: Result.getOrThrow(currencyWorkflowModule),
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage }, currency: { module: Result.getOrThrow(currencyWorkflowModule),
           logicalStorage: currency.hostInput.logicalStorage } }, revision, subscribers }));
     let hookCalls = 0;
     const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: updatedPolicy } }, revision, subscribers,
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } }, revision, subscribers,
       hooks: { productTagsUpdated: async (input, { resources }) => {
         hookCalls++;
         const tag = input.product_tags[0];
@@ -70,8 +64,7 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
           .toMatchObject({ data: [{ id: tag.id, value: tag.value }] });
       } } }));
     const remove = await Effect.runPromise(prepareProductTagDeleteWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: deletedPolicy } }, revision, subscribers }));
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } }, revision, subscribers }));
     try {
       const tags = await Effect.runPromise(create.run(create.newRequestKey(),
         { product_tags: [{ value: "tag-a" }, { value: "tag-b" }] }));
@@ -128,23 +121,18 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
   }, 120_000);
 
   it("rolls back updated and deleted module messages with forged row IDs", async () => {
-    const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
-      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const revision = createHash("sha256").update("logical-product-tag-lifecycle-refusal").digest("hex");
     const subscribers = [{ id: "logical-product-tags", revision: "a".repeat(64) }];
     const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) };
     const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalCallEventPolicy(metadata) },
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
       revision, subscribers }));
     const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: forgeModuleId(productLogicalCallEventPolicy(metadata)) } }, revision, subscribers }));
+      modules: { product: { module: withWorkflowPolicy(product.runtime.workflow, forgeModuleId), logicalStorage: product.hostInput.logicalStorage } }, revision, subscribers }));
     const remove = await Effect.runPromise(prepareProductTagDeleteWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: forgeModuleId(productLogicalCallEventPolicy(metadata)) } }, revision, subscribers }));
+      modules: { product: { module: withWorkflowPolicy(product.runtime.workflow, forgeModuleId), logicalStorage: product.hostInput.logicalStorage } }, revision, subscribers }));
     try {
       const tags = await Effect.runPromise(create.run(create.newRequestKey(),
         { product_tags: [{ value: "refusal-tag" }] }));
@@ -170,20 +158,16 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
   }, 120_000);
 
   it("selects one requested tag after the logical catalog exceeds the row bound", async () => {
-    const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
-      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const revision = createHash("sha256").update("logical-product-tag-large-catalog").digest("hex");
     const subscribers = [{ id: "logical-product-tags", revision: "a".repeat(64) }];
     const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) };
     const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalCallEventPolicy(metadata) },
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
       revision, subscribers }));
     const remove = await Effect.runPromise(prepareProductTagDeleteWorkflow({ execution,
-      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalCallEventPolicy(metadata) } }, revision, subscribers }));
+      modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } }, revision, subscribers }));
     const reader = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
       commands: [product.runtime.commands.listTags] }));
     try {

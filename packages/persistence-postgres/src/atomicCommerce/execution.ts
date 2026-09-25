@@ -156,6 +156,7 @@ function makeAtomicCommerceExecution(
     return created;
   });
   let facts = 0;
+  let replacementPlanned = false;
   const observations: AtomicCommerceCallObservation[] = [];
   const callParticipant: AtomicCommerceContext["call"] = Effect.fn("AtomicCommerce.callParticipant")(
     (participant, command, inputArgs) =>
@@ -164,6 +165,7 @@ function makeAtomicCommerceExecution(
         id,
         (child): Effect.Effect<Json, CommerceTransactionError> =>
           Effect.gen(function* () {
+            if (replacementPlanned) return yield* Effect.fail(commerceError("invalidAuthority"));
             const index = members.findIndex((member) => member.participant === participant);
             const member = members[index];
             const admission = admissions[index];
@@ -178,19 +180,20 @@ function makeAtomicCommerceExecution(
             const working: Working = yield* makeWorking(admission, child);
             const fromAttempt = admission.kind === "logical" && "attemptCount" in working ? working.attemptCount() : undefined;
             const fromLifecycle = admission.kind === "logical" && "lifecycleCount" in working ? working.lifecycleCount() : undefined;
-            const cursor = member.kind === "logical" && member.validateLogicalCall !== undefined && "activityCursor" in working
+            const cursor = member.kind === "logical" && (member.validateLogicalCall !== undefined || member.allowReferenceReplacement === true) && "activityCursor" in working
               ? working.activityCursor() : undefined;
             const { invoke, events } = makeParticipantInvocation(member, working, lifetime, id, eventCapture);
             const call: Pick<AtomicCommerceCallObservation, "input" | "result"> = yield* invoke(child, command, inputArgs);
-            if (cursor !== undefined && member.validateLogicalCall !== undefined && "callActivity" in working) {
+            if (cursor !== undefined && "callActivity" in working) {
               const activity = yield* working.callActivity(cursor);
               if (root.mode === "read" && (activity.mutations.length !== 0 || activity.lifecycle.length !== 0 ||
                 activity.setNull.length !== 0 || activity.referenceReplacements.length !== 0 || events.length !== 0))
                 return yield* Effect.fail(commerceError("receiptMismatch"));
-              yield* member.validateLogicalCall(Object.freeze({ commandName: root.name, mode: root.mode,
+              if (member.validateLogicalCall !== undefined) yield* member.validateLogicalCall(Object.freeze({ commandName: root.name, mode: root.mode,
                 input: call.input, result: call.result, events: Object.freeze([...events]),
                 fromAttempt: 0, toAttempt: activity.mutations.length,
-                fromLifecycle: 0, toLifecycle: activity.lifecycle.length }), activity);
+                fromLifecycle: 0, toLifecycle: activity.lifecycle.length }), activity, command);
+              if (activity.referenceReplacements.length !== 0) replacementPlanned = true;
             }
             if (fromAttempt !== undefined && fromLifecycle !== undefined && "attemptCount" in working && "lifecycleCount" in working) {
               const calls = logicalCalls.get(admission) ?? [];
@@ -241,9 +244,9 @@ function makeAtomicCommerceExecution(
         lifetime.context,
         id,
         "write",
-        eventCapture === undefined
+        Effect.suspend(() => replacementPlanned ? Effect.fail(commerceError("invalidAuthority")) : eventCapture === undefined
           ? Effect.fail(commerceError("unadmittedEvent"))
-          : eventCapture.capture(contract, message).pipe(Effect.asVoid),
+          : eventCapture.capture(contract, message).pipe(Effect.asVoid)),
       ),
     refuse: (error) => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
     call: callParticipant,

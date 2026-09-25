@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
-import { productLogicalCallEventPolicy, productLogicalCreateEventPolicy } from "../src/product-local-events";
+import { productCallReceipts } from "../src/product-local-events";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
@@ -43,8 +43,7 @@ describe("native Collection service on shared logical Product storage", () => {
         : operation === "upsertCollection" ? selectedProduct.runtime.commands.upsertCollections
       : operation === "deleteCollection" ? selectedProduct.runtime.commands.deleteCollections
         : selectedProduct.runtime.commands.create;
-    const policy = operation === "createProduct" ? productLogicalCreateEventPolicy(catalog)
-      : productLogicalCallEventPolicy(catalog);
+    const policy = selectedProduct.runtime.logicalPolicy;
     const afterReceipt = rejectReceipt ? Effect.fail(commerceError("receiptMismatch"))
       : afterValidation === undefined ? Effect.void : Effect.promise(afterValidation);
     const eventNames = operation === "createCollection" ? [catalog.collection.createdEvent, catalog.product.updatedEvent]
@@ -77,9 +76,7 @@ describe("native Collection service on shared logical Product storage", () => {
       identityAndAccessPolicy: { profile: `logical-product-${operation}` },
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
         commands: pendingRead ? [native, selectedProduct.runtime.commands.retrieveCollection] : [native],
-        ...("validateLogicalCall" in policy
-          ? { validateLogicalCall: (call, activity) => policy.validateLogicalCall(call, activity).pipe(Effect.andThen(afterReceipt)) }
-          : { validateLogical: (...args) => policy.validateLogical(...args).pipe(Effect.andThen(afterReceipt)) }),
+        validateLogicalCall: (...args) => policy.validateLogicalCall(...args).pipe(Effect.andThen(afterReceipt)),
         ...(operation === "deleteCollection" ? { allowSetNull: true as const } : {}),
         ...(replacement && productUpdatedContract !== undefined ? { allowReferenceReplacement: true as const,
           derivedIdEvent: { contract: productUpdatedContract.token } } : {}),
@@ -584,7 +581,7 @@ describe("native Collection service on shared logical Product storage", () => {
   }, 180_000);
 
   it("rejects an unaccounted lifecycle observation in a Collection update receipt", async () => {
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({
       commandName: "productupdatecollection", mode: "write", input: { id: "pcol_receipt", data: { title: "After" } },
       result: { id: "pcol_receipt" }, events: [], fromAttempt: 0, toAttempt: 0,
@@ -596,7 +593,7 @@ describe("native Collection service on shared logical Product storage", () => {
   });
 
   it("rejects a Product field change unrelated to Collection membership", async () => {
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     const beforeCollection = { id: "pcol_receipt", title: "Collection", deleted_at: null };
     const beforeProduct = { id: "prod_receipt", title: "Original", collection_id: null, deleted_at: null };
     const attempts = [
@@ -624,7 +621,7 @@ describe("native Collection service on shared logical Product storage", () => {
   });
 
   it("requires a sealed replacement receipt even for an empty desired membership", async () => {
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     const before = { id: "pcol_missing_intent", title: "Collection", deleted_at: null };
     for (const productIds of [[], ["prod_requested"]]) {
       expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({
@@ -642,7 +639,7 @@ describe("native Collection service on shared logical Product storage", () => {
 
   it.each(["productCreatecollection", "productupsertcollection"])(
     "binds scalar generated results to stored identities for %s", async commandName => {
-      const policy = productLogicalCallEventPolicy(catalog);
+      const policy = productCallReceipts(catalog);
       const id = "pcol_scalar_receipt";
       const call = { commandName, mode: "write" as const, input: { title: "Scalar" },
         result: { id, title: "Scalar", deleted_at: null, products: [] },
@@ -662,7 +659,7 @@ describe("native Collection service on shared logical Product storage", () => {
     });
 
   it("binds a Collection update receipt to the requested root", async () => {
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     const before = { id: "pcol_wrong_root", title: "Before", deleted_at: null };
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({
       commandName: "productupdatecollection", mode: "write",
@@ -677,7 +674,7 @@ describe("native Collection service on shared logical Product storage", () => {
   });
 
   it.each([false, true])("authenticates the full returned Collection row with replacement=%s", async replacement => {
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     const before = { id: "pcol_result", title: "Before", deleted_at: null };
     const after = { ...before, title: "After" };
     const call = { commandName: "productupdatecollection", mode: "write" as const,
@@ -719,7 +716,7 @@ describe("native Collection service on shared logical Product storage", () => {
   });
 
   it("rejects a generated-ID membership receipt with a mismatched native result", async () => {
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     const id = "pcol_generated_receipt", member = "prod_generated_receipt";
     const beforeProduct = { id: member, title: "Member", collection_id: null, deleted_at: null };
     const mutations = [{ ordinal: 0, table: catalog.collection.table.name, operation: "insert" as const,
@@ -744,7 +741,7 @@ describe("native Collection service on shared logical Product storage", () => {
   });
 
   it("binds generated Collection result order and mixed upsert root kinds to row facts", async () => {
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     const roots = ["pcol_generated_first", "pcol_generated_second"] as const;
     const mutations = roots.map((id, ordinal) => ({ ordinal, table: catalog.collection.table.name,
       operation: "insert" as const, before: null,
@@ -769,7 +766,7 @@ describe("native Collection service on shared logical Product storage", () => {
     expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...call, result: [...call.result].reverse() }, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
 
-    const mixed = productLogicalCallEventPolicy(catalog);
+    const mixed = productCallReceipts(catalog);
     const explicitId = "pcol_explicit_update";
     const mixedCall = { ...call, commandName: "productupsertcollection",
       input: [{ title: "First", product_ids: [] }, { id: explicitId, title: "Updated" }],
@@ -862,7 +859,7 @@ describe("native Collection service on shared logical Product storage", () => {
   }, 240_000);
 
   it("binds Collection delete facts to requested IDs and its null result", async () => {
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     const id = "pcol_delete_receipt";
     const call = { commandName: "productDeletecollection", mode: "write" as const,
       input: [id, "pcol_missing"], result: null,

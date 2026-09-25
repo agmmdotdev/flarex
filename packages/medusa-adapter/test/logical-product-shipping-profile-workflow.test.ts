@@ -1,3 +1,4 @@
+import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { Cause, Deferred, Effect, Fiber, Option, Result, Schema } from "effect";
@@ -17,9 +18,9 @@ import { issueRelationalSession, runRelationalSession } from "../../persistence-
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { CommerceTransactionError, commerceError, isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCreateEventPolicy } from "../src/product-local-events";
+
+
+
 import { productShippingProfileResources } from "../src/product-shipping-profile-contract";
 import { prepareProductShippingProfileWorkflow, productShippingProfileWorkflow,
   ProductShippingProfileInput, ProductShippingProfileOutput } from "../src/product-shipping-profile-workflow";
@@ -41,21 +42,16 @@ let selected: {
   sales: Awaited<ReturnType<typeof prepareLogicalSalesChannelHost>>;
   shipping: Awaited<ReturnType<typeof prepareLogicalShippingProfileHost>>;
   links: Awaited<ReturnType<typeof prepareLogicalProductLinksHost>>;
-  catalog: Effect.Success<ReturnType<typeof productRuntimeMetadata>>;
 };
 const revision = (value: string) => createHash("sha256").update(value).digest("hex");
 const input = (prefix: string, count = 1) => ({ shippingProfile: { id: prefix + "-profile", name: prefix, type: "default" },
   salesChannel: { id: prefix + "-channel", name: prefix },
   products: Array.from({ length: count }, (_, index) => ({ id: prefix + "-" + index, title: prefix + "-" + index })) });
 const modules = (instance = selected) => ({
-  product: { module: instance.product.runtime.workflow, logicalStorage: instance.product.hostInput.logicalStorage,
-    moduleEvents: productLogicalCreateEventPolicy(instance.catalog) },
-  sales_channel: { module: instance.sales.runtime.workflow, logicalStorage: instance.sales.hostInput.logicalStorage,
-    moduleEvents: instance.sales.runtime.logicalEventPolicy() },
-  fulfillment: { module: instance.shipping.runtime.workflow, logicalStorage: instance.shipping.hostInput.logicalStorage,
-    moduleEvents: instance.shipping.runtime.logicalEventPolicy() },
-  link: { module: instance.links.runtime.workflow, logicalStorage: instance.links.hostInput.logicalStorage,
-    moduleEvents: instance.links.runtime.logicalEventPolicy() },
+  product: { module: instance.product.runtime.workflow, logicalStorage: instance.product.hostInput.logicalStorage },
+  sales_channel: { module: instance.sales.runtime.workflow, logicalStorage: instance.sales.hostInput.logicalStorage },
+  fulfillment: { module: instance.shipping.runtime.workflow, logicalStorage: instance.shipping.hostInput.logicalStorage },
+  link: { module: instance.links.runtime.workflow, logicalStorage: instance.links.hostInput.logicalStorage },
 });
 const execution = (instance = selected, session = instance.fixture.session) => ({ identityAndAccessPolicy: instance.fixture.hostInput.identityAndAccessPolicy,
   prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...instance.fixture.hostInput, session, ...composition }) });
@@ -122,7 +118,7 @@ async function prepareLinkHost() {
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selected.fixture.hostInput,
     identityAndAccessPolicy: { profile: "logical-product-links-lifecycle" },
     participants: [{ participant, logicalStorage: selected.links.hostInput.logicalStorage,
-      commands: runtime.commands, validateLogical: policy.validateLogical,
+      commands: runtime.commands, validateLogicalCall: policy.validateLogicalCall,
       events: { contracts, select: (message: Json) => {
         const contract = isJsonObject(message) && typeof message.name === "string"
           ? byName.get(message.name) : undefined;
@@ -151,9 +147,7 @@ describe("native Product–ShippingProfile workflow on shared logical storage", 
       await Effect.runPromise(member.host.initialize([]));
       await Effect.runPromise(member.host.close);
     }
-    const catalog = await Effect.runPromise(captureProductSchema("logical-product-shipping-profile")
-      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    selected = { fixture, product, sales, shipping, links, catalog };
+    selected = { fixture, product, sales, shipping, links };
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
@@ -289,18 +283,17 @@ describe("native Product–ShippingProfile workflow on shared logical storage", 
 
   it("rejects a Link event with a forged ID and rolls back all participants", async () => {
     const selectedModules = modules();
-    const policy = selectedModules.link.moduleEvents;
+    const policy = selected.links.runtime.logicalEventPolicy();
     const host = await observe(value => value, { ...selectedModules,
-      link: { ...selectedModules.link, moduleEvents: { ...policy,
-        capture: (value: unknown) => policy.capture(value).pipe(Effect.map(message => {
+      link: { ...selectedModules.link, module: withWorkflowPolicy(selectedModules.link.module, policy => ({ ...policy, capture: (value: unknown) => policy.capture(value).pipe(Effect.map(message => {
           if (!isJsonObject(message)) throw new Error("Expected Link event");
           return { ...message, data: { id: "not-the-created-link" } };
-        })) } },
+        })) })) },
     });
     try {
       const beforeRows = await rows(), beforeEvents = await events();
       const failure = await Effect.runPromise(Effect.flip(host.run(host.newRequestKey(), input("forged"))));
-      expect(failure.reason).toBe("receiptMismatch");
+      expect(failure.reason).toBe("rollbackOnly");
       expect(await rows()).toEqual(beforeRows); expect(await events()).toEqual(beforeEvents);
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
@@ -432,7 +425,7 @@ describe("native Product–ShippingProfile workflow on shared logical storage", 
       await Effect.runPromise(member.host.initialize([])); await Effect.runPromise(member.host.close);
     }
     const other = { fixture: otherFixture, product: otherProduct, sales: otherSales,
-      shipping: otherShipping, links: otherLinks, catalog: selected.catalog };
+      shipping: otherShipping, links: otherLinks };
     const first = await prepare(), second = await prepare(other);
     try {
       const firstScope = projectScopeIdUuidV1(selected.fixture.application.authority.scopeId).scopeUuid;

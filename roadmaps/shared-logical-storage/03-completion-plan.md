@@ -3,6 +3,11 @@
 Status: active, with owner standing approval for implementation and necessary
 breaking changes. This is the successor to the completed core execution goal.
 
+This is the integration/storage completion backlog. The separately approved
+[Medusa design-quality refactor](../medusa-design-quality/README.md) owns the
+seven-point design review and its remaining refactor packages. Use that plan when
+reporting refactor progress; storage migration is not its completion criterion.
+
 ## Scope And Authority
 
 Complete shared logical storage and structural installation/evolution ownership

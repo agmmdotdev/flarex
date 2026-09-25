@@ -98,7 +98,7 @@ export const prepareLocalProductLinks = Effect.fn("ProductLinks.prepare")(functi
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links,
     output: decodeCreated, moduleEvents: [sales.entityName + ".attached", shipping.entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: "flarex-product-links", profile: "medusa.product.links" },
-    methods: { create: method }, graph }));
+    methods: { create: method }, graph, logical: { ...logicalEventPolicy(), commands: [create, dismiss, restoreShipping, countSales, countShipping] } }));
   return { create, dismiss, restoreShipping, countSales, countShipping,
     commands: [create, dismiss, restoreShipping, countSales, countShipping],
     workflow, graph, logicalEventPolicy, withService: use };

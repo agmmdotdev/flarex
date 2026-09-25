@@ -56,7 +56,7 @@ async function prepareLifecycleHost(selectedFixture = fixture, selectedLink = li
     identityAndAccessPolicy: { profile: "logical-product-sales-channel-link-lifecycle" },
     participants: [{ participant, logicalStorage: selectedLink.hostInput.logicalStorage,
       commands: [selectedLink.runtime.create, selectedLink.runtime.dismiss, selectedLink.runtime.delete, selectedLink.runtime.restore],
-      validateLogical: policy.validateLogical, events: { contracts: [attached, detached], select } }],
+      validateLogicalCall: policy.validateLogicalCall, events: { contracts: [attached, detached], select } }],
     commands: [create, reattach, dismiss, remove, restore, restoreThenDismiss, restoreThenReattach],
     events: { producerRevision: revision, contracts: [attached, detached],
       subscribers: [{ id: "logical-product-sales-channel-link-lifecycle", revision: "c".repeat(64) }],
@@ -79,11 +79,11 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
 
   it("rejects an unattested native Link event", async () => {
     const policy = link.runtime.logicalEventPolicy();
-    const result = await Effect.runPromise(Effect.result(policy.validateLogical([{
+    const result = await Effect.runPromise(Effect.result(policy.validateLogicalCall({
       commandName: "linkCreate", mode: "write", input: [], result: [], events: [], fromAttempt: 0, toAttempt: 1,
       fromLifecycle: 0, toLifecycle: 0,
-    }], [{ ordinal: 0, table: "product_sales_channel", operation: "insert", before: null,
-      after: { id: "prodsc_orphan", product_id: "p", sales_channel_id: "s", deleted_at: null } }], [], [], [])));
+    }, { mutations: [{ ordinal: 0, table: "product_sales_channel", operation: "insert", before: null,
+      after: { id: "prodsc_orphan", product_id: "p", sales_channel_id: "s", deleted_at: null } }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })));
     expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
   });
 
@@ -126,18 +126,8 @@ describe("native Product–SalesChannel Link on shared logical storage", () => {
       expect(emitted)
         .toMatchObject([{ data: { id: "prodsc_previous" } }, { data: { id: "prodsc_current" } }]);
       const policy = link.runtime.logicalEventPolicy();
-      expect(await Effect.runPromise(Effect.result(policy.validateLogical([
-        { commandName: "linkCreate", mode: "write", input: null, result: null, events: [emitted[1]!],
-          fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 },
-        { commandName: "linkCreate", mode: "write", input: null, result: null, events: [emitted[0]!],
-          fromAttempt: 1, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0 },
-      ], [
-        { ordinal: 0, table: "product_sales_channel", operation: "insert", before: null,
-          after: { id: "prodsc_previous", product_id: "repeat-product", sales_channel_id: "repeat-channel", deleted_at: null } },
-        { ordinal: 1, table: "product_sales_channel", operation: "patch",
-          before: { id: "prodsc_previous", product_id: "repeat-product", sales_channel_id: "repeat-channel", deleted_at: null },
-          after: { id: "prodsc_current", product_id: "repeat-product", sales_channel_id: "repeat-channel", deleted_at: null } },
-      ], [], [], [])))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+      expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ commandName: "linkCreate", mode: "write", input: null, result: null, events: [emitted[1]!], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 }, { mutations: [{ ordinal: 0, table: "product_sales_channel", operation: "insert", before: null,
+          after: { id: "prodsc_previous", product_id: "repeat-product", sales_channel_id: "repeat-channel", deleted_at: null } }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
       const reader = await Effect.runPromise(makeCommerceHost(link.hostInput));
       try {
         expect(await Effect.runPromise(reader.read(link.runtime.count, { filters: { product_id: "repeat-product" },

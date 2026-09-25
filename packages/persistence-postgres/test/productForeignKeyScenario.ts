@@ -345,9 +345,9 @@ export const productForeignKeyScenario: (
   const replacementPages: Array<{ readonly count: number; readonly reference: unknown }> = [];
   const replacement = yield* transact(tx => Effect.gen(function* () {
     const selected = yield* selectLogicalReferenceReplacement({ ...referenceInput(tx),
-      desiredKeys: ["batch_product_0", "batch_missing"] });
+      pendingChanges: [], desiredKeys: ["batch_product_0", "batch_missing"] });
     const forged = yield* Effect.result(forEachLogicalReferenceReplacementPage({ ...referenceInput(tx),
-      selection: { detach: selected.detach, associate: selected.associate } }, () => Effect.void));
+      selection: { detach: selected.detach, associate: selected.associate, pendingChanges: [] } }, () => Effect.void));
     expect(forged).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
     const replacementCount = yield* forEachLogicalReferenceReplacementPage({ ...referenceInput(tx),
       selection: selected }, (changes, keys) => Effect.sync(() => {

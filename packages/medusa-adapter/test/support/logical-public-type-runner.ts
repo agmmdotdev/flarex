@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { Cause, Effect, Option } from "effect";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
-import { productLogicalTypeEventPolicy } from "../../src/product-local-events";
+
 import { captureCommerceInput } from "../../src/commerce-input";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
@@ -53,7 +53,7 @@ export function moduleIntegrationTestRunner(options: ProductRunnerOptions): void
     const makeWriter = async (operation: Operation) => {
       const selected = operation === "create" ? product.runtime.commands.createTypes
         : operation === "update" ? product.runtime.commands.updateTypes : product.runtime.commands.deleteTypes;
-      const policy = productLogicalTypeEventPolicy(catalog, operation);
+      const policy = product.runtime.logicalPolicy;
       const name = operation === "create" ? catalog.type.createdEvent
         : operation === "update" ? catalog.type.updatedEvent : catalog.type.deletedEvent;
       const revision = createHash("sha256").update("native-public-type-" + operation).digest("hex");
@@ -61,7 +61,7 @@ export function moduleIntegrationTestRunner(options: ProductRunnerOptions): void
       const host = await run(makeAtomicCommerceHost({ ...fixture.hostInput,
         identityAndAccessPolicy: { profile: "native-public-type-" + operation },
         participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-          commands: [selected], validateLogical: policy.validateLogical,
+          commands: [selected], validateLogicalCall: policy.validateLogicalCall,
           ...(operation === "delete" ? { allowSetNull: true as const } : {}),
           events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
         commands: [root[operation]],

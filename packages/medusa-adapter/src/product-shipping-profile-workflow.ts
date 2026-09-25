@@ -69,10 +69,10 @@ export const productShippingProfileWorkflow = createWorkflow("create-products-wi
 export const prepareProductShippingProfileWorkflow = Effect.fn("MedusaWorkflow.prepareProductShippingProfile")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
   readonly modules: {
-    readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical">;
-    readonly sales_channel: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>["workflow"], "logical">;
-    readonly fulfillment: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalShippingProfileCommands>>["workflow"], "logical">;
-    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareLocalProductLinks>>["workflow"], "logical">;
+    readonly product: InstalledWorkflowModule<ProductWorkflowModule>;
+    readonly sales_channel: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>["workflow"]>;
+    readonly fulfillment: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalShippingProfileCommands>>["workflow"]>;
+    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareLocalProductLinks>>["workflow"]>;
   };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];

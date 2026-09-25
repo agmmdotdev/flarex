@@ -17,8 +17,13 @@ export type LogicalDocumentFailure<Failure> = (reason: LogicalDocumentFailureRea
 
 /** Native row operations borrow one request lifetime; no settlement capability. */
 export interface LogicalRelationalStore<Failure> {
+  /** Complete bounded selection before projection/windowing; overflow refuses. */
   readonly find: (context: BoundedRequestContext, query: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
+  /** Ordered bounded work. No total or reusable physical cursor is implied. */
+  readonly findPage: (context: BoundedRequestContext, query: unknown) => Effect.Effect<Readonly<{ rows: readonly JsonObject[]; hasMore: boolean }>, Failure>;
   readonly count: (context: BoundedRequestContext, query: unknown) => Effect.Effect<number, Failure>;
+  /** Finite indexed complete selection; exact decimal SUM, without grouping. */
+  readonly aggregate: (context: BoundedRequestContext, query: unknown) => Effect.Effect<Readonly<{ count: number; sum?: string | null }>, Failure>;
   readonly write: (context: BoundedRequestContext, mode: "insert" | "upsert" | "update", rows: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   readonly delete: (context: BoundedRequestContext, keys: unknown) => Effect.Effect<readonly JsonObject[], Failure>;
   readonly lifecycle: (context: BoundedRequestContext, operation: "softDelete" | "restore", keys: unknown) => Effect.Effect<readonly JsonObject[], Failure>;

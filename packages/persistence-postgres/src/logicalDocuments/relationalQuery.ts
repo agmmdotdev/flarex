@@ -132,7 +132,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
     return Object.freeze({ key, selections,
       requiresIndexedNullAnchor: selections === null && planned.unindexedText,
       requiredNulls: Object.freeze([...filter.requiredNulls]),
-      offset: query.skip ?? 0, limit: take, direction: query.order.direction, fields: Object.freeze([...fields]),
+      offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: query.order.column, fields: Object.freeze([...fields]),
       inspect: (row: JsonObject) => Result.gen(function* () {
         // Read the complete native row before projecting, including exact numeric
         // companions; projection cannot hide malformed persisted data.

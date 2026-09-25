@@ -1,5 +1,6 @@
-import { Result, Schema } from "effect";
-import type { CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import { Effect, Result, Schema } from "effect";
+import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceModuleDescription } from "../module-definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
@@ -50,9 +51,22 @@ export interface WorkflowModule<Methods extends Readonly<Record<string, Workflow
   readonly name: string;
   readonly methods: Methods;
 }
+export interface WorkflowLogicalPolicy {
+  readonly commands: readonly CommerceCommand[];
+  readonly capture: LocalCommerceEventPolicy["capture"];
+  readonly validateLogicalCall: LogicalCommerceCallValidation;
+  readonly allowSetNull?: true;
+  readonly referenceReplacement?: Readonly<{
+    command: CommerceCommand;
+    eventName: string;
+    metadata: Json;
+    eventLimit: number;
+  }>;
+}
 interface ModuleDefinition {
   readonly source: Pick<CommerceModuleDescription, "name" | "profile">;
   readonly graph: GraphModuleDefinition;
+  readonly logical?: WorkflowLogicalPolicy;
 }
 const modules = new WeakMap<object, ModuleDefinition>();
 const Table = Schema.Struct({ name: Schema.String, columns: Schema.Array(Schema.String), primaryKeys: Schema.Array(Schema.String),
@@ -70,6 +84,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
   readonly source: Pick<CommerceModuleDescription, "name" | "profile">;
   readonly methods: Methods;
   readonly graph: GraphModuleDefinition;
+  readonly logical?: WorkflowLogicalPolicy;
 }): Result.Result<WorkflowModule<Methods>, CommerceTransactionError> {
   return Result.gen(function* () {
     const definition = yield* captureWorkflowRecord(input);
@@ -83,9 +98,37 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     // Graph preparation owns deep metadata snapshots and validation. Retain its
     // checked snapshot through the original definition captured below.
     const graph = yield* captureGraphDefinition(definition.graph);
+    const supplied = definition.logical === undefined ? undefined : yield* captureWorkflowRecord(definition.logical);
+    if (supplied !== undefined && (typeof supplied.capture !== "function" || typeof supplied.validateLogicalCall !== "function" ||
+      supplied.allowSetNull !== undefined && supplied.allowSetNull !== true)) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const replacement = supplied?.referenceReplacement === undefined ? undefined : yield* captureWorkflowRecord(supplied.referenceReplacement);
+    const commands = supplied === undefined ? [] : yield* captureWorkflowArray(supplied.commands);
+    if (commands.some(command => commerceCommandIdentity(command) === undefined)) return yield* Result.fail(commerceError("invalidAuthority"));
+    const admitted = new Set(commands);
+    if (replacement !== undefined && (!admitted.has(replacement.command) ||
+      commerceCommandIdentity(replacement.command)?.mode !== "write" ||
+      typeof replacement.eventName !== "string" || replacement.eventName.length === 0 ||
+      !Number.isSafeInteger(replacement.eventLimit) || replacement.eventLimit < 1 || replacement.eventLimit > 256))
+      return yield* Result.fail(commerceError("unsupportedProfile"));
+    const logical = supplied === undefined ? undefined : Object.freeze({
+      capture: supplied.capture,
+      validateLogicalCall: Effect.fn("Workflow.validateModuleCall")(function* (call: Parameters<LogicalCommerceCallValidation>[0],
+        activity: Parameters<LogicalCommerceCallValidation>[1], command: CommerceCommand) {
+        const identity = commerceCommandIdentity(command);
+        if (!admitted.has(command) || identity?.name !== call.commandName || identity.mode !== call.mode)
+          return yield* Effect.fail(commerceError("invalidAuthority"));
+        yield* supplied.validateLogicalCall(call, activity, command);
+      }),
+      commands,
+      ...(supplied.allowSetNull === undefined ? {} : { allowSetNull: supplied.allowSetNull }),
+      ...(replacement === undefined ? {} : { referenceReplacement: Object.freeze({
+        command: replacement.command, eventName: replacement.eventName, eventLimit: replacement.eventLimit,
+        metadata: yield* captureCommerceInput(replacement.metadata),
+      }) }),
+    });
     yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name), module: graph }]);
     const token = Object.freeze({ name: definition.name, methods: selected });
-    modules.set(token, Object.freeze({ source: Object.freeze({ name: source.name, profile: source.profile }), graph,
+    modules.set(token, Object.freeze({ source: Object.freeze({ name: source.name, profile: source.profile }), graph, ...(logical === undefined ? {} : { logical }),
     }));
     return token;
   });

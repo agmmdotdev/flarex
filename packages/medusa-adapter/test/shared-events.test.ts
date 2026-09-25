@@ -162,7 +162,7 @@ describe("shared request-owned Medusa mutation dispatch", () => {
       const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(reason => commerceError(reason), commerceLimits, {}, {}, "event-admission", "write"), lifetime => lifetime.close);
       const unused = () => Effect.fail(commerceError("unsupportedProfile"));
       const root = makeCommerceCommandContext(lifetime, { resources: defaultCommerceResources,
-        store: { find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
+        store: { findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
       }, "event-admission", lifetime.context, unused, unused);
       const metadata = yield* captureProductSchema("event-admission").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame)));
       const { mutationPersistence: persistence } = productRepository(root, owner, metadata);

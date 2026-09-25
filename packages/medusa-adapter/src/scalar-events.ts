@@ -1,3 +1,4 @@
+import type { LogicalCallReceiptValidation } from "./logical-call-receipt";
 import { Effect, Schema } from "effect";
 import { CommonEvents, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
@@ -63,8 +64,8 @@ export function scalarEventPolicy(source: string, tableName: string,
 export function scalarLogicalEventPolicy(source: string, tableName: string,
   commands: Readonly<{ insert: string; update?: string; delete?: string }>) {
   const capture = scalarCapture(source, tableName, defaultCommerceResources, "ScalarEvents.captureLogical");
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ScalarEvents.validateLogicalCall")(
-    function* (call, { mutations, lifecycle, setNull, referenceReplacements }) {
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ScalarEvents.validateLogicalCall")(
+    function* (call: Parameters<LogicalCommerceCallValidation>[0], { mutations, lifecycle, setNull, referenceReplacements }: Parameters<LogicalCommerceCallValidation>[1]) {
       if (lifecycle.length !== 0 || setNull.length !== 0 || referenceReplacements.length !== 0 ||
         mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(commerceError("receiptMismatch"));

@@ -37,6 +37,7 @@ const captureChanges = (value: LogicalDocumentChanges): LogicalDocumentChanges =
   noFinalRows: Object.freeze([...value.noFinalRows]), dependencies: Object.freeze([...value.dependencies]),
   scans: Object.freeze([...value.scans]), uniqueReads: Object.freeze([...value.uniqueReads]),
   indexReads: Object.freeze([...value.indexReads]), setNull: Object.freeze([...value.setNull]),
+  pageReads: Object.freeze([...value.pageReads]),
   referenceReplacements: Object.freeze([...value.referenceReplacements]),
 });
 

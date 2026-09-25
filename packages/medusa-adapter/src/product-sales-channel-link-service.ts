@@ -71,7 +71,7 @@ export const prepareProductSalesChannelLink = Effect.fn("ProductSalesChannelLink
   const workflowCreate = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
     encode: ([links]) => links, output: decodeCreatedLinks, moduleEvents: [entityName + ".attached"] }));
   const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: serviceName, profile: "medusa.product-sales-channel.link" },
-    methods: { create: workflowCreate }, graph }));
+    methods: { create: workflowCreate }, graph, logical: { ...logicalEventPolicy(), commands: [create, dismiss, remove, restore, list, count, links] } }));
   return { create, dismiss, delete: remove, restore, list, count, links, graph, workflow, withService: use, logicalEventPolicy,
     commands: [create, dismiss, remove, restore, list, count, links] };
 });

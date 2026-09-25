@@ -367,6 +367,11 @@ export default class ProductCategoryService extends MedusaInternalService<
     data: ProductTypes.CreateProductCategoryDTO[],
     @MedusaContext() sharedContext: Context = {}
   ): Promise<InferEntityType<typeof ProductCategory>[]> {
+    await this.validateTreeChanges(data.map(entry => ({
+      id: getOptionalString(entry, "id"),
+      parent_category_id: entry.parent_category_id ?? getParentCategoryId(entry) ?? null,
+      rank: entry.rank,
+    })), sharedContext)
     const categories = await this.prepareCategoriesForCreate(
       data,
       sharedContext
@@ -481,7 +486,55 @@ export default class ProductCategoryService extends MedusaInternalService<
     data: UpdateCategoryInput[],
     @MedusaContext() sharedContext: Context = {}
   ): Promise<InferEntityType<typeof ProductCategory>[]> {
+    await this.validateTreeChanges(data.map(entry => ({
+      id: entry.id, parent_category_id: getUpdatedParentCategoryId(entry), rank: entry.rank,
+    })), sharedContext)
     return await this.updateWithPortableRepository(data, sharedContext)
+  }
+
+  /** The native materialized-path algorithm requires unambiguous identities and
+   * acyclic proposed ancestry. Validate the entire batch before its first write,
+   * while retaining the service's sequential batch-parent semantics. Repository
+   * reads share the caller's pending view and its resource admission. */
+  private async validateTreeChanges(
+    changes: readonly { id?: string; parent_category_id?: string | null; rank?: number }[],
+    sharedContext: Context
+  ): Promise<void> {
+    const invalid = () => new MedusaError(MedusaError.Types.INVALID_ARGUMENT,
+      "Category identities, ranks and parent relationships must form a valid tree")
+    const validId = (id: unknown) => typeof id === "string" && id.length > 0 && !id.includes(".") && id !== "__root__"
+    const proposed = new Map<string, string | null>()
+    const observed = new Map<string, string | null | undefined>()
+    const parentOf = async (id: string): Promise<string | null | undefined> => {
+      if (proposed.has(id)) return proposed.get(id)
+      if (observed.has(id)) return observed.get(id)
+        const [row] = await this.productCategoryRepository_.find({
+          where: { id }, options: {
+            fields: ["id", "parent_category_id"], limit: 1, disableIdentityMap: true,
+          } as DAL.FindOptions<typeof ProductCategory>["options"] & {
+            disableIdentityMap: boolean
+          },
+      }, {}, sharedContext)
+      if (row === undefined) throw new MedusaError(MedusaError.Types.INVALID_ARGUMENT,
+        `Parent category with id: '${id}' does not exist`)
+      const parent = row.parent_category_id
+      observed.set(id, parent)
+      return parent
+    }
+    for (const change of changes) {
+      const { id, parent_category_id: parent, rank } = change
+      if (id !== undefined && !validId(id) || parent != null && !validId(parent) ||
+        rank !== undefined && (!Number.isSafeInteger(rank) || rank < 0)) throw invalid()
+      if (id === undefined || parent === undefined) continue
+      proposed.set(id, parent)
+      const visited = new Set<string>()
+      let cursor: string | null | undefined = id
+      while (cursor != null) {
+        if (visited.has(cursor)) throw invalid()
+        visited.add(cursor)
+        cursor = await parentOf(cursor)
+      }
+    }
   }
 
   @InjectTransactionManager("productCategoryRepository_")

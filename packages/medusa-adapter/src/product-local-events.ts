@@ -1,20 +1,80 @@
-import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { LogicalCallReceiptValidation } from "./logical-call-receipt";
 import { Effect, Schema } from "effect";
 import { jsonEqual } from "flarex-protocol/json";
 import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { defaultCommerceResources, type CommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "./commerce-input";
 import { decodeProductLifecycleIds } from "./product-lifecycle";
 import { captureCategoryProjection, decodeCategoryProjection } from "./product-category-projection";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductEntityMetadata, ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { VariantImagePairs, decodeVariantThumbnailUpdate } from "./product-variant-workflow-input";
-import { ProductRelationshipCategoryListCall, ProductRelationshipCategoryProducts,
-  ProductRelationshipCollectionReadCall, ProductRelationshipCollectionReadResult,
-  ProductRelationshipCollectionWriteCall, ProductRelationshipCollectionWriteResult,
-  ProductRelationshipResultRows, ProductRelationshipUpsertRows } from "./product-relationship-workflow-input";
+import { ProductRelationshipResultRows } from "./product-relationship-workflow-input";
+import { ProductRelationshipUpsertRows } from "./product-value-profile";
+
+function productRelationshipCallReceipt(catalog: ProductRuntimeMetadata): LogicalCallReceiptValidation {
+  const input = Schema.decodeUnknownEffect(ProductRelationshipUpsertRows, { onExcessProperty: "error" });
+  const output = Schema.decodeUnknownEffect(ProductRelationshipResultRows, { onExcessProperty: "error" });
+  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
+  return Effect.fn("ProductEvents.validateRelationshipCall")(function* (call, activity) {
+    const requested = yield* input(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+    const returned = yield* output(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+    const desired = new Map(requested.map(row => [row.id, new Set(row.category_ids)]));
+    const resultIds = new Set(returned.map(row => row.id));
+    const pivot = (yield* productMembershipPivots(catalog))[1];
+    const mismatch = () => commerceError("receiptMismatch");
+    if (pivot === undefined || desired.size !== requested.length || resultIds.size !== returned.length ||
+      resultIds.size !== desired.size || [...resultIds].some(id => !desired.has(id))) return yield* Effect.fail(mismatch());
+    const changed = new Set<string>(), pairs = new Set<string>();
+    for (const mutation of activity.mutations) {
+      const before = mutation.before, after = mutation.after;
+      if (mutation.table === catalog.product.table.name) {
+        if ((mutation.operation !== "patch" && mutation.operation !== "replace") || before === null || after === null ||
+          typeof before.id !== "string" || before.id !== after.id || before.deleted_at !== null ||
+          !desired.has(before.id) || changed.has(before.id)) return yield* Effect.fail(mismatch());
+        for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+          if (key === "updated_at") continue;
+          if (before[key] === undefined || after[key] === undefined || !jsonEqual(before[key], after[key]))
+            return yield* Effect.fail(mismatch());
+        }
+        changed.add(before.id);
+      } else {
+        const insert = mutation.operation === "insert" && before === null && after !== null;
+        const remove = mutation.operation === "delete" && before !== null && after === null;
+        const row = insert ? after : before;
+        const product = row?.[pivot.productColumn], category = row?.[pivot.targetColumn];
+        const selected = typeof product === "string" ? desired.get(product) : undefined;
+        const pair = JSON.stringify([product, category]);
+        if (mutation.table !== pivot.table || (!insert && !remove) || selected === undefined || typeof category !== "string" ||
+          pairs.has(pair) || selected.has(category) !== insert) return yield* Effect.fail(mismatch());
+        pairs.add(pair);
+      }
+    }
+    if (changed.size !== desired.size) return yield* Effect.fail(mismatch());
+    const actual = new Map([...desired.keys()].map(id => [id, new Set<string>()]));
+    for (const observation of activity.observedRows) {
+      if (observation.table !== pivot.table) continue;
+      const product = observation.row[pivot.productColumn], category = observation.row[pivot.targetColumn];
+      const selected = typeof product === "string" ? actual.get(product) : undefined;
+      if (selected === undefined) continue;
+      if (typeof category !== "string" || selected.has(category)) return yield* Effect.fail(mismatch());
+      selected.add(category);
+    }
+    for (const [id, selected] of desired) {
+      const observed = actual.get(id);
+      if (observed?.size !== selected.size || [...selected].some(category => !observed.has(category))) return yield* Effect.fail(mismatch());
+    }
+    for (const event of call.events) {
+      const message = yield* capture(event);
+      if (message.name !== catalog.product.updatedEvent || message.metadata.action !== CommonEvents.UPDATED)
+        return yield* Effect.fail(mismatch());
+      for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
+        if (!changed.delete(id)) return yield* Effect.fail(mismatch());
+    }
+    if (changed.size !== 0) return yield* Effect.fail(mismatch());
+  });
+}
 
 
 const EventId = Schema.String.check(Schema.isLengthBetween(1, 256));
@@ -184,27 +244,6 @@ export function productModuleEventPolicy(descriptor: CommerceProfileState, catal
   };
 }
 
-const logicalSingleWriteEvents = Effect.fn("ProductEvents.singleLogicalWrite")(function* (
-  calls: Parameters<LogicalCommerceEventValidation>[0], mutationCount: number, commandName: string,
-) {
-  let cursor = 0;
-  let writes = 0;
-  let emitted: readonly Json[] = [];
-  for (const call of calls) {
-    if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
-    if (call.mode === "read") {
-      if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-      continue;
-    }
-    if (++writes !== 1 || call.commandName !== commandName || call.toAttempt !== mutationCount)
-      return yield* Effect.fail(commerceError("receiptMismatch"));
-    cursor = call.toAttempt;
-    emitted = call.events;
-  }
-  if (writes !== 1 || cursor !== mutationCount) return yield* Effect.fail(commerceError("receiptMismatch"));
-  return emitted;
-});
-
 /** Read only the two module-local Product memberships declared by pinned DML. */
 const productMembershipPivots = Effect.fn("ProductEvents.membershipPivots")(function* (catalog: ProductRuntimeMetadata) {
   const pivots: Array<{ readonly table: string; readonly productColumn: string; readonly targetColumn: string }> = [];
@@ -246,8 +285,10 @@ function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity
   commandName: string, action: "created" | "updated" | "deleted") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const eventName = action === "created" ? entity.createdEvent : action === "updated" ? entity.updatedEvent : entity.deletedEvent;
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalEntity")(function* (calls, mutations, lifecycle) {
-    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalEntity")(function* (call, activity) {
+      const { mutations, lifecycle } = activity;
+    if (call.commandName !== commandName) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
     if (action !== "deleted" && lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     const expected = new Set<string>();
     for (const mutation of mutations) {
@@ -274,12 +315,12 @@ function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity
     }
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** Selected Product commands validate at the same native call boundary. Selection
  * of callable methods stays with the host; unsupported writes fail closed here. */
-export function productLogicalCallEventPolicy(catalog: ProductRuntimeMetadata) {
+export function productCallReceipts(catalog: ProductRuntimeMetadata) {
   const categoryCreate = categoryCreateEventPolicy(catalog);
   const categoryUpdate = categoryChangeEventPolicy(catalog, "update");
   const categoryDelete = categoryChangeEventPolicy(catalog, "delete");
@@ -292,9 +333,44 @@ export function productLogicalCallEventPolicy(catalog: ProductRuntimeMetadata) {
   const collectionDelete = productLogicalNullableReferenceDeleteEventPolicy(catalog, catalog.collection,
     "collection_id", "productDeletecollection");
   const tags = tagCallEventPolicy(catalog);
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalCall")(
+  const variantImages = productLogicalVariantImagesEventPolicy(catalog);
+  const other = new Map<string, LogicalCallReceiptValidation>([
+    ["productCreate", productLogicalCreateEventPolicy(catalog).validateLogicalCall],
+    ["productUpdate", productLogicalUpdateEventPolicy(catalog).validateLogicalCall],
+    ["productUpsertRelationships", productRelationshipCallReceipt(catalog)],
+    ["productCreatevariant", productLogicalVariantCreateEventPolicy(catalog).validateLogicalCall],
+    ["productDeleteproduct", productLogicalDeleteEventPolicy(catalog).validateLogicalCall],
+    ["productSoftDelete", productLogicalLifecycleEventPolicy(catalog, "softDelete").validateLogicalCall],
+    ["productRestore", productLogicalLifecycleEventPolicy(catalog, "restore").validateLogicalCall],
+    ["productCreatetype", productLogicalTypeEventPolicy(catalog, "create").validateLogicalCall],
+    ["productupdatetype", productLogicalTypeEventPolicy(catalog, "update").validateLogicalCall],
+    ["productDeletetype", productLogicalTypeEventPolicy(catalog, "delete").validateLogicalCall],
+    ["productCreateoption", productLogicalOptionEventPolicy(catalog, "create").validateLogicalCall],
+    ["productupdateoption", productLogicalOptionEventPolicy(catalog, "update").validateLogicalCall],
+    ["productupsertoption", productLogicalOptionEventPolicy(catalog, "upsert").validateLogicalCall],
+    ["productDeleteoption", productLogicalOptionEventPolicy(catalog, "delete").validateLogicalCall],
+    ["productCreateassignment", variantImages.validateLogicalCall],
+    ["productDeleteassignment", variantImages.validateLogicalCall],
+    ["productUpdateVariantsBySelector", variantImages.validateLogicalCall],
+  ]);
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalCall")(
     function* (call, activity) {
-      if (call.mode === "read") return;
+      if (call.fromAttempt !== 0 || call.toAttempt !== activity.mutations.length ||
+        call.fromLifecycle !== 0 || call.toLifecycle !== activity.lifecycle.length ||
+        activity.mutations.some((mutation, index) => mutation.ordinal !== index))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (call.mode === "read") {
+        if (call.events.length || activity.mutations.length || activity.lifecycle.length ||
+          activity.setNull.length || activity.referenceReplacements.length)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        return;
+      }
+      if (activity.referenceReplacements.length !== 0 && call.commandName !== "productupdatecollection" ||
+        activity.setNull.length !== 0 && !["productDeletetype", "productDeletecollection"].includes(call.commandName) ||
+        activity.lifecycle.length !== 0 && !["productSoftDelete", "productRestore", "productSoftDeleteTag"].includes(call.commandName))
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      const receipt = other.get(call.commandName);
+      if (receipt !== undefined) return yield* receipt(call, activity);
       if (call.commandName === "productDeletecollection") {
         const decoded = yield* Effect.fromResult(decodeProductLifecycleIds(call.input))
           .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
@@ -302,8 +378,7 @@ export function productLogicalCallEventPolicy(catalog: ProductRuntimeMetadata) {
         if (call.result !== null || activity.referenceReplacements.length !== 0 ||
           activity.mutations.some(mutation => typeof mutation.before?.id !== "string" || !requested.has(mutation.before.id)))
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        yield* collectionDelete.validateLogical([call], activity.mutations, activity.lifecycle,
-          activity.observedRows, activity.setNull);
+        yield* collectionDelete.validateLogicalCall(call, activity);
         return;
       }
       const policy = call.commandName === "productCreatecategory" ? categoryCreate
@@ -330,7 +405,7 @@ function categoryCreateEventPolicy(catalog: ProductRuntimeMetadata) {
   const tree = internalCategoryPolicy(catalog, "create");
   const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
   const join = relation?.join;
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalCategoryCreate")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalCategoryCreate")(
     function* (write, activity) {
       const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       const mismatch = () => commerceError("receiptMismatch");
@@ -412,7 +487,7 @@ function categoryChangeEventPolicy(catalog: ProductRuntimeMetadata,
   const tree = internalCategoryPolicy(catalog, operation);
   const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
   const join = relation?.join;
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalCategoryChange")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalCategoryChange")(
     function* (write, activity) {
       const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       const mismatch = () => commerceError("receiptMismatch");
@@ -497,26 +572,12 @@ function internalCategoryPolicy(catalog: ProductRuntimeMetadata,
   const selectedRows = Schema.decodeUnknownEffect(Schema.Array(Schema.StructWithRest(
     Schema.Struct({ id: EventId }), [Schema.Record(Schema.String, Schema.Json)]))
     .check(Schema.isLengthBetween(1, 256)), { onExcessProperty: "error" });
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateInternalCategory")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateInternalCategory")(
     function* (call, activity) {
-      const { mutations, lifecycle, observedRows, setNull, referenceReplacements } = activity;
+      const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       if (call.events.length !== 0 || lifecycle.length !== 0 || setNull.length !== 0 || referenceReplacements.length !== 0 ||
         mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(mismatch());
-      const currentPaths = new Map<string, string>();
-      for (const observation of observedRows) {
-        if (observation.table === catalog.category.table.name &&
-          typeof observation.row.id === "string" && typeof observation.row.mpath === "string")
-          currentPaths.set(observation.row.id, observation.row.mpath);
-      }
-      const initialized = new Set<string>();
-      for (const mutation of mutations) {
-        const id = mutation.before?.id ?? mutation.after?.id;
-        if (mutation.table !== catalog.category.table.name || typeof id !== "string" || initialized.has(id)) continue;
-        initialized.add(id);
-        if (typeof mutation.before?.mpath === "string") currentPaths.set(id, mutation.before.mpath);
-        else currentPaths.delete(id);
-      }
       const createRows = operation === "create" ? yield* decodeInternalCategoryCreateRows(call.input)
         .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : [];
       const updateRows = operation === "update" ? yield* selectedRows(call.input)
@@ -544,55 +605,20 @@ function internalCategoryPolicy(catalog: ProductRuntimeMetadata,
         const previous = roots.get(id);
         roots.set(id, { before: previous === undefined ? mutation.before : previous.before, after: mutation.after });
       }
-      const pathMoves: Array<{ rootId: string; oldPath: string; newPath: string }> = [];
-      const matchesSiblingRank = (before: JsonObject, after: JsonObject, id: string) => {
-        const parent = before.parent_category_id, oldRank = before.rank, nextRank = after.rank;
-        if (parent !== after.parent_category_id ||
-          !(parent === null || typeof parent === "string") ||
-          typeof oldRank !== "number" || typeof nextRank !== "number") return false;
-        return [...roots].some(([rootId, root]) => {
-          if (rootId === id) return false;
-          const old = root.before, next = root.after;
-          if (old !== null && old.parent_category_id === parent &&
-            (next === null || next.parent_category_id !== parent) &&
-            typeof old.rank === "number" && oldRank > old.rank && nextRank === oldRank - 1) return true;
-          if (next !== null && next.parent_category_id === parent &&
-            (old === null || old.parent_category_id !== parent) &&
-            typeof next.rank === "number" && oldRank >= next.rank && nextRank === oldRank + 1) return true;
-          return old !== null && next !== null && old.parent_category_id === parent &&
-            next.parent_category_id === parent && typeof old.rank === "number" &&
-            typeof next.rank === "number" && (
-              old.rank < next.rank && oldRank > old.rank && oldRank <= next.rank && nextRank === oldRank - 1 ||
-              old.rank > next.rank && oldRank >= next.rank && oldRank < old.rank && nextRank === oldRank + 1);
-        });
-      };
-      const matchesDescendantPath = (before: JsonObject, after: JsonObject, id: string) => {
-        const oldPath = before.mpath, newPath = after.mpath;
-        return before.parent_category_id === after.parent_category_id &&
-          typeof oldPath === "string" && typeof newPath === "string" &&
-          pathMoves.some(move => move.rootId !== id && oldPath.startsWith(move.oldPath + ".") &&
-            newPath === move.newPath + oldPath.slice(move.oldPath.length));
-      };
       for (const mutation of segment) {
         const before = mutation.before, after = mutation.after;
         const id = operation === "delete" ? before?.id : after?.id;
         if (mutation.table !== catalog.category.table.name || typeof id !== "string")
           return yield* Effect.fail(mismatch());
-        if (typeof before?.mpath === "string" && !currentPaths.has(id))
-          currentPaths.set(id, before.mpath);
         const root = selected.has(id);
         if (mutation.operation === "insert") {
           if (operation !== "create" || !root || before !== null || !isJsonObject(after) ||
             after.deleted_at !== null) return yield* Effect.fail(mismatch());
           const selectedRow = createRows[input.indexOf(id)];
           const resultRow = resultRows[input.indexOf(id)];
-          const parentPath = typeof after.parent_category_id === "string"
-            ? currentPaths.get(after.parent_category_id) : undefined;
           if (selectedRow === undefined || after.name !== selectedRow.name ||
             (selectedRow.handle !== undefined && after.handle !== selectedRow.handle) ||
             after.parent_category_id !== (selectedRow.parent_category_id ?? null) ||
-            !(after.parent_category_id === null ? after.mpath === id
-              : parentPath !== undefined && after.mpath === parentPath + "." + id) ||
             !isJsonObject(resultRow) || after.rank !== resultRow.rank ||
             Object.entries(selectedRow).some(([key, value]) =>
               !["id", "name", "handle", "parent_category_id", "rank"].includes(key) &&
@@ -616,35 +642,8 @@ function internalCategoryPolicy(catalog: ProductRuntimeMetadata,
               after[key] === undefined || !jsonEqual(requested[key], after[key]))
               return yield* Effect.fail(mismatch());
           }
-          const rankChanged = before.rank === undefined || after.rank === undefined
-            ? before.rank !== after.rank : !jsonEqual(before.rank, after.rank);
-          const pathChanged = before.mpath === undefined || after.mpath === undefined
-            ? before.mpath !== after.mpath : !jsonEqual(before.mpath, after.mpath);
-          const parentChanged = before.parent_category_id !== after.parent_category_id;
-          if (root) {
-            if (rankChanged && requested?.rank === undefined && !parentChanged &&
-              !matchesSiblingRank(before, after, id)) return yield* Effect.fail(mismatch());
-            if (pathChanged && !parentChanged && !matchesDescendantPath(before, after, id))
-              return yield* Effect.fail(mismatch());
-            if (parentChanged && !pathChanged) return yield* Effect.fail(mismatch());
-            const parentPath = typeof after.parent_category_id === "string"
-              ? currentPaths.get(after.parent_category_id) : undefined;
-            if (pathChanged && parentChanged &&
-              !(after.parent_category_id === null ? after.mpath === id
-                : parentPath !== undefined && after.mpath === parentPath + "." + id))
-              return yield* Effect.fail(mismatch());
-          } else if (rankChanged === pathChanged ||
-            rankChanged && !matchesSiblingRank(before, after, id) ||
-            pathChanged && !matchesDescendantPath(before, after, id))
-            return yield* Effect.fail(mismatch());
           if (root && operation === "update") seen.add(id);
         } else return yield* Effect.fail(mismatch());
-        if (root && before !== null && after !== null &&
-          before.parent_category_id !== after.parent_category_id &&
-          typeof before.mpath === "string" && typeof after.mpath === "string")
-          pathMoves.push({ rootId: id, oldPath: before.mpath, newPath: after.mpath });
-        if (typeof after?.mpath === "string") currentPaths.set(id, after.mpath);
-        else currentPaths.delete(id);
       }
       if (operation === "update") {
         for (const requested of updateRows) {
@@ -652,8 +651,6 @@ function internalCategoryPolicy(catalog: ProductRuntimeMetadata,
           if (final === undefined || final === null) return yield* Effect.fail(mismatch());
           const result = resultRows[input.indexOf(requested.id)];
           if (!isJsonObject(result) ||
-            (typeof requested.rank === "number" &&
-              (typeof result.rank !== "number" || result.rank > requested.rank)) ||
             !segment.some(mutation => mutation.after?.id === requested.id &&
               mutation.after.rank === result.rank && mutation.after.mpath === result.mpath))
             return yield* Effect.fail(mismatch());
@@ -677,7 +674,7 @@ function collectionWriteEventPolicy(catalog: ProductRuntimeMetadata,
   operation: "create" | "update" | "upsert") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const mismatch = () => commerceError("receiptMismatch");
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalCollectionWrite")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalCollectionWrite")(
     function* (write, activity) {
       const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       const emitted = write.events;
@@ -879,9 +876,11 @@ function collectionWriteEventPolicy(catalog: ProductRuntimeMetadata,
 function productLogicalNullableReferenceDeleteEventPolicy(catalog: ProductRuntimeMetadata,
   target: ProductEntityMetadata, referenceColumn: "type_id" | "collection_id", commandName: string) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalReferenceDelete")(
-    function* (calls, mutations, lifecycle, _observedRows, setNull) {
-      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalReferenceDelete")(
+    function* (call, activity) {
+      const { mutations, lifecycle, setNull } = activity;
+      if (call.commandName !== commandName) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
       if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
       const deleted = new Set<string>();
       for (const mutation of mutations) {
@@ -907,12 +906,12 @@ function productLogicalNullableReferenceDeleteEventPolicy(catalog: ProductRuntim
       }
       if (deleted.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** Native Type writes stay on Product's logical source. Its hard delete may
  * detach nullable Product.type_id references before removing the Type row. */
-export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
+function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
   operation: "create" | "update" | "delete") {
   if (operation !== "delete") return productLogicalEntityEventPolicy(catalog, catalog.type,
     operation === "create" ? "productCreatetype" : "productupdatetype",
@@ -922,15 +921,17 @@ export function productLogicalTypeEventPolicy(catalog: ProductRuntimeMetadata,
 
 /** Native Option commands own their Value graph. Hard deletion emits only the
  * Option root message; create/update/upsert emit each changed entity message. */
-export function productLogicalOptionEventPolicy(catalog: ProductRuntimeMetadata,
+function productLogicalOptionEventPolicy(catalog: ProductRuntimeMetadata,
   operation: "create" | "update" | "upsert" | "delete") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const commandName = operation === "create" ? "productCreateoption" : operation === "update" ? "productupdateoption"
     : operation === "upsert" ? "productupsertoption" : "productDeleteoption";
   const mismatch = () => commerceError("receiptMismatch");
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalOption")(
-    function* (calls, mutations, lifecycle) {
-      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalOption")(
+    function* (call, activity) {
+      const { mutations, lifecycle } = activity;
+      if (call.commandName !== commandName) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
       if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
       const options = new Map<string, typeof mutations[number]>();
       const values = new Map<string, typeof mutations[number]>();
@@ -994,272 +995,19 @@ export function productLogicalOptionEventPolicy(catalog: ProductRuntimeMetadata,
       }
       if (expected.size !== 0) return yield* Effect.fail(mismatch());
     });
-  return { capture, validateLogical };
-}
-
-/** Native Collection assignment owns one Collection update and the Product
- * foreign-key changes implied by its final requested membership. */
-export function productLogicalCollectionMembershipEventPolicy(catalog: ProductRuntimeMetadata) {
-  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const decodeInput = Schema.decodeUnknownEffect(ProductRelationshipCollectionWriteCall, { onExcessProperty: "error" });
-  const decodeResult = Schema.decodeUnknownEffect(ProductRelationshipCollectionWriteResult, { onExcessProperty: "error" });
-  const decodeReadInput = Schema.decodeUnknownEffect(ProductRelationshipCollectionReadCall, { onExcessProperty: "error" });
-  const decodeReadResult = Schema.decodeUnknownEffect(ProductRelationshipCollectionReadResult, { onExcessProperty: "error" });
-  const mismatch = () => commerceError("receiptMismatch");
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCollectionMembership")(
-    function* (calls, mutations, lifecycle, observedRows) {
-      if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
-      let cursor = 0;
-      let writes = 0;
-      let prior: { readonly id: string; readonly members: ReadonlySet<string> } | undefined;
-      for (const call of calls) {
-        if (call.fromAttempt !== cursor || call.toAttempt < cursor || call.toAttempt > mutations.length)
-          return yield* Effect.fail(mismatch());
-        const attempts = mutations.slice(cursor, call.toAttempt);
-        if (attempts.some((mutation, index) => mutation.ordinal !== cursor + index))
-          return yield* Effect.fail(mismatch());
-        cursor = call.toAttempt;
-        if (call.mode === "read") {
-          if (attempts.length !== 0 || call.events.length !== 0) return yield* Effect.fail(mismatch());
-          if (call.commandName === "productCollectionretrieve") {
-            if (prior !== undefined || writes !== 0) return yield* Effect.fail(mismatch());
-            const input = yield* decodeReadInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-            const result = yield* decodeReadResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-            const ids = result.products.map(row => row.id);
-            if (result.id !== input.id || new Set(ids).size !== ids.length) return yield* Effect.fail(mismatch());
-            prior = { id: input.id, members: new Set(ids) };
-          }
-          continue;
-        }
-        if (++writes !== 1 || call.commandName !== "productupdatecollection" || prior === undefined)
-          return yield* Effect.fail(mismatch());
-        const input = yield* decodeInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        const result = yield* decodeResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        if (result.id !== input.id || input.id !== prior.id) return yield* Effect.fail(mismatch());
-        const selected = new Set(input.data.product_ids);
-        const expected = new Set<string>();
-        let collectionUpdates = 0;
-        for (const mutation of attempts) {
-          const before = mutation.before, after = mutation.after;
-          if ((mutation.operation !== "patch" && mutation.operation !== "replace") || before === null || after === null ||
-            before.id !== after.id || typeof after.id !== "string" ||
-            before.deleted_at !== null || after.deleted_at !== null) return yield* Effect.fail(mismatch());
-          const collection = mutation.table === catalog.collection.table.name;
-          const product = mutation.table === catalog.product.table.name;
-          if (!collection && !product) return yield* Effect.fail(mismatch());
-          if (collection && (++collectionUpdates !== 1 || after.id !== input.id)) return yield* Effect.fail(mismatch());
-          if (product && !(after.collection_id === input.id && selected.has(after.id) ||
-            before.collection_id === input.id && after.collection_id === null && !selected.has(after.id)))
-            return yield* Effect.fail(mismatch());
-          const allowed = product ? new Set(["collection_id", "updated_at"]) : new Set(["updated_at"]);
-          const unchanged = (key: string) => !allowed.has(key);
-          const keys = Object.keys(before).filter(unchanged);
-          if (keys.length !== Object.keys(after).filter(unchanged).length || keys.some(key => {
-            const left = before[key], right = after[key];
-            return right === undefined || left === undefined || !jsonEqual(left, right);
-          })) return yield* Effect.fail(mismatch());
-          const entity = collection ? catalog.collection : catalog.product;
-          const identity = entity.updatedEvent + ":" + after.id;
-          if (expected.has(identity)) return yield* Effect.fail(mismatch());
-          expected.add(identity);
-        }
-        if (collectionUpdates !== 1) return yield* Effect.fail(mismatch());
-        const changedProducts = new Set(attempts.filter(mutation => mutation.table === catalog.product.table.name)
-          .map(mutation => mutation.after?.id));
-        for (const id of prior.members) if (!selected.has(id) && !changedProducts.has(id))
-          return yield* Effect.fail(mismatch());
-        const finalProducts = new Set<string>();
-        for (const observation of observedRows) {
-          if (observation.table !== catalog.product.table.name) continue;
-          const row = observation.row;
-          if (typeof row.id !== "string" || row.deleted_at !== null) continue;
-          if (row.collection_id === input.id) finalProducts.add(row.id);
-          if (selected.has(row.id) && !changedProducts.has(row.id)) return yield* Effect.fail(mismatch());
-        }
-        if (finalProducts.size !== [...selected].filter(id => changedProducts.has(id)).length ||
-          [...finalProducts].some(id => !selected.has(id))) return yield* Effect.fail(mismatch());
-        for (const event of call.events) {
-          const message = yield* capture(event);
-          if (message.metadata.action !== CommonEvents.UPDATED ||
-            ![catalog.collection.updatedEvent, catalog.product.updatedEvent].includes(message.name))
-            return yield* Effect.fail(mismatch());
-          const entity = message.name === catalog.collection.updatedEvent ? catalog.collection : catalog.product;
-          if (message.metadata.object !== entity.eventObject) return yield* Effect.fail(mismatch());
-          for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
-            if (!expected.delete(message.name + ":" + id)) return yield* Effect.fail(mismatch());
-        }
-        if (expected.size !== 0) return yield* Effect.fail(mismatch());
-      }
-      if (cursor !== mutations.length || (prior === undefined ? writes !== 0 : writes !== 1))
-        return yield* Effect.fail(mismatch());
-    });
-  return { capture, validateLogical };
-}
-
-/** The pinned Category child upserts selected Products with final category IDs.
- * A Product event owns its timestamp update; category pivot rows are silent. */
-export function productLogicalCategoryMembershipEventPolicy(catalog: ProductRuntimeMetadata) {
-  const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const decodeInput = Schema.decodeUnknownEffect(ProductRelationshipUpsertRows, { onExcessProperty: "error" });
-  const decodeResult = Schema.decodeUnknownEffect(ProductRelationshipResultRows, { onExcessProperty: "error" });
-  const decodeListInput = Schema.decodeUnknownEffect(ProductRelationshipCategoryListCall, { onExcessProperty: "error" });
-  const decodeListResult = Schema.decodeUnknownEffect(ProductRelationshipCategoryProducts, { onExcessProperty: "error" });
-  const mismatch = () => commerceError("receiptMismatch");
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCategoryMembership")(
-    function* (calls, mutations, lifecycle, observedRows) {
-      if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
-      const pivot = (yield* productMembershipPivots(catalog))[1];
-      if (pivot === undefined) return yield* Effect.fail(mismatch());
-      let cursor = 0;
-      let writes = 0;
-      let prior: Map<string, Set<string>> | undefined;
-      for (const call of calls) {
-        if (call.fromAttempt !== cursor || call.toAttempt < cursor || call.toAttempt > mutations.length)
-          return yield* Effect.fail(mismatch());
-        const attempts = mutations.slice(cursor, call.toAttempt);
-        if (attempts.some((mutation, index) => mutation.ordinal !== cursor + index))
-          return yield* Effect.fail(mismatch());
-        cursor = call.toAttempt;
-        if (call.mode === "read") {
-          if (attempts.length !== 0 || call.events.length !== 0) return yield* Effect.fail(mismatch());
-          if (call.commandName === "productlist") {
-            if (prior !== undefined || writes !== 0) return yield* Effect.fail(mismatch());
-            const input = yield* decodeListInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-            const result = yield* decodeListResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-            const requested = new Set(input.filters.id);
-            prior = new Map();
-            for (const row of result) {
-              if (!requested.has(row.id) || prior.has(row.id)) return yield* Effect.fail(mismatch());
-              const categories = row.categories.map(category => category.id);
-              if (new Set(categories).size !== categories.length) return yield* Effect.fail(mismatch());
-              prior.set(row.id, new Set(categories));
-            }
-          }
-          continue;
-        }
-        if (++writes !== 1 || call.commandName !== "productUpsert" || prior === undefined)
-          return yield* Effect.fail(mismatch());
-        const input = yield* decodeInput(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        const result = yield* decodeResult(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        const selected = new Map(input.map(row => [row.id, new Set(row.category_ids)]));
-        if (selected.size !== input.length || result.length !== input.length ||
-          new Set(result.map(row => row.id)).size !== result.length ||
-          result.some(row => !selected.has(row.id)) || selected.size !== prior.size)
-          return yield* Effect.fail(mismatch());
-        const expected = new Set<string>();
-        const expectedPivots = new Set<string>();
-        for (const [id, final] of selected) {
-          const before = prior.get(id);
-          if (before === undefined) return yield* Effect.fail(mismatch());
-          for (const categoryId of before) if (!final.has(categoryId))
-            expectedPivots.add(JSON.stringify(["delete", id, categoryId]));
-          for (const categoryId of final) if (!before.has(categoryId))
-            expectedPivots.add(JSON.stringify(["insert", id, categoryId]));
-        }
-        for (const mutation of attempts) {
-          const before = mutation.before, after = mutation.after;
-          if (mutation.table === catalog.product.table.name) {
-            if ((mutation.operation !== "patch" && mutation.operation !== "replace") ||
-              before === null || after === null || before.id !== after.id ||
-              typeof after.id !== "string" || !selected.has(after.id) ||
-              before.deleted_at !== null || after.deleted_at !== null || expected.has(after.id))
-              return yield* Effect.fail(mismatch());
-            const keys = Object.keys(before).filter(key => key !== "updated_at");
-            if (keys.length !== Object.keys(after).filter(key => key !== "updated_at").length ||
-              keys.some(key => before[key] === undefined || after[key] === undefined || !jsonEqual(before[key], after[key])))
-              return yield* Effect.fail(mismatch());
-            expected.add(after.id);
-            continue;
-          }
-          const row = mutation.operation === "insert" ? after : mutation.operation === "delete" ? before : null;
-          const productId = row?.[pivot.productColumn], categoryId = row?.[pivot.targetColumn];
-          const final = typeof productId === "string" ? selected.get(productId) : undefined;
-          if (mutation.table !== pivot.table || row === null ||
-            (mutation.operation === "insert" ? before !== null : after !== null) ||
-            typeof categoryId !== "string" || final === undefined ||
-            (mutation.operation === "insert" ? !final.has(categoryId) : final.has(categoryId)))
-            return yield* Effect.fail(mismatch());
-          if (!expectedPivots.delete(JSON.stringify([mutation.operation, productId, categoryId])))
-            return yield* Effect.fail(mismatch());
-        }
-        for (const mutation of attempts) {
-          if (mutation.table === pivot.table) {
-            const row = mutation.operation === "insert" ? mutation.after : mutation.before;
-            const productId = row?.[pivot.productColumn];
-            if (typeof productId !== "string" || !expected.has(productId))
-              return yield* Effect.fail(mismatch());
-          }
-        }
-        for (const event of call.events) {
-          const message = yield* capture(event);
-          if (message.name !== catalog.product.updatedEvent || message.metadata.object !== catalog.product.eventObject ||
-            message.metadata.action !== CommonEvents.UPDATED) return yield* Effect.fail(mismatch());
-          for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id])
-            if (!expected.delete(id)) return yield* Effect.fail(mismatch());
-        }
-        if (expected.size !== 0 || expectedPivots.size !== 0 ||
-          attempts.filter(mutation => mutation.table === catalog.product.table.name).length !== selected.size)
-          return yield* Effect.fail(mismatch());
-        const final = new Map([...selected.keys()].map(id => [id, new Set<string>()]));
-        for (const observation of observedRows) {
-          if (observation.table !== pivot.table) continue;
-          const productId = observation.row[pivot.productColumn];
-          const categoryId = observation.row[pivot.targetColumn];
-          const categories = typeof productId === "string" ? final.get(productId) : undefined;
-          if (categories === undefined) continue;
-          if (typeof categoryId !== "string" || categories.has(categoryId)) return yield* Effect.fail(mismatch());
-          categories.add(categoryId);
-        }
-        for (const [id, categories] of final) {
-          const requested = selected.get(id);
-          if (requested === undefined || categories.size !== requested.size ||
-            [...categories].some(categoryId => !requested.has(categoryId))) return yield* Effect.fail(mismatch());
-        }
-      }
-      if (cursor !== mutations.length || (prior === undefined ? writes !== 0 : writes !== 1))
-        return yield* Effect.fail(mismatch());
-    });
-  return { capture, validateLogical };
-}
-
-/** The native composed root executes Collection before Category. Rebase only
- * trusted attempt ordinals; each child still validates its exact call range. */
-export function productLogicalRelationshipsEventPolicy(catalog: ProductRuntimeMetadata) {
-  const collection = productLogicalCollectionMembershipEventPolicy(catalog);
-  const category = productLogicalCategoryMembershipEventPolicy(catalog);
-  const collectionCommands = new Set(["productCollectionretrieve", "productupdatecollection"]);
-  const categoryCommands = new Set(["productlist", "productUpsert"]);
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalRelationships")(
-    function* (calls, mutations, lifecycle, observedRows) {
-      let categoryStart = calls.length;
-      for (const [index, call] of calls.entries()) {
-        if (collectionCommands.has(call.commandName)) {
-          if (categoryStart !== calls.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-        } else if (categoryCommands.has(call.commandName)) {
-          if (categoryStart === calls.length) categoryStart = index;
-        } else if (call.mode !== "read") return yield* Effect.fail(commerceError("receiptMismatch"));
-      }
-      const boundary = categoryStart === calls.length ? mutations.length : calls[categoryStart]?.fromAttempt;
-      if (boundary === undefined || boundary < 0 || boundary > mutations.length)
-        return yield* Effect.fail(commerceError("receiptMismatch"));
-      yield* collection.validateLogical(calls.slice(0, categoryStart), mutations.slice(0, boundary), lifecycle, observedRows, []);
-      const categoryCalls = calls.slice(categoryStart).map(call => ({ ...call,
-        fromAttempt: call.fromAttempt - boundary, toAttempt: call.toAttempt - boundary }));
-      const categoryMutations = mutations.slice(boundary).map(mutation => ({ ...mutation,
-        ordinal: mutation.ordinal - boundary }));
-      yield* category.validateLogical(categoryCalls, categoryMutations, lifecycle, observedRows, []);
-    });
-  return { capture: collection.capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** The native Product create command owns every inserted entity and its
  * variant/value pivot. No other command or Product table is admitted here. */
-export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata) {
+function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
   const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCreate")(function* (calls, mutations, lifecycle) {
-    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productCreate");
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalCreate")(function* (call, activity) {
+      const { mutations, lifecycle } = activity;
+    if (call.commandName !== "productCreate") return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
     if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     const memberships = yield* productMembershipPivots(catalog);
     const membershipRows = new Map(memberships.map(pivot => [pivot.table, [] as JsonObject[]]));
@@ -1314,17 +1062,19 @@ export function productLogicalCreateEventPolicy(catalog: ProductRuntimeMetadata)
     }
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** Native standalone Variant creation inserts Variant rows and silent
  * option-value pivots. The service reads Product options before assigning
  * values; bind those observations to each new Variant's Product. */
-export function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMetadata) {
+function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalVariantCreate")(
-    function* (calls, mutations, lifecycle, observedRows) {
-      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productCreatevariant");
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalVariantCreate")(
+    function* (call, activity) {
+      const { mutations, lifecycle, observedRows } = activity;
+      if (call.commandName !== "productCreatevariant") return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
       if (lifecycle.length !== 0 || mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(commerceError("receiptMismatch"));
       const variants = new Map<string, JsonObject>();
@@ -1375,16 +1125,18 @@ export function productLogicalVariantCreateEventPolicy(catalog: ProductRuntimeMe
       }
       if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** A native Product update owns its root, direct children and declared
  * tag/category memberships. Core authenticates rows and FK targets; this
  * policy binds every transition and silent pivot to the root's native event. */
-export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
+function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalUpdate")(function* (calls, mutations, lifecycle, observedRows) {
-    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productUpdate");
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalUpdate")(function* (call, activity) {
+      const { mutations, lifecycle, observedRows } = activity;
+    if (call.commandName !== "productUpdate") return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
     if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     const memberships = yield* productMembershipPivots(catalog);
     const pivots = new Map(memberships.map(pivot => [pivot.table, pivot]));
@@ -1525,32 +1277,21 @@ export function productLogicalUpdateEventPolicy(catalog: ProductRuntimeMetadata)
     }
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** The native image workflow writes silent assignment rows and may separately
  * clear a Variant thumbnail. Match each call to its own charged attempt range. */
-export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMetadata) {
+function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const decodePairs = Schema.decodeUnknownEffect(VariantImagePairs, { onExcessProperty: "error" });
   const decodeCreated = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: EventId })),
     { onExcessProperty: "error" });
   const mismatch = () => commerceError("receiptMismatch");
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalVariantImages")(
-    function* (calls, mutations, lifecycle) {
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalVariantImages")(
+    function* (call, activity) {
+      const { mutations: attempts, lifecycle } = activity;
       if (lifecycle.length !== 0) return yield* Effect.fail(mismatch());
-      let cursor = 0;
-      for (const call of calls) {
-        if (call.fromAttempt !== cursor || call.toAttempt < cursor || call.toAttempt > mutations.length)
-          return yield* Effect.fail(mismatch());
-        const attempts = mutations.slice(cursor, call.toAttempt);
-        if (attempts.some((mutation, index) => mutation.ordinal !== cursor + index))
-          return yield* Effect.fail(mismatch());
-        cursor = call.toAttempt;
-        if (call.mode === "read") {
-          if (attempts.length !== 0 || call.events.length !== 0) return yield* Effect.fail(mismatch());
-          continue;
-        }
         if (call.commandName === "productCreateassignment") {
           const pairs = yield* decodePairs(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
           const created = yield* decodeCreated(call.result).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
@@ -1563,7 +1304,7 @@ export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMe
               row.id !== result.id || row.variant_id !== pair.variant_id || row.image_id !== pair.image_id)
               return yield* Effect.fail(mismatch());
           }
-          continue;
+          return;
         }
         if (call.commandName === "productDeleteassignment") {
           const pairs = yield* decodePairs(call.input).pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
@@ -1573,7 +1314,7 @@ export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMe
             mutation.before === null || mutation.after !== null ||
             !requested.has(JSON.stringify([mutation.before.variant_id, mutation.before.image_id]))))
             return yield* Effect.fail(mismatch());
-          continue;
+          return;
         }
         if (call.commandName === "productUpdateVariantsBySelector") {
           const input = yield* Effect.fromResult(decodeVariantThumbnailUpdate(call.input))
@@ -1603,26 +1344,26 @@ export function productLogicalVariantImagesEventPolicy(catalog: ProductRuntimeMe
               if (!expected.delete(message.name + ":" + id)) return yield* Effect.fail(mismatch());
           }
           if (expected.size !== 0) return yield* Effect.fail(mismatch());
-          continue;
+          return;
         }
-        return yield* Effect.fail(mismatch());
-      }
-      if (cursor !== mutations.length) return yield* Effect.fail(mismatch());
+      return yield* Effect.fail(mismatch());
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** Public native Product lifecycle admits the owned cascade and authenticates
  * an already-active restore without pretending that storage changed a row. */
-export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetadata,
+function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetadata,
   operation: "softDelete" | "restore") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
   const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
   const action = operation === "restore" ? CommonEvents.RESTORED : CommonEvents.DELETED;
   const commandName = operation === "restore" ? "productRestore" : "productSoftDelete";
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalLifecycle")(function* (calls, mutations, lifecycle) {
-    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalLifecycle")(function* (call, activity) {
+      const { mutations, lifecycle } = activity;
+    if (call.commandName !== commandName) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
     const expected = new Set<string>();
     const matchedAttempts = new Set<number>();
     for (const observation of lifecycle) {
@@ -1660,17 +1401,19 @@ export function productLogicalLifecycleEventPolicy(catalog: ProductRuntimeMetada
     }
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** The native public delete emits a Product root message while storage removes
  * its owned graph. Every silent child and pivot must trace to a deleted root. */
-export function productLogicalDeleteEventPolicy(catalog: ProductRuntimeMetadata) {
+function productLogicalDeleteEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
   const entities = [catalog.product, catalog.option, catalog.value, catalog.variant, catalog.image];
   const byTable = new Map(entities.map(entity => [entity.table.name, entity]));
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalDelete")(function* (calls, mutations, lifecycle) {
-    const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productDeleteproduct");
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalDelete")(function* (call, activity) {
+      const { mutations, lifecycle } = activity;
+    if (call.commandName !== "productDeleteproduct") return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
     if (lifecycle.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     const memberships = yield* productMembershipPivots(catalog);
     const membershipRows = new Map(memberships.map(pivot => [pivot.table, [] as JsonObject[]]));
@@ -1727,7 +1470,7 @@ export function productLogicalDeleteEventPolicy(catalog: ProductRuntimeMetadata)
     }
     if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
   });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** Every selected tag method validates at the shared outer-call boundary. */
@@ -1735,9 +1478,9 @@ function tagCallEventPolicy(catalog: ProductRuntimeMetadata) {
   const created = productLogicalEntityEventPolicy(catalog, catalog.tag, "productCreatetag", "created");
   const updated = productLogicalEntityEventPolicy(catalog, catalog.tag, "productUpdateTagsBySelector", "updated");
   const deleted = productLogicalEntityEventPolicy(catalog, catalog.tag, "productSoftDeleteTag", "deleted");
-  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalTagCall")(
+  const validateLogicalCall: LogicalCallReceiptValidation = Effect.fn("ProductEvents.validateLogicalTagCall")(
     function* (call, activity) {
-      const { mutations, lifecycle, observedRows, setNull, referenceReplacements } = activity;
+      const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       if (setNull.length !== 0 || referenceReplacements.length !== 0)
         return yield* Effect.fail(commerceError("receiptMismatch"));
       if (call.mode === "read") return;
@@ -1757,7 +1500,7 @@ function tagCallEventPolicy(catalog: ProductRuntimeMetadata) {
       }
       if (call.commandName === "productSoftDeleteTag" ? lifecycle.length !== mutations.length : lifecycle.length !== 0)
         return yield* Effect.fail(commerceError("receiptMismatch"));
-      yield* policy.validateLogical([call], mutations, lifecycle, observedRows, setNull);
+      yield* policy.validateLogicalCall(call, activity);
     });
   return { capture: created.capture, validateLogicalCall };
 }

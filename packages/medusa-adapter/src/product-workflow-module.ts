@@ -4,7 +4,7 @@ import type { CommerceCommand } from "@flarex/persistence-postgres/internal/comm
 import type { CommerceModuleDescription } from "./module-definition";
 import type { GraphModuleDefinition } from "./local-graph/model";
 import { commerceDecoder } from "./commerce-decoder";
-import { defineWorkflowMethod, defineWorkflowModule } from "./workflow/module";
+import { defineWorkflowMethod, defineWorkflowModule, type WorkflowLogicalPolicy } from "./workflow/module";
 import { ProductNamedFilters } from "./product-service-input";
 import { ProductTagUpdateData } from "./product-tag-update-input";
 import { ProductLifecycleIds } from "./product-lifecycle";
@@ -64,10 +64,11 @@ const decodeVariantUpdateArguments = commerceDecoder(Schema.Tuple([VariantSelect
 const decodeCreateVariantsArguments = commerceDecoder(Schema.Tuple([Schema.Array(SimpleVariantInput).check(Schema.isMaxLength(4))]), "invalidInput");
 
 export function productWorkflowModule(source: CommerceModuleDescription,
-  commands: { readonly create: CommerceCommand; readonly list: CommerceCommand; readonly retrieveCollection: CommerceCommand; readonly upsert: CommerceCommand; readonly updateCollections: CommerceCommand; readonly createTags: CommerceCommand; readonly listTags: CommerceCommand; readonly updateTagsBySelector: CommerceCommand; readonly softDeleteTags: CommerceCommand;
+  commands: { readonly create: CommerceCommand; readonly list: CommerceCommand; readonly retrieveCollection: CommerceCommand; readonly upsertRelationships: CommerceCommand; readonly updateCollections: CommerceCommand; readonly createTags: CommerceCommand; readonly listTags: CommerceCommand; readonly updateTagsBySelector: CommerceCommand; readonly softDeleteTags: CommerceCommand;
     readonly createVariants: CommerceCommand; readonly listVariants: CommerceCommand; readonly updateVariantsBySelector: CommerceCommand; readonly addImageToVariant: CommerceCommand; readonly removeImageFromVariant: CommerceCommand },
   graph: GraphModuleDefinition, events: { readonly created: string; readonly updated: string; readonly deleted: string; readonly productCreated: string; readonly productUpdated: string; readonly collectionUpdated: string; readonly variantUpdated: string; readonly variantCreated: string;
-    readonly optionCreated: string; readonly valueCreated: string; readonly imageCreated: string }) {
+    readonly optionCreated: string; readonly valueCreated: string; readonly imageCreated: string },
+  logical: WorkflowLogicalPolicy) {
   return Result.gen(function* () {
     const createProducts = yield* defineWorkflowMethod({ command: commands.create, arguments: decodeCreateProductsArguments,
       encode: ([products]) => products, output: decodeCreatedProducts,
@@ -92,7 +93,8 @@ export function productWorkflowModule(source: CommerceModuleDescription,
       encode: ([selector, update]) => ({ selector, update }), output: decodeListResult, moduleEvents: [events.variantUpdated] });
     const relationships = yield* productRelationshipWorkflowMethods(commands, events);
     return yield* defineWorkflowModule({ name: "product", source,
-      methods: { ...relationships, createProducts, createProductVariants, createProductTags, listProductTags, updateProductTags, softDeleteProductTags, addImageToVariant, removeImageFromVariant, listProductVariants, updateProductVariants }, graph });
+      methods: { ...relationships, createProducts, createProductVariants, createProductTags, listProductTags, updateProductTags, softDeleteProductTags, addImageToVariant, removeImageFromVariant, listProductVariants, updateProductVariants }, graph,
+      logical });
   });
 }
 export type ProductWorkflowModule = Result.Result.Success<ReturnType<typeof productWorkflowModule>>;

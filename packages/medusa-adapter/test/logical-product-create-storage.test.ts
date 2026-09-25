@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Result, Schema } from "effect";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
-import { productLogicalCallEventPolicy, productLogicalCategoryMembershipEventPolicy, productLogicalCollectionMembershipEventPolicy, productLogicalCreateEventPolicy, productLogicalRelationshipsEventPolicy } from "../src/product-local-events";
+import { productCallReceipts } from "../src/product-local-events";
 import { decodeCategoryProjection } from "../src/product-category-projection";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductCollectionMembershipWorkflow } from "../src/product-collection-workflow";
@@ -36,14 +36,27 @@ const cleanup: Array<() => Promise<void>> = [];
 let currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
 let product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
 
+async function committedCollection(id: string) {
+  const host = await Effect.runPromise(makeCommerceHost({ ...product.hostInput, commands: [product.runtime.commands.retrieveCollection] }));
+  try {
+    const value = await Effect.runPromise(host.read(product.runtime.commands.retrieveCollection, {
+      id, config: { select: ["id", "products.id"], relations: ["products"] },
+    }));
+    if (!isJsonObject(value) || !Array.isArray(value.products)) throw new Error("Missing committed Collection");
+    return value.products.map(row => {
+      if (!isJsonObject(row) || typeof row.id !== "string") throw new Error("Missing committed Product ID");
+      return row.id;
+    }).sort();
+  } finally { await Effect.runPromise(host.close); }
+}
+
 async function prepareCreationHost() {
   const catalog = await Effect.runPromise(captureProductSchema("atomic-commerce")
     .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
   const host = await Effect.runPromise(prepareProductCreateWorkflow({
     execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalCreateEventPolicy(catalog) } },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
     revision: createHash("sha256").update("logical-product-create-workflow").digest("hex"),
     subscribers: [{ id: "logical-product-create", revision: "a".repeat(64) }],
   }));
@@ -51,7 +64,7 @@ async function prepareCreationHost() {
 }
 
 async function prepareCollectionCreationHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
-  const policy = productLogicalCallEventPolicy(catalog);
+  const policy = product.runtime.logicalPolicy;
   const participant = defineAtomicCommerceParticipant("product");
   const root = defineAtomicCommerceCommand("productCollectionCreateRoot", (ctx, input) =>
     ctx.call(participant, product.runtime.commands.createCollections, input));
@@ -75,15 +88,14 @@ async function prepareCollectionMembershipHost(catalog: Awaited<ReturnType<typeo
   return Effect.runPromise(prepareProductCollectionMembershipWorkflow({
     execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalCollectionMembershipEventPolicy(catalog) } },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
     revision: createHash("sha256").update("logical-product-collection-membership").digest("hex"),
     subscribers: [{ id: "logical-product-collection-membership", revision: "a".repeat(64) }],
   }));
 }
 
 async function prepareCategoryCreationHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
-  const policy = productLogicalCallEventPolicy(catalog);
+  const policy = product.runtime.logicalPolicy;
   const participant = defineAtomicCommerceParticipant("product");
   const root = defineAtomicCommerceCommand("productCategoryCreateRoot", (ctx, input) =>
     ctx.call(participant, product.runtime.commands.createCategories, input));
@@ -111,8 +123,7 @@ async function prepareCategoryMembershipHost(catalog: Awaited<ReturnType<typeof 
   return Effect.runPromise(prepareProductCategoryMembershipWorkflow({
     execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalCategoryMembershipEventPolicy(catalog) } },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
     revision: createHash("sha256").update("logical-product-category-membership").digest("hex"),
     subscribers: [{ id: "logical-product-category-membership", revision: "a".repeat(64) }],
   }));
@@ -122,8 +133,7 @@ async function prepareRelationshipsHost(catalog: Awaited<ReturnType<typeof prepa
   return Effect.runPromise(prepareProductRelationshipsWorkflow({
     execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalRelationshipsEventPolicy(catalog) } },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
     revision: createHash("sha256").update("logical-product-relationships").digest("hex"),
     subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
   }));
@@ -136,8 +146,7 @@ async function prepareDefaultBudgetRelationshipsHost(catalog: Awaited<ReturnType
   return Effect.runPromise(prepareAtomicWorkflowHost({
     execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalRelationshipsEventPolicy(catalog) } },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
     revision: createHash("sha256").update("logical-product-relationships-default-budget").digest("hex"),
     subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
     workflow: { name: "productRelationships", resources, prepared: Result.getOrThrow(productRelationshipsWorkflow.prepare()),
@@ -191,8 +200,7 @@ async function prepareObservedRelationshipsHost(catalog: Awaited<ReturnType<type
   return Effect.runPromise(prepareAtomicWorkflowHost({
     execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition, requestCallLimit: 128 }) },
-    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalRelationshipsEventPolicy(catalog) } },
+    modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage } },
     revision: createHash("sha256").update(`logical-relationships-${mode}`).digest("hex"),
     subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
     workflow: { name: `observedRelationships${mode}`, resources,
@@ -204,7 +212,7 @@ async function prepareObservedRelationshipsHost(catalog: Awaited<ReturnType<type
 
 async function prepareForgedCollectionMembershipHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"],
   forged: "collectionScalar" | "productScalar" | "foreignCollection" | "foreignProduct" | "repeatValid" | "omission") {
-  const policy = productLogicalCollectionMembershipEventPolicy(catalog);
+  const policy = product.runtime.logicalPolicy;
   const participant = defineAtomicCommerceParticipant("product");
   const command = defineCommerceCommand("productupdatecollection", "write", Effect.fn("ProductTest.forgedMembership")(function* (ctx, input) {
     if (!isJsonObject(input) || typeof input.id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
@@ -245,7 +253,7 @@ async function prepareForgedCollectionMembershipHost(catalog: Awaited<ReturnType
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
     identityAndAccessPolicy: { profile: `forged-collection-membership-${forged}` },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-      commands: [product.runtime.commands.retrieveCollection, command], validateLogical: policy.validateLogical, events: selected }],
+      commands: [product.runtime.commands.retrieveCollection, command], validateLogicalCall: policy.validateLogicalCall, events: selected }],
     commands: [root], events: { producerRevision: revision, contracts: selected.contracts,
       subscribers: [{ id: "forged-collection-membership", revision: "a".repeat(64) }],
       validate: events => events.some(event => !event.internal)
@@ -373,10 +381,10 @@ describe("native Product creation on shared logical storage", () => {
       const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
       const key = membership.newRequestKey();
       const result = await Effect.runPromise(membership.run(key, input));
-      if (result === null) throw new Error("Expected Collection membership result");
+      if (result.kind !== "replacementRequested") throw new Error("Expected requested Collection replacement");
       expect(result).toMatchObject({ id: input.id,
-        products: expect.arrayContaining([{ id: "prod_members_move" }, { id: "prod_members_keep" }]) });
-      expect(result.products.map(row => row.id).sort()).toEqual(["prod_members_keep", "prod_members_move"]);
+        kind: "replacementRequested", requestedProductIds: expect.arrayContaining(["prod_members_move", "prod_members_keep"]) });
+      expect(result.requestedProductIds.toSorted()).toEqual(["prod_members_keep", "prod_members_move"]);
       const committed = await Effect.runPromise(read.read(product.runtime.commands.retrieveCollection, {
         id: input.id, config: { select: ["id", "products.id"], relations: ["products"] },
       }));
@@ -401,7 +409,7 @@ describe("native Product creation on shared logical storage", () => {
       expect(await Effect.runPromise(membership.run(membership.newRequestKey(), { id: input.id })))
         .toMatchObject({ id: input.id });
       expect(await Effect.runPromise(membership.run(membership.newRequestKey(), { id: "pcol_members_missing" })))
-        .toBeNull();
+        .toEqual({ kind: "skipped", id: "pcol_members_missing" });
       expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
       expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
       await expect(Effect.runPromise(membership.run(membership.newRequestKey(), {
@@ -414,7 +422,7 @@ describe("native Product creation on shared logical storage", () => {
         try {
           await expect(Effect.runPromise(forged.host.run(forged.host.newRequestKey(), forged.root, {
             id: input.id, data: { product_ids: ["prod_members_keep", "prod_members_move"] },
-          }))).rejects.toMatchObject({ reason: "receiptMismatch" });
+          }))).rejects.toMatchObject({ reason: "invalidAuthority" });
           expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
           expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(afterEvents);
         } finally { await Effect.runPromise(forged.host.close); }
@@ -436,18 +444,18 @@ describe("native Product creation on shared logical storage", () => {
       const beyond = await Effect.runPromise(membership.run(membership.newRequestKey(), {
         id: input.id, add: ["prod_members_beyond"], remove: ["prod_members_keep"],
       }));
-      if (beyond === null) throw new Error("Expected selected Collection");
-      expect(beyond.products.map(row => row.id).sort()).toEqual(["prod_members_beyond", "prod_members_move"]);
+      if (beyond.kind !== "replacementRequested") throw new Error("Expected requested Collection replacement");
+      expect(beyond.requestedProductIds.toSorted()).toEqual(["prod_members_beyond", "prod_members_move"]);
       const duplicate = await Effect.runPromise(membership.run(membership.newRequestKey(), {
         id: input.id, add: ["prod_members_move"],
       }));
-      if (duplicate === null) throw new Error("Expected selected Collection");
-      expect(duplicate.products.map(row => row.id).sort()).toEqual(["prod_members_beyond", "prod_members_move"]);
+      if (duplicate.kind !== "replacementRequested") throw new Error("Expected requested Collection replacement");
+      expect(duplicate.requestedProductIds.toSorted()).toEqual(["prod_members_beyond", "prod_members_move"]);
       const overlap = await Effect.runPromise(membership.run(membership.newRequestKey(), {
         id: input.id, add: ["prod_members_move"], remove: ["prod_members_move"],
       }));
-      if (overlap === null) throw new Error("Expected selected Collection");
-      expect(overlap.products.map(row => row.id).sort()).toEqual(["prod_members_beyond", "prod_members_move"]);
+      if (overlap.kind !== "replacementRequested") throw new Error("Expected requested Collection replacement");
+      expect(overlap.requestedProductIds.toSorted()).toEqual(["prod_members_beyond", "prod_members_move"]);
     } finally {
       await Effect.runPromise(create.close);
       await Effect.runPromise(collection.host.close);
@@ -673,7 +681,7 @@ describe("native Product creation on shared logical storage", () => {
   it("refuses a public Category receipt with an unrequested Product pivot", async () => {
     const catalog = await Effect.runPromise(captureProductSchema("category-pivot-receipt")
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const policy = productLogicalCallEventPolicy(catalog);
+    const policy = productCallReceipts(catalog);
     const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
     if (relation?.join.type !== "manyToMany") throw new Error("Missing Category Product pivot");
     const [categoryColumn] = relation.join.sourceColumns;
@@ -789,7 +797,7 @@ describe("native Product creation on shared logical storage", () => {
       const productColumn = relation.join.sourceColumns[0], categoryColumn = relation.join.targetColumns[0];
       if (productColumn === undefined || categoryColumn === undefined) throw new Error("Invalid Category pivot");
       for (const mode of ["scalar", "pivot", "omission", "stalePivot", "rootless"] as const) {
-        const policy = productLogicalCategoryMembershipEventPolicy(catalog);
+        const policy = product.runtime.logicalPolicy;
         const participant = defineAtomicCommerceParticipant("product");
         const id = mode === "stalePivot" ? "prod_category_stale" : "prod_category_forged";
         const command = defineCommerceCommand("productUpsert", "write", Effect.fn("ProductTest.forgedCategoryMembership")(
@@ -818,7 +826,7 @@ describe("native Product creation on shared logical storage", () => {
         const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
           identityAndAccessPolicy: { profile: `forged-category-membership-${mode}` },
           participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-            commands: [product.runtime.commands.list, command], validateLogical: policy.validateLogical,
+            commands: [product.runtime.commands.list, command], validateLogicalCall: policy.validateLogicalCall,
             events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
           commands: [root], events: { producerRevision: revision, contracts: [contract],
             subscribers: [{ id: "forged-category-membership", revision: "a".repeat(64) }],
@@ -830,7 +838,7 @@ describe("native Product creation on shared logical storage", () => {
           const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
           await expect(Effect.runPromise(host.run(host.newRequestKey(), root,
             [{ id, category_ids: mode === "omission" ? ["pcat_category_forged"] : [] }])))
-            .rejects.toMatchObject({ reason: "receiptMismatch" });
+            .rejects.toMatchObject({ reason: "invalidAuthority" });
           expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
           expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
         } finally { await Effect.runPromise(host.close); }
@@ -873,13 +881,14 @@ describe("native Product creation on shared logical storage", () => {
         reason.error.reason === "limitExceeded")).toBe(true);
       const key = relationships.newRequestKey();
       const result = await Effect.runPromise(relationships.run(key, input));
-      expect(result.products).toMatchObject([
-        { id: "prod_combined_add", collection_id: "pcol_combined_target",
+      expect(result.productsAfterCategory).toMatchObject([
+        { id: "prod_combined_add",
           categories: [{ id: "pcat_combined_target" }] },
-        { id: "prod_combined_remove", collection_id: null, categories: [] },
+        { id: "prod_combined_remove", categories: [] },
       ]);
-      expect(result.collections[0]?.products.map(row => row.id).sort())
+      expect(result.collection.kind === "replacementRequested" ? result.collection.requestedProductIds.toSorted() : [])
         .toEqual(["prod_combined_add", "prod_combined_keep"]);
+      expect(await committedCollection(input.collection.id)).toEqual(["prod_combined_add", "prod_combined_keep"]);
       const afterEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
       expect(afterEvents.slice(beforeEvents.length).map(row => row.envelope.contract).sort()).toEqual([
         catalog.collection.updatedEvent, ...Array(5).fill(catalog.product.updatedEvent),
@@ -903,21 +912,22 @@ describe("native Product creation on shared logical storage", () => {
         collection: { id: "rel_overlap-target", add: ["rel_overlap-remove"], remove: ["rel_overlap-remove"] },
         category: { id: "rel_overlap-category", add: ["rel_overlap-remove"], remove: ["rel_overlap-remove"] },
       }));
-      expect(overlap.products).toEqual([{ id: "rel_overlap-remove", collection_id: "rel_overlap-target", categories: [] }]);
-      expect(overlap.collections[0]?.products.map(row => row.id).sort())
+      expect(overlap.productsAfterCategory).toEqual([{ id: "rel_overlap-remove", categories: [] }]);
+      expect(overlap.collection.kind === "replacementRequested" ? overlap.collection.requestedProductIds.toSorted() : [])
         .toEqual(["rel_overlap-keep", "rel_overlap-remove"]);
       const beforeNoOpEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
       expect(await Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), {
         collection: { id: "missing-collection" }, category: { id: "missing-category" },
-      }))).toEqual({ products: [], collections: [] });
+      }))).toEqual({ productsAfterCategory: [], collection: { kind: "skipped", id: "missing-collection" } });
       expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeNoOpEvents);
       const missing = await Effect.runPromise(scenario.relationships.run(scenario.relationships.newRequestKey(), {
         collection: { id: "rel_overlap-target", add: ["missing-product"] },
         category: { id: "rel_overlap-category", add: ["missing-product"] },
       }));
-      expect(missing.products).toEqual([]);
-      expect(missing.collections[0]?.products.map(row => row.id).sort())
-        .toEqual(["rel_overlap-keep", "rel_overlap-remove"]);
+      expect(missing.productsAfterCategory).toEqual([]);
+      expect(missing.collection.kind === "replacementRequested" ? missing.collection.requestedProductIds.toSorted() : [])
+        .toEqual(["missing-product", "rel_overlap-keep", "rel_overlap-remove"]);
+      expect(await committedCollection("rel_overlap-target")).toEqual(["rel_overlap-keep", "rel_overlap-remove"]);
     } finally { await scenario.close(); }
   }, 120_000);
 
@@ -972,8 +982,8 @@ describe("native Product creation on shared logical storage", () => {
       const result = await Effect.runPromise(relationships.run(relationships.newRequestKey(), {
         collection: { id: "absent-page-collection" }, category: { id: "rel_page_category", add: ids },
       }));
-      expect(result.products.map(row => row.id).sort()).toEqual(ids);
-      expect(result.products.every(row => row.categories.length === 1 &&
+      expect(result.productsAfterCategory.map(row => row.id).sort()).toEqual(ids);
+      expect(result.productsAfterCategory.every(row => row.categories.length === 1 &&
         row.categories[0]?.id === "rel_page_category")).toBe(true);
     } finally {
       await Effect.runPromise(create.close);
@@ -1029,24 +1039,23 @@ describe("native Product creation on shared logical storage", () => {
       const original = workflowMethodDefinition(product.runtime.workflow.methods.updateProductCollections);
       const source = workflowModuleDefinition(product.runtime.workflow);
       const upsert = workflowMethodDefinition(product.runtime.workflow.methods.upsertProducts);
-      if (original === undefined || source === undefined || upsert === undefined)
+      if (original === undefined || source?.logical === undefined || upsert === undefined)
         throw new Error("Missing Product workflow method contract");
       expect(Result.isFailure(upsert.input([[{ id: "rel_identity-add", title: "Not admitted" }]]))).toBe(true);
       const narrowed = Result.getOrThrow(defineWorkflowMethod({ command: original.command,
         arguments: commerceDecoder(Schema.Array(Schema.Json), "invalidInput"),
         encode: value => Result.getOrThrow(original.input(value)), output: original.output,
-        moduleEvents: [scenario.catalog.collection.updatedEvent],
+        moduleEvents: [...original.moduleEvents, scenario.catalog.collection.createdEvent],
       }));
       const replacement = Result.getOrThrow(defineWorkflowModule({ name: "product", source: source.source,
-        methods: { ...product.runtime.workflow.methods, updateProductCollections: narrowed }, graph: source.graph }));
+        methods: { ...product.runtime.workflow.methods, updateProductCollections: narrowed }, graph: source.graph, logical: source.logical }));
       const resources = Result.getOrThrow(prepareWorkflowResources({ product: { module: replacement,
         methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
       } }, true));
       const changed = await Effect.runPromise(prepareAtomicWorkflowHost({
         execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
           prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition, requestCallLimit: 128 }) },
-        modules: { product: { module: replacement, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalRelationshipsEventPolicy(scenario.catalog) } },
+        modules: { product: { module: replacement, logicalStorage: product.hostInput.logicalStorage } },
         revision: createHash("sha256").update("logical-product-relationships").digest("hex"),
         subscribers: [{ id: "logical-product-relationships", revision: "a".repeat(64) }],
         workflow: { name: "productRelationships", resources, prepared: Result.getOrThrow(productRelationshipsWorkflow.prepare()),

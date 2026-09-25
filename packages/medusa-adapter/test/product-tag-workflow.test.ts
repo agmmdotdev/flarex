@@ -9,7 +9,7 @@ import { prepareProductTagWorkflow, type ProductTagWorkflowHooks } from "../src/
 import { currencyCommands, currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCallEventPolicy } from "../src/product-local-events";
+
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { expireCommerceResult, compactRetainedCommitHistory } from "../../persistence-postgres/test/commerceInventory";
 import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
@@ -33,7 +33,7 @@ const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_D
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
 let fixture: { currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   product: Awaited<ReturnType<typeof prepareLogicalProductHost>> };
-let policy: ReturnType<typeof productLogicalCallEventPolicy>;
+let policy: typeof fixture.product.runtime.logicalPolicy;
 let revision: string;
 const subscribers = [{ id: "tags-index", revision: "a".repeat(64) }, { id: "tags-audit", revision: "b".repeat(64) }];
 const args = (value: string) => ({ product_tags: [{ value }], additional_data: { witness: value } });
@@ -48,7 +48,7 @@ const execution = (session = fixture.currency.session) => ({
     makeAtomicCommerceHost({ ...fixture.product.hostInput, session, ...composition }),
 });
 const installedModules = () => ({
-  product: { module: fixture.product.runtime.workflow, logicalStorage: fixture.product.hostInput.logicalStorage, moduleEvents: policy },
+  product: { module: fixture.product.runtime.workflow, logicalStorage: fixture.product.hostInput.logicalStorage },
   currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: fixture.currency.hostInput.logicalStorage },
 });
 const readOnlyModules = () => {
@@ -84,7 +84,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     await runEffect(product.host.close);
     fixture = { currency, product };
     const catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    policy = productLogicalCallEventPolicy(catalog);
+    policy = fixture.product.runtime.logicalPolicy;
   }, 150_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -575,11 +575,12 @@ describe("native Medusa Product-tag workflow and committed events", () => {
   it("rolls back pending writes when a hook catches a graph decoder defect", async () => {
     const modules = installedModules();
     const description = workflowModuleDefinition(modules.product.module);
-    if (description === undefined) throw new Error("Missing Product registration");
+    if (description?.logical === undefined) throw new Error("Missing Product logical registration");
     const defect = new Error("graph decoder defect");
+    let decoderCalls = 0;
     const module = Result.getOrThrow(defineWorkflowModule({ name: "product", source: description.source,
-      methods: modules.product.module.methods,
-      graph: { ...description.graph, reads: description.graph.reads.map(read => ({ ...read, decode: () => { throw defect; } })) },
+      methods: modules.product.module.methods, logical: description.logical,
+      graph: { ...description.graph, reads: description.graph.reads.map(read => ({ ...read, decode: () => { decoderCalls++; throw defect; } })) },
     }));
     const host = await runEffect(prepareProductTagWorkflow({ execution: execution(), modules: { ...modules, product: { ...modules.product, module } }, revision, subscribers,
       hooks: { productTagsCreated: async (_input, { resources }) => {
@@ -590,6 +591,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const pending = host.run(host.newRequestKey(), args("caught-graph-defect"));
     const failed = await runEffect(Effect.exit(pending));
     expect(Exit.isFailure(failed)).toBe(true);
+    expect(decoderCalls).toBe(1);
     expect(await inventory()).toEqual(before);
   }, 60_000);
 

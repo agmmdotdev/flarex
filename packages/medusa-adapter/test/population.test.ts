@@ -53,7 +53,7 @@ describe("per-path population predicates", () => {
     ];
     const unused = () => Effect.fail(commerceError("unsupportedProfile"));
     const ctx = { manager: lifetime.context, resources: defaultCommerceResources,
-      table: () => Effect.succeed({ find: (manager: unknown, query: unknown) => Effect.sync(() => {
+      table: () => Effect.succeed({ findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: (manager: unknown, query: unknown) => Effect.sync(() => {
         expect(manager).toBe(lifetime.context); queries.push(query);
         const rows = returned.shift(); if (!rows) throw new Error("Unexpected population read"); return rows;
       }), count: unused, write: unused, delete: unused, lifecycle: unused }),

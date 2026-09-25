@@ -131,6 +131,11 @@ are owned by `roadmaps/16-package-boundaries.md`.
 
 ## Design Challenge And Capability Approval
 
+The [Medusa design-quality refactor](roadmaps/medusa-design-quality/README.md)
+owns the approved construction/composition, semantic-ownership and query-contract
+work. Use its remaining gates for refactor status and continuation; do not replace
+that scope with the broader shared-storage integration/migration backlog.
+
 Treat user proposals, markdown, current code, and the agent's first idea as
 hypotheses. Before a meaningful implementation capability, inspect the accepted
 design, owning roadmap/preflight, current code and tests, related completed or

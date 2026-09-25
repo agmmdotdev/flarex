@@ -17,7 +17,7 @@ const fixture = Effect.gen(function* () {
   );
   const unused = () => Effect.fail(commerceError("unsupportedProfile"));
   const ctx = makeCommerceCommandContext(lifetime, { resources: defaultCommerceResources,
-    store: { find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
+    store: { findPage: () => Effect.fail(commerceError("unsupportedProfile")), aggregate: () => Effect.fail(commerceError("unsupportedProfile")), find: unused, count: unused, write: unused, delete: unused, lifecycle: unused }, table: unused,
   }, "command-bindings", lifetime.context, unused, unused);
   return { ctx, lifetime };
 });

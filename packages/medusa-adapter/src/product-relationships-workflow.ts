@@ -1,39 +1,39 @@
 import { Effect } from "effect";
-import { createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createWorkflow, transform, WorkflowResponse, type WorkflowData, type WorkflowDefinition } from "@medusajs/workflows-sdk";
 import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
 import { batchLinkProductsToCollectionWorkflow } from "@medusajs/core-flows/product/batch-link-products-collection";
 import { batchLinkProductsToCategoryWorkflow } from "@medusajs/core-flows/product/batch-products-in-category";
 import type { AtomicCommerceEvents } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { ProductRelationshipsInput, ProductRelationshipsOutput } from "./product-relationship-workflow-input";
+import { commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
+import { ProductRelationshipsInput, ProductRelationshipsOutput, collectionReplacementResult } from "./product-relationship-workflow-input";
 import type { ProductWorkflowModule } from "./product-workflow-module";
 import { captureWorkflowRecord } from "./workflow/configuration";
 import { prepareWorkflowResources } from "./workflow/resources";
 import { internalModuleWorkflowEvents } from "./workflow/events";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "./workflow/host";
 
-/** Explicit source order: collection assignment, category membership, then
- * reads of pending relations. Both imported children borrow the same root. */
-export const productRelationshipsWorkflow = createWorkflow("update-product-relationships", (input: WorkflowData<typeof ProductRelationshipsInput.Type>) => {
+/** Category and its pending snapshot precede terminal Collection replacement.
+ * Both native children borrow the same root and retain their business logic. */
+export const productRelationshipsWorkflow: WorkflowDefinition<typeof ProductRelationshipsInput.Type, WorkflowData<{
+  productsAfterCategory: readonly JsonObject[]; collection: ReturnType<typeof collectionReplacementResult>;
+}>, readonly []> = createWorkflow("update-product-relationships", (input: WorkflowData<typeof ProductRelationshipsInput.Type>) => {
   const collectionInput = transform(input.collection, change => ({ id: change.id, add: [...change.add ?? []], remove: [...change.remove ?? []] }));
   const categoryInput = transform(input.category, change => ({ id: change.id, add: [...change.add ?? []], remove: [...change.remove ?? []] }));
-  batchLinkProductsToCollectionWorkflow.runAsStep({ input: collectionInput });
   batchLinkProductsToCategoryWorkflow.runAsStep({ input: categoryInput });
   const ids = transform(input, ({ collection, category }) => [...new Set([
     ...(collection.add ?? []), ...(collection.remove ?? []), ...(category.add ?? []), ...(category.remove ?? []),
   ])]);
-  const products = useQueryGraphStep({ entity: "product", fields: ["id", "collection_id", "categories.id"],
+  const products = useQueryGraphStep({ entity: "product", fields: ["id", "categories.id"],
     filters: { id: ids }, pagination: { take: 256 },
   }).config({ name: "pending-product-relationships" });
-  const collections = useQueryGraphStep({ entity: "product_collection", fields: ["id", "products.id"],
-    filters: { id: input.collection.id }, pagination: { take: 1 },
-  }).config({ name: "pending-collection-members" });
-  return new WorkflowResponse({ products: products.data, collections: collections.data });
+  const updated = batchLinkProductsToCollectionWorkflow.runAsStep({ input: collectionInput });
+  const collection = transform({ id: input.collection.id, updated }, value => collectionReplacementResult(value.id, value.updated));
+  return new WorkflowResponse(transform({ productsAfterCategory: products.data, collection }, value => value));
 });
 
 export const prepareProductRelationshipsWorkflow = Effect.fn("MedusaWorkflow.prepareProductRelationships")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
-  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical"> };
+  readonly modules: { readonly product: InstalledWorkflowModule<ProductWorkflowModule> };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {

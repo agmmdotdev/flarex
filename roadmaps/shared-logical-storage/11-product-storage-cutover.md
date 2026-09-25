@@ -240,10 +240,12 @@ The next public Product boundary is Medusa's `createProductsStep` with its
 already-admitted scalar `{ id?, title }` input. The private Product workflow
 binds that native step to the selected Product source and reads the resulting
 IDs through the pending graph before the atomic root settles. The Product
-event policy validates the sole `productCreate` write call, its exact inserted
+call-local policy validates each `productCreate` write call, its exact inserted
 Product rows and matching native `product.product.created` messages against
-the same logical attempt transcript. It reuses the tag policy's single-entity
-mechanics without granting a graph-wide or multi-command event contract.
+that call's logical activity. It reuses shared entity receipt mechanics and
+the module's authenticated native command tokens; repeated calls compose under
+the same atomic owner. The [design-quality refactor](../medusa-design-quality/README.md)
+owns current construction and semantic-validation boundaries.
 
 This is a connected public service and workflow cutover, not a new storage
 owner. It changes no durable format or supported Product API. The physical

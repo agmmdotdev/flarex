@@ -51,7 +51,9 @@ export type LogicalCommerceCallValidation = (call: LogicalCommerceCallObservatio
     lifecycle: readonly LogicalCommerceLifecycleObservation[];
     observedRows: readonly LogicalCommerceObservedRow[];
     setNull: readonly LogicalCommerceSetNull[];
-    referenceReplacements: readonly LogicalCommerceReferenceReplacement[] }>)
+    referenceReplacements: readonly LogicalCommerceReferenceReplacement[] }>,
+  /** Core supplies the executed authentic token, independently of its name. */
+  command: CommerceCommand)
   => Effect.Effect<void, ReturnType<typeof commerceError>>;
 
 interface AtomicCommerceParticipantBase {

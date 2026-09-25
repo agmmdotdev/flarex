@@ -57,9 +57,9 @@ export const productVariantPricingWorkflow = createWorkflow("create-priced-produ
 export const prepareProductVariantPricingWorkflow = Effect.fn("MedusaWorkflow.prepareProductVariantPricing")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
   readonly modules: {
-    readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical">;
-    readonly pricing: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalPricingCommands>>["workflow"], "logical">;
-    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareVariantPricingLink>>["workflow"], "logical">;
+    readonly product: InstalledWorkflowModule<ProductWorkflowModule>;
+    readonly pricing: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalPricingCommands>>["workflow"]>;
+    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareVariantPricingLink>>["workflow"]>;
   };
   readonly revision: string; readonly subscribers: AtomicCommerceEvents["subscribers"];
 }) {

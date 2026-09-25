@@ -11,7 +11,7 @@ import { currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import type { ProductRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCallEventPolicy } from "../src/product-local-events";
+import { productCallReceipts } from "../src/product-local-events";
 import { CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
@@ -34,7 +34,7 @@ const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_D
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
 let fixture: { currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   product: Awaited<ReturnType<typeof prepareLogicalProductHost>> };
-let policy: ReturnType<typeof productLogicalCallEventPolicy>;
+let policy: typeof fixture.product.runtime.logicalPolicy;
 let catalog: ProductRuntimeMetadata;
 let revision: string;
 const subscribers = [{ id: "composition", revision: "a".repeat(64) }];
@@ -47,7 +47,7 @@ const execution = (session = fixture.currency.session) => ({ identityAndAccessPo
   prepare: (composition: AtomicWorkflowHostComposition) => makeAtomicCommerceHost({ ...fixture.product.hostInput, session, ...composition }),
 });
 const modules = () => ({ product: { module: fixture.product.runtime.workflow,
-    logicalStorage: fixture.product.hostInput.logicalStorage, moduleEvents: policy },
+    logicalStorage: fixture.product.hostInput.logicalStorage },
   currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: fixture.currency.hostInput.logicalStorage } });
 const options = (hooks?: ProductTagCompositionHooks) => ({ execution: execution(), modules: modules(), revision, subscribers, ...(hooks === undefined ? {} : { hooks }) });
 const args = (value: string) => ({ value, updated_value: `${value}-updated` });
@@ -82,7 +82,7 @@ describe("native composed Product workflows", () => {
     await runEffect(product.host.close);
     fixture = { currency, product };
     catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    policy = productLogicalCallEventPolicy(catalog);
+    policy = fixture.product.runtime.logicalPolicy;
   }, 150_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -100,8 +100,8 @@ describe("native composed Product workflows", () => {
       events: [{ name: catalog.tag.deletedEvent, metadata: { source: Modules.PRODUCT,
         object: catalog.tag.eventObject, action: CommonEvents.DELETED }, data: { id: ["tag-a", "tag-b"] } }],
       fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 2 }];
-    await runEffect(policy.validateLogicalCall(calls[0]!, { mutations, lifecycle, observedRows: [], setNull: [], referenceReplacements: [] }));
-    expect(await runEffectFailure(policy.validateLogicalCall(calls[0]!, { mutations,
+    await runEffect(productCallReceipts(catalog).validateLogicalCall(calls[0]!, { mutations, lifecycle, observedRows: [], setNull: [], referenceReplacements: [] }));
+    expect(await runEffectFailure(productCallReceipts(catalog).validateLogicalCall(calls[0]!, { mutations,
       lifecycle: [lifecycle[0]!, { ...lifecycle[1]!, key: { id: "tag-a" }, attemptOrdinal: 0 }],
       observedRows: [], setNull: [], referenceReplacements: [] })))
       .toMatchObject({ reason: "receiptMismatch" });
@@ -324,7 +324,7 @@ describe("native composed Product workflows", () => {
       Effect.catch(error => Effect.sync(() => { failures.push(error); return null; })),
     ));
     const base = { ...fixture.product.hostInput, commands: [command], events: { producerRevision: revision, contracts: [first, second, external], subscribers, validate: () => Effect.void } };
-    const member = { participant, logicalStorage: fixture.product.hostInput.logicalStorage, commands: [emitted], validateLogical: () => Effect.void };
+    const member = { participant, logicalStorage: fixture.product.hostInput.logicalStorage, commands: [emitted], validateLogicalCall: () => Effect.void };
     const make = (events?: ParticipantEventSelection) => makeAtomicCommerceHost({ ...base, participants: [{ ...member, ...(events === undefined ? {} : { events }) }] });
     for (const contracts of [[forged], [unlisted], [external], [first, first], Array.from({ length: 65 }, () => first)]) {
       expect(await runEffectFailure(make({ contracts, select: () => Effect.succeed(first) }))).toMatchObject({ reason: "invalidAuthority" });

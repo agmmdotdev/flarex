@@ -50,9 +50,9 @@ export const productSalesChannelWorkflow = createWorkflow("create-products-in-sa
 export const prepareProductSalesChannelWorkflow = Effect.fn("MedusaWorkflow.prepareProductSalesChannel")(function* (input: {
   readonly execution: AtomicWorkflowExecution;
   readonly modules: {
-    readonly product: InstalledWorkflowModule<ProductWorkflowModule, "logical">;
-    readonly sales_channel: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>["workflow"], "logical">;
-    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareProductSalesChannelLink>>["workflow"], "logical">;
+    readonly product: InstalledWorkflowModule<ProductWorkflowModule>;
+    readonly sales_channel: InstalledWorkflowModule<Effect.Success<ReturnType<typeof makeLocalSalesChannelCommands>>["workflow"]>;
+    readonly link: InstalledWorkflowModule<Effect.Success<ReturnType<typeof prepareProductSalesChannelLink>>["workflow"]>;
   };
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];

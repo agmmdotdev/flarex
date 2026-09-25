@@ -1,12 +1,13 @@
+import { withWorkflowPolicy } from "./support/workflow-policy-fixture";
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { currencyWorkflowModule } from "../src/currency-service";
-import { productLogicalCallEventPolicy } from "../src/product-local-events";
+
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
-import { captureProductSchema } from "../src/product-schema";
-import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+
+
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
@@ -34,15 +35,12 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
   }, 120_000);
 
   it("commits native tags, module and workflow events, then replays one outcome", async () => {
-    const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
-      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     let hookCalls = 0;
     const host = await Effect.runPromise(prepareProductTagWorkflow({
       execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
-        product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalCallEventPolicy(metadata) },
+        product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow").digest("hex"),
@@ -80,14 +78,11 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
   }, 120_000);
 
   it("accepts native tag creation without an optional query hook", async () => {
-    const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
-      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const host = await Effect.runPromise(prepareProductTagWorkflow({
       execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
-        product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalCallEventPolicy(metadata) },
+        product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-no-hook").digest("hex"),
@@ -106,17 +101,12 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
 
   it("refuses a module event ID without a matching logical Product insert", async () => {
     let hooks = 0;
-    const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
-      .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const policy = productLogicalCallEventPolicy(metadata);
+    const forgedModule = withWorkflowPolicy(product.runtime.workflow, policy => ({ ...policy, capture: event => policy.capture(event).pipe(Effect.map(message => isJsonObject(message) && message.data !== undefined && isJsonObject(message.data) ? { ...message, data: { ...message.data, id: "ptag_forged" } } : message)) }));
     const host = await Effect.runPromise(prepareProductTagWorkflow({
       execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
-        product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: { ...policy, capture: event => policy.capture(event).pipe(Effect.map(message =>
-            isJsonObject(message) && isJsonObject(message.data)
-              ? { ...message, data: { ...message.data, id: "ptag_forged" } } : message)) } },
+        product: { module: forgedModule, logicalStorage: product.hostInput.logicalStorage },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow-refusal").digest("hex"),
