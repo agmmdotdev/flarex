@@ -1021,6 +1021,14 @@ not retirement of the Product physical profile.
 The selected native Collection delete now detaches its nullable Product
 references through the shared bounded [core fan-out transition](./28-core-relational-fanout-transition.md),
 with a two-driver native high-reference, replay, rollback and two-shop witness.
+The unchanged pinned internal ProductCategoryService suite now selects logical
+Product storage through a focused runner. Its 31 list, count, retrieve, create,
+update and delete cases retain their native assertions, while the broad physical
+Product runner no longer registers them. The focused runner deletes prior
+Category rows through admitted logical commands between cases; a separate
+two-shop witness checks colliding parent and child identities. The public
+Category suite and other unported Product consumers still own the retained
+physical runner. See the [native internal Category suite cutover](./39-native-internal-category-suite-cutover.md).
 The [selected scalar Collection service path](./31-product-collection-scalar-service-cutover.md)
 also runs native create, update and mixed upsert with root event receipts,
 shared list/count/retrieve and active-handle uniqueness. The native

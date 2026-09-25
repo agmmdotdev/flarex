@@ -169,7 +169,6 @@ export const admittedInternalCategoryCases = [
 ];
 export const admittedProductCases = [
   ...admittedInternalProductCases,
-  ...admittedInternalCategoryCases,
   ...admittedProductOptionCases, ...admittedProductVariantCases, ...admittedProductCategoryCases,
   ...admittedProductCollectionCases,
   ...admittedProductTagCases,

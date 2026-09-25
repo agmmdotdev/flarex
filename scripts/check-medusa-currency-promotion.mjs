@@ -89,7 +89,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   /** @type {Array<{importer: string, configuration: string, target?: string}>} */
   const expectedAliases = [
     ...["vitest.product-upstream.config.ts", "vitest.product-internal.config.ts"].map(configuration => ({ importer: "packages/medusa-product/integration-tests/__tests__/product.spec.ts", configuration: "packages/medusa-adapter/" + configuration })),
-    ...["vitest.product-upstream.config.ts", "vitest.product-internal-categories.config.ts"].map(configuration => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts", configuration: "packages/medusa-adapter/" + configuration })),
+    { importer: "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts", configuration: "packages/medusa-adapter/vitest.product-internal-categories.config.ts", target: "packages/medusa-adapter/test/support/logical-internal-category-runner.ts" },
     { importer: "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts", configuration: "packages/medusa-adapter/vitest.config.ts" },
     { importer: "packages/medusa-sales-channel/integration-tests/__tests__/services/sales-channel-module.spec.ts", configuration: "packages/medusa-adapter/vitest.sales-channel-upstream.config.ts", target: "packages/medusa-adapter/test/support/sales-channel-runner.ts" },
     ...["events.spec.ts", "products.spec.ts", "product-types.spec.ts", "product-tags.spec.ts", "product-collections.spec.ts", "product-options.spec.ts", "product-variants.spec.ts", "product-categories.spec.ts"].map(name => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/" + name, configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts" })),
@@ -223,8 +223,8 @@ export function admitsCurrencyImport(promotion, file, specifier) {
     && promotion.files.some(entry => entry.target === internalProductTarget && ["unchangedTest", "testPort"].includes(entry.classification))
     && promotion.testAliases.some(alias => alias.importer === internalProductTarget && alias.configuration === "packages/medusa-adapter/" + internalProductConfig)) return true;
   const internalCategoryTarget = "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts";
-  const internalCategoryConfig = file === "packages/medusa-adapter/test/product-upstream.test.ts" ? "vitest.product-upstream.config.ts"
-    : file === "packages/medusa-adapter/test/product-internal-categories-upstream.test.ts" ? "vitest.product-internal-categories.config.ts" : undefined;
+  const internalCategoryConfig = file === "packages/medusa-adapter/test/product-internal-categories-upstream.test.ts"
+    ? "vitest.product-internal-categories.config.ts" : undefined;
   if (internalCategoryConfig !== undefined && specifier === "../../medusa-product/integration-tests/__tests__/product-category.spec"
     && promotion.files.some(entry => entry.target === internalCategoryTarget && ["unchangedTest", "testPort"].includes(entry.classification))
     && promotion.testAliases.some(alias => alias.importer === internalCategoryTarget && alias.configuration === "packages/medusa-adapter/" + internalCategoryConfig)) return true;

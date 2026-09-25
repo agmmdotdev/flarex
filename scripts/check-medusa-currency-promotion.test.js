@@ -86,7 +86,7 @@ describe("exact Currency promotion", () => {
     }).errors;
     expect(check(wrapper, specifier)).toEqual([]);
     const internal = "../../medusa-product/integration-tests/__tests__/product-category.spec";
-    expect(check(wrapper, internal)).toEqual([]);
+    expect(check(wrapper, internal)).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-internal-categories-upstream.test.ts", internal)).toEqual([]);
     expect(check("packages/medusa-adapter/test/product-internal-categories-upstream.test.ts", specifier)).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-categories-upstream.test.ts", internal)).toHaveLength(1);

@@ -140,6 +140,44 @@ describe("internal Category boundaries on shared logical Product storage", () =>
     expect(rows).toContainEqual(expect.objectContaining({ id: "move-c", mpath: "move-b.move-c" }));
   }, 120_000);
 
+  it("confines matching Category parents and children to each shop", async () => {
+    const create = await command("create");
+    await run(create.run([{ id: "shared-root", name: "Shop A", handle: "shop-a" },
+      { id: "shared-child", name: "Child A", handle: "child-a", parent_category_id: "shared-root" }]));
+    const other = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
+      resource: source.resource, includeProduct: true,
+      fixtureIdentity: { deploymentId: "deployment_native_category_shop_b",
+        projectId: "project_native_category_shop_b", uuidOffset: 22_000 },
+    });
+    const otherProduct = await prepareLogicalProductHost(other);
+    cleanup.push(() => run(otherProduct.host.close));
+    await run(otherProduct.host.initialize([]));
+    const otherReader = await run(makeCommerceHost({ ...otherProduct.hostInput,
+      commands: [otherProduct.runtime.commands.internalCategoryList] }));
+    cleanup.push(() => run(otherReader.close));
+    const otherParticipant = defineAtomicCommerceParticipant("product");
+    const otherRoot = defineAtomicCommerceCommand("createOtherShopCategories", (ctx, input) =>
+      ctx.call(otherParticipant, otherProduct.runtime.commands.internalCategoryCreate, input));
+    const otherWriter = await run(makeAtomicCommerceHost({ ...other.hostInput,
+      identityAndAccessPolicy: { profile: "native-category-other-shop" },
+      participants: [{ participant: otherParticipant, logicalStorage: otherProduct.hostInput.logicalStorage,
+        commands: [otherProduct.runtime.commands.internalCategoryCreate],
+        validateLogical: productLogicalInternalCategoryPolicy(catalog, "create").validateLogical }],
+      commands: [otherRoot],
+    }));
+    cleanup.push(() => run(otherWriter.close));
+    await run(otherWriter.run(otherWriter.newRequestKey(), otherRoot,
+      [{ id: "shared-root", name: "Shop B", handle: "shop-b" },
+        { id: "shared-child", name: "Child B", handle: "child-b", parent_category_id: "shared-root" }]));
+    const selected = { filters: { parent_category_id: "shared-root" } };
+    const first = await run(reader.read(product.runtime.commands.internalCategoryList, selected)
+      .pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value)))));
+    const second = await run(otherReader.read(otherProduct.runtime.commands.internalCategoryList, selected)
+      .pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value)))));
+    expect(first).toMatchObject([{ id: "shared-child", name: "Child A", parent_category_id: "shared-root" }]);
+    expect(second).toMatchObject([{ id: "shared-child", name: "Child B", parent_category_id: "shared-root" }]);
+  }, 180_000);
+
   it("refuses invalid complete arrays and authority fields without publication", async () => {
     const create = await command("create"), update = await command("update");
     await run(create.run([{ id: "invalid-root", name: "root", handle: "invalid-root" },

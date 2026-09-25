@@ -157,6 +157,10 @@ remain distinct from logical schema evolution.
   Product source with silent command-specific receipts, rollback and replay;
   their physical-only test file is retired under the
   [internal Category cutover](./38-internal-category-boundary-cutover.md).
+  The unchanged 31-case pinned internal ProductCategoryService suite now uses
+  a focused logical Product runner for list, count, retrieve and tree mutations;
+  its physical runner registration is retired under the
+  [native internal Category suite cutover](./39-native-internal-category-suite-cutover.md).
   The pinned public Category suite remains on the physical Product runner.
   The selected native Pricing test runner and base-price admission tests now
   use the same logical Pricing source as the workflow. Their last combined
