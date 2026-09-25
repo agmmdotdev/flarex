@@ -222,8 +222,12 @@ remain distinct from logical schema evolution.
   configurations retain a legacy runner for their still-unmigrated witnesses.
   Product failure and large-graph scale boundaries now use the logical runner
   and generic shared tables; their former physical test routes are retired.
-  Internal Product and Collection boundary routes now use the logical runner;
-  the only retained internal-Product physical witness is the native
+  Internal Product, Collection, Tag and Variant boundary routes now use the
+  logical runner; the redundant physical Option route is retired. Variant's
+  two-shop image/assignment witness also proves scoped count/projection and a
+  foreign-only Variant ID, while its direct pair-removal, soft-delete and
+  refusal checks use generic rows and publication.
+  Internal Product's only retained physical witness is the native
   `q` plus `withDeleted` search, pending generic indexed text-search support.
   Bulk internal updates now authenticate returned rows by selected Product ID
   even when the DAL returns them in a different order.

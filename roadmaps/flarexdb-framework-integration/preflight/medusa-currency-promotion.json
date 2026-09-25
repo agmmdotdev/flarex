@@ -497,7 +497,7 @@
     {
       "target": "packages/medusa-adapter/README.md",
       "classification": "authored",
-      "targetSha256": "ee825d4b4aa5ebed331e869080b43635a7f7fe40a1610475068e1b6ffbfa84a5"
+      "targetSha256": "213740e765d203fa689d9b1007aa7f0804abc3b58a514b112758053fc58538bb"
     },
     {
       "target": "packages/medusa-adapter/package.json",
@@ -1069,7 +1069,7 @@
     {
       "target": "packages/medusa-adapter/test/product-variants-upstream.test.ts",
       "classification": "authored",
-      "targetSha256": "0b763e1a2a3446c23e3f5a88be41252d1a679536ea97a090986cd4f14cdb31c4"
+      "targetSha256": "e8d9a4743e322614ef317d64e65f4400792eca4999f8f2f7a5a0cec978d85f06"
     },
     {
       "target": "packages/medusa-adapter/test/query-profile.test.ts",
@@ -1179,7 +1179,7 @@
     {
       "target": "packages/medusa-adapter/test/support/product-variant-checks.ts",
       "classification": "authored",
-      "targetSha256": "61ecdd0fe230f9b5bf88ab84d4ac09c7df9215a0774055612c974e62c203b19e"
+      "targetSha256": "9ae6c7931c8493f315eb5808155e91e4150eee3bbf705b40633aa9795e8a238b"
     },
     {
       "target": "packages/medusa-adapter/test/support/runner-contract.ts",
@@ -1316,7 +1316,7 @@
     {
       "target": "packages/medusa-adapter/vitest.product-variants.config.ts",
       "classification": "authored",
-      "targetSha256": "13806061b442fac98a64a0fdbbbe064b568790d0d65be861a019d76d461e18e0"
+      "targetSha256": "88d4979634b8d042a63fadfa9c63ff18b416848c6f229fe86f2f0f873bd24eae"
     },
     {
       "target": "packages/medusa-adapter/vitest.product.config.ts",
@@ -4491,7 +4491,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-lifecycle-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "bce1d1451ccd494126c601b919c19683ecc64cd10129cc6ca9cce0d1e1ea1a0a"
+      "targetSha256": "6861ccd7a02ea530cb6b8d7d9af9d70481562593fc16d8c26451eaf20b0ae167"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-variant-pricing-workflow.test.ts",
@@ -11994,12 +11994,6 @@
       "specifier": "@medusajs/test-utils",
       "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
       "configuration": "packages/medusa-adapter/vitest.product-upstream.config.ts"
-    },
-    {
-      "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
-      "specifier": "@medusajs/test-utils",
-      "target": "packages/medusa-adapter/test/support/legacy-product-runner.ts",
-      "configuration": "packages/medusa-adapter/vitest.product-variants.config.ts"
     },
     {
       "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts",

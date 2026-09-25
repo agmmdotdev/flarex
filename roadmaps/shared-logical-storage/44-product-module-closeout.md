@@ -42,8 +42,7 @@ Named physical consumers include Product local, fixture-reset,
 installation and exact-numeric tests; Category boundary checks; and the remaining mixed physical binding,
 link, population and persistence-core fixtures found by the reference inventory.
 The explicit legacy runner configurations are `product-categories`,
-`product-fixture`, `product-internal-deleted-search` and
-`product-variants`. The failure and scale boundary suites
+`product-fixture` and `product-internal-deleted-search`. The failure and scale boundary suites
 now select the logical runner: SQLSTATE cancellation targets generic row or
 outcome storage, while graph pages, ordered facts, native events, replay,
 late-page rollback, cancellation and capacity refusal use the same logical
@@ -65,6 +64,13 @@ registration is removed. The stale physical Option configuration listed four
 boundary cases that were no longer registered; the canonical native Option
 suite and the dedicated logical Option/Value scope, cascade, rollback, replay
 and refusal witnesses remain.
+The Variant boundary route now uses the same logical Product runner for exact
+image-pair removal, late refusal, ordered facts, replay, selected soft deletion
+and input refusal. The existing logical two-shop Variant/Image witness now also
+checks scoped Variant count/projection and a foreign-only ID. Its duplicate
+physical native registration is removed. The explicit Variant/Image assignment
+has `noAction` foreign keys; the test clears its remaining assignment through
+the admitted native command before canonical Product hard-delete cleanup.
 
 The one retained physical internal-Product search witness covers `q` together
 with `withDeleted: true`. The shared logical query planner currently refuses

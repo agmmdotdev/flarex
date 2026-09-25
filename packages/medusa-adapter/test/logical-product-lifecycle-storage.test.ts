@@ -323,10 +323,10 @@ describe("native Product lifecycle on shared logical storage", () => {
         return yield* store.find(ctx.manager, { take: 20, order: { column: "id", direction: "asc" } });
       }));
     const firstRead = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
-      commands: [assignmentRead, product.runtime.commands.retrieve],
+      commands: [assignmentRead, product.runtime.commands.retrieve, product.runtime.commands.countVariants],
     }));
     const secondRead = await Effect.runPromise(makeCommerceHost({ ...otherProduct.hostInput,
-      commands: [assignmentRead, otherProduct.runtime.commands.retrieve],
+      commands: [assignmentRead, otherProduct.runtime.commands.retrieve, otherProduct.runtime.commands.countVariants],
     }));
     try {
       expect(otherCurrency.persistence).toBe(currency.persistence);
@@ -337,10 +337,23 @@ describe("native Product lifecycle on shared logical storage", () => {
         images: [{ id: "shared-image-old", url: `${name}-old-url` },
           { id: "shared-image-new", url: `${name}-new-url` },
           ...(name === "first" ? [{ id: "first-only-image", url: "first-only-url" }] : [])],
-        variants: [{ id: "shared-image-variant", title: "Shared variant", thumbnail: `${name}-old-url`, options: {} }],
+        variants: [{ id: "shared-image-variant", title: "Shared variant", thumbnail: `${name}-old-url`, options: {} },
+          ...(name === "second" ? [{ id: "second-only-variant", title: "Second only", options: {} }] : [])],
       }] });
       await Effect.runPromise(firstCreate.run(firstCreate.newRequestKey(), seed("first")));
       await Effect.runPromise(secondCreate.run(secondCreate.newRequestKey(), seed("second")));
+      expect(await Effect.runPromise(firstRead.read(product.runtime.commands.countVariants, {
+        filters: { product_id: "shared-image-product", title: "Shared variant" },
+        config: { select: ["title", "product.title"], relations: ["product"], take: 1 },
+      }))).toEqual([[{ id: "shared-image-variant", title: "Shared variant",
+        product_id: "shared-image-product", product: { id: "shared-image-product", title: "first Product" } }], 1]);
+      expect(await Effect.runPromise(secondRead.read(otherProduct.runtime.commands.countVariants, {
+        filters: { id: "shared-image-variant" },
+        config: { select: ["title", "product.title"], relations: ["product"], take: 1 },
+      }))).toEqual([[{ id: "shared-image-variant", title: "Shared variant",
+        product_id: "shared-image-product", product: { id: "shared-image-product", title: "second Product" } }], 1]);
+      expect(await Effect.runPromise(firstRead.read(product.runtime.commands.countVariants,
+        { filters: { id: "second-only-variant" } }))).toEqual([[], 0]);
       for (const host of [firstImages, secondImages]) await Effect.runPromise(host.run(host.newRequestKey(), {
         variant_id: "shared-image-variant", add: ["shared-image-old"],
       }));
@@ -364,10 +377,35 @@ describe("native Product lifecycle on shared logical storage", () => {
       await expect(Effect.runPromise(secondImages.run(secondImages.newRequestKey(), {
         variant_id: "shared-image-variant", add: ["first-only-image"],
       }))).rejects.toMatchObject({ reason: "invalidInput" });
+      const populatedImages = (selected: Json) => {
+        if (!isJsonObject(selected) || !Array.isArray(selected.variants))
+          throw new Error("Invalid populated Product variants");
+        const variant = selected.variants.find(row => isJsonObject(row) && row.id === "shared-image-variant");
+        if (!isJsonObject(variant) || !Array.isArray(variant.images) ||
+          !variant.images.every(image => isJsonObject(image) && typeof image.id === "string" &&
+            typeof image.url === "string")) throw new Error("Invalid populated Variant images");
+        return variant.images.map(image => [image.id, image.url]).toSorted((left, right) =>
+          String(left[0]).localeCompare(String(right[0])));
+      };
+      const firstVariant = await Effect.runPromise(firstRead.read(product.runtime.commands.retrieve, {
+        id: "shared-image-product", config: { relations: ["variants.images"] },
+      }));
       const secondVariant = await Effect.runPromise(secondRead.read(otherProduct.runtime.commands.retrieve, {
         id: "shared-image-product", config: { relations: ["variants.images"] },
       }));
-      expect(secondVariant).toMatchObject({ variants: [{ thumbnail: "second-old-url" }] });
+      expect(firstVariant).toMatchObject({ variants: expect.arrayContaining([
+        expect.objectContaining({ id: "shared-image-variant", thumbnail: null }),
+      ]) });
+      expect(secondVariant).toMatchObject({ variants: expect.arrayContaining([
+        expect.objectContaining({ id: "shared-image-variant", thumbnail: "second-old-url" }),
+      ]) });
+      expect(populatedImages(firstVariant)).toEqual([
+        ["first-only-image", "first-only-url"], ["shared-image-new", "first-new-url"],
+        ["shared-image-old", "first-old-url"],
+      ]);
+      expect(populatedImages(secondVariant)).toEqual([
+        ["shared-image-new", "second-new-url"], ["shared-image-old", "second-old-url"],
+      ]);
       const firstAssignments = await Effect.runPromise(firstRead.read(assignmentRead, null));
       const secondAssignments = await Effect.runPromise(secondRead.read(assignmentRead, null));
       if (!Array.isArray(firstAssignments) || !firstAssignments.every(isJsonObject) ||

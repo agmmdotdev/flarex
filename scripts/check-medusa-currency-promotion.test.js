@@ -104,7 +104,7 @@ describe("exact Currency promotion", () => {
     expect(check("packages/medusa-adapter/test/product-public-categories-upstream.test.ts", specifier.replace("events.spec", "product-categories.spec"))).toEqual([]);
     expect(check("packages/medusa-adapter/test/product-categories-upstream.test.ts", specifier.replace("events.spec", "product-categories.spec"))).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-categories-upstream.test.ts", specifier)).toHaveLength(1);
-    expect(check("packages/medusa-adapter/test/product-variants-upstream.test.ts", specifier.replace("events.spec", "product-variants.spec"))).toEqual([]);
+    expect(check("packages/medusa-adapter/test/product-variants-upstream.test.ts", specifier.replace("events.spec", "product-variants.spec"))).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-variants-upstream.test.ts", specifier)).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-options-upstream.test.ts", specifier.replace("events.spec", "product-options.spec"))).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-collections-upstream.test.ts", specifier.replace("events.spec", "product-collections.spec"))).toHaveLength(1);

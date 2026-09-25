@@ -207,13 +207,17 @@ parent projection and title filtering, Medusa-owned image selection, exact
 image-assignment removal and Variant soft deletion. Assignment removal preserves
 images and emits relational facts without business events. Soft deletion preserves
 shared Option Values and pivots and emits the authenticated Variant event.
-The focused gate includes four additional boundary checks for scope, rollback,
-replay, dependency survival and refusal without publication.
+The original physical checkpoint included four additional boundary checks for
+scope, rollback, replay, dependency survival and refusal without publication.
 
-Run `pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-variants.config.ts`.
-Both drivers pass the 19-check focused gate and the seven-file combined gate of
-130 originals plus one upstream skip. Final receipts are tracked in Record 41. After Variants, 75
-unregistered declarations remain across three files; the following public Categories slice is recorded below. Workflow, Module Link, durable events, public serving, broader Payload
+The 15 unchanged originals now run in the canonical
+`vitest.product-upstream.config.ts` suite. Run
+`pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.product-variants.config.ts`
+for three logical-storage pair-removal, soft-delete and refusal checks; the
+two-shop Variant/Image projection witness lives in
+`test/logical-product-lifecycle-storage.test.ts`. Final physical-checkpoint
+receipts are tracked in Record 41. At that checkpoint, 75
+unregistered declarations remained across three files; the following public Categories slice is recorded below. Workflow, Module Link, durable events, public serving, broader Payload
 integration and production activation retain their separate gates.
 
 Record 42 adds the complete 21-case public Product Categories file. The promoted

@@ -94,7 +94,6 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     { importer: "packages/medusa-sales-channel/integration-tests/__tests__/services/sales-channel-module.spec.ts", configuration: "packages/medusa-adapter/vitest.sales-channel-upstream.config.ts", target: "packages/medusa-adapter/test/support/sales-channel-runner.ts" },
     ...["events.spec.ts", "products.spec.ts", "product-tags.spec.ts", "product-collections.spec.ts", "product-options.spec.ts", "product-variants.spec.ts"].map(name => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/" + name, configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts", target: "packages/medusa-adapter/test/support/logical-product-runner.ts" })),
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts", configuration: "packages/medusa-adapter/vitest.product-types.config.ts", target: "packages/medusa-adapter/test/support/logical-public-type-runner.ts" },
-    { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts", configuration: "packages/medusa-adapter/vitest.product-variants.config.ts", target: "packages/medusa-adapter/test/support/legacy-product-runner.ts" },
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts", configuration: "packages/medusa-adapter/vitest.product-public-categories.config.ts", target: "packages/medusa-adapter/test/support/logical-public-category-runner.ts" },
   ];
   if (promotion.testAliases.length !== expectedAliases.length || expectedAliases.some(expected =>
@@ -230,10 +229,8 @@ export function admitsCurrencyImport(promotion, file, specifier) {
     ? { names: ["events", "products", "product-tags", "product-collections", "product-options", "product-variants"], configuration: "vitest.product-upstream.config.ts" }
     : file === "packages/medusa-adapter/test/product-types-upstream.test.ts"
       ? { names: ["product-types"], configuration: "vitest.product-types.config.ts" }
-      : file === "packages/medusa-adapter/test/product-variants-upstream.test.ts"
-        ? { names: ["product-variants"], configuration: "vitest.product-variants.config.ts" }
-        : file === "packages/medusa-adapter/test/product-public-categories-upstream.test.ts"
-          ? { names: ["product-categories"], configuration: "vitest.product-public-categories.config.ts" } : undefined;
+      : file === "packages/medusa-adapter/test/product-public-categories-upstream.test.ts"
+        ? { names: ["product-categories"], configuration: "vitest.product-public-categories.config.ts" } : undefined;
   if (wrapper !== undefined) {
     for (const name of wrapper.names) {
       const target = `packages/medusa-product/integration-tests/__tests__/product-module-service/${name}.spec.ts`;
