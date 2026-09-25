@@ -172,7 +172,6 @@ export const admittedProductCases = [
   ...admittedProductOptionCases, ...admittedProductVariantCases, ...admittedProductCategoryCases,
   ...admittedProductCollectionCases,
   ...admittedProductTagCases,
-  ...admittedProductTypeCases,
   "Product injected event bus > ProductModuleService Events > Product Deletion > should emit all cascade delete events when soft deleting a product",
   "Product injected event bus > ProductModuleService Events > Delete Operations - Base Service Automatic Events > should emit delete events for all entity types via base service",
   "Product service > ProductModuleService products > softDelete > should soft delete a product and its cascaded relations",

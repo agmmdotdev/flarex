@@ -1049,7 +1049,7 @@
     {
       "target": "packages/medusa-adapter/test/product-upstream.test.ts",
       "classification": "authored",
-      "targetSha256": "17f251abf69e1897f8f1e4511d00bd01fff8be0bb3c6b4c6342aca9294603070"
+      "targetSha256": "4c69da398f6c2968a8c609670c1f1b6893b8af7be4e57321831986a69ea55889"
     },
     {
       "target": "packages/medusa-adapter/test/product-value-profile.test.ts",
@@ -1115,6 +1115,11 @@
       "target": "packages/medusa-adapter/test/support/logical-internal-category-runner.ts",
       "classification": "authored",
       "targetSha256": "22d00fd15ffaa6e6598453ca56501e222f9ad937df45a441db04349fdcddd468"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-public-type-runner.ts",
+      "classification": "authored",
+      "targetSha256": "6b95252a72a7942eedb4c67629fad3573d89409b6334e8c236e248f476b4cbcc"
     },
     {
       "target": "packages/medusa-adapter/test/support/product-category-checks.ts",
@@ -1291,12 +1296,12 @@
     {
       "target": "packages/medusa-adapter/vitest.product-types.config.ts",
       "classification": "authored",
-      "targetSha256": "987bef89381f8866c10b7cd072ffd93e4ce54862313152fc08eae98e2359376a"
+      "targetSha256": "8fd86ae91268c2a14ec9e4af870352bb3a7e19f030ae9f440f78d41af22f809d"
     },
     {
       "target": "packages/medusa-adapter/vitest.product-upstream.config.ts",
       "classification": "authored",
-      "targetSha256": "fd9be7310920555a610b2fc34bd6fe028a8a113b905f7a36dac00586f778900b"
+      "targetSha256": "d35184ec219b45945f2aed46a12675288ab6b6b316086f66b333f8e2a2ac4d01"
     },
     {
       "target": "packages/medusa-adapter/vitest.product-variants.config.ts",
@@ -11923,13 +11928,7 @@
     {
       "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
       "specifier": "@medusajs/test-utils",
-      "target": "packages/medusa-adapter/test/support/runner.ts",
-      "configuration": "packages/medusa-adapter/vitest.product-upstream.config.ts"
-    },
-    {
-      "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts",
-      "specifier": "@medusajs/test-utils",
-      "target": "packages/medusa-adapter/test/support/runner.ts",
+      "target": "packages/medusa-adapter/test/support/logical-public-type-runner.ts",
       "configuration": "packages/medusa-adapter/vitest.product-types.config.ts"
     },
     {

@@ -1,14 +1,17 @@
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 import upstream, { admittedProductTypeCases, productCoverage } from "./vitest.product-upstream.config";
 
 export default defineConfig({
   ...upstream,
+  resolve: { ...upstream.resolve, alias: [
+    { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/logical-public-type-runner.ts", import.meta.url)) },
+    ...(Array.isArray(upstream.resolve?.alias) ? upstream.resolve.alias.filter(alias =>
+      !(alias.find instanceof RegExp && alias.find.source === "^@medusajs\\/test-utils$")) : []),
+  ] },
   test: {
     ...upstream.test,
     include: ["test/product-types-upstream.test.ts"],
-    reporters: ["default", productCoverage([...admittedProductTypeCases,
-      "Product Type boundary > isolates Type reads and counts from foreign scope rows",
-      "Product Type boundary > rejects unsupported read inputs without publication",
-    ])],
+    reporters: ["default", productCoverage(admittedProductTypeCases)],
   },
 });

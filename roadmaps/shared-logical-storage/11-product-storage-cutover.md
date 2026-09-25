@@ -1029,6 +1029,11 @@ Category rows through admitted logical commands between cases; a separate
 two-shop witness checks colliding parent and child identities. The public
 Category suite and other unported Product consumers still own the retained
 physical runner. See the [native internal Category suite cutover](./39-native-internal-category-suite-cutover.md).
+The unchanged pinned public ProductType service suite now uses a focused logical
+runner for all 13 native scalar Type cases. The broad physical runner no longer
+registers that suite; its separate event-bus Type cases and other unported
+Product consumers remain named physical obligations. See the
+[public Type suite cutover](./40-native-public-type-suite-cutover.md).
 The [selected scalar Collection service path](./31-product-collection-scalar-service-cutover.md)
 also runs native create, update and mixed upsert with root event receipts,
 shared list/count/retrieve and active-handle uniqueness. The native

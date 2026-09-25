@@ -162,6 +162,12 @@ remain distinct from logical schema evolution.
   its physical runner registration is retired under the
   [native internal Category suite cutover](./39-native-internal-category-suite-cutover.md).
   The pinned public Category suite remains on the physical Product runner.
+  The unchanged 13-case pinned public Type service suite now uses a focused
+  logical Product runner for create, update, delete, list, count and retrieve.
+  Its duplicate broad physical registration is retired under the
+  [public Type suite cutover](./40-native-public-type-suite-cutover.md).
+  The physical runner still owns the separate Product event-bus Type cases
+  and other unported Product operations.
   The selected native Pricing test runner and base-price admission tests now
   use the same logical Pricing source as the workflow. Their last combined
   18-table physical Product/Pricing/Link fixture builder is retired under the
