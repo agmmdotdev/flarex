@@ -89,14 +89,12 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   /** @type {Array<{importer: string, configuration: string, target?: string}>} */
   const expectedAliases = [
     { importer: "packages/medusa-product/integration-tests/__tests__/product.spec.ts", configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts", target: "packages/medusa-adapter/test/support/logical-product-runner.ts" },
-    { importer: "packages/medusa-product/integration-tests/__tests__/product.spec.ts", configuration: "packages/medusa-adapter/vitest.product-internal.config.ts", target: "packages/medusa-adapter/test/support/legacy-product-runner.ts" },
     { importer: "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts", configuration: "packages/medusa-adapter/vitest.product-internal-categories.config.ts", target: "packages/medusa-adapter/test/support/logical-internal-category-runner.ts" },
     { importer: "packages/medusa-currency/integration-tests/__tests__/currency-module-service.spec.ts", configuration: "packages/medusa-adapter/vitest.config.ts" },
     { importer: "packages/medusa-sales-channel/integration-tests/__tests__/services/sales-channel-module.spec.ts", configuration: "packages/medusa-adapter/vitest.sales-channel-upstream.config.ts", target: "packages/medusa-adapter/test/support/sales-channel-runner.ts" },
     ...["events.spec.ts", "products.spec.ts", "product-tags.spec.ts", "product-collections.spec.ts", "product-options.spec.ts", "product-variants.spec.ts"].map(name => ({ importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/" + name, configuration: "packages/medusa-adapter/vitest.product-upstream.config.ts", target: "packages/medusa-adapter/test/support/logical-product-runner.ts" })),
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-types.spec.ts", configuration: "packages/medusa-adapter/vitest.product-types.config.ts", target: "packages/medusa-adapter/test/support/logical-public-type-runner.ts" },
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts", configuration: "packages/medusa-adapter/vitest.product-tags.config.ts", target: "packages/medusa-adapter/test/support/legacy-product-runner.ts" },
-    { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts", configuration: "packages/medusa-adapter/vitest.product-collections.config.ts", target: "packages/medusa-adapter/test/support/legacy-product-runner.ts" },
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts", configuration: "packages/medusa-adapter/vitest.product-options.config.ts", target: "packages/medusa-adapter/test/support/legacy-product-runner.ts" },
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts", configuration: "packages/medusa-adapter/vitest.product-variants.config.ts", target: "packages/medusa-adapter/test/support/legacy-product-runner.ts" },
     { importer: "packages/medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec.ts", configuration: "packages/medusa-adapter/vitest.product-public-categories.config.ts", target: "packages/medusa-adapter/test/support/logical-public-category-runner.ts" },
@@ -219,11 +217,11 @@ export function admitsCurrencyImport(promotion, file, specifier) {
   // Exact verified wrappers register complete pinned files in their fixture.
   // This is not a runtime export or a general cross-package edge.
   const internalProductTarget = "packages/medusa-product/integration-tests/__tests__/product.spec.ts";
-  const internalProductConfig = file === "packages/medusa-adapter/test/product-upstream.test.ts" ? "vitest.product-upstream.config.ts"
-    : file === "packages/medusa-adapter/test/product-internal-upstream.test.ts" ? "vitest.product-internal.config.ts" : undefined;
-  if (internalProductConfig !== undefined && specifier === "../../medusa-product/integration-tests/__tests__/product.spec"
+  if (file === "packages/medusa-adapter/test/product-upstream.test.ts" &&
+    specifier === "../../medusa-product/integration-tests/__tests__/product.spec"
     && promotion.files.some(entry => entry.target === internalProductTarget && ["unchangedTest", "testPort"].includes(entry.classification))
-    && promotion.testAliases.some(alias => alias.importer === internalProductTarget && alias.configuration === "packages/medusa-adapter/" + internalProductConfig)) return true;
+    && promotion.testAliases.some(alias => alias.importer === internalProductTarget &&
+      alias.configuration === "packages/medusa-adapter/vitest.product-upstream.config.ts")) return true;
   const internalCategoryTarget = "packages/medusa-product/integration-tests/__tests__/product-category.spec.ts";
   const internalCategoryConfig = file === "packages/medusa-adapter/test/product-internal-categories-upstream.test.ts"
     ? "vitest.product-internal-categories.config.ts" : undefined;
@@ -236,9 +234,7 @@ export function admitsCurrencyImport(promotion, file, specifier) {
       ? { names: ["product-types"], configuration: "vitest.product-types.config.ts" }
       : file === "packages/medusa-adapter/test/product-tags-upstream.test.ts"
         ? { names: ["product-tags"], configuration: "vitest.product-tags.config.ts" }
-        : file === "packages/medusa-adapter/test/product-collections-upstream.test.ts"
-          ? { names: ["product-collections"], configuration: "vitest.product-collections.config.ts" }
-          : file === "packages/medusa-adapter/test/product-options-upstream.test.ts"
+        : file === "packages/medusa-adapter/test/product-options-upstream.test.ts"
             ? { names: ["product-options"], configuration: "vitest.product-options.config.ts" }
             : file === "packages/medusa-adapter/test/product-variants-upstream.test.ts"
               ? { names: ["product-variants"], configuration: "vitest.product-variants.config.ts" }

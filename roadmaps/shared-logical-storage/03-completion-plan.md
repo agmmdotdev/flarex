@@ -222,6 +222,11 @@ remain distinct from logical schema evolution.
   configurations retain a legacy runner for their still-unmigrated witnesses.
   Product failure and large-graph scale boundaries now use the logical runner
   and generic shared tables; their former physical test routes are retired.
+  Internal Product and Collection boundary routes now use the logical runner;
+  the only retained internal-Product physical witness is the native
+  `q` plus `withDeleted` search, pending generic indexed text-search support.
+  Bulk internal updates now authenticate returned rows by selected Product ID
+  even when the DAL returns them in a different order.
   The selected native Type delete now uses the core-owned indexed,
   resource-accounted atomic `set null` transition specified in the
   [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions).

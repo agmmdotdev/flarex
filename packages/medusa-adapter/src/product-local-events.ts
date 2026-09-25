@@ -1534,8 +1534,22 @@ function productLogicalInternalProductWriteEventPolicy(catalog: ProductRuntimeMe
       changed.set(id, after);
     }
     const matchesResult = productResultGraphMatcher(catalog, catalog.product.table.name, activity);
+    // The native internal DAL returns bulk updates in its read order, which
+    // need not match the caller's input order (for example batch-10 precedes
+    // batch-2). Authenticate an update by its selected identity instead.
+    const requestedById = new Map<string, JsonObject>();
+    if (operation === "update") {
+      for (const request of requests) {
+        if (!isJsonObject(request)) return yield* Effect.fail(mismatch());
+        const id = request.selector !== undefined && isJsonObject(request.selector)
+          ? request.selector.id : request.id;
+        if (typeof id !== "string" || requestedById.has(id)) return yield* Effect.fail(mismatch());
+        requestedById.set(id, request);
+      }
+    }
     for (const [index, result] of results.entries()) {
-      const request = requests[index];
+      const request = operation === "update" && isJsonObject(result) && typeof result.id === "string"
+        ? requestedById.get(result.id) : requests[index];
       if (!isJsonObject(result) || !isJsonObject(request) || typeof result.id !== "string")
         return yield* Effect.fail(mismatch());
       const stored = changed.get(result.id);
@@ -1550,8 +1564,9 @@ function productLogicalInternalProductWriteEventPolicy(catalog: ProductRuntimeMe
           stored[field] !== undefined && !jsonEqual(stored[field], value)))
         return yield* Effect.fail(mismatch());
       changed.delete(result.id);
+      if (operation === "update") requestedById.delete(result.id);
     }
-    if (changed.size !== 0) return yield* Effect.fail(mismatch());
+    if (changed.size !== 0 || requestedById.size !== 0) return yield* Effect.fail(mismatch());
   });
 }
 

@@ -96,6 +96,8 @@ describe("exact Currency promotion", () => {
     expect(check("packages/medusa-adapter/test/product-types-upstream.test.ts", specifier.replace("events.spec", "product-types.spec"))).toEqual([]);
     expect(check(wrapper, specifier.replace("events.spec", "product-tags.spec"))).toEqual([]);
     expect(check(wrapper, specifier.replace("events.spec", "product-collections.spec"))).toEqual([]);
+    expect(check("packages/medusa-adapter/test/product-internal-upstream.test.ts",
+      "../../medusa-product/integration-tests/__tests__/product.spec")).toHaveLength(1);
     expect(check(wrapper, specifier.replace("events.spec", "product-options.spec"))).toEqual([]);
     expect(check(wrapper, specifier.replace("events.spec", "product-variants.spec"))).toEqual([]);
     expect(check(wrapper, specifier.replace("events.spec", "product-categories.spec"))).toHaveLength(1);
@@ -106,7 +108,7 @@ describe("exact Currency promotion", () => {
     expect(check("packages/medusa-adapter/test/product-variants-upstream.test.ts", specifier)).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-options-upstream.test.ts", specifier.replace("events.spec", "product-options.spec"))).toEqual([]);
     expect(check("packages/medusa-adapter/test/product-options-upstream.test.ts", specifier)).toHaveLength(1);
-    expect(check("packages/medusa-adapter/test/product-collections-upstream.test.ts", specifier.replace("events.spec", "product-collections.spec"))).toEqual([]);
+    expect(check("packages/medusa-adapter/test/product-collections-upstream.test.ts", specifier.replace("events.spec", "product-collections.spec"))).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-collections-upstream.test.ts", specifier)).toHaveLength(1);
     expect(check("packages/medusa-adapter/test/product-tags-upstream.test.ts", specifier.replace("events.spec", "product-tags.spec"))).toEqual([]);
     expect(check("packages/medusa-adapter/test/product-types-upstream.test.ts", specifier.replace("events.spec", "product-types.spec"))).toEqual([]);

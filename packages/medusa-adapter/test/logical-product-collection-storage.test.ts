@@ -382,22 +382,36 @@ describe("native Collection service on shared logical Product storage", () => {
     const firstUpdate = await command("updateCollection", fixture, product, false, false, true);
     const firstProduct = await command("createProduct");
     const secondProduct = await command("createProduct", other, otherProduct);
+    const reads = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
+      commands: [...product.hostInput.commands, product.runtime.commands.countCollections] }));
     const id = "pcol_membership_shared", member = "prod_membership_shared";
+    const foreignOnly = "prod_membership_foreign_only";
     try {
       await Effect.runPromise(firstProduct.host.run(firstProduct.host.newRequestKey(), firstProduct.root,
         { id: member, title: "First shop" }));
       await Effect.runPromise(secondProduct.host.run(secondProduct.host.newRequestKey(), secondProduct.root,
         { id: member, title: "Second shop" }));
+      await Effect.runPromise(secondProduct.host.run(secondProduct.host.newRequestKey(), secondProduct.root,
+        { id: foreignOnly, title: "Second shop only" }));
       await Effect.runPromise(firstCreate.host.run(firstCreate.host.newRequestKey(), firstCreate.root,
         { id, title: "First", product_ids: [member] }));
       await Effect.runPromise(secondCreate.host.run(secondCreate.host.newRequestKey(), secondCreate.root,
         { id, title: "Second", product_ids: [member] }));
+      expect(await Effect.runPromise(reads.read(product.runtime.commands.countCollections,
+        { filters: { id }, config: { take: 1, select: ["title", "products.title"], relations: ["products"] } })))
+        .toEqual([[{ id, title: "First", products: [{ id: member, title: "First shop", collection_id: id }] }], 1]);
+      const beforeForeignOnly = await logicalCurrencyInventory(fixture);
+      await expect(Effect.runPromise(firstCreate.host.run(firstCreate.host.newRequestKey(), firstCreate.root,
+        { title: "Wrong shop", product_ids: [foreignOnly] }))).rejects.toMatchObject({ reason: "adapterFailure" });
+      expect(await logicalCurrencyInventory(fixture)).toEqual(beforeForeignOnly);
       await Effect.runPromise(firstUpdate.host.run(firstUpdate.host.newRequestKey(), firstUpdate.root,
-        { id, data: { product_ids: [] } }));
+        { id, data: { product_ids: [foreignOnly] } }));
       expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve, { id: member })))
         .toMatchObject({ title: "First shop", collection_id: null });
       expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductRetrieve, { id: member })))
         .toMatchObject({ title: "Second shop", collection_id: id });
+      expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductRetrieve, { id: foreignOnly })))
+        .toMatchObject({ title: "Second shop only", collection_id: null });
       const firstAuto = await Effect.runPromise(firstCreate.host.run(firstCreate.host.newRequestKey(), firstCreate.root,
         { title: "Auto", handle: "shared-auto-membership", product_ids: [member] }));
       const secondAuto = await Effect.runPromise(secondCreate.host.run(secondCreate.host.newRequestKey(), secondCreate.root,
@@ -416,6 +430,7 @@ describe("native Collection service on shared logical Product storage", () => {
       expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductRetrieve, { id: member })))
         .toMatchObject({ collection_id: secondAuto.id });
     } finally {
+      await Effect.runPromise(reads.close);
       await Effect.runPromise(firstCreate.host.close);
       await Effect.runPromise(secondCreate.host.close);
       await Effect.runPromise(firstUpdate.host.close);

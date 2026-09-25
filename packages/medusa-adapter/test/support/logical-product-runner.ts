@@ -39,6 +39,14 @@ const get = () => Option.getOrThrow(current);
 /** Test-only access to the selected logical Product host and its authoritative store. */
 export const getLogicalProductRunnerFixture = get;
 
+/** Invoke one admitted native command through the canonical logical fixture. */
+export const runLogicalProductCommand = (command: CommerceCommand, input: Json, key?: string) => {
+  const { writer, root, commands } = get();
+  const slot = commands.indexOf(command);
+  if (slot < 0) throw new Error("Missing admitted Product command");
+  return writer.run(key ?? writer.newRequestKey(), root, { slot, input });
+};
+
 // Narrow the already authenticated local message without changing its bytes or fields.
 function isCapturedMessage(event: Json): event is Json & { name: string; data: Json; metadata: { source: string; object: string; action: string } } {
   return isJsonObject(event) && typeof event.name === "string" && event.data !== undefined && event.metadata !== undefined && isJsonObject(event.metadata)

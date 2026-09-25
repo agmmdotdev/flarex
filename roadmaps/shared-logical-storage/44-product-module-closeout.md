@@ -39,17 +39,35 @@ only by the still-unmigrated physical boundary configurations; it is not the
 canonical Product test path.
 
 Named physical consumers include Product local, fixture-reset,
-installation and exact-numeric tests; Category, internal Product and scale
-boundary checks; and the remaining mixed physical binding,
+installation and exact-numeric tests; Category boundary checks; and the remaining mixed physical binding,
 link, population and persistence-core fixtures found by the reference inventory.
 The explicit legacy runner configurations are `product-categories`,
-`product-collections`, `product-fixture`, `product-internal`, `product-options`,
+`product-fixture`, `product-internal-deleted-search`, `product-options`,
 `product-tags` and `product-variants`. The failure and scale boundary suites
 now select the logical runner: SQLSTATE cancellation targets generic row or
 outcome storage, while graph pages, ordered facts, native events, replay,
 late-page rollback, cancellation and capacity refusal use the same logical
 Product source as the canonical native suite. Their physical test selection
 and fixture dependencies are removed.
+The Collection and internal Product boundary suites now also select the logical
+runner. Their native cases already execute in the canonical logical suite, so
+the duplicate physical registrations are removed. Collection rollback and
+input refusal remain direct logical witnesses; the existing two-shop logical
+membership witness now covers colliding IDs, local projection, foreign-only
+membership refusal and selector isolation. Internal Product's active search,
+bulk update, silent facts/replay and lifecycle rollback are logical witnesses.
+The bulk-update receipt matches each native result to its selected Product ID;
+the native DAL may return a different order from its input array.
+
+The one retained physical internal-Product search witness covers `q` together
+with `withDeleted: true`. The shared logical query planner currently refuses
+that unanchored text search: active queries have an admitted null-index anchor,
+but including deleted rows removes it. Preserve the physical witness until a
+generic, scope-confined indexed text-search contract supports the pinned
+case, including its wildcard/case-folding semantics, bounded reads, readiness,
+update/restore maintenance and two-driver proof. Do not allow a whole-catalog
+scan or an adapter-local search map to make the test pass. Remove this named
+legacy configuration when the logical replacement passes.
 For each, either migrate the same behavioral claim to generic storage or
 identify the framework-neutral core claim that already replaces it. A physical
 fixture is not retained merely to repeat a migrated claim. The physical
