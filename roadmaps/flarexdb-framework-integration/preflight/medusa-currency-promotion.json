@@ -497,7 +497,7 @@
     {
       "target": "packages/medusa-adapter/README.md",
       "classification": "authored",
-      "targetSha256": "213740e765d203fa689d9b1007aa7f0804abc3b58a514b112758053fc58538bb"
+      "targetSha256": "5e036c887d179dc008e6f20f62d93892794089d21d3712ef8804f42c79d40070"
     },
     {
       "target": "packages/medusa-adapter/package.json",
@@ -962,7 +962,7 @@
     {
       "target": "packages/medusa-adapter/test/product-categories-upstream.test.ts",
       "classification": "authored",
-      "targetSha256": "628935c1d33758d39c3bcf7e6fef965f5f14df62e9f34da4ca72c2fa7a32aea2"
+      "targetSha256": "bc03e6b5ad359a4abf3b30f2aecc0efb716ce246d0d0a2625d19e52321696db4"
     },
     {
       "target": "packages/medusa-adapter/test/product-category-projection.test.ts",
@@ -1134,7 +1134,7 @@
     {
       "target": "packages/medusa-adapter/test/support/product-category-checks.ts",
       "classification": "authored",
-      "targetSha256": "5c32cc9ec5488262dec4ca4a7f53e0f377ebe6e65e95e102cf38966b4b75dd9c"
+      "targetSha256": "83a6532ca42662b8d012337b7ddce8fa6aec2f5524490c21534577a3295e0e5d"
     },
     {
       "target": "packages/medusa-adapter/test/support/product-collection-checks.ts",
@@ -1256,7 +1256,7 @@
     {
       "target": "packages/medusa-adapter/vitest.product-categories.config.ts",
       "classification": "authored",
-      "targetSha256": "621309e1304b9df6998aec8cfcd1a6a6f743e5b0f04b202a25b62b88e4766a78"
+      "targetSha256": "a39b08fac09065e52651be6d6f929cf5e8c3c442c097fd111efcaaf9d5da0324"
     },
     {
       "target": "packages/medusa-adapter/vitest.product-collections.config.ts",

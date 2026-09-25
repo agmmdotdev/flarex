@@ -39,10 +39,10 @@ only by the still-unmigrated physical boundary configurations; it is not the
 canonical Product test path.
 
 Named physical consumers include Product local, fixture-reset,
-installation and exact-numeric tests; Category boundary checks; and the remaining mixed physical binding,
+installation and exact-numeric tests; and the remaining mixed physical binding,
 link, population and persistence-core fixtures found by the reference inventory.
-The explicit legacy runner configurations are `product-categories`,
-`product-fixture` and `product-internal-deleted-search`. The failure and scale boundary suites
+The explicit legacy runner configurations are `product-fixture` and
+`product-internal-deleted-search`. The failure and scale boundary suites
 now select the logical runner: SQLSTATE cancellation targets generic row or
 outcome storage, while graph pages, ordered facts, native events, replay,
 late-page rollback, cancellation and capacity refusal use the same logical
@@ -71,6 +71,14 @@ checks scoped Variant count/projection and a foreign-only ID. Its duplicate
 physical native registration is removed. The explicit Variant/Image assignment
 has `noAction` foreign keys; the test clears its remaining assignment through
 the admitted native command before canonical Product hard-delete cleanup.
+The public Category boundary route now uses the logical Product runner too.
+Its five witnesses cover two shops with colliding Category/Product IDs and
+inverse/tree projection, a second generic-row materialization failure that
+rolls back the entire native move, leaf membership and sibling ranks, batch
+events/replay, and input refusal. Logical publication records one final row
+change per affected Category in the batch rank case; the former physical DML
+fixture counted intermediate rank writes separately. Native final ranks and
+three admitted events remain intact.
 
 The one retained physical internal-Product search witness covers `q` together
 with `withDeleted: true`. The shared logical query planner currently refuses

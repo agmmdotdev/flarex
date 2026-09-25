@@ -232,7 +232,10 @@ The focused lane adds scope, late rollback, membership survival, batch maintenan
 replay and input-refusal checks. Category read DTOs use a private representation
 codec to preserve recorded own undefined properties across the JSON host boundary.
 The codec does not infer tree values. Shared core transaction/publication owners
-are unchanged. See
+are unchanged. Its boundary checks now run against the shared logical Product
+source, with colliding shop identities and rollback after the second generic
+row materialization. Logical publication records final Category rank changes,
+while native batch events and replay retain their admitted behavior. See
 [Record 42](../../roadmaps/flarexdb-framework-integration/preflight/42-medusa-product-categories.md)
 for validation and source provenance. The two internal Product/Category files
 are also complete; [Record 46](../../roadmaps/flarexdb-framework-integration/preflight/46-commerce-command-registration-bound.md)

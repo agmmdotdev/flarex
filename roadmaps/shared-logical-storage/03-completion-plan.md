@@ -182,9 +182,8 @@ remain distinct from logical schema evolution.
   leaf deletion. Native Product membership, sibling-rank and path mutations,
   module messages and replay are authenticated under the
   [public Category runner cutover](./43-native-public-category-suite-cutover.md).
-  Five physical-only Category boundary tests retain the generated-table fixture
-  for explicit SQL injection and physical inventory checks; their replacement
-  gate is generic-storage equivalents before removing that fixture.
+  The five Category boundary tests now use the generic logical Product source,
+  including a late generic-row failure after an earlier staged tree update.
   Internal Category cycle admission now follows selected ancestry through the
   scoped logical identity index rather than reading the entire active catalog;
   the [indexed ancestry correction](./41-category-indexed-ancestry.md) proves
@@ -227,6 +226,10 @@ remain distinct from logical schema evolution.
   two-shop image/assignment witness also proves scoped count/projection and a
   foreign-only Variant ID, while its direct pair-removal, soft-delete and
   refusal checks use generic rows and publication.
+  The public Category boundary route now uses that same logical runner,
+  including colliding two-shop inverse/tree reads and a second-row
+  materialization failure during a native move. Final logical rank facts,
+  native batch events, replay and refusals replace the physical DML witness.
   Internal Product's only retained physical witness is the native
   `q` plus `withDeleted` search, pending generic indexed text-search support.
   Bulk internal updates now authenticate returned rows by selected Product ID
