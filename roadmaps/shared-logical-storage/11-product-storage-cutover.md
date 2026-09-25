@@ -153,8 +153,9 @@ The private atomic participant policy now has a logical fact validator beside
 the physical one. A logical event-producing member without that validator is
 refused; Currency remains event-free. Native tag creation, row/event
 correlation, replay and mismatched-event rollback pass on PGlite and
-ordinary-role PostgreSQL. The existing mixed physical Product/logical Currency
-workflow also passes. This is one bounded public Product workflow proof; other
+ordinary-role PostgreSQL. The mixed Category/Currency atomic command now uses
+logical Product and logical Currency sources. This is one bounded public Product
+workflow proof; other
 Product commands, complete graph and lifecycle behavior, Links, two-scope
 isolation and concurrency remain at the gates below. There is no new durable
 format, second settlement path, old Product data migration or production
@@ -164,7 +165,9 @@ The physical profile is constructed in `product-schema.ts` and
 `product-profile.ts`. Its active test consumers include the Product runner and
 local service, installation, relationship, SalesChannel, ShippingProfile,
 ProductTag, Variant/Image and Variant/Pricing workflow suites. The mixed
-Category/Currency fixture is another explicit physical Product consumer.
+Category/Currency fixture now uses two admitted logical sources under one
+atomic owner; its cutover and recovery proof are tracked in the
+[composition cutover](./36-category-currency-logical-composition.md).
 `product-runtime-metadata.ts` derives the supported graph and population paths
 from pinned DML; it is the adapter-side semantic inventory, not a replacement
 core schema or permission to infer every Link as a foreign key.

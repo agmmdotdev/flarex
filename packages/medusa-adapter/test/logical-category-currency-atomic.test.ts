@@ -10,10 +10,8 @@ import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTr
 import { defineCommerceEventContract, type AtomicCommerceEvents } from
   "../../persistence-postgres/src/atomicCommerce/events";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
-import { commercePhysicalRows } from "../../persistence-postgres/test/commerceInventory";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
-import { logicalCategoryCurrencyFixture } from "./support/logical-category-currency-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { logicalCategoryCurrencyFixture, logicalCategoryCurrencyInventory } from "./support/logical-category-currency-fixture";
 import type { LocalGraphQuery } from "../src/local-graph/model";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
@@ -27,13 +25,9 @@ const required = <Value>(value: Value | undefined): Value => {
   if (value === undefined) throw new Error("Missing mixed command definition");
   return value;
 };
-const inventory = async () => {
-  const { currency, product } = fixture;
-  return { logical: await logicalCurrencyInventory(currency),
-    product: await commercePhysicalRows(currency.persistence, product.descriptor.layout.frame) };
-};
+const inventory = () => logicalCategoryCurrencyInventory(fixture);
 
-describe("Category/Currency on mixed logical and physical participants", () => {
+describe("Category/Currency on two logical participants", () => {
   beforeAll(async () => { fixture = await logicalCategoryCurrencyFixture(driver, close => cleanup.push(close)); }, 150_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -41,11 +35,9 @@ describe("Category/Currency on mixed logical and physical participants", () => {
     if (failures.length > 0) throw new AggregateError(failures, "Mixed commerce fixture cleanup failed");
   }, 120_000);
 
-  it("publishes one commit with generic Currency changes and retained Product facts", async () => {
-    const { currency, product, installation, proof, host } = fixture;
-    const physicalRows = () => commercePhysicalRows(currency.persistence, product.descriptor.layout.frame);
-    const before = await logicalCurrencyInventory(currency);
-    const beforePhysical = await physicalRows();
+  it("publishes one commit with logical Currency and Category changes", async () => {
+    const { proof, host } = fixture;
+    const before = await inventory();
     const key = host.newRequestKey();
     const value = await runEffect(host.run(key, proof.command, args("mixed")));
     expect(value).toMatchObject({ currency: { code: "zzz", name: "mixed" },
@@ -57,29 +49,37 @@ describe("Category/Currency on mixed logical and physical participants", () => {
     if (!("counted" in value)) throw new Error("Missing counted Category projection");
     expect(await runEffect(Effect.fromResult(decodeCategoryProjection(value.counted))))
       .toMatchObject([[{ id: "mixed-child" }], 1]);
-    const after = await logicalCurrencyInventory(currency);
-    const afterPhysical = await physicalRows();
-    expect(afterPhysical.product_category).toHaveLength((beforePhysical.product_category?.length ?? 0) + 2);
-    expect(afterPhysical.product_category).toEqual(expect.arrayContaining([
+    const after = await inventory();
+    expect(after.categories).toHaveLength(before.categories.length + 2);
+    expect(after.categories).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "mixed-parent" }), expect.objectContaining({ id: "mixed-child" }),
     ]));
-    expect(after.rows).toHaveLength(before.rows.length + 1);
-    expect(after.rowChanges).toHaveLength(before.rowChanges.length + 1);
-    expect(after.commits).toHaveLength(before.commits.length + 1);
-    expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
-    expect(after.wakes).toHaveLength(before.wakes.length + 1);
-    const facts = after.physicalFacts.slice(before.physicalFacts.length);
-    expect(facts.length).toBeGreaterThan(0);
-    expect(facts.every(fact => fact.installationSha256 === installation.installation.installationSha256)).toBe(true);
-    expect(after.commits.at(-1)?.relationalChangeCount).toBe(facts.length);
+    expect(after.logical.rows).toHaveLength(before.logical.rows.length + 3);
+    expect(after.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 3);
+    expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
+    expect(after.logical.outcomes).toHaveLength(before.logical.outcomes.length + 1);
+    expect(after.logical.wakes).toHaveLength(before.logical.wakes.length + 1);
+    expect(after.logical.physicalFacts).toEqual(before.logical.physicalFacts);
     expect(await runEffect(host.run(key, proof.command, args("mixed")))).toEqual(value);
-    expect(await logicalCurrencyInventory(currency)).toEqual(after);
-    expect(await physicalRows()).toEqual(afterPhysical);
+    expect(await inventory()).toEqual(after);
+  }, 120_000);
+
+  it("refuses an unreceipted Category field and rolls back its logical row", async () => {
+    const { input, proof } = fixture;
+    const command = defineAtomicCommerceCommand("mixedExtraCategoryField", ctx =>
+      ctx.call(proof.productParticipant, required(proof.productCommands[0]),
+        [{ id: "extra-category", name: "Extra category", handle: "extra-category", is_active: true }]));
+    const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [command] }));
+    try {
+      const before = await inventory();
+      expect(await runEffectFailure(host.run(host.newRequestKey(), command, null)))
+        .toMatchObject({ reason: "receiptMismatch" });
+      expect(await inventory()).toEqual(before);
+    } finally { await runEffect(host.close); }
   }, 120_000);
 
   it("rolls back Product and logical Currency together after a late root refusal", async () => {
-    const { currency, product, input, proof } = fixture;
-    const physicalRows = () => commercePhysicalRows(currency.persistence, product.descriptor.layout.frame);
+    const { input, proof } = fixture;
     const original = getAtomicCommerceCommand(proof.command);
     if (original === undefined) throw new Error("Missing Category/Currency command");
     const refused = defineAtomicCommerceCommand("lateMixedRefusal", Effect.fn("MixedAtomic.lateRefusal")(function* (ctx) {
@@ -88,12 +88,10 @@ describe("Category/Currency on mixed logical and physical participants", () => {
     }));
     const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [refused] }));
     try {
-      const before = await logicalCurrencyInventory(currency);
-      const beforePhysical = await physicalRows();
+      const before = await inventory();
       expect(await runEffectFailure(host.run(host.newRequestKey(), refused, null)))
         .toMatchObject({ reason: "invalidInput" });
-      expect(await logicalCurrencyInventory(currency)).toEqual(before);
-      expect(await physicalRows()).toEqual(beforePhysical);
+      expect(await inventory()).toEqual(before);
     } finally { await runEffect(host.close); }
   }, 120_000);
 
@@ -153,9 +151,9 @@ describe("Category/Currency on mixed logical and physical participants", () => {
       });
       const after = await inventory();
       expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
-      expect(after.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 1);
-      expect(after.logical.physicalFacts).toHaveLength(before.logical.physicalFacts.length + 2);
-      expect(after.product.product_category).toHaveLength((before.product.product_category?.length ?? 0) + 2);
+      expect(after.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 3);
+      expect(after.logical.physicalFacts).toEqual(before.logical.physicalFacts);
+      expect(after.categories).toHaveLength(before.categories.length + 2);
       expect(queries).toBe(2);
       expect(await runEffect(host.run(key, command, null))).toEqual(value);
       expect(queries).toBe(2);
@@ -224,7 +222,7 @@ describe("Category/Currency on mixed logical and physical participants", () => {
     const product = input.participants.find(member => member.participant === proof.productParticipant);
     if (product === undefined) throw new Error("Missing Product participant");
     const refused = await runEffect(makeAtomicCommerceHost({ ...input, commands: [failingRoot], events,
-      participants: [{ ...product, commands: [rejected], validate: () => Effect.fail(commerceError("receiptMismatch")) }] }));
+      participants: [{ ...product, commands: [rejected], validateLogical: () => Effect.fail(commerceError("receiptMismatch")) }] }));
     try {
       expect(await runEffectFailure(refused.run(refused.newRequestKey(), failingRoot, null)))
         .toMatchObject({ reason: "receiptMismatch" });

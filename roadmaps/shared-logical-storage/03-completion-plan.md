@@ -150,6 +150,9 @@ remain distinct from logical schema evolution.
   confinement. The Type-only physical boundary fixture is retired under the
   [selected Type cutover](./26-product-type-native-cutover.md); the broader
   Product compatibility runner still uses physical storage for unported methods.
+  The private Category/Currency atomic command now composes logical Product
+  and Currency sources; its physical Product installer and binding fixture are
+  retired under the [composition cutover](./36-category-currency-logical-composition.md).
   A selected native ProductOption service path now creates, reads, updates,
   upserts and deletes Options with owned Values on the same generic Product
   source. The [Option cutover](./27-product-option-native-cutover.md) retains

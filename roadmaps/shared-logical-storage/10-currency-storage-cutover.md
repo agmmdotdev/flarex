@@ -354,11 +354,11 @@ and live lifecycle, replay, boundary, rollback and lost-acknowledgment checks
 execute against generic rows on both database engines without installing a
 physical Currency table. The displaced live physical fixture and its single-use
 physical storage/publication scenarios are removed. A connected native
-Category/Currency command suite now extends that logical binding with the
-retained physical Product profile. It proves one commit, generic Currency row
-changes, actual Product rows, replay and late cross-participant rollback;
-captured native calls, pending cross-module graph reads, caught refusal,
-shared query limits and cancellation also run on that mixed binding. The
+Category/Currency command suite originally extended that logical binding with
+retained physical Product. Its selected fixture now admits logical Product
+too, with one commit, both sources' row changes, replay and late
+cross-participant rollback; captured native calls, pending cross-module graph
+reads, caught refusal, shared query limits and cancellation remain covered. The
 displaced broad atomic suite's fact-projection, native Application journal and
 Product layout checks have moved to neutral core and logical Currency/Product
 witnesses. The private announcement now selects logical Currency. Remove the
@@ -405,20 +405,19 @@ PGlite and ordinary-role PostgreSQL pass the native suite.
 
 ### Atomic Consumer Cutover And Remaining Cross-Domain Gate
 
-The Category/Currency atomic suite now uses authenticated logical Currency
-and retained physical Product under one outer settlement and publication
-owner. Its connected proofs cover graph ordering/population, participant and
-table authority, shared call/byte budgets, Product's physical statement cap,
-overlap and cancellation, lost-acknowledgement recovery, publication-stage
-rollback, original Product facts after binding movement, and real-PostgreSQL
-new-connection recovery and scope-lock contention. Generic Currency changes
-are inspected through shared row/change/index/outcome families; physical
-installation facts remain Product-only. The 64-statement counter belongs to
-physical commerce stores and does not count generic logical storage SQL.
+The Category/Currency atomic suite now uses two authenticated logical sources
+under one outer settlement and publication owner. Its connected proofs cover
+graph ordering/population, participant and table authority, shared call/byte
+budgets, overlap and cancellation, lost-acknowledgement recovery,
+publication-stage rollback, and real-PostgreSQL new-connection recovery and
+scope-lock contention. Both sources publish through shared logical row/change
+families. The physical statement cap and historical fact/binding checks remain
+at the shared physical-commerce owner, as recorded in the
+[composition cutover](./36-category-currency-logical-composition.md).
 
 The two-installation neutral core fixture validates every physical fact,
-including one from a non-selected installation, before projection. The mixed
-suite separately verifies Product's historical layout after binding movement.
+including one from a non-selected installation, before projection and after
+binding movement.
 The native Application overlap proof uses the Application fixture already
 provisioning the same logical Currency scope: an admitted empty index-range
 read is sealed and entered into finishing before the mixed Commerce commit,
@@ -602,8 +601,8 @@ unchanged on both database engines.
   rows. Ordinary-role PostgreSQL proves contention and uncertain-outcome recovery
   separately from the fast PGlite lane.
 - Category/Currency atomic execution retains one transaction and publication
-  owner while Product remains a named physical consumer. There is no duplicate
-  Currency storage path.
+  owner with two logical sources. Other Product methods still have named
+  physical compatibility consumers.
 - Migrate fixtures and affected callers, remove displaced Currency exports and
   installation code, reconcile living roadmaps, run focused checks and both
   required reviewers, then make one coherent commit.

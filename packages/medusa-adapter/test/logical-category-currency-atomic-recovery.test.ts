@@ -1,25 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import type { Json } from "flarex-protocol/json";
-import { frameworkMigrationFixturePool } from "../../persistence-postgres/test/frameworkMigrationPostgresFixture";
 import { defineAtomicCommerceCommand, getAtomicCommerceCommand, type AtomicCommerceContext } from
   "../../persistence-postgres/src/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from
   "../../persistence-postgres/src/atomicCommerce/host";
-import { commercePhysicalRows, expireCommerceResult } from "../../persistence-postgres/test/commerceInventory";
+import { expireCommerceResult } from "../../persistence-postgres/test/commerceInventory";
 import { runEffect, runEffectFailure } from "../../persistence-postgres/test/effectTestRuntime";
 import { issueRelationalSession, makePostgresRelationalSession, runRelationalSession } from
   "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
-import { readRelationalCommitFactsInTransaction } from "../../persistence-postgres/src/commitPublication/relationalFacts";
-import { commerceBindings } from "../../persistence-postgres/src/frameworkSchema/binding/model";
-import { dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
-import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";
 import { postgresFailureCode } from "../../persistence-postgres/test/postgresFailureCode";
 import { prepareNativeApplicationJournalOnLogicalScope } from
   "../../persistence-postgres/test/nativeApplicationJournalOnLogicalScope";
-import { logicalCategoryCurrencyFixture } from "./support/logical-category-currency-fixture";
-import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
+import { logicalCategoryCurrencyFixture, logicalCategoryCurrencyInventory } from "./support/logical-category-currency-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
@@ -28,8 +22,7 @@ let fixture: Awaited<ReturnType<typeof logicalCategoryCurrencyFixture>>;
 const args = (prefix: string) => ({ categoryPrefix: prefix, currency: {
   code: "zzz", name: prefix, symbol: "T", symbol_native: "T", decimal_digits: 2, rounding: 0,
 } });
-const inventory = async () => ({ logical: await logicalCurrencyInventory(fixture.currency),
-  product: await commercePhysicalRows(fixture.currency.persistence, fixture.product.descriptor.layout.frame) });
+const inventory = () => logicalCategoryCurrencyInventory(fixture);
 const selected = async (input: AtomicCommerceHostInput<unknown>) => {
   const host = await runEffect(makeAtomicCommerceHost(input));
   cleanup.push(() => runEffect(host.close));
@@ -54,7 +47,7 @@ const isInjectedPublicationFailure = (cause: unknown) => {
   return false;
 };
 
-describe("mixed Category/Currency atomic recovery and publication", () => {
+describe("logical Category/Currency atomic recovery and publication", () => {
   beforeAll(async () => { fixture = await logicalCategoryCurrencyFixture(driver, close => cleanup.push(close),
     { includeUserNameIndex: true }); }, 150_000);
   afterAll(async () => {
@@ -88,8 +81,8 @@ describe("mixed Category/Currency atomic recovery and publication", () => {
     expect(executions).toBe(1);
     const committed = await inventory();
     expect(committed.logical.commits).toHaveLength(before.logical.commits.length + 1);
-    expect(committed.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 1);
-    expect(committed.product.product_category).toHaveLength((before.product.product_category?.length ?? 0) + 2);
+    expect(committed.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 3);
+    expect(committed.categories).toHaveLength(before.categories.length + 2);
     expect(await runEffect(host.run(key, command, args("recover")))).toEqual(value);
     expect(executions).toBe(1);
     expect(await runEffectFailure(host.run(key, command, args("different"))))
@@ -101,58 +94,20 @@ describe("mixed Category/Currency atomic recovery and publication", () => {
     expect(executions).toBe(1);
   }, 120_000);
 
-  it("rolls back generic Currency and physical Product at every publication stage", async () => {
+  it("rolls back logical Currency and Product at every publication stage", async () => {
     const { currency, host, proof } = fixture;
     const before = await inventory();
-    for (const table of ["fx_system_commit", "fx_system_commit_relational_change",
+    for (const table of ["fx_system_commit",
       "fx_system_commit_app_row_change", "fx_system_idempotency", "fx_system_commit_wake", "fx_system_scope_clock"]) {
-      const owner = table === "fx_system_scope_clock" && "pool" in currency.persistence
-        ? await frameworkMigrationFixturePool(currency.persistence) : undefined;
-      const triggerDdl = (statement: string) => owner === undefined
-        ? currency.persistence.exec(statement) : owner.query(statement);
       await currency.persistence.exec("create function fx_test_mixed_atomic_failure() returns trigger language plpgsql as $$ begin raise exception 'mixed atomic publication failure'; end $$");
       try {
-        await triggerDdl(`create trigger fx_test_mixed_atomic_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_mixed_atomic_failure()`);
+        await currency.persistence.exec(`create trigger fx_test_mixed_atomic_failure before ${table === "fx_system_scope_clock" ? "update" : "insert"} on "${table}" for each row execute function fx_test_mixed_atomic_failure()`);
         const failure = await runEffectFailure(host.run(host.newRequestKey(), proof.command, args("publication")));
         expect(isInjectedPublicationFailure(failure)).toBe(true);
         expect(await inventory()).toEqual(before);
       } finally {
-        await triggerDdl(`drop trigger if exists fx_test_mixed_atomic_failure on "${table}"`);
+        await currency.persistence.exec(`drop trigger if exists fx_test_mixed_atomic_failure on "${table}"`);
         await currency.persistence.exec("drop function fx_test_mixed_atomic_failure()");
-      }
-    }
-  }, 120_000);
-
-  it("decodes original Product facts after its binding is removed and restored", async () => {
-    const { currency, product, installation, bindings, host, proof } = fixture;
-    await runEffect(host.run(host.newRequestKey(), proof.command, args("history")));
-    const state = await logicalCurrencyInventory(currency);
-    const commit = state.commits.at(-1);
-    if (commit === undefined) throw new Error("Missing mixed commit");
-    const query = { scopeUuid: commit.scopeUuid, commitSeq: commit.commitSeq,
-      installations: [{ installationSha256: installation.installation.installationSha256,
-        layout: product.descriptor.layout }],
-      selectInstallationSha256: installation.installation.installationSha256 };
-    const facts = await currency.persistence.drizzle.transaction(tx =>
-      runEffect(readRelationalCommitFactsInTransaction(tx, query)));
-    expect(facts.length).toBeGreaterThan(0);
-    expect(facts.every(fact => fact.installationSha256 === installation.installation.installationSha256)).toBe(true);
-    const current = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
-    expect(commerceBindings(current.frame)).toHaveLength(1);
-    const original = await runEffect(bindings.prepare(current.frame));
-    const candidate = await runEffect(bindings.prepare({ ...current.frame, commerce: [] }));
-    try {
-      await runEffect(bindings.activate(dataBindingActivationRequest(candidate.frame.application.scopeId,
-        candidate.frame.application.storageGeneration, "mixed-remove-product", candidate.sha256, current.head)));
-      expect(await runEffectFailure(host.run(host.newRequestKey(), proof.command, args("stale"))))
-        .toMatchObject({ reason: "bindingChanged" });
-      expect(await currency.persistence.drizzle.transaction(tx =>
-        runEffect(readRelationalCommitFactsInTransaction(tx, query)))).toEqual(facts);
-    } finally {
-      const selected = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
-      if (commerceBindings(selected.frame).length === 0) {
-        await runEffect(bindings.activate(dataBindingActivationRequest(current.frame.application.scopeId,
-          current.frame.application.storageGeneration, "mixed-restore-product", original.sha256, selected.head)));
       }
     }
   }, 120_000);
@@ -181,16 +136,16 @@ describe("mixed Category/Currency atomic recovery and publication", () => {
     });
     const before = await inventory();
     const key = host.newRequestKey();
-    const value = await runEffect(host.run(key, command, args("physical")));
+    const value = await runEffect(host.run(key, command, args("logical")));
     expect(executions).toBe(1);
     expect(pids.length).toBeGreaterThanOrEqual(2);
     expect(pids[1]).not.toBe(failedPid);
-    expect(await runEffect(host.run(key, command, args("physical")))).toEqual(value);
+    expect(await runEffect(host.run(key, command, args("logical")))).toEqual(value);
     expect(executions).toBe(1);
     const after = await inventory();
     expect(after.logical.commits).toHaveLength(before.logical.commits.length + 1);
-    expect(after.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 1);
-    expect(after.product.product_category).toHaveLength((before.product.product_category?.length ?? 0) + 2);
+    expect(after.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 3);
+    expect(after.categories).toHaveLength(before.categories.length + 2);
   }, 120_000);
 
   it.runIf(driver === "postgres")("shares one outcome and refuses bounded scope-lock contention", async () => {
@@ -212,7 +167,7 @@ describe("mixed Category/Currency atomic recovery and publication", () => {
     expect(executions).toBe(1);
     const stable = await inventory();
     expect(stable.logical.commits).toHaveLength(before.logical.commits.length + 1);
-    expect(stable.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 1);
+    expect(stable.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 3);
     const blocker = await postgres.pool.connect();
     try {
       const session = issueRelationalSession(postgres.drizzle, (profile, work) => Effect.gen(function* () {
@@ -249,9 +204,9 @@ describe("mixed Category/Currency atomic recovery and publication", () => {
     const first = commits[0]; const second = commits[1];
     if (first === undefined || second === undefined) throw new Error("Missing mixed/native commit pair");
     expect(second.commitSeq).toBe(first.commitSeq + 1n);
-    expect(first.relationalChangeCount).toBeGreaterThan(0);
+    expect(first.relationalChangeCount).toBe(0);
     expect(second.relationalChangeCount).toBe(0);
-    expect(after.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 1);
-    expect(after.product.product_category).toHaveLength((before.product.product_category?.length ?? 0) + 2);
+    expect(after.logical.rowChanges).toHaveLength(before.logical.rowChanges.length + 3);
+    expect(after.categories).toHaveLength(before.categories.length + 2);
   }, 120_000);
 });

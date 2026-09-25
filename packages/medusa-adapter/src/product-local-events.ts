@@ -5,6 +5,7 @@ import { commerceError, isJsonObject, type CommerceTransactionError, type Json, 
 import { defaultCommerceResources, type CommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "./commerce-input";
+import { decodeCategoryProjection } from "./product-category-projection";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductEntityMetadata, ProductRuntimeMetadata } from "./product-runtime-metadata";
 import { VariantImagePairs, decodeVariantThumbnailUpdate } from "./product-variant-workflow-input";
@@ -239,6 +240,55 @@ function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity
 /** A selected native root Category create, before sibling or path maintenance. */
 export function productLogicalCategoryCreateEventPolicy(catalog: ProductRuntimeMetadata) {
   return productLogicalEntityEventPolicy(catalog, catalog.category, "productCreatecategory", "created");
+}
+
+const InternalCategoryCreateRows = Schema.Array(Schema.Struct({
+  id: EventId, name: Schema.String, handle: Schema.String,
+  parent_category_id: Schema.optionalKey(EventId),
+})).check(Schema.isLengthBetween(1, 256));
+const decodeInternalCategoryCreateRows = Schema.decodeUnknownEffect(InternalCategoryCreateRows,
+  { onExcessProperty: "error" });
+
+/** Internal Category service calls emit no module events. Authenticate each
+ * ordered create against its logical attempts without granting a generic
+ * Product or Category write policy to the mixed atomic host. */
+export function productLogicalInternalCategoryCreatePolicy(catalog: ProductRuntimeMetadata) {
+  const mismatch = () => commerceError("receiptMismatch");
+  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateInternalCategoryCreate")(
+    function* (calls, mutations, lifecycle, _observedRows, setNull, referenceReplacements = []) {
+      if (lifecycle.length !== 0 || setNull.length !== 0 || referenceReplacements.length !== 0)
+        return yield* Effect.fail(mismatch());
+      let cursor = 0;
+      for (const call of calls) {
+        if (call.fromAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(mismatch());
+        if (call.mode === "read") {
+          if (call.toAttempt !== cursor) return yield* Effect.fail(mismatch());
+          continue;
+        }
+        if (call.commandName !== "productInternalCategorycreate") return yield* Effect.fail(mismatch());
+        const input = yield* decodeInternalCategoryCreateRows(call.input)
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const resultRows = yield* Effect.fromResult(decodeCategoryProjection(call.result))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        if (!Array.isArray(resultRows) || resultRows.length !== input.length ||
+          call.toAttempt !== cursor + input.length) return yield* Effect.fail(mismatch());
+        for (const [offset, selected] of input.entries()) {
+          const mutation = mutations[cursor + offset];
+          const result = resultRows[offset];
+          const after = mutation?.after;
+          if (mutation?.table !== catalog.category.table.name || mutation.operation !== "insert" ||
+            mutation.before !== null || after === null || after === undefined ||
+            !isJsonObject(after) || !isJsonObject(result) ||
+            result.id !== selected.id || after.id !== selected.id ||
+            after.name !== selected.name || after.handle !== selected.handle ||
+            after.parent_category_id !== (selected.parent_category_id ?? null) ||
+            after.deleted_at !== null) return yield* Effect.fail(mismatch());
+        }
+        cursor = call.toAttempt;
+      }
+      if (cursor !== mutations.length) return yield* Effect.fail(mismatch());
+    });
+  return { validateLogical };
 }
 
 /** Native Collection writes may change their own roots and, when product_ids

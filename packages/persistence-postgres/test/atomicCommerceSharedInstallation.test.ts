@@ -297,6 +297,27 @@ describe("atomic participants sharing physical installation", () => {
         separate.installation.installation.installationSha256);
       expect(await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, query))))
         .toEqual(selected);
+      const profiles = input.participants.map(member => member.profile);
+      const bindings = await runEffect(makeDataBindingHost({ ...separate.bindingsInput, commerceProfiles: profiles }));
+      const current = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
+      const withoutShared = await runEffect(bindings.prepare({ ...current.frame,
+        commerce: commerceBindings(current.frame).filter(binding =>
+          binding.installation.installationSha256 !== shared.installation.installation.installationSha256) }));
+      await runEffect(bindings.activate(dataBindingActivationRequest(current.frame.application.scopeId,
+        current.frame.application.storageGeneration, "remove-shared-fact-binding", withoutShared.sha256, current.head)));
+      try {
+        expect(await runEffectFailure(host.run(host.newRequestKey(), root, "removed-binding")))
+          .toMatchObject({ reason: "bindingChanged" });
+        expect(await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, query))))
+          .toEqual(selected);
+      } finally {
+        const absent = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
+        const restored = await runEffect(bindings.prepare(current.frame));
+        await runEffect(bindings.activate(dataBindingActivationRequest(current.frame.application.scopeId,
+          current.frame.application.storageGeneration, "restore-shared-fact-binding", restored.sha256, absent.head)));
+      }
+      expect(await db.transaction(tx => runEffect(readRelationalCommitFactsInTransaction(tx, query))))
+        .toEqual(selected);
     } finally { await runEffect(host.close); }
   }, 30_000);
 });

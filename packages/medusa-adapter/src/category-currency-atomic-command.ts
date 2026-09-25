@@ -37,9 +37,5 @@ export const makeCategoryCurrencyAtomicCommand = Effect.fn("CommerceAdapter.cate
     productCommands: [product.commands.internalCategoryCreate, product.commands.internalCategoryRetrieve, product.commands.internalCategoryCount,
       ...product.graph.reads.map(read => read.command)],
     currencyCommands: [currencyAnnouncementWrite, currencyCommands.retrieve, ...currencyQueries.reads.map(read => read.command)],
-    // Additional fixture setup is admitted explicitly by its test host, not by
-    // the ordinary Category/Currency proof command's registration.
-    graphFixtures: { create: product.commands.create, tags: product.commands.createTags,
-      types: product.commands.createTypes, collections: product.commands.createCollections },
   };
 });
