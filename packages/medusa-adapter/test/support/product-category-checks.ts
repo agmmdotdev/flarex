@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { fxSystemScopeClocks } from "../../../persistence-postgres/src/schema";
 import { commerceInventory } from "../../../persistence-postgres/test/commerceInventory";
+import { createPostgresPersistence } from "../../../persistence-postgres/src/postgres";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import { productLocalEventPolicy } from "../../src/product-local-events";
@@ -63,17 +64,29 @@ describe("Product Category boundary", () => {
     takeProductRunnerEvents();
     await fixture.persistence.exec("create sequence fx_category_move_attempts");
     await fixture.persistence.exec(`create function fx_category_move_fail() returns trigger language plpgsql as $$ begin if old.${quote(idColumn.name)} = 'leaf' then perform nextval('fx_category_move_attempts'); raise exception 'injected descendant failure'; end if; return new; end $$`);
-    await fixture.persistence.exec(`create trigger fx_category_move_fail before update on ${target} for each row execute function fx_category_move_fail()`);
+    const adminUrl = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
+    if (process.env.FLAREX_TEST_DRIVER === "postgres" && adminUrl === undefined)
+      throw new Error("PostgreSQL trigger injection needs a provisioning connection");
+    const admin = process.env.FLAREX_TEST_DRIVER === "postgres" && adminUrl !== undefined
+      ? await createPostgresPersistence({ connectionString: adminUrl }) : undefined;
+    const triggerDdl = (sql: string) => admin === undefined
+      ? fixture.persistence.exec(sql) : admin.exec(sql);
+    const functionTarget = quote(layout.targetNamespace.schemaName) + "." + quote("fx_category_move_fail");
     const input = { id: "moving", data: { parent_category_id: "new", rank: 0 } };
+    let triggerCreated = false;
     try {
+      await triggerDdl(`create trigger fx_category_move_fail before update on ${target} for each row execute function ${functionTarget}()`);
+      triggerCreated = true;
       expect(await run(Effect.result(fixture.host.run(fixture.host.newRequestKey(), runtime.commands.updateCategories, input)))).toMatchObject({ _tag: "Failure" });
       expect((await fixture.persistence.query("select last_value::integer as last_value, is_called from fx_category_move_attempts")).rows).toEqual([{ last_value: 1, is_called: true }]);
       expect(await commerceInventory(fixture)).toEqual(before);
       expect(takeProductRunnerEvents()).toEqual([]);
     } finally {
-      await fixture.persistence.exec(`drop trigger fx_category_move_fail on ${target}`);
-      await fixture.persistence.exec("drop function fx_category_move_fail()");
-      await fixture.persistence.exec("drop sequence fx_category_move_attempts");
+      try {
+        if (triggerCreated) await triggerDdl(`drop trigger fx_category_move_fail on ${target}`);
+        await fixture.persistence.exec("drop function fx_category_move_fail()");
+        await fixture.persistence.exec("drop sequence fx_category_move_attempts");
+      } finally { await admin?.close(); }
     }
     const key = fixture.host.newRequestKey();
     const result = await run(fixture.host.run(key, runtime.commands.updateCategories, input));

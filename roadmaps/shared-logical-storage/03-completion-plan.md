@@ -161,20 +161,27 @@ remain distinct from logical schema evolution.
   a focused logical Product runner for list, count, retrieve and tree mutations;
   its physical runner registration is retired under the
   [native internal Category suite cutover](./39-native-internal-category-suite-cutover.md).
-  The pinned public Category suite remains on the physical Product runner.
+  The unchanged 21-case pinned public Category suite now runs on a focused
+  logical Product source for tree reads, count/retrieve, creation, update and
+  leaf deletion. Native Product membership, sibling-rank and path mutations,
+  module messages and replay are authenticated under the
+  [public Category runner cutover](./43-native-public-category-suite-cutover.md).
+  Five physical-only Category boundary tests retain the generated-table fixture
+  for explicit SQL injection and physical inventory checks; their replacement
+  gate is generic-storage equivalents before removing that fixture.
   Internal Category cycle admission now follows selected ancestry through the
   scoped logical identity index rather than reading the entire active catalog;
   the [indexed ancestry correction](./41-category-indexed-ancestry.md) proves
   selected creation and atomic cycle refusal beyond 256 unrelated rows.
   Complete sibling-count and rank-shift reads still bound a single wide
-  sibling group; the public Category suite and larger-scale tree operations
-  remain separate cutovers.
+  sibling group; larger-scale tree operations remain a separate capacity gate.
   Public Category creation now authenticates native Product membership pivots,
   sibling rank changes and their module messages on the same generic Product
   source. The [connected creation proof](./42-public-category-create-membership.md)
-  covers inverse Product reads, replay and missing-target refusal. The full
-  21-case public Category suite still needs its update/delete receipts and
-  focused logical runner before its physical registration can retire.
+  covers inverse Product reads, replay and missing-target refusal. Public
+  update/delete now reuse the internal tree validator with command-specific
+  result and event receipts, stored-field agreement for returned update rows,
+  and pivot deletion confinement.
   The unchanged 13-case pinned public Type service suite now uses a focused
   logical Product runner for create, update, delete, list, count and retrieve.
   Its duplicate broad physical registration is retired under the

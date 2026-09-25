@@ -1,2 +1,5 @@
-import "../../medusa-product/integration-tests/__tests__/product-module-service/product-categories.spec";
+import { registerProductFixture } from "./support/product-runner";
 import "./support/product-category-checks";
+
+// The remaining physical-only boundary checks share the original Product fixture.
+registerProductFixture();

@@ -40,7 +40,7 @@ function isCapturedMessage(event: Json): event is Json & { name: string; data: J
     && typeof event.metadata.source === "string" && typeof event.metadata.object === "string" && typeof event.metadata.action === "string";
 }
 
-function registerFixture() {
+export function registerProductFixture() {
   if (registered) return;
   registered = true;
   beforeAll(async () => {
@@ -186,7 +186,7 @@ const service = new Proxy<object>({}, {
 }) as ProductTestService; // Test-only compatibility boundary for the original full-service callback.
 
 export function productIntegrationTestRunner(options: ProductRunnerOptions) {
-  registerFixture();
+  registerProductFixture();
   describe(options.injectedDependencies ? "Product injected event bus" : "Product service", () => {
     beforeEach(async () => {
       destination = Option.fromUndefinedOr(options.injectedDependencies?.event_bus);

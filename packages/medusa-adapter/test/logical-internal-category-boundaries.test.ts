@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
+import { CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCategoryCreateEventPolicy, productLogicalInternalCategoryPolicy } from "../src/product-local-events";
+import { productLogicalCategoryChangeEventPolicy, productLogicalCategoryCreateEventPolicy,
+  productLogicalInternalCategoryPolicy } from "../src/product-local-events";
 import { decodeCategoryProjection } from "../src/product-category-projection";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
   "../../persistence-postgres/src/atomicCommerce/commands";
@@ -29,27 +31,41 @@ let reader: CommerceHost;
 const categories = () => reader.read(product.runtime.commands.internalCategoryList, { filters: {} })
   .pipe(Effect.flatMap(value => Effect.fromResult(decodeCategoryProjection(value))));
 
-async function command(operation: "create" | "update" | "delete" | "publicCreate") {
+async function command(operation: "create" | "update" | "delete" | "publicCreate" | "publicUpdate" | "publicDelete") {
   const selected = operation === "create" ? product.runtime.commands.internalCategoryCreate
     : operation === "update" ? product.runtime.commands.internalCategoryUpdate
       : operation === "delete" ? product.runtime.commands.internalCategoryDelete
-        : product.runtime.commands.createCategories;
-  const publicPolicy = operation === "publicCreate" ? productLogicalCategoryCreateEventPolicy(catalog) : undefined;
+        : operation === "publicCreate" ? product.runtime.commands.createCategories
+          : operation === "publicUpdate" ? product.runtime.commands.updateCategories
+            : product.runtime.commands.deleteCategories;
+  const publicPolicy = operation === "publicCreate" ? productLogicalCategoryCreateEventPolicy(catalog)
+    : operation === "publicUpdate" ? productLogicalCategoryChangeEventPolicy(catalog, "update")
+      : operation === "publicDelete" ? productLogicalCategoryChangeEventPolicy(catalog, "delete") : undefined;
+  const internalOperation = operation === "publicCreate" ? "create"
+    : operation === "publicUpdate" ? "update" : operation === "publicDelete" ? "delete" : operation;
   const validateLogical = publicPolicy?.validateLogical ??
-    productLogicalInternalCategoryPolicy(catalog, operation === "publicCreate" ? "create" : operation).validateLogical;
+    productLogicalInternalCategoryPolicy(catalog, internalOperation).validateLogical;
   const participant = defineAtomicCommerceParticipant("product");
   const root = defineAtomicCommerceCommand(`logicalCategory${operation}`, (ctx, input) => ctx.call(participant, selected, input));
   const revision = createHash("sha256").update(`logical-category-${operation}`).digest("hex");
-  const contract = publicPolicy === undefined ? undefined : defineCommerceEventContract({
-    name: catalog.category.createdEvent, revision, internal: true, decode: publicPolicy.capture,
-  });
+  const names = operation === "publicCreate" ? [catalog.category.createdEvent, catalog.category.updatedEvent]
+    : operation === "publicUpdate" ? [catalog.category.updatedEvent]
+      : operation === "publicDelete" ? [catalog.category.deletedEvent, catalog.category.updatedEvent] : [];
+  const contracts = publicPolicy === undefined ? [] : names.map(name => defineCommerceEventContract({
+    name, revision, internal: true, decode: publicPolicy.capture,
+  }));
+  const byName = new Map(names.map((name, index) => [name, contracts[index]]));
   const host = await run(makeAtomicCommerceHost({ ...source.hostInput,
     identityAndAccessPolicy: { profile: `logical-category-${operation}` },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
       commands: [selected], validateLogical,
-      ...(contract === undefined ? {} : { events: { contracts: [contract], select: () => Effect.succeed(contract) } }) }],
+      ...(publicPolicy === undefined ? {} : { events: { contracts, select: message => {
+        const event = typeof message === "object" && message !== null && "name" in message &&
+          typeof message.name === "string" ? byName.get(message.name) : undefined;
+        return event === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(event);
+      } } }) }],
     commands: [root],
-    ...(contract === undefined ? {} : { events: { producerRevision: revision, contracts: [contract],
+    ...(publicPolicy === undefined ? {} : { events: { producerRevision: revision, contracts,
       subscribers: [{ id: "logical-category-public", revision: "a".repeat(64) }],
       validate: events => events.some(event => !event.internal)
         ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void } }),
@@ -103,6 +119,66 @@ describe("internal Category boundaries on shared logical Product storage", () =>
     expect((await logicalCurrencyInventory(source)).events).toEqual(before.events);
     await run(publicCreate.run({ id: "public", name: "public" }));
     expect((await logicalCurrencyInventory(source)).events.length).toBe(before.events.length + 1);
+  }, 120_000);
+
+  it("replays public update/delete without duplicate facts or events and refuses a forged pivot", async () => {
+    const create = await command("publicCreate"), update = await command("publicUpdate");
+    const remove = await command("publicDelete");
+    await run(create.run({ id: "public-replay", name: "Before" }));
+    const updateInput = { id: "public-replay", data: { name: "After" } };
+    const updateKey = update.host.newRequestKey();
+    const updated = await run(update.host.run(updateKey, update.root, updateInput));
+    const afterUpdate = await logicalCurrencyInventory(source);
+    expect(await run(update.host.run(updateKey, update.root, updateInput))).toEqual(updated);
+    expect(await logicalCurrencyInventory(source)).toEqual(afterUpdate);
+    expect(await run(categories())).toContainEqual(expect.objectContaining({ id: "public-replay", name: "After" }));
+    const deleteKey = remove.host.newRequestKey();
+    const deleted = await run(remove.host.run(deleteKey, remove.root, ["public-replay"]));
+    const afterDelete = await logicalCurrencyInventory(source);
+    expect(await run(remove.host.run(deleteKey, remove.root, ["public-replay"]))).toEqual(deleted);
+    expect(await logicalCurrencyInventory(source)).toEqual(afterDelete);
+    expect(await run(categories())).not.toContainEqual(expect.objectContaining({ id: "public-replay" }));
+
+    const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products")?.join;
+    if (relation?.type !== "manyToMany") throw new Error("Missing Category Product pivot");
+    const before = { id: "public-replay", name: "After", rank: 0, mpath: "public-replay",
+      parent_category_id: null, deleted_at: null };
+    const deletedEvent = { name: catalog.category.deletedEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.category.eventObject, action: CommonEvents.DELETED },
+      data: { id: "public-replay" } };
+    const deletion = { commandName: "productDeletecategory", mode: "write" as const,
+      input: ["public-replay"], result: null, events: [deletedEvent],
+      fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
+    const rootDelete = { ordinal: 0, table: catalog.category.table.name, operation: "delete" as const,
+      before, after: null };
+    const policy = productLogicalCategoryChangeEventPolicy(catalog, "delete");
+    await run(policy.validateLogical([deletion], [rootDelete], [], [], []));
+    await expect(run(policy.validateLogical([{ ...deletion, toAttempt: 2 }], [rootDelete, {
+      ordinal: 1, table: relation.pivotTable, operation: "delete" as const,
+      before: { id: "forged", [relation.sourceColumns[0] ?? "category_id"]: "unselected" }, after: null,
+    }], [], [], []))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    await expect(run(policy.validateLogical([{ ...deletion, events: [{ ...deletedEvent,
+      data: { id: "unselected" } }] }], [rootDelete], [], [], [])))
+      .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+
+    const updatePolicy = productLogicalCategoryChangeEventPolicy(catalog, "update");
+    const updatedRow = { ...before, name: "Changed" };
+    const updatedEvent = { name: catalog.category.updatedEvent,
+      metadata: { source: Modules.PRODUCT, object: catalog.category.eventObject, action: CommonEvents.UPDATED },
+      data: { id: "public-replay" } };
+    const updateReceipt = { commandName: "productupdatecategory", mode: "write" as const,
+      input: { id: "public-replay", data: { name: "Changed" } }, result: updatedRow,
+      events: [updatedEvent], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
+    const updateMutation = { ordinal: 0, table: catalog.category.table.name, operation: "patch" as const,
+      before, after: updatedRow };
+    await run(updatePolicy.validateLogical([updateReceipt], [updateMutation], [], [], []));
+    await expect(run(updatePolicy.validateLogical([{ ...updateReceipt,
+      result: { ...updatedRow, name: "Fabricated" } }], [updateMutation], [], [], [])))
+      .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    const { name: _omittedName, ...missingName } = updatedRow;
+    await expect(run(updatePolicy.validateLogical([{ ...updateReceipt,
+      result: missingName }], [updateMutation], [], [], [])))
+      .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
   }, 120_000);
 
   it("rolls back an earlier array member when a later update fails", async () => {

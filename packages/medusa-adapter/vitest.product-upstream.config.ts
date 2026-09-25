@@ -169,7 +169,7 @@ export const admittedInternalCategoryCases = [
 ];
 export const admittedProductCases = [
   ...admittedInternalProductCases,
-  ...admittedProductOptionCases, ...admittedProductVariantCases, ...admittedProductCategoryCases,
+  ...admittedProductOptionCases, ...admittedProductVariantCases,
   ...admittedProductCollectionCases,
   ...admittedProductTagCases,
   "Product injected event bus > ProductModuleService Events > Product Deletion > should emit all cascade delete events when soft deleting a product",

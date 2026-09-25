@@ -1,8 +1,8 @@
 import { defineConfig } from "vitest/config";
-import upstream, { admittedProductCategoryCases, productCoverage } from "./vitest.product-upstream.config";
+import upstream, { productCoverage } from "./vitest.product-upstream.config";
 export default defineConfig({ ...upstream, test: { ...upstream.test,
   include: ["test/product-categories-upstream.test.ts"],
-  reporters: ["default", productCoverage([...admittedProductCategoryCases,
+  reporters: ["default", productCoverage([
     "Product Category boundary > isolates inverse products and tree reads from colliding foreign scope rows",
     "Product Category boundary > rolls back sibling and descendant changes after a late move failure and replays",
     "Product Category boundary > preserves products while deleting leaf membership and closing sibling ranks",
