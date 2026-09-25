@@ -153,6 +153,11 @@ remain distinct from logical schema evolution.
   The private Category/Currency atomic command now composes logical Product
   and Currency sources; its physical Product installer and binding fixture are
   retired under the [composition cutover](./36-category-currency-logical-composition.md).
+  Internal Category create/update/delete boundary tests now use the logical
+  Product source with silent command-specific receipts, rollback and replay;
+  their physical-only test file is retired under the
+  [internal Category cutover](./38-internal-category-boundary-cutover.md).
+  The pinned public Category suite remains on the physical Product runner.
   The selected native Pricing test runner and base-price admission tests now
   use the same logical Pricing source as the workflow. Their last combined
   18-table physical Product/Pricing/Link fixture builder is retired under the

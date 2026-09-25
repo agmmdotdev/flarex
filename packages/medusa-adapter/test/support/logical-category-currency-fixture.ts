@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { makeCategoryCurrencyAtomicCommand } from "../../src/category-currency-atomic-command";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
-import { productLogicalInternalCategoryCreatePolicy } from "../../src/product-local-events";
+import { productLogicalInternalCategoryPolicy } from "../../src/product-local-events";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../../persistence-postgres/src/atomicCommerce/host";
 import type { AtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/commands";
 import { runEffect } from "../../../persistence-postgres/test/effectTestRuntime";
@@ -50,7 +50,7 @@ export async function logicalCategoryCurrencyFixture(
     commands: [proof.command], participants: [
       { participant: proof.productParticipant, logicalStorage: product.hostInput.logicalStorage,
         commands: proof.productCommands,
-        validateLogical: productLogicalInternalCategoryCreatePolicy(metadata).validateLogical },
+        validateLogical: productLogicalInternalCategoryPolicy(metadata, "create").validateLogical },
       { participant: proof.currencyParticipant, logicalStorage: currency.hostInput.logicalStorage,
         commands: proof.currencyCommands },
     ] } satisfies AtomicCommerceHostInput<unknown>;

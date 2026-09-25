@@ -62,7 +62,13 @@ export function productInternalCommands({ metadata, withInternalProduct, withInt
         const { id, ...data } = row;
         if (typeof id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
         yield* Effect.fromResult(metadata.valueProfile.validateRelatedUpdateData(metadata.category.table.name, data)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
-      } else yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata.category.table.name, row)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      } else {
+        // The direct pinned Category service generates IDs but does not derive
+        // the non-null handle supplied by the public module service.
+        if (typeof row.handle !== "string" || row.handle.length === 0)
+          return yield* ctx.refuse(commerceError("invalidInput"));
+        yield* Effect.fromResult(metadata.valueProfile.validateRelatedCreate(metadata.category.table.name, row)).pipe(Effect.catchTag("CommerceTransactionError", error => ctx.refuse(error)));
+      }
     }
     // SAFETY: validated external fields enter the real specialized service;
     // prepared DAL writes revalidate the resulting rank/path and scoped links.

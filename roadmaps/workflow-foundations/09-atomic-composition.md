@@ -235,12 +235,12 @@ This is a database conformance operation,
 not a fabricated Medusa core workflow or cross-module foreign-key contract.
 
 The event-free selection is grounded in
-[internal Category assertions](../../packages/medusa-adapter/test/support/product-internal-category-checks.ts)
+[logical internal Category assertions](../../packages/medusa-adapter/test/logical-internal-category-boundaries.test.ts)
 and [Currency's private participant](../../packages/medusa-adapter/src/currency-service.ts).
 Internal Category calls deliberately omit the module event aggregator while
-retaining write facts. Public Product operations still require their event
+retaining authenticated ordered attempts and final shared row changes. Public Product operations still require their event
 contract. Do not suppress public events or generalize the internal proof to
-public workflow compatibility. Preserve profile-specific fact/event validation
+public workflow compatibility. Preserve source-specific attempt/event validation
 at each participant's closure.
 
 ### Implemented Owner Changes
