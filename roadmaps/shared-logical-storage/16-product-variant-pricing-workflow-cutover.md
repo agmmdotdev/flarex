@@ -40,10 +40,10 @@ profiles. No public Medusa DTO or event contract changes. The obsolete combined
 physical workflow fixture is removed after moving its cancellation, event-pump,
 revision-conflict, generated-ID and rollback witnesses to the logical suite.
 The exact Link dismiss/restore/cardinality witness has moved to the
-[logical lifecycle cutover](./17-variant-pricing-link-lifecycle-cutover.md). The physical
-Pricing profile remains a named base-price consumer, including PriceList's
-structural-only role. No named durable environment is reset or converted in
-this slice.
+[logical lifecycle cutover](./17-variant-pricing-link-lifecycle-cutover.md).
+The subsequent [Pricing fixture retirement](./37-pricing-physical-fixture-retirement.md)
+moves the last base-price physical consumers and removes their profile builder.
+No named durable environment is reset or converted in this slice.
 
 ## Completion Gates
 

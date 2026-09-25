@@ -34,14 +34,15 @@ own scoped row/index/unique maintenance, transaction settlement, publication
 and recovery. A module operation not yet selected must fail closed.
 
 This replaces the private Pricing profile/installation input for the selected
-base-price host. Existing physical Pricing profile, generated tables and
-Variant/Pricing/Link workflow remain for named unmigrated consumers until their
-connected cutover and approved data disposition. No dual write, adapter SQL
-fallback or compatibility wrapper is justified by the development fixture.
+base-price host. The native Pricing fixture and selected Variant/Pricing/Link
+workflow now use logical sources; the former combined physical profile builder
+is retired under [Pricing fixture retirement](./37-pricing-physical-fixture-retirement.md).
+No dual write, adapter SQL fallback or compatibility wrapper is justified by
+the development fixture.
 Native DTO and event names do not change. Validate exact raw numeric values,
 nested rows, selected pending and committed reads, event correspondence and
 replay on PGlite and ordinary-role PostgreSQL. Shared rollback and two-scope
-isolation remain required at the next Pricing/Product/Link runtime cutover;
+isolation are exercised by the selected Pricing/Product/Link workflow;
 existing core and Product proofs retain their own scopes.
 Run affected typechecks, guards, lint and both required read-only reviews,
 then remove displaced selected-fixture setup and commit the connected slice.
@@ -60,10 +61,11 @@ migration gate rather than silently expanding a live source.
 The representative calculated-price query in
 [query and constraint acceptance](./02-query-and-constraint-acceptance.md)
 must select logical indexes for currency/quantity/time/rules and compare
-bounded generic results with the pinned native repository. The existing
-Product Variant/Pricing/Link workflow must then move its three participants
-and rich Link records without changing native behavior. PriceList,
+bounded generic results with the pinned native repository. The selected
+Product Variant/Pricing/Link workflow now uses three logical participants;
+broader calculated Pricing still needs its own proof. PriceList,
 PricePreference and other currently unadmitted public operations require
 separate native-semantic contracts; compiling their definitions does not grant
-runtime capability. Retire physical Pricing DDL, profiles, migrations and
-fixtures only after their named consumers and data obligations have moved.
+runtime capability. The selected physical Pricing DDL/profile and fixtures
+are retired. Framework migration-system retirement and any named durable-data
+disposition follow the structural migration plan.

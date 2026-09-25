@@ -5,7 +5,7 @@ import { makeLocalPricingCommands } from "../../src/pricing-service";
 import type { CommerceHost } from "../../../persistence-postgres/src/commerceTransaction/commands";
 import type { LogicalCurrencyFixture } from "./logical-currency-fixture";
 
-interface LogicalPricingHostFixture {
+export interface LogicalPricingHostFixture {
   readonly definition: NonNullable<LogicalCurrencyFixture["pricingDefinition"]>;
   readonly runtime: Effect.Success<ReturnType<typeof makeLocalPricingCommands>>;
   readonly hostInput: LogicalCommerceHostInput<unknown>;

@@ -153,6 +153,10 @@ remain distinct from logical schema evolution.
   The private Category/Currency atomic command now composes logical Product
   and Currency sources; its physical Product installer and binding fixture are
   retired under the [composition cutover](./36-category-currency-logical-composition.md).
+  The selected native Pricing test runner and base-price admission tests now
+  use the same logical Pricing source as the workflow. Their last combined
+  18-table physical Product/Pricing/Link fixture builder is retired under the
+  [Pricing fixture cutover](./37-pricing-physical-fixture-retirement.md).
   A selected native ProductOption service path now creates, reads, updates,
   upserts and deletes Options with owned Values on the same generic Product
   source. The [Option cutover](./27-product-option-native-cutover.md) retains
