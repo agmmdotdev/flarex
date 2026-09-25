@@ -57,7 +57,7 @@ export interface WorkflowLogicalPolicy {
   readonly validateLogicalCall: LogicalCommerceCallValidation;
   readonly allowSetNull?: true;
   readonly referenceReplacement?: Readonly<{
-    command: CommerceCommand;
+    commands: readonly CommerceCommand[];
     eventName: string;
     metadata: Json;
     eventLimit: number;
@@ -105,8 +105,8 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     const commands = supplied === undefined ? [] : yield* captureWorkflowArray(supplied.commands);
     if (commands.some(command => commerceCommandIdentity(command) === undefined)) return yield* Result.fail(commerceError("invalidAuthority"));
     const admitted = new Set(commands);
-    if (replacement !== undefined && (!admitted.has(replacement.command) ||
-      commerceCommandIdentity(replacement.command)?.mode !== "write" ||
+    if (replacement !== undefined && (replacement.commands.length === 0 ||
+      replacement.commands.some(command => !admitted.has(command) || commerceCommandIdentity(command)?.mode !== "write") ||
       typeof replacement.eventName !== "string" || replacement.eventName.length === 0 ||
       !Number.isSafeInteger(replacement.eventLimit) || replacement.eventLimit < 1 || replacement.eventLimit > 256))
       return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -122,7 +122,7 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
       commands,
       ...(supplied.allowSetNull === undefined ? {} : { allowSetNull: supplied.allowSetNull }),
       ...(replacement === undefined ? {} : { referenceReplacement: Object.freeze({
-        command: replacement.command, eventName: replacement.eventName, eventLimit: replacement.eventLimit,
+        commands: Object.freeze([...replacement.commands]), eventName: replacement.eventName, eventLimit: replacement.eventLimit,
         metadata: yield* captureCommerceInput(replacement.metadata),
       }) }),
     });

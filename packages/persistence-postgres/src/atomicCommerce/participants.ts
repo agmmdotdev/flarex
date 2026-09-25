@@ -14,7 +14,7 @@ import { prepareInstallationRuntime, type PreparedInstallationRuntime } from "..
 import { chargeHostPreparation } from "../preparedHostRuntime";
 import { prepareLogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { captureLogicalCommerceSelection, prepareLogicalCommerceContract, type LogicalCommerceSelectionInput } from "../commerceTransaction/logicalSelection";
-import { defaultCommerceResources } from "../commerceTransaction/resources";
+import { captureCommerceResources, defaultCommerceResources, type CommerceResources } from "../commerceTransaction/resources";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FrameworkSchemaTarget } from "../frameworkSchema/target";
@@ -69,8 +69,8 @@ interface AtomicCommerceParticipantBase {
   readonly events?: ParticipantEventSelection;
 }
 export type AtomicCommerceParticipantInput = AtomicCommerceParticipantBase & (
-  Readonly<{ profile: CommerceProfile; installation: InstallationBindingReference; logicalStorage?: never }> |
-  Readonly<{ logicalStorage: LogicalCommerceSelectionInput; profile?: never; installation?: never }>
+  Readonly<{ profile: CommerceProfile; installation: InstallationBindingReference; logicalStorage?: never; logicalResources?: never }> |
+  Readonly<{ logicalStorage: LogicalCommerceSelectionInput; logicalResources?: CommerceResources; profile?: never; installation?: never }>
 );
 export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name) && name !== "initialize";
 
@@ -85,7 +85,8 @@ function captureParticipant(member: AtomicCommerceParticipantInput) {
     ...(member.logicalStorage === undefined
       ? { kind: "physical" as const, profile: member.profile,
         reference: capturePrivateJsonData(member.installation, commerceLimits.rowBytes, commerceError) }
-      : { kind: "logical" as const, logical: captureLogicalCommerceSelection(member.logicalStorage) }),
+      : { kind: "logical" as const, logical: captureLogicalCommerceSelection(member.logicalStorage),
+        resources: member.logicalResources === undefined ? undefined : captureCommerceResources(member.logicalResources) }),
   });
 }
 export type CapturedAtomicCommerceParticipants = readonly ReturnType<typeof captureParticipant>[];
@@ -140,6 +141,10 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
         (derivedIdEvent !== undefined && member.allowReferenceReplacement !== true))
         return yield* Effect.fail(commerceError("unsupportedProfile"));
       const selection = yield* Effect.fromResult(member.logical);
+      const resources = member.resources === undefined ? defaultCommerceResources :
+        yield* Effect.fromResult(member.resources);
+      if (resources.catalogRows > 2048 || resources.facts > 2048 || resources.writeBatchRows > 2048)
+        return yield* Effect.fail(commerceError("unsupportedProfile"));
       const sourceKey = isNonArrayRecord(selection.source) ? selection.source.sourceKey : undefined;
       if (typeof sourceKey !== "string" || logicalSources.has(sourceKey)) return yield* Effect.fail(commerceError("invalidAuthority"));
       logicalSources.add(sourceKey);
@@ -150,8 +155,9 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
       yield* chargeHostPreparation({ sourceKey, contractSha256: contract.sha256Hex })
         .pipe(Effect.mapError(projectCommerceRequestFailure));
       members.push({ ...common, kind: "logical" as const, sourceKey, contractSha256: contract.sha256Hex,
-        descriptor: { resources: defaultCommerceResources, contractSha256: contract.sha256Hex,
-          initialization: selection.initialization }, prepared });
+        descriptor: { resources, contractSha256: contract.sha256Hex,
+          initialization: selection.initialization }, prepared,
+        selectedResources: member.resources === undefined ? undefined : resources });
       continue;
     }
     const capturedReference = yield* Effect.fromResult(member.reference);

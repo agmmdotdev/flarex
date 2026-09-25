@@ -89,8 +89,16 @@ earlier capped request page as authoritative.
 The shared reverse selector checks a declared nullable same-source FK, an
 enabled current-coverage index and each bounded current row under the scope
 publication lock. Its multi-page Product Type witness reaches 144 references
-without loading the range in one read. The 32-row page and 2,016-reference
-total leave one of the materializer's 64 pages for the root operation.
+without loading the range in one read. The 32-row page is a ceiling: core
+reduces it from the source table's admitted developer-index and unique-key
+counts so one page fits the point materializer, counting both the tombstone
+and live index revision an update may emit. The affected-row ceiling is
+the lesser of 2,016 and 63 such pages, leaving one of the materializer's 64
+pages for the root operation. Adding an index can therefore reduce the safe
+synchronous fan-out without making an in-budget page fail halfway through.
+With the current Product index set, the effective page is 14 rows and the
+row-only ceiling is 882 references; bytes, time or another materialization
+limit can refuse earlier.
 The neutral `set null` operation uses the admitted row normalization policy to
 preserve native fields, set the declared nullable FK to null and update managed
 timestamps. It builds ordinary logical row intents page by page, requires the
@@ -175,9 +183,11 @@ per-page index-action limits remain unchanged.
 
 The selected native Type path supports a 512-Product deletion and retains
 rollback after several staged fact pages, one event and replayed outcome.
-The current **2,016-reference, 4 MiB read, 30-second scan** limits remain
+The current **at-most-2,016-reference, 4 MiB read, 30-second scan** limits remain
 operational safety budgets, not general parity or production performance
-claims. A shop can legitimately exceed them; a refusal must remain atomic.
+claims. The effective reference ceiling also depends on the admitted source
+index and unique-key cost per page. A shop can legitimately exceed it; a
+refusal must remain atomic.
 The materializer's 2,048-row/64-page and 4 MiB final-document budgets, and the
 atomic host's fact allowance, are separate guards. A root with many own changes
 may reach those guards before the reference limit.

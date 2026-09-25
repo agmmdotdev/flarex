@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Deferred, Effect, Result } from "effect";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { logicalCommerceBatchResources } from "../../persistence-postgres/src/commerceTransaction/resources";
 import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { sumLogicalRows } from "../../persistence-postgres/src/logicalDocuments/aggregate";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
@@ -58,6 +59,17 @@ describe("logical page and complete aggregate contracts", () => {
       .rejects.toMatchObject({ reason: "limitExceeded" });
     await expect(Effect.runPromise(host.read(page, { ...window, order: { column: "name", direction: "asc" }, take: 2 })))
       .rejects.toMatchObject({ reason: "invalidInput" });
+  }, 120_000);
+
+  it("pages a trusted 1,001-row logical selection through physical index windows", async () => {
+    const selected = await Effect.runPromise(makeCommerceHost({ ...fixture.hostInput,
+      logicalResources: logicalCommerceBatchResources, commands: [page] }));
+    try {
+      const result = await Effect.runPromise(selected.read(page, { ...window, take: 1001 }));
+      expect(result).toMatchObject({ rows: expect.any(Array), hasMore: false });
+      if (!isJsonObject(result) || !Array.isArray(result.rows)) throw new Error("Missing selected page");
+      expect(result.rows.length).toBeGreaterThanOrEqual(fixture.initialization.rows.length);
+    } finally { await Effect.runPromise(selected.close); }
   }, 120_000);
 
   it("counts and sums an explicit complete selection, including pending writes and deletes", async () => {

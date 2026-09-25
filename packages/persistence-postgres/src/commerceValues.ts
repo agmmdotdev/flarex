@@ -4,4 +4,4 @@ export { commerceError, commerceLimits, CommerceTransactionError } from "./comme
 export type { Json, JsonObject } from "flarex-protocol/json";
 export { isJsonObject } from "flarex-protocol/json";
 
-export { defaultCommerceResources, type CommerceResources } from "./commerceTransaction/resources";
+export { defaultCommerceResources, logicalCommerceBatchResources, type CommerceResources } from "./commerceTransaction/resources";

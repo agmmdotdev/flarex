@@ -7,6 +7,8 @@ import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
 import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
 import type { AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
+import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
+  MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "../applicationDocumentMaterialization/materialization";
 import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputError, AppRowReadPersistenceError,
   type LiveAppRowRevisionV1 } from "../appRows";
 import { scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError } from "../appIndexEntries";
@@ -24,6 +26,7 @@ import { databaseTimestampFromUnknown } from "../databaseTimestamp";
 import { fxSystemScopeClocks } from "../schema";
 import type { LogicalDocumentFailure } from "./model";
 import type { LogicalDocumentChange } from "./workingSet";
+import { logicalMaterializationBatchBudget } from "./materialization";
 import type { LogicalRelationalAdmissionState } from "./relationalAdmission";
 import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
 import { prepareLogicalRelationalRows } from "./relationalRows";
@@ -40,7 +43,20 @@ const compareReferenceKeys = (left: Readonly<{ key: string }>, right: Readonly<{
   compareUtf16Strings(left.key, right.key);
 
 type LogicalReferenceAdmission = Pick<LogicalRelationalAdmissionState,
-  "tx" | "authority" | "schema" | "tables" | "indexes">;
+  "tx" | "authority" | "schema" | "tables" | "indexes" | "unique">;
+
+/** Page size follows the admitted source's materialization cost. Adding an
+ * index must not make an otherwise bounded relationship transition fail
+ * halfway through its transaction. */
+function referencePageRows(admission: LogicalReferenceAdmission, tableId: CatalogTableId): number {
+  const indexes = admission.indexes.filter(index => index.access.kind === "developer" &&
+    index.access.tableId === tableId).length;
+  const unique = admission.unique.filter(definition => definition.tableId === tableId).length;
+  return Math.min(logicalReferenceTransitionBudget.pageRows,
+    // An updated indexed key may emit both a tombstone and a live revision.
+    indexes === 0 ? logicalReferenceTransitionBudget.pageRows : Math.floor(MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 / (2 * indexes)),
+    unique === 0 ? logicalReferenceTransitionBudget.pageRows : Math.floor(MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 / unique));
+}
 
 /** Traverse a declared nullable reverse FK after acquiring publication
  * exclusion. The callback is trusted settlement code, never framework code.
@@ -96,6 +112,10 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
     key.target.column === input.targetColumn && key.source.nullable && key.onDelete === "noAction");
   if (declared === undefined)
     return yield* Effect.fail(error("invalidInput"));
+  const pageRows = referencePageRows(admission, declared.source.tableId);
+  if (pageRows < 1) return yield* Effect.fail(error("limitExceeded"));
+  const affectedLimit = Math.min(logicalReferenceTransitionBudget.affectedRows,
+    pageRows * (logicalMaterializationBatchBudget.pages - 1));
   const selected = yield* Effect.fromResult(selectLogicalIndex(admission.indexes, declared.source.tableId,
     { [declared.source.column]: input.targetKey }, error));
   if (Option.isNone(selected) || selected.value.definition.physicalSpec.orderedFields[0]?.kind !== "documentPath" ||
@@ -112,17 +132,17 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
   let pages = 0;
   while (true) {
     if ((yield* input.requireAdmission) !== admission) return yield* Effect.fail(error("invalidAuthority"));
-    if (++pages > Math.ceil(logicalReferenceTransitionBudget.affectedRows / logicalReferenceTransitionBudget.pageRows) + 1 ||
+    if (++pages > logicalMaterializationBatchBudget.pages ||
       (yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
       return yield* Effect.fail(error("limitExceeded"));
     const page = yield* scanCurrentAppIndexInTransactionEffect(tx, {
       scopeId, definition: selected.value.definition, bounds: selected.value.bounds,
-      limit: logicalReferenceTransitionBudget.pageRows, ...(after === undefined ? {} : { after }),
+      limit: pageRows, ...(after === undefined ? {} : { after }),
     }).pipe(Effect.mapError(cause => error(cause instanceof AppIndexEntryReadPersistenceError ? "statementFailure" :
       cause instanceof AppIndexEntryHashError ? "resourceFailure" : "storedCorruption", cause)));
     if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
       return yield* Effect.fail(error("limitExceeded"));
-    if (affectedRows + page.entries.length > logicalReferenceTransitionBudget.affectedRows)
+    if (affectedRows + page.entries.length > affectedLimit)
       return yield* Effect.fail(error("limitExceeded"));
     if (page.entries.some(entry => entry.tableId !== declared.source.tableId) ||
       new Set(page.entries.map(entry => entry.rowId)).size !== page.entries.length)
@@ -412,6 +432,8 @@ export const forEachLogicalReferenceReplacementPage = Effect.fn("LogicalReferenc
   const selected = [...input.selection.detach, ...input.selection.associate];
   if (selected.length > 255 || new Set(selected.map(row => row.rowId)).size !== selected.length)
     return yield* Effect.fail(input.error("invalidAuthority"));
+  const pageRows = referencePageRows(admission, input.sourceTableId);
+  if (pageRows < 1) return yield* Effect.fail(input.error("limitExceeded"));
   const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(input.tx, admission.authority.scopeId)
     .pipe(Effect.mapError(cause => input.error(cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
       ? "statementFailure" : cause instanceof ScopeClockNotFoundError ? "invalidAuthority" : "storedCorruption", cause)));
@@ -430,12 +452,12 @@ export const forEachLogicalReferenceReplacementPage = Effect.fn("LogicalReferenc
     [input.selection.detach, null], [input.selection.associate, input.targetKey],
   ] as const) {
     const rows = selectedRows.filter(row => !sealed.pendingIds.has(row.rowId));
-    for (let offset = 0; offset < rows.length; offset += logicalReferenceTransitionBudget.pageRows) {
+    for (let offset = 0; offset < rows.length; offset += pageRows) {
       if ((yield* input.requireAdmission) !== admission)
         return yield* Effect.fail(input.error("invalidAuthority"));
       if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
         return yield* Effect.fail(input.error("limitExceeded"));
-      const page = rows.slice(offset, offset + logicalReferenceTransitionBudget.pageRows);
+      const page = rows.slice(offset, offset + pageRows);
       const captured = yield* readBoundedCurrentAppRowsInTransactionEffect(input.tx, {
         scopeId: admission.authority.scopeId, tableId: input.sourceTableId,
         minimumCommitSeq: clock.lastCommitSeq, maximumIdentities: page.length,

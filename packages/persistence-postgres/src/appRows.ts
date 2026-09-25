@@ -774,6 +774,9 @@ export const readCurrentAppRowInTransactionEffect = Effect.fn(
   return yield* decodeRevisionRowEffect(identity, revision);
 });
 
+export const MAX_BOUNDED_APP_ROW_READ_IDENTITIES = 256;
+export const MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES = 1_048_576;
+
 /**
  * Private bounded statement-current view. The caller protects lifecycle and
  * either owns a physical snapshot or validates all observations at settlement.
@@ -788,9 +791,9 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
     rowId?: AppRowIdHexV1; rowIds?: readonly AppRowIdHexV1[] }>,
   observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2],
 ): Effect.fn.Return<Readonly<{ rows: readonly AppRowRevisionV1[]; commitSeq: CommitSeq }>, ReadAppRowError> {
-  if (!Number.isSafeInteger(input.maximumIdentities) || input.maximumIdentities < 0 || input.maximumIdentities > 256 ||
+  if (!Number.isSafeInteger(input.maximumIdentities) || input.maximumIdentities < 0 || input.maximumIdentities > MAX_BOUNDED_APP_ROW_READ_IDENTITIES ||
     !Number.isSafeInteger(input.maximumDocumentBytes) || input.maximumDocumentBytes < 1 || input.maximumDocumentBytes > 1_048_576 ||
-    !Number.isSafeInteger(input.maximumTotalValueBytes) || input.maximumTotalValueBytes < 0 || input.maximumTotalValueBytes > 1_048_576) {
+    !Number.isSafeInteger(input.maximumTotalValueBytes) || input.maximumTotalValueBytes < 0 || input.maximumTotalValueBytes > MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES) {
     return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.maximumIdentities }));
   }
   const scopeId = yield* Effect.fromResult(decodeReadFieldResult(decodeScopeIdResult(input.scopeId), "invalidScopeId"));

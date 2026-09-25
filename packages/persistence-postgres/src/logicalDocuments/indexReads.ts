@@ -3,7 +3,8 @@ import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { OrderedIndexBoundsV1 } from "flarex-protocol/ordered-index";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError,
-  type AppIndexRangeEntryV1, type AppIndexEntryTransaction, type AppIndexRangeCursorV1 } from "../appIndexEntries";
+  MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeEntryV1, type AppIndexEntryTransaction,
+  type AppIndexRangeCursorV1 } from "../appIndexEntries";
 import type { LogicalDocumentFailure } from "./model";
 
 export interface LogicalIndexRead {
@@ -35,11 +36,19 @@ export const readLogicalIndexRange = Effect.fn("LogicalDocuments.readIndexRange"
   limit: number, error: LogicalDocumentFailure<Failure>,
   observer?: Parameters<typeof scanCurrentAppIndexInTransactionEffect>[2],
 ) {
-  const page = yield* scanCurrentAppIndexInTransactionEffect(tx, { scopeId, ...selection, limit }, observer)
-    .pipe(Effect.mapError(cause => error(cause instanceof AppIndexEntryReadPersistenceError ? "statementFailure" :
-      cause instanceof AppIndexEntryHashError ? "resourceFailure" : "storedCorruption", cause)));
-  if (!page.isDone) return yield* Effect.fail(error("limitExceeded"));
-  return page.entries;
+  if (!Number.isSafeInteger(limit) || limit < 1) return yield* Effect.fail(error("invalidInput"));
+  const entries: AppIndexRangeEntryV1[] = [];
+  let after: AppIndexRangeCursorV1 | undefined;
+  while (true) {
+    const page = yield* readLogicalIndexPage(tx, scopeId,
+      { ...selection, ...(after === undefined ? {} : { after }) },
+      Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, limit - entries.length), error, observer);
+    entries.push(...page.entries);
+    if (page.isDone) return Object.freeze(entries);
+    if (entries.length >= limit) return yield* Effect.fail(error("limitExceeded"));
+    if (page.continueCursor === null) return yield* Effect.fail(error("storedCorruption"));
+    after = page.continueCursor;
+  }
 });
 
 export const sameLogicalIndexMembership = (left: readonly AppIndexRangeEntryV1[], right: readonly AppIndexRangeEntryV1[]): boolean =>

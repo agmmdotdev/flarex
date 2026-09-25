@@ -62,7 +62,8 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
       optionCreated: metadata.option.createdEvent, valueCreated: metadata.value.createdEvent,
       imageCreated: metadata.image.createdEvent, collectionUpdated: metadata.collection.updatedEvent }, {
         ...logicalPolicy, commands: Object.values(commands), allowSetNull: true,
-        referenceReplacement: { command: commands.updateCollections, eventName: metadata.product.updatedEvent,
+        referenceReplacement: { commands: [commands.updateCollections, commands.upsertCollections],
+          eventName: metadata.product.updatedEvent,
           metadata: { source: Modules.PRODUCT, object: metadata.product.eventObject, action: CommonEvents.UPDATED }, eventLimit: 256 },
       }));
   return { commands, withService, graph, workflow, logicalPolicy };

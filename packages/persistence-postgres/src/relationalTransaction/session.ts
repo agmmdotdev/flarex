@@ -30,6 +30,7 @@ export type RelationalSessionProfile = "command" | "snapshotRead";
 export type RunRelationalSession = <Value, Failure>(
   profile: RelationalSessionProfile,
   work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
+  commandMs?: number,
 ) => Effect.Effect<Value, Failure | RelationalSessionError>;
 const sessions = new WeakMap<
   object,
@@ -57,11 +58,15 @@ export const runRelationalSession = Effect.fn("RelationalSession.run")(
     session: RelationalSession,
     profile: RelationalSessionProfile,
     work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
+    commandMs?: number,
   ) {
     const state = sessions.get(session);
     if (state === undefined)
       return yield* Effect.fail(relationalError("invalidAuthority"));
-    return yield* state.run(profile, work);
+    if (commandMs !== undefined && (profile !== "command" || !Number.isSafeInteger(commandMs) ||
+      commandMs < relationalLimits.commandMs || commandMs > 30_000))
+      return yield* Effect.fail(relationalError("invalidAuthority"));
+    return yield* state.run(profile, work, commandMs);
   },
 );
 
@@ -80,12 +85,13 @@ export function makePostgresRelationalSession(
     <Value, Failure>(
       profile: RelationalSessionProfile,
       work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
+      commandMs?: number,
     ) =>
       Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const deadline = yield* physicalDeadlines.start(
             "initial",
-            relationalLimits.commandMs,
+            commandMs ?? relationalLimits.commandMs,
           );
           const result = yield* initial(
             {

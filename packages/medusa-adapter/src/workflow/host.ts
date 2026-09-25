@@ -110,7 +110,8 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     if (moduleEventNames.size !== 0 && (eventDefinition === undefined || moduleEvents === undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
     const capture = moduleEvents?.capture;
     const moduleContracts = new Map<string, CommerceEventContract>();
-    const replacement = moduleEvents?.referenceReplacement !== undefined && commands.has(moduleEvents.referenceReplacement.command)
+    const replacement = moduleEvents?.referenceReplacement !== undefined &&
+      moduleEvents.referenceReplacement.commands.some(command => commands.has(command))
       ? moduleEvents.referenceReplacement : undefined;
     let derivedContract: CommerceEventContract | undefined;
     if (replacement !== undefined) {

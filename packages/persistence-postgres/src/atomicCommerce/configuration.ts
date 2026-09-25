@@ -32,14 +32,23 @@ export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfigurat
   /** Trusted root selection, capped by installed physical participant profiles. Omission selects 64
    * calls and remains identity-distinct from an explicit limit. */
   readonly requestCallLimit?: number;
+  /** Trusted root byte allowance, capped by every participant's resource
+   * selection and included in the request identity. */
+  readonly requestByteLimit?: number;
   /** Trusted root event selection. Omission keeps the ordinary 64-message
    * budget; physical participants retain their installed profile ceiling. */
   readonly requestEventLimit?: number;
+  /** Trusted command plus settlement deadline, identity-bound. Omission is 10 seconds. */
+  readonly requestCommandMs?: number;
 }
 
 const decodeCallLimit = Schema.decodeUnknownEffect(CommerceCallLimit);
+const decodeByteLimit = Schema.decodeUnknownEffect(Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: 16_777_216 })));
 const decodeEventLimit = Schema.decodeUnknownEffect(Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: commitEventLimits.messages })));
+const decodeCommandMs = Schema.decodeUnknownEffect(Schema.Int.check(
+  Schema.isBetween({ minimum: commerceLimits.commandMs, maximum: 30_000 })));
 
 /** Captured host configuration, with no request-local state or settlement capability. */
 export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
@@ -76,13 +85,20 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   const policyInput = captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes);
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const selectedCallLimit = input.requestCallLimit;
+  const selectedByteLimit = input.requestByteLimit;
   const selectedEventLimit = input.requestEventLimit;
+  const selectedCommandMs = input.requestCommandMs;
   const callLimit = yield* decodeCallLimit(
     selectedCallLimit === undefined ? commerceLimits.calls : selectedCallLimit,
   ).pipe(Effect.mapError((cause) => commerceError("unsupportedProfile", cause)));
+  const byteLimit = yield* decodeByteLimit(
+    selectedByteLimit === undefined ? commerceLimits.commandBytes : selectedByteLimit,
+  ).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const eventLimit = yield* decodeEventLimit(
     selectedEventLimit === undefined ? defaultCommerceResources.eventMessages : selectedEventLimit,
   ).pipe(Effect.mapError((cause) => commerceError("unsupportedProfile", cause)));
+  const commandMs = yield* decodeCommandMs(selectedCommandMs ?? commerceLimits.commandMs)
+    .pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
   const allowed = new Set(selectedCommands);
   const names = new Set<string>();
   if (allowed.size === 0 || allowed.size > commerceLimits.commandDefinitions)
@@ -100,6 +116,8 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     : undefined;
   const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
     logicalLocation === undefined ? undefined : { deploymentId, scopeId: logicalLocation.authority.scopeId });
+  if (commandMs > commerceLimits.commandMs && members.some(member => member.kind !== "logical"))
+    return yield* Effect.fail(commerceError("unsupportedProfile"));
   const eventPolicy = eventInput === undefined ? undefined : yield* prepareAtomicCommerceEvents(yield* Effect.fromResult(eventInput));
   const hasDerivedIdEvents = members.some(member => member.derivedIdEvent !== undefined);
   if (hasDerivedIdEvents !== (eventPolicy?.derivedIdValidation === "capturedOnly"))
@@ -128,10 +146,16 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     events: eventPolicy?.identity ?? null,
     participantEvents: eventPolicy === undefined ? [] : participantEvents,
     requestCallLimit: selectedCallLimit === undefined ? null : callLimit,
+    ...(selectedByteLimit === undefined ? {} : { requestByteLimit: byteLimit }),
+    ...(members.some(member => member.kind === "logical" && member.selectedResources !== undefined) ? {
+      logicalResources: members.flatMap(member => member.kind === "logical" && member.selectedResources !== undefined
+        ? [{ participant: member.name, resources: member.selectedResources }] : []),
+    } : {}),
     ...(members.some(member => member.validateLogicalCall !== undefined) ? {
       logicalCallValidation: members.filter(member => member.validateLogicalCall !== undefined).map(member => member.name),
     } : {}),
     ...(selectedEventLimit === undefined ? {} : { requestEventLimit: eventLimit }),
+    ...(selectedCommandMs === undefined ? {} : { requestCommandMs: commandMs }),
   }, commerceLimits.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
     yield* hashAtomicCommerceBytes(identity.canonicalBytes),
@@ -143,15 +167,17 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     // explicit, identity-bound call allowance. Physical profiles do cap it.
     calls: Math.min(callLimit, ...members.filter(member => member.kind === "physical")
       .map(member => member.descriptor.resources.calls)),
-    commandBytes: Math.min(
-      commerceLimits.commandBytes,
-      ...members.map((member) => member.descriptor.resources.commandBytes),
-    ),
+    commandBytes: Math.min(byteLimit,
+      ...members.map((member) => member.descriptor.resources.commandBytes)),
+    commandMs,
   };
-  const transitionFacts = members.every(member => member.kind === "logical") &&
-    members.some(member => member.kind === "logical" &&
-      (member.allowSetNull === true || member.allowReferenceReplacement === true))
-    ? logicalMaterializationBatchBudget.rows : defaultCommerceResources.facts;
+  const transitionFacts = members.every(member => member.kind === "logical")
+    ? Math.min(logicalMaterializationBatchBudget.rows,
+      Math.max(defaultCommerceResources.facts, ...members.map(member => member.descriptor.resources.facts),
+        members.some(member => member.kind === "logical" &&
+          (member.allowSetNull === true || member.allowReferenceReplacement === true))
+          ? logicalMaterializationBatchBudget.rows : 0))
+    : defaultCommerceResources.facts;
   const factLimit = Math.min(transitionFacts,
     ...members.filter(member => member.kind === "physical").map(member => member.descriptor.resources.facts));
   const admittedEventLimit = Math.min(eventLimit,

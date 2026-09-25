@@ -7,7 +7,7 @@ import {
   type BoundedRequestContext,
   type BoundedRequestLifetime,
 } from "../boundedRequestLifetime";
-import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
+import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
 import { projectCommerceRequestFailure } from "../commerceTransaction/request";
 import type { CommerceAdmission } from "../commerceTransaction/admission";
 import { requireCommerceAdmission } from "../commerceTransaction/admission";
@@ -150,7 +150,7 @@ function makeAtomicCommerceExecution(
     const member = members[admissions.indexOf(admission)];
     if (member?.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
     const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id,
-      member.allowReferenceReplacement === true);
+      member.allowReferenceReplacement === true, member.selectedResources);
     logicalWork.set(admission, created);
     contributions.push({ kind: "logical", token: admission, working: created });
     return created;
@@ -370,7 +370,7 @@ export const executeAtomicCommerceRequest = Effect.fn("AtomicCommerce.executeReq
     return result.valueJson;
   }).pipe(
     Effect.timeoutOrElse({
-      duration: commerceLimits.commandMs,
+      duration: configuration.limits.commandMs,
       orElse: () => Effect.fail(commerceError("deadlineExceeded")),
     }),
     Effect.ensuring(lifetime.close),

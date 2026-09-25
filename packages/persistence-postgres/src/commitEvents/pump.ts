@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { makeCommitEventStore, type CommitEventStoreInput } from "./store";
+import { makeCommitEventStore, type CommitEventStoreInput, type VerifiedCommitEventFamily } from "./store";
 import { CommitEventSubscriberFailure, EventSubscriber, eventError, commitEventLimits, type CommitEventMessage, type CommitEventSubscriber } from "./model";
 
 export interface CommitEventHandler extends CommitEventSubscriber {
@@ -22,15 +22,25 @@ export const makeCommitEventPump = Effect.fn("CommitEvents.makePump")(function* 
     identities.add(identity);
   }
   const store = yield* makeCommitEventStore(input);
+  let activeFamily: { readonly commitSeq: bigint; readonly token: VerifiedCommitEventFamily } | undefined;
   const runNext = Effect.fn("CommitEvents.runNext")(function* (afterCommit: bigint = 0n) {
     const next = yield* store.nextCommit(afterCommit);
-    if (Option.isNone(next)) return { done: true, cursor: 0n, delivered: 0, failed: 0 };
+    if (Option.isNone(next)) {
+      activeFamily = undefined;
+      return { done: true, cursor: 0n, delivered: 0, failed: 0 };
+    }
+    if (activeFamily?.commitSeq !== next.value)
+      activeFamily = { commitSeq: next.value, token: yield* store.verifyFamily(next.value) };
+    const family = activeFamily.token;
     let delivered = 0;
     let failed = 0;
     for (let index = 0; index < commitEventLimits.batch;) {
-      const claims = yield* store.claimBatch(next.value, selected,
+      const claims = yield* store.claimVerifiedBatch(family, selected,
         Math.min(commitEventLimits.claimBatch, commitEventLimits.batch - index));
-      if (claims.length === 0) return { done: false, cursor: next.value, delivered, failed };
+      if (claims.length === 0) {
+        activeFamily = undefined;
+        return { done: false, cursor: next.value, delivered, failed };
+      }
       index += claims.length;
       for (const claim of claims) {
         const handler = selected.find(candidate => candidate.id === claim.message.subscriber.id && candidate.revision === claim.message.subscriber.revision);

@@ -1,4 +1,5 @@
 import { Result, Schema } from "effect";
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { isRelationalColumnValue, relationalHasIndexedScalarPrefix,
   type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { encodeOrderedIndexComponentsV1, orderedIndexKeyHexV1ToBytes,
@@ -22,12 +23,14 @@ const Node = Schema.Union([
     values: Schema.Array(Schema.Union([Schema.String, Schema.Boolean])) }),
   Schema.Struct({ kind: Schema.Literal("isNull"), column: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("greaterThan"), column: Schema.String, value: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("textLikeAscii"), column: Schema.String, pattern: Schema.String }),
 ]);
 const decodeEnvelope = Schema.decodeUnknownResult(Envelope, { onExcessProperty: "error" });
 const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" });
 interface Selection {
   readonly column: string;
-  readonly value: string | boolean;
+  readonly value: string | boolean | Readonly<{ gt: string }>;
   readonly nullColumn?: string;
 }
 interface SelectionPlan {
@@ -41,6 +44,25 @@ interface Filter<Failure> {
   /** Every matching row has these null fields, including across OR branches. */
   readonly requiredNulls: ReadonlySet<string>;
   readonly matches: (row: JsonObject) => boolean;
+}
+
+/** Match the pinned SQL LIKE contract: ASCII-only case folding, percent and
+ * underscore wildcards, and literal backslashes. Greedy wildcard matching
+ * avoids a regular-expression backtracking path on untrusted search input. */
+const foldAscii = (input: string) => [...input.replace(/[A-Z]/g, letter => letter.toLowerCase())];
+function matchesTextLikeAscii(value: string, pattern: string): boolean {
+  const text = foldAscii(value), expression = foldAscii(pattern);
+  let textIndex = 0, patternIndex = 0, wildcard = -1, retry = 0;
+  while (textIndex < text.length) {
+    const token = expression[patternIndex];
+    if (token === "_" || token !== undefined && token !== "%" && token === text[textIndex]) {
+      textIndex++; patternIndex++;
+    } else if (token === "%") { wildcard = patternIndex++; retry = textIndex; }
+    else if (wildcard !== -1) { patternIndex = wildcard + 1; textIndex = ++retry; }
+    else return false;
+  }
+  while (expression[patternIndex] === "%") patternIndex++;
+  return patternIndex === expression.length;
 }
 
 export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefinition, capabilities: readonly RelationalPersistenceCapability[], input: unknown,
@@ -98,6 +120,30 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           return yield* Result.fail(error("invalidInput"));
         return { select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(),
           matches: row => typeof row[node.column] === "string" && row[node.column] !== node.value };
+      }
+      if (node.kind === "greaterThan") {
+        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        if ((column?.type !== "text" && column?.type !== "timestamptz") ||
+          !isRelationalColumnValue(column.type, false, node.value))
+          return yield* Result.fail(error("invalidInput"));
+        const indexed = table.indexes.some(index => index.predicate === null &&
+          index.kind !== "textEquality" && index.columns[0]?.columnId === node.column);
+        const bound = new TextEncoder().encode(node.value);
+        return { select: () => Result.succeed({ selections: indexed
+          ? [{ column: node.column, value: { gt: node.value } }] : null, unindexedText: !indexed }),
+          requiredNulls: new Set<string>(),
+          matches: row => { const value = row[node.column]; return typeof value === "string" &&
+            compareBytesLexicographically(new TextEncoder().encode(value), bound) > 0; } };
+      }
+      if (node.kind === "textLikeAscii") {
+        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.pattern))
+          return yield* Result.fail(error("invalidInput"));
+        if ([...node.pattern].length > 256) return yield* Result.fail(error("limitExceeded"));
+        return { select: () => Result.succeed({ selections: null, unindexedText: true }),
+          requiredNulls: new Set<string>(),
+          matches: row => { const value = row[node.column]; return typeof value === "string" &&
+            matchesTextLikeAscii(value, node.pattern); } };
       }
       const children: Filter<Failure>[] = [];
       for (const child of node.children) children.push(yield* visit(child, depth + 1));

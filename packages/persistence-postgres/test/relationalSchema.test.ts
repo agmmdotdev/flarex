@@ -371,6 +371,69 @@ describe("private relational schema values", () => {
       10, reason => new Error(reason)))).toBe(true);
   });
 
+  it("selects canonical timestamp greater-than ranges only through an ordered index", () => {
+    const base = currencyInput();
+    const plain = Result.getOrThrow(normalizeRelationalSchema(base));
+    const table = plain.tables[0];
+    if (table === undefined) throw new Error("Missing Currency table");
+    const order = { column: "code", direction: "asc" };
+    const predicate = { kind: "greaterThan", column: "deleted_at", value: "2026-01-01T00:00:00.000Z" };
+    expect(Result.isFailure(compileLogicalRelationalRead(table, plain.capabilities,
+      { order, predicate }, 10, reason => new Error(reason)))).toBe(true);
+    const indexed = Result.getOrThrow(normalizeRelationalSchema({ ...base, tables: base.tables.map(value => ({
+      ...value, indexes: [...value.indexes, { indexId: "currency.deleted-range", kind: "btree",
+        columns: ["deleted_at"], predicate: null, origin: derived("currency.deleted-range") }],
+    })) }));
+    const indexedTable = indexed.tables[0];
+    if (indexedTable === undefined) throw new Error("Missing indexed Currency table");
+    const read = Result.getOrThrow(compileLogicalRelationalRead(indexedTable, indexed.capabilities,
+      { order, predicate }, 10, reason => new Error(reason)));
+    expect(read.selections).toEqual([{ column: "deleted_at", value: { gt: predicate.value } }]);
+    const rows = Result.getOrThrow(prepareLogicalRelationalRows(indexedTable, indexed.capabilities,
+      () => new Error("Invalid Currency row")));
+    const row = (deletedAt: string | null) => Result.getOrThrow(rows.normalize({
+      code: "USD", symbol: "$", symbol_native: "$", name: "US Dollar", decimal_digits: 2,
+      deleted_at: deletedAt,
+    }, null, "2026-01-01T00:00:00.000Z"));
+    expect(Result.getOrThrow(read.inspect(row("2026-01-01T00:00:00.001Z"))).matches).toBe(true);
+    expect(Result.getOrThrow(read.inspect(row("2026-01-01T00:00:00.000Z"))).matches).toBe(false);
+    expect(Result.getOrThrow(read.inspect(row(null))).matches).toBe(false);
+    expect(Result.isFailure(compileLogicalRelationalRead(indexedTable, indexed.capabilities,
+      { order, predicate: { ...predicate, value: "01-01-2022" } }, 10, reason => new Error(reason)))).toBe(true);
+  });
+
+  it("requires an indexed null anchor for bounded ASCII LIKE search", () => {
+    const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
+    const table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing Currency table");
+    const order = { column: "code", direction: "asc" };
+    const search = { kind: "textLikeAscii", column: "name", pattern: "%test%" };
+    const compile = (predicate: unknown) => compileLogicalRelationalRead(table, schema.capabilities,
+      { order, predicate }, 10, reason => new Error(reason));
+    expect(Result.isFailure(compile(search))).toBe(true);
+    const read = Result.getOrThrow(compile({ kind: "and", children: [
+      { kind: "isNull", column: "deleted_at" }, search,
+    ] }));
+    expect(read.requiredNulls).toEqual(["deleted_at"]);
+    expect(read.requiresIndexedNullAnchor).toBe(true);
+    const rows = Result.getOrThrow(prepareLogicalRelationalRows(table, schema.capabilities,
+      () => new Error("Invalid Currency row")));
+    const row = (name: string) => Result.getOrThrow(rows.normalize({
+      code: "USD", symbol: "$", symbol_native: "$", name, decimal_digits: 2,
+    }, null, "2026-01-01T00:00:00.000Z"));
+    expect(Result.getOrThrow(read.inspect(row("My TEST product"))).matches).toBe(true);
+    expect(Result.getOrThrow(read.inspect(row("Another product"))).matches).toBe(false);
+    const literalSlash = Result.getOrThrow(compile({ kind: "and", children: [
+      { kind: "isNull", column: "deleted_at" },
+      { kind: "textLikeAscii", column: "name", pattern: "%A\\B_" },
+    ] }));
+    expect(Result.getOrThrow(literalSlash.inspect(row("xxa\\bZ"))).matches).toBe(true);
+    expect(Result.isFailure(compile({ kind: "and", children: [
+      { kind: "isNull", column: "deleted_at" },
+      { kind: "textLikeAscii", column: "name", pattern: "%" + "x".repeat(257) + "%" },
+    ] }))).toBe(true);
+  });
+
   it("gives relational integer signed zero one stored, ordered and unique value", () => {
     const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
     const table = schema.tables[0];

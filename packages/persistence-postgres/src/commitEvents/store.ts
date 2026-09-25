@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, lte, or, sql } from "drizzle-orm";
 import { Effect, Option, Schema } from "effect";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { projectScopeIdUuidV1Result, projectScopeEpochUuidV1Result, MAX_PERSISTED_SIGNED_INT64_V1, type CommitSeq } from "flarex-protocol/storage-authority";
@@ -16,7 +16,7 @@ import { eventError, CommitEventError, EventEnvelope, commitEventLimits, type Co
 import { commitEventsDigest } from "./digest";
 import { observeDrizzleQuery } from "../drizzleQueryObservation";
 
-export interface CommitEventQuery { readonly name: "eventDirectory" | "eventFamily"; readonly sql: string; readonly params: readonly unknown[] }
+export interface CommitEventQuery { readonly name: "eventDirectory" | "eventFamily" | "deliveryPage"; readonly sql: string; readonly params: readonly unknown[] }
 
 export interface CommitEventStoreInput {
   readonly database: FlarexMetadataDatabase;
@@ -28,6 +28,8 @@ export interface CommitEventStoreInput {
 type Delivery = typeof fxSystemCommitEventDeliveries.$inferSelect;
 declare const claimBrand: unique symbol;
 export interface CommitEventClaim { readonly [claimBrand]: true; readonly message: CommitEventMessage }
+declare const familyBrand: unique symbol;
+export interface VerifiedCommitEventFamily { readonly [familyBrand]: true }
 const isEnvelope = Schema.is(EventEnvelope);
 const decodeEnvelope = Schema.decodeUnknownEffect(EventEnvelope, { onExcessProperty: "error" });
 const statement = <A>(query: PromiseLike<A>) => runDrizzleStatementEffect(query, cause => eventError("statementFailure", cause));
@@ -42,6 +44,9 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
   if (!hasRelationalSessionDatabase(session, database)) return yield* Effect.fail(eventError("invalidAuthority"));
   const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
   const claims = new WeakMap<object, Delivery>();
+  const verifiedFamilies = new WeakMap<object, { readonly pins: Pick<Delivery, "scopeUuid" | "epochUuid" | "commitSeq">;
+    readonly events: readonly (typeof fxSystemCommitEvents.$inferSelect)["envelope"][];
+    cursor?: { readonly ordinal: number; readonly subscriberId: string } }>();
   const transact = Effect.fn("CommitEvents.transaction")(function* <A>(work: (tx: FlarexMetadataTransaction,
     pins: Pick<Delivery, "scopeUuid" | "epochUuid">, now: Date, lastCommitSeq: CommitSeq) => Effect.Effect<A, CommitEventError>) {
     const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
@@ -58,7 +63,8 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
       return yield* work(tx, { scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid }, now, clock.lastCommitSeq);
     })).pipe(Effect.mapError(cause => cause instanceof CommitEventError ? cause : eventError("resourceFailure", cause)));
   });
-  const family = Effect.fn("CommitEvents.readFamily")(function* (tx: FlarexMetadataTransaction, pins: Pick<Delivery, "scopeUuid" | "epochUuid" | "commitSeq">) {
+  const family = Effect.fn("CommitEvents.readFamily")(function* (tx: FlarexMetadataTransaction,
+    pins: Pick<Delivery, "scopeUuid" | "epochUuid" | "commitSeq">, lockDeliveries = true) {
     const headers = yield* statement(tx.select().from(fxSystemCommits).where(and(eq(fxSystemCommits.scopeUuid, pins.scopeUuid), eq(fxSystemCommits.epochUuid, pins.epochUuid), eq(fxSystemCommits.commitSeq, pins.commitSeq))));
     const header = headers[0];
     if (headers.length !== 1 || header === undefined || !Number.isSafeInteger(header.eventCount) || header.eventCount < 0 || header.eventCount > commitEventLimits.messages) return yield* Effect.fail(eventError("storedCorruption"));
@@ -67,7 +73,8 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
     observeDrizzleQuery("eventFamily", eventQuery, observeQuery);
     const rows = yield* statement(eventQuery);
     if (rows.length !== header.eventCount) return yield* Effect.fail(eventError("storedCorruption"));
-    const deliveries = yield* statement(tx.select().from(fxSystemCommitEventDeliveries).where(sameCommit(fxSystemCommitEventDeliveries, pins)).orderBy(asc(fxSystemCommitEventDeliveries.eventOrdinal), asc(fxSystemCommitEventDeliveries.subscriberId)).limit(commitEventLimits.messages * commitEventLimits.subscribers + 1).for("update"));
+    const deliveryQuery = tx.select().from(fxSystemCommitEventDeliveries).where(sameCommit(fxSystemCommitEventDeliveries, pins)).orderBy(asc(fxSystemCommitEventDeliveries.eventOrdinal), asc(fxSystemCommitEventDeliveries.subscriberId)).limit(commitEventLimits.messages * commitEventLimits.subscribers + 1);
+    const deliveries = yield* statement(lockDeliveries ? deliveryQuery.for("update") : deliveryQuery);
     const expected = new Map<string, string>();
     const events = [];
     for (const [ordinal, row] of rows.entries()) {
@@ -90,7 +97,9 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
       expected.delete(key);
     }
     if (expected.size !== 0) return yield* Effect.fail(eventError("storedCorruption"));
-    if (header.eventSha256 !== (events.length === 0 ? null : yield* commitEventsDigest(events))) return yield* Effect.fail(eventError("storedCorruption"));
+    const digest = events.length === 0 ? null : yield* commitEventsDigest(events, "storedVerification")
+      .pipe(Effect.mapError(cause => eventError("storedCorruption", cause)));
+    if (header.eventSha256 !== digest) return yield* Effect.fail(eventError("storedCorruption"));
     return { events, deliveries };
   });
   const nextCommit = Effect.fn("CommitEvents.nextCommit")((after: bigint = 0n) => transact((tx, pins) => Effect.gen(function* () {
@@ -102,6 +111,81 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
     const rows = yield* statement(query);
     return Option.fromNullishOr(rows[0]?.commitSeq);
   })));
+  const verifyFamily = Effect.fn("CommitEvents.verifyFamily")((commitSeq: CommitSeq) => transact((tx, pins, _now, lastCommitSeq) => Effect.gen(function* () {
+    if (typeof commitSeq !== "bigint" || commitSeq < 1n || commitSeq > lastCommitSeq)
+      return yield* Effect.fail(eventError("invalidInput"));
+    const familyPins = { ...pins, commitSeq };
+    const { events } = yield* family(tx, familyPins, false);
+    // SAFETY: only this store can register the opaque token in its private
+    // WeakMap after validating the complete committed family.
+    const token = Object.freeze({}) as VerifiedCommitEventFamily;
+    verifiedFamilies.set(token, { pins: familyPins, events });
+    return token;
+  })));
+  const claimVerifiedBatch = Effect.fn("CommitEvents.claimVerifiedBatch")(function* (familyToken: VerifiedCommitEventFamily,
+    registered: readonly CommitEventSubscriber[], maximum: number) {
+    let advanced: { readonly ordinal: number; readonly subscriberId: string } | undefined;
+    const result = yield* transact((tx, pins, now, lastCommitSeq) => Effect.gen(function* () {
+    const verified = verifiedFamilies.get(familyToken);
+    if (verified === undefined || verified.pins.scopeUuid !== pins.scopeUuid ||
+      verified.pins.epochUuid !== pins.epochUuid) return yield* Effect.fail(eventError("invalidAuthority"));
+    if (verified.pins.commitSeq > lastCommitSeq || !Number.isSafeInteger(maximum) ||
+      maximum < 1 || maximum > commitEventLimits.claimBatch) return yield* Effect.fail(eventError("invalidInput"));
+    const identities = or(...registered.map(handler => and(eq(fxSystemCommitEventDeliveries.subscriberId, handler.id),
+      eq(fxSystemCommitEventDeliveries.handlerRevision, handler.revision))));
+    if (identities === undefined) {
+      const empty: CommitEventClaim[] = [];
+      return Object.freeze(empty);
+    }
+    const due = or(and(eq(fxSystemCommitEventDeliveries.state, "pending"),
+      lte(fxSystemCommitEventDeliveries.nextAttemptAt, now)),
+    and(eq(fxSystemCommitEventDeliveries.state, "claimed"), lte(fxSystemCommitEventDeliveries.leaseExpiresAt, now)));
+    const cursor = verified.cursor;
+    const afterCursor = cursor === undefined ? undefined : or(
+      gt(fxSystemCommitEventDeliveries.eventOrdinal, cursor.ordinal),
+      and(eq(fxSystemCommitEventDeliveries.eventOrdinal, cursor.ordinal),
+        gt(fxSystemCommitEventDeliveries.subscriberId, cursor.subscriberId)));
+    const pageQuery = tx.select().from(fxSystemCommitEventDeliveries)
+      .where(and(sameCommit(fxSystemCommitEventDeliveries, verified.pins), identities, due, afterCursor))
+      .orderBy(asc(fxSystemCommitEventDeliveries.eventOrdinal), asc(fxSystemCommitEventDeliveries.subscriberId))
+      .limit(maximum).for("update", { skipLocked: true });
+    observeDrizzleQuery("deliveryPage", pageQuery, observeQuery);
+    const deliveries = yield* statement(pageQuery);
+    const last = deliveries.at(-1);
+    if (last !== undefined) advanced = { ordinal: last.eventOrdinal, subscriberId: last.subscriberId };
+    const selected: CommitEventClaim[] = [];
+    for (const row of deliveries) {
+      const envelope = verified.events[row.eventOrdinal];
+      if (!validDelivery(row) || envelope === undefined ||
+        !envelope.subscribers.some(subscriber => subscriber.id === row.subscriberId &&
+          subscriber.revision === row.handlerRevision)) return yield* Effect.fail(eventError("storedCorruption"));
+      if (row.attempts >= commitEventLimits.attempts) {
+        yield* statement(tx.update(fxSystemCommitEventDeliveries).set({ state: "failed", owner: null,
+          leaseExpiresAt: null, settledAt: now, failureCode: "attempts-exhausted" }).where(sameDelivery(row)));
+        continue;
+      }
+      if (row.fence === MAX_PERSISTED_SIGNED_INT64_V1) return yield* Effect.fail(eventError("storedCorruption"));
+      const claimed = { ...row, state: "claimed" as const, attempts: row.attempts + 1, fence: row.fence + 1n,
+        owner: crypto.randomUUID(), leaseExpiresAt: new Date(now.getTime() + commitEventLimits.leaseMs) };
+      const changed = yield* statement(tx.update(fxSystemCommitEventDeliveries).set({ state: claimed.state,
+        attempts: claimed.attempts, fence: claimed.fence, owner: claimed.owner,
+        leaseExpiresAt: claimed.leaseExpiresAt }).where(sameDelivery(row))
+        .returning({ fence: fxSystemCommitEventDeliveries.fence }));
+      if (changed.length !== 1 || changed[0]?.fence !== claimed.fence) return yield* Effect.fail(eventError("storedCorruption"));
+      const eventId = `${pins.scopeUuid}/${pins.epochUuid}/${verified.pins.commitSeq}/${row.eventOrdinal}`;
+      // SAFETY: the private registry owns the fenced claim; displayed message
+      // fields grant no authority to settle it.
+      const token = Object.freeze({ message: Object.freeze({ eventId, deliveryId: `${eventId}/${row.subscriberId}`,
+        subscriber: Object.freeze({ id: row.subscriberId, revision: row.handlerRevision }), envelope }) }) as CommitEventClaim;
+      claims.set(token, claimed);
+      selected.push(token);
+    }
+    return Object.freeze(selected);
+    }));
+    const verified = verifiedFamilies.get(familyToken);
+    if (verified !== undefined && advanced !== undefined) verified.cursor = advanced;
+    return result;
+  });
   const claimBatch = Effect.fn("CommitEvents.claimBatch")((commitSeq: CommitSeq,
     registered: readonly CommitEventSubscriber[], maximum: number) => transact((tx, pins, now, lastCommitSeq) => Effect.gen(function* () {
     if (typeof commitSeq !== "bigint" || commitSeq < 1n || commitSeq > lastCommitSeq ||
@@ -146,7 +230,7 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
       eq(fxSystemCommitEventDeliveries.owner, row.owner ?? ""), gt(fxSystemCommitEventDeliveries.leaseExpiresAt, now))).returning({ fence: fxSystemCommitEventDeliveries.fence }));
     if (changed.length !== 1) return yield* Effect.fail(eventError("staleClaim"));
   })));
-  return Object.freeze({ nextCommit, claimBatch, settle });
+  return Object.freeze({ nextCommit, verifyFamily, claimVerifiedBatch, claimBatch, settle });
 });
 
 function validDelivery(row: Delivery): boolean {

@@ -93,7 +93,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
             );
           }),
         ),
-      );
+      configuration.limits.commandMs);
     });
     return yield* runWithRequestRecovery(attempt, {
       hasRequestKey: true,

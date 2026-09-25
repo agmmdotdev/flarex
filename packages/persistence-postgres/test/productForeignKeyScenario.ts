@@ -337,7 +337,8 @@ export const productForeignKeyScenario: (
     localName: table.logicalName, definition: table.relational }));
   const referenceInput = (tx: FlarexMetadataTransaction) => ({ tx, ...references,
     requireAdmission: Effect.succeed(Object.freeze({ tx, authority: resolved.authority,
-      schema, tables: boundTables, indexes: selectedIndexes.filter(index => index.access.kind === "developer") })) });
+      schema, tables: boundTables, indexes: selectedIndexes.filter(index => index.access.kind === "developer"),
+      unique: constraints })) });
   const count = yield* transact(tx => forEachLogicalReferencePage(referenceInput(tx),
     rows => Effect.sync(() => { for (const row of rows) referenced.add(row.rowId); })));
   expect(count).toBe(144);
@@ -364,7 +365,7 @@ export const productForeignKeyScenario: (
   expect(replacement.detach).toHaveLength(143);
   expect(replacement.associate.map(row => row.key)).toEqual(["batch_product_0"]);
   expect(new Set(replacement.detach.map(row => row.key)).has("batch_product_0")).toBe(false);
-  expect(replacementPages.map(page => page.count)).toEqual([32, 32, 32, 32, 15, 1]);
+  expect(replacementPages.map(page => page.count)).toEqual([14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 3, 1]);
   expect(replacementPages.slice(0, -1).every(page => page.reference === null)).toBe(true);
   expect(replacementPages.at(-1)?.reference).toBe("batch_type");
   const planned = yield* transact(tx => Effect.scoped(Effect.gen(function* () {
@@ -399,7 +400,7 @@ export const productForeignKeyScenario: (
   expect(undeclared).toMatchObject({ _tag: "Failure", failure: { message: "invalidInput" } });
   const unstableAdmission = yield* Effect.result(transact(tx => forEachLogicalSetNullPage({
     ...referenceInput(tx), requireAdmission: Effect.sync(() => Object.freeze({ tx, authority: resolved.authority,
-      schema, tables: boundTables, indexes: selectedIndexes })),
+      schema, tables: boundTables, indexes: selectedIndexes, unique: constraints })),
   }, () => Effect.void)));
   expect(unstableAdmission).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
 

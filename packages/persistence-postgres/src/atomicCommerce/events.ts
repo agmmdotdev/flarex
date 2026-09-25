@@ -8,6 +8,7 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import { commitEventLimits, EventEnvelope, EventName, EventRevision, EventSubscriber, type CommittedEvent, type CommitEventSubscriber } from "../commitEvents/model";
 import type { BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { commitEventsDigest } from "../commitEvents/digest";
+import { CommitEventError } from "../commitEvents/model";
 import { chargeHostPreparation } from "../preparedHostRuntime";
 
 declare const contractBrand: unique symbol;
@@ -275,5 +276,6 @@ export const consumeCommerceEvents = Effect.fn("AtomicEvents.consume")(function*
   closures.delete(closure);
   if (state.derived !== undefined && !state.derivedApplied) return yield* Effect.fail(commerceError("invalidAuthority"));
   const values = Object.freeze([...state.events]);
-  return { values, sha256: values.length === 0 ? null : yield* commitEventsDigest(values).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause))) };
+  return { values, sha256: values.length === 0 ? null : yield* commitEventsDigest(values).pipe(Effect.mapError(cause =>
+    commerceError(cause instanceof CommitEventError && cause.reason === "invalidInput" ? "limitExceeded" : "resourceFailure", cause))) };
 });

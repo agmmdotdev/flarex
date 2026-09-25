@@ -180,6 +180,13 @@ describe("atomic participants sharing physical installation", () => {
     expect(await inventory()).toEqual(before);
   });
 
+  it("does not grant a longer transaction deadline to physical participants", async () => {
+    expect(await runEffectFailure(makeAtomicCommerceHost({ ...input, requestCommandMs: 30_000 })))
+      .toMatchObject({ reason: "unsupportedProfile" });
+    expect(await runEffectFailure(makeAtomicCommerceHost({ ...input, requestCommandMs: 30_001 })))
+      .toMatchObject({ reason: "unsupportedProfile" });
+  });
+
   it("rejects a physical-only fan-out above the shared fact allowance atomically", async () => {
     const bulk = definitions.map(member => defineCommerceCommand(`bulk-${member.name}`, "write", Effect.fn(function* (ctx) {
       const table = yield* ctx.table(member.name);

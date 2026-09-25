@@ -1,4 +1,6 @@
 import { Clock, Effect } from "effect";
+import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
+import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "../applicationDocumentMaterialization/materialization";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
@@ -11,12 +13,12 @@ import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges } from "../l
 import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
 import { prepareLogicalRelationalRows } from "../logicalDocuments/relationalRows";
 import { validateLogicalDocumentChanges } from "../logicalDocuments/contribution";
-import { enterLogicalDocumentMaterialization } from "../logicalDocuments/materialization";
+import { enterLogicalDocumentMaterialization, logicalMaterializationBatchBudget } from "../logicalDocuments/materialization";
 import { forEachLogicalSetNullPage, forEachLogicalReferenceReplacementPage,
   selectLogicalReferenceReplacement } from "../logicalDocuments/referencePages";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
-import { defaultCommerceResources } from "./resources";
+import { defaultCommerceResources, type CommerceResources } from "./resources";
 
 declare const closureBrand: unique symbol;
 export interface LogicalCommerceClosure { readonly [closureBrand]: true }
@@ -55,6 +57,7 @@ interface ClosureState {
   readonly tx: FlarexMetadataTransaction;
   readonly lifetime: BoundedRequestLifetime<CommerceTransactionError>;
   readonly changes: LogicalDocumentChanges;
+  readonly maximumIndexEntries: number;
 }
 const closures = new WeakMap<object, ClosureState>();
 
@@ -63,8 +66,9 @@ const closures = new WeakMap<object, ClosureState>();
 export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(function* (
   admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
-  allowReferenceReplacement = false,
+  allowReferenceReplacement = false, selectedResources?: CommerceResources,
 ) {
+  const resources = selectedResources ?? defaultCommerceResources;
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   // Reject incomplete semantic profiles before exposing any table operation.
   for (const table of state.tables) yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
@@ -75,7 +79,8 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
       .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), error: logicalCommerceError,
     uniqueConflict: () => commerceError("invalidInput"),
-    limits: { pageRows: 256, identities: 128, documentBytes: 65_536 },
+    limits: { pageRows: selectedResources?.queryRows ?? 256,
+      identities: selectedResources?.catalogRows ?? 128, documentBytes: 65_536 },
   }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique, state.indexes.filter(index => index.access.kind === "developer"));
   const first = state.tables[0];
   if (first === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -84,7 +89,8 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     const changes = yield* working.close();
     // SAFETY: only this registry authenticates a closed admission/lifetime pair.
     const closure = Object.freeze({}) as LogicalCommerceClosure;
-    closures.set(closure, { admission, tx, lifetime, changes });
+    closures.set(closure, { admission, tx, lifetime, changes,
+      maximumIndexEntries: selectedResources?.catalogRows ?? 128 });
     return closure;
   });
   const names = new Map(state.tables.map(table => [table.tableId, table.localName]));
@@ -102,7 +108,7 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
       referenceReplacements: snapshot.referenceReplacements.slice(cursor.referenceReplacements),
     });
   });
-  return Object.freeze({ store, resources: defaultCommerceResources, close,
+  return Object.freeze({ store, resources, close,
     activityCursor: working.activityCursor, callActivity,
     attemptCount: working.attemptCount, lifecycleCount: working.lifecycleCount,
     planSetNull: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.gen(function* () {
@@ -214,7 +220,8 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
   const { state, tx, admission } = closed;
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(projectCommerceRequestFailure));
   const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId: state.authority.scopeId,
-    tables: new Set(state.tables.map(table => table.tableId)), maximumIndexEntries: 128, error: logicalCommerceError,
+    tables: new Set(state.tables.map(table => table.tableId)), maximumIndexEntries: closed.maximumIndexEntries,
+    error: logicalCommerceError,
     ...(closed.changes.setNull.length === 0 ? {} : { allowSetNull: true as const }),
     ...(allowReferenceReplacement ? { allowReferenceReplacement: true as const } : {}) }, closed.changes);
   const admitted = requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
@@ -224,11 +231,47 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
   const pending = new Map(replacements.flatMap(({ selection }) => selection.pendingChanges.map(change => [change.documentId, change] as const)));
   const rootChanges = contribution.changes.map(change => pending.get(change.documentId) ?? change);
   const rootDependencies = contribution.dependencies.map(row => pending.get(row.documentId) ?? row);
+  const rootPages: typeof rootChanges[] = [];
+  let page: typeof rootChanges = [];
+  let indexCost = 0;
+  let uniqueCost = 0;
+  for (const change of rootChanges) {
+    const nextIndexCost = state.indexes.filter(index => index.access.kind === "developer" &&
+      index.access.tableId === change.tableId).length;
+    const nextUniqueCost = state.unique.filter(definition => definition.tableId === change.tableId).length;
+    if (nextIndexCost > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 ||
+      nextUniqueCost > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1)
+      return yield* Effect.fail(commerceError("limitExceeded"));
+    if (page.length === MAX_POINT_COMMIT_MATERIAL_ROWS_V1 ||
+      indexCost + nextIndexCost > MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1 ||
+      uniqueCost + nextUniqueCost > MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1) {
+      rootPages.push(page);
+      page = [];
+      indexCost = 0;
+      uniqueCost = 0;
+    }
+    page.push(change);
+    indexCost += nextIndexCost;
+    uniqueCost += nextUniqueCost;
+  }
+  rootPages.push(page);
+  const pagedRoot = rootPages.length > 1;
+  if (rootPages.length > logicalMaterializationBatchBudget.pages)
+    return yield* Effect.fail(commerceError("limitExceeded"));
+  // Homogeneous creates or deletes have no cross-page key transfer. Mixed
+  // transitions still need complete unique-key validation on one page.
+  const allCreated = rootChanges.every(change => change.kind === "live" &&
+    change.dependency.observed.kind === "missing" &&
+    change.dependency.observed.basis.kind === "noVisibleRevision");
+  const allDeleted = rootChanges.every(change => change.kind === "deleted" &&
+    change.dependency.observed.kind === "present");
+  if (pagedRoot && (replacements.length !== 0 || !(allCreated || allDeleted)))
+    return yield* Effect.fail(commerceError("limitExceeded"));
   const derivedIds = Object.freeze(replacements.flatMap(({ selection }) =>
     [...selection.detach, ...selection.associate].map(row => row.key)));
   const requireAdmission = admitted.pipe(Effect.asVoid);
   const core = yield* enterLogicalDocumentMaterialization({
-    coverage: "sourceBound", ...(closed.changes.setNull.length === 0 && replacements.length === 0
+    coverage: "sourceBound", ...(closed.changes.setNull.length === 0 && replacements.length === 0 && !pagedRoot
       ? {} : { batch: true as const }),
     command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(state.authority.deploymentId),
       scopeId: scope.scopeId, schemaVersionId: state.schemaVersionId }, rowIntents: state.tables.map(table => ({ tableId: table.tableId })) },
@@ -245,9 +288,14 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
     let rowCount = 0;
     const adjacencyChanges: Array<Effect.Success<ReturnType<Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>>[number]> = [];
     const lowerRoot = Effect.fn("LogicalCommerce.lowerRoot")(function* () {
-    const root = yield* core.prepareDelta(rootChanges, rootDependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
-    adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
-    yield* appendRows(rootChanges.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+      for (const [index, rootPage] of rootPages.entries()) {
+        // Validate every original observation before lowering the first page.
+        // Later pages repeat their own point check against the same transaction.
+        const dependencies = index === 0 ? rootDependencies : rootPage;
+        const root = yield* core.prepareDelta(rootPage, dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
+        adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
+        yield* appendRows(rootPage.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+      }
     });
     // Validate all original reads before any derived self-write; keep all native
     // changes together for their unique-key and foreign-key transitions.
@@ -280,7 +328,7 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
         return yield* Effect.fail(commerceError("invalidAuthority"));
     }
     if (replacements.length === 0) yield* lowerRoot();
-    if (closed.changes.setNull.length > 0 || replacements.length > 0)
+    if (closed.changes.setNull.length > 0 || replacements.length > 0 || pagedRoot)
       yield* core.completeBatch().pipe(Effect.mapError(projectCommerceRequestFailure));
     rowCount += contribution.changes.length;
     return Object.freeze({ rowCount, adjacencyChanges: Object.freeze(adjacencyChanges) });

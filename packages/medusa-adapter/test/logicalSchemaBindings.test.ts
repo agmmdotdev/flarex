@@ -252,11 +252,11 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
         return value;
       }));
       const manyEvents = defineAtomicCommerceCommand("logicalCurrencyManyEvents", ctx => Effect.gen(function* () {
-        for (let index = 0; index < 129; index++) yield* ctx.emit(contract, { code: `event-${index}` });
+        for (let index = 0; index < 257; index++) yield* ctx.emit(contract, { code: `event-${index}` });
         return null;
       }));
       const tooManyEvents = defineAtomicCommerceCommand("logicalCurrencyTooManyEvents", ctx => Effect.gen(function* () {
-        for (let index = 0; index < 257; index++) yield* ctx.emit(contract, { code: `overflow-${index}` });
+        for (let index = 0; index < 258; index++) yield* ctx.emit(contract, { code: `overflow-${index}` });
         return null;
       }));
       yield* Effect.acquireUseRelease(makeAtomicCommerceHost({ ...hostInput,
@@ -266,10 +266,10 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
             expectedRowCount: initialization.expectedRowCount } },
           commands: [currencyAnnouncementWrite, currencyCommands.retrieve] }],
         commands: [pair, lateFailure, announce, manyEvents, tooManyEvents],
-        requestCallLimit: 512, requestEventLimit: 256,
+        requestCallLimit: 512, requestEventLimit: 257,
         events: { producerRevision: "a".repeat(64), contracts: [contract],
           subscribers: [{ id: "logical-currency", revision: "a".repeat(64) }],
-          validate: events => events.length <= 1 || events.length === 129
+          validate: events => events.length <= 1 || events.length === 257
             ? Effect.void : Effect.fail(commerceError("unadmittedEvent")) },
       }), atomic => Effect.gen(function* () {
         const beforeRows = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
@@ -296,19 +296,19 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
         const publishedEvents = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEvents),
           cause => new Error("Atomic logical Currency many events", { cause }));
         const batch = publishedEvents.filter(row => row.envelope.group === manyKey).toSorted((a, b) => a.eventOrdinal - b.eventOrdinal);
-        expect(batch).toHaveLength(129);
-        expect(batch.map(row => row.eventOrdinal)).toEqual(Array.from({ length: 129 }, (_, index) => index));
-        expect(batch.map(row => row.envelope.message)).toEqual(Array.from({ length: 129 }, (_, index) => ({ code: `event-${index}` })));
+        expect(batch).toHaveLength(257);
+        expect(batch.map(row => row.eventOrdinal)).toEqual(Array.from({ length: 257 }, (_, index) => index));
+        expect(batch.map(row => row.envelope.message)).toEqual(Array.from({ length: 257 }, (_, index) => ({ code: `event-${index}` })));
         const batchCommit = batch[0]?.commitSeq;
         if (batchCommit === undefined) throw new Error("Missing many-event commit");
         const headers = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommits),
           cause => new Error("Atomic logical Currency many-event header", { cause }));
         expect(headers.find(row => row.commitSeq === batchCommit)).toMatchObject({
-          eventCount: 129, eventSha256: yield* commitEventsDigest(batch.map(row => row.envelope)),
+          eventCount: 257, eventSha256: yield* commitEventsDigest(batch.map(row => row.envelope)),
         });
         const deliveries = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEventDeliveries),
           cause => new Error("Atomic logical Currency many-event deliveries", { cause }));
-        expect(deliveries.filter(row => row.commitSeq === batchCommit)).toHaveLength(129);
+        expect(deliveries.filter(row => row.commitSeq === batchCommit)).toHaveLength(257);
         expect(yield* atomic.run(manyKey, manyEvents, null)).toBeNull();
         expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEvents),
           cause => new Error("Atomic logical Currency replay events", { cause }))).toHaveLength(publishedEvents.length);
@@ -321,24 +321,29 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
         expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
           cause => new Error("Atomic logical Currency rollback rows", { cause }))).toHaveLength(beforeRows.length + 2);
         const consumed: unknown[] = [];
-        let familyReads = 0;
-        const pump = yield* makeCommitEventPump({ ...hostInput, observeQuery: query => {
+        let familyReads = 0, deliveryPages = 0;
+        const pumpInput = { ...hostInput, observeQuery: (query: { readonly name: string }) => {
           if (query.name === "eventFamily") familyReads++;
-        } }, [{ id: "logical-currency", revision: "a".repeat(64),
-          handle: message => Effect.sync(() => { consumed.push(message.envelope.message); }) }]);
+          if (query.name === "deliveryPage") deliveryPages++;
+        } };
+        const handlers = [{ id: "logical-currency", revision: "a".repeat(64),
+          handle: (message: { readonly envelope: { readonly message: unknown } }) => Effect.sync(() => { consumed.push(message.envelope.message); }) }];
+        let pump = yield* makeCommitEventPump(pumpInput, handlers);
         let cursor = batchCommit - 1n;
-        for (let pass = 0; pass < 5; pass++) {
+        for (let pass = 0; pass < 8; pass++) {
           const progress = yield* pump.runNext(cursor);
           cursor = progress.cursor;
           if (progress.done) break;
-          if (pass === 4) throw new Error("Many-event pump did not finish");
+          if (pass === 0) pump = yield* makeCommitEventPump(pumpInput, handlers);
+          if (pass === 7) throw new Error("Many-event pump did not finish");
         }
-        expect(consumed).toEqual(Array.from({ length: 129 }, (_, index) => ({ code: `event-${index}` })));
-        expect(familyReads).toBeLessThanOrEqual(18);
+        expect(consumed).toEqual(Array.from({ length: 257 }, (_, index) => ({ code: `event-${index}` })));
+        expect(familyReads).toBe(2);
+        expect(deliveryPages).toBeLessThanOrEqual(35);
         expect(yield* pump.runNext(batchCommit)).toMatchObject({ done: true, delivered: 0 });
         const settled = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEventDeliveries),
           cause => new Error("Atomic logical Currency delivered events", { cause }));
-        expect(settled.filter(row => row.commitSeq === batchCommit && row.state === "delivered")).toHaveLength(129);
+        expect(settled.filter(row => row.commitSeq === batchCommit && row.state === "delivered")).toHaveLength(257);
       }), atomic => atomic.close);
       let loseCommitAcknowledgement = true;
       let recoverExecutions = 0;

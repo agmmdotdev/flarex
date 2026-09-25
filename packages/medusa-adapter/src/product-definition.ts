@@ -75,7 +75,15 @@ const productSchemaFromCompiled = Effect.fn("MedusaProduct.normalizeCompiled")(
         new ProductSchemaError({ cause: "Incomplete Product model/pivot set" }),
       );
     }
-    return lowerDmlSchema(compiled.tables, "commerce.product");
+    const lowered = lowerDmlSchema(compiled.tables, "commerce.product");
+    // The pinned native Product query admits deleted_at > instant with deleted
+    // rows included. Native partial active-row indexes cannot serve that range.
+    return { ...lowered, tables: lowered.tables.map(table => table.tableId === "product"
+      ? { ...table, indexes: [...table.indexes, {
+        indexId: "product.deleted_at.range", kind: "btree" as const,
+        columns: ["deleted_at"], predicate: null,
+        origin: { kind: "derived" as const, sourceId: "medusa.product.deleted_at.range-query" },
+      }] } : table) };
   },
 );
 

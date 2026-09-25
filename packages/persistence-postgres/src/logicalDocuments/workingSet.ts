@@ -9,7 +9,9 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputError, AppRowReadPersistenceError,
+import { readBoundedCurrentAppRowsInTransactionEffect, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
+  MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES,
+  InvalidAppRowReadInputError, AppRowReadPersistenceError,
   type AppRowRevisionV1 } from "../appRows";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { lowerCanonicalAppUniqueConstraintV1Result, type LoweredCanonicalAppUniqueConstraintV1 } from "../appUniqueConstraintCommitV1";
@@ -21,7 +23,7 @@ import type { ApplicationDocumentObservation } from "../applicationDocumentMater
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
 import { readLogicalIndexRange, readLogicalIndexPage, type LogicalIndexRead, type LogicalIndexPageRead } from "./indexReads";
-import type { AppIndexRangeCursorV1 } from "../appIndexEntries";
+import { MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeCursorV1 } from "../appIndexEntries";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, logicalQueryMatches, type LogicalWhere } from "./query";
 import { compileLogicalRelationalRead } from "./relationalQuery";
 import { decodeLogicalAggregate, sumLogicalRows } from "./aggregate";
@@ -231,15 +233,22 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         return captured.value;
       })),
     );
-  const readBase = Effect.fn("LogicalDocuments.readBase")(function* (tableId: CatalogTableId, rowId?: AppRowIdHexV1, rowIds?: readonly AppRowIdHexV1[]) {
+  const readBase = Effect.fn("LogicalDocuments.readBase")(function* (tableId: CatalogTableId, rowId?: AppRowIdHexV1, rowIds?: readonly AppRowIdHexV1[]): Effect.fn.Return<void, Failure> {
+    if (rowIds !== undefined && rowIds.length > MAX_BOUNDED_APP_ROW_READ_IDENTITIES) {
+      for (let offset = 0; offset < rowIds.length; offset += MAX_BOUNDED_APP_ROW_READ_IDENTITIES)
+        yield* readBase(tableId, undefined, rowIds.slice(offset, offset + MAX_BOUNDED_APP_ROW_READ_IDENTITIES));
+      return;
+    }
     yield* state.requireAdmission;
     if (closed) return yield* Effect.fail(error("closed"));
     const table = yield* Effect.fromResult(tableForId(tableId));
     if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead(rowIds !== undefined ? "batch" : rowId !== undefined ? "point" : "scan");
     const capture = yield* readBoundedCurrentAppRowsInTransactionEffect(state.tx, {
       scopeId: state.scopeId, tableId, minimumCommitSeq: state.clock.lastCommitSeq,
-      maximumIdentities: rowIds === undefined ? limits.identities : limits.identities - dependencies.size, maximumDocumentBytes: limits.documentBytes,
-      maximumTotalValueBytes: lifetime.remainingBytes(), ...(rowId === undefined ? {} : { rowId }),
+      maximumIdentities: Math.min(MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
+        rowIds === undefined ? limits.identities : limits.identities - dependencies.size), maximumDocumentBytes: limits.documentBytes,
+      maximumTotalValueBytes: Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()),
+      ...(rowId === undefined ? {} : { rowId }),
       ...(rowIds === undefined ? {} : { rowIds }),
     }, testHooks?.observeQuery).pipe(Effect.mapError(cause => error(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
       ? "limitExceeded" : cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause)));
@@ -380,8 +389,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       const rowId = yield* Effect.fromResult(appRowIdHexV1FromBytesResult(crypto.getRandomValues(new Uint8Array(16)))
         .pipe(Result.mapError(cause => error("resourceFailure", cause))));
       const documentId = appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId });
-      const existing = yield* locate(documentId);
-      if (existing.pending !== undefined) return yield* Effect.fail(error("uniqueConflict"));
+      if (rows.has(documentId) || dependencies.has(documentId)) return yield* Effect.fail(error("uniqueConflict"));
+      // This ID was generated inside the trusted working set. Record a missing
+      // point dependency and let settlement prove it remains absent; a separate
+      // current-row query for every new ID would serialize large graph writes.
+      yield* observe(table.tableId, rowId, null);
       const time = AppCreationTimeV1Schema.make(creationTime + inserted++);
       return yield* write({ tableId: table.tableId, tableName, rowId, documentId, base: null,
         creationTime: time, current: null, attempts: [] }, fields, "insert");
@@ -551,8 +563,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       return yield* Effect.fail(error("invalidInput"));
     if (query.offset >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
     if (query.selections?.length === 0) return Object.freeze({ rows: Object.freeze([]), hasMore: false });
+    const pageSelection = query.selections?.[0];
+    const pageEquality = pageSelection === undefined || typeof pageSelection.value === "object"
+      ? undefined : { column: pageSelection.column, value: pageSelection.value };
+    if (pageSelection !== undefined && pageEquality === undefined)
+      return yield* Effect.fail(error("invalidInput"));
     const selected = yield* Effect.fromResult(selectLogicalPageIndex(indexDefinitions, table.tableId,
-      query.orderColumn, query.selections?.[0], query.requiredNulls, error));
+      query.orderColumn, pageEquality, query.requiredNulls, error));
     if (Option.isNone(selected)) return yield* Effect.fail(error("invalidInput"));
     const selection = selected.value;
     type Member = { row: PendingDocument; key: string; document: JsonObject };
@@ -581,7 +598,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       const remaining = limits.identities - examined;
       if (remaining < 1) return yield* Effect.fail(error("limitExceeded"));
       // Batch residual filtering while charging the actual hidden lookahead.
-      const limit = Math.min(Math.max(16, needed - matched.size), remaining);
+      const limit = Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, Math.max(16, needed - matched.size), remaining);
       if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
       const page = yield* readLogicalIndexPage(state.tx, state.scopeId, { ...selection, ...(after === undefined ? {} : { after }) },
         limit, error, testHooks?.observeIndexQuery);

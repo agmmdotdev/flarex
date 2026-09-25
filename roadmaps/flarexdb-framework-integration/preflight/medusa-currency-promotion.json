@@ -692,7 +692,7 @@
     {
       "target": "packages/medusa-adapter/src/product-local-events.ts",
       "classification": "authored",
-      "targetSha256": "548c907ae14fa7ba91f80b5edc1b6127686bba3e23bfbcb0f44427bb9467ae9c"
+      "targetSha256": "f1472cb365dc564438fff0a8cd25ebd7e457b472bab0aa37bdbec44007f04f53"
     },
     {
       "target": "packages/medusa-adapter/src/product-module.ts",
@@ -762,7 +762,7 @@
     {
       "target": "packages/medusa-adapter/src/product-service.ts",
       "classification": "authored",
-      "targetSha256": "9e526981aae40cd07daadf848e5f5e278947bd7e8464d89686c9fe0825065826"
+      "targetSha256": "62cc94aa922e91a8e56a67d1ce4931cdcc8531925141bd5724629814083f6650"
     },
     {
       "target": "packages/medusa-adapter/src/product-tag-composition.ts",
@@ -882,12 +882,12 @@
     {
       "target": "packages/medusa-adapter/src/workflow/host.ts",
       "classification": "authored",
-      "targetSha256": "daf4c8629fed389afbfbe53c44897a640de304c55730e7bd618728359159da4f"
+      "targetSha256": "b4b689b37303cc4fce876f5341f5bd05c42f41d778085d41c5264e8131edcaa6"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/module.ts",
       "classification": "authored",
-      "targetSha256": "3eede772f1ba4629dbb317b2f4768a5ede424f4d635c03adf640f95cd1f06e67"
+      "targetSha256": "3a03362086d8e2cc0e7d92e85f9eea3ef4bb8e857deb2f76d1efef5f88c26e91"
     },
     {
       "target": "packages/medusa-adapter/src/workflow/resources.ts",
@@ -1034,7 +1034,7 @@
     {
       "target": "packages/medusa-adapter/test/product-schema.test.ts",
       "classification": "authored",
-      "targetSha256": "5adc5a66c9796e6f7a104857d85fa634a8b276398cdc5410c78c967c289d2a94"
+      "targetSha256": "a0862a6074e4003d33e0e9a0e9a13a6abb3e6cb7defc0b64f9761c88823be853"
     },
     {
       "target": "packages/medusa-adapter/test/product-tag-composition.test.ts",
@@ -4351,7 +4351,7 @@
     {
       "target": "packages/medusa-adapter/src/product-definition.ts",
       "classification": "authored",
-      "targetSha256": "b67d93401d58e75bfb600093232fa2f74492143bfc20f11d72ebc89170a991ed"
+      "targetSha256": "bd31d3923a39c611f1f43f306e6a5feab3a10d77c5f14bdef0984f21d6df84e9"
     },
     {
       "target": "packages/medusa-adapter/test/logical-category-currency-atomic-boundaries.test.ts",
@@ -4451,12 +4451,12 @@
     {
       "target": "packages/medusa-adapter/test/schemaComposition.test.ts",
       "classification": "authored",
-      "targetSha256": "305cb84b5c40171bab35a1a54893e3e5d9512ea079c15edd6a671d552ba61af5"
+      "targetSha256": "6895ac68361da7e7793441dbf47972d0b5dfad5c0d201347990850382f865d07"
     },
     {
       "target": "packages/medusa-adapter/test/logicalSchemaBindings.test.ts",
       "classification": "authored",
-      "targetSha256": "8a655863fce0ed963ade45b649d4049e0a9d462cb23bb1b04000bd2df25e4846"
+      "targetSha256": "86e9b3aeb554bd8e9f61e7dba321fe3ea5c322237d6533e2c866b2eac038ff85"
     },
     {
       "target": "packages/medusa-adapter/src/product-category-workflow.ts",
@@ -4481,7 +4481,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-collection-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "edb6e670f5d59d9f462a905920c020f9a9a256c9bfd108e9fe5352468937259a"
+      "targetSha256": "99618b8442e3c5bd9b99cd3d85f79c70e8c079df16bb3019304460d76234c975"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-create-storage.test.ts",
@@ -4571,12 +4571,22 @@
     {
       "target": "packages/medusa-adapter/test/logical-query-contracts.test.ts",
       "classification": "authored",
-      "targetSha256": "a50e4f45dc5b1a1bfd2e2b88468206a35de681df575d3b26eb2137b8e441af77"
+      "targetSha256": "52eccbe81448143ca8954f368c2744e84882b362eeafb55a470e78a6191ecba6"
     },
     {
       "target": "packages/medusa-adapter/test/support/workflow-policy-fixture.ts",
       "classification": "authored",
       "targetSha256": "e2b719f777c72392891f6ab0cac5d9d421ad9e4d0ba967da44cafb4e94bba996"
+    },
+    {
+      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "classification": "authored",
+      "targetSha256": "e386b959cc03d9cab06ac20c4bcb7f8df77425f62e84e703b243fce367ebaf99"
+    },
+    {
+      "target": "packages/medusa-adapter/vitest.product-logical-probe.config.ts",
+      "classification": "authored",
+      "targetSha256": "886b21132cf951e7ae1a7f447c9e5673227723d0d9307cc2c8671a16a6e020c3"
     }
   ],
   "dependencies": {
@@ -12032,6 +12042,48 @@
       "specifier": "@medusajs/test-utils",
       "target": "packages/medusa-adapter/test/support/runner.ts",
       "configuration": "packages/medusa-adapter/vitest.product-internal.config.ts"
+    },
+    {
+      "importer": "packages/medusa-product/integration-tests/__tests__/product.spec.ts",
+      "specifier": "@medusajs/test-utils",
+      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "configuration": "packages/medusa-adapter/vitest.product-logical-probe.config.ts"
+    },
+    {
+      "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/events.spec.ts",
+      "specifier": "@medusajs/test-utils",
+      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "configuration": "packages/medusa-adapter/vitest.product-logical-probe.config.ts"
+    },
+    {
+      "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/products.spec.ts",
+      "specifier": "@medusajs/test-utils",
+      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "configuration": "packages/medusa-adapter/vitest.product-logical-probe.config.ts"
+    },
+    {
+      "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-tags.spec.ts",
+      "specifier": "@medusajs/test-utils",
+      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "configuration": "packages/medusa-adapter/vitest.product-logical-probe.config.ts"
+    },
+    {
+      "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-collections.spec.ts",
+      "specifier": "@medusajs/test-utils",
+      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "configuration": "packages/medusa-adapter/vitest.product-logical-probe.config.ts"
+    },
+    {
+      "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-options.spec.ts",
+      "specifier": "@medusajs/test-utils",
+      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "configuration": "packages/medusa-adapter/vitest.product-logical-probe.config.ts"
+    },
+    {
+      "importer": "packages/medusa-product/integration-tests/__tests__/product-module-service/product-variants.spec.ts",
+      "specifier": "@medusajs/test-utils",
+      "target": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "configuration": "packages/medusa-adapter/vitest.product-logical-probe.config.ts"
     }
   ]
 }

@@ -32,7 +32,7 @@ describe("actual Product schema", () => {
       return { indexes: yield* Effect.fromResult(compileLogicalSourceIndexes(source)),
         unique: yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source)), schema: product.schema };
     }));
-    expect(indexes).toHaveLength(59);
+    expect(indexes).toHaveLength(60);
     expect(unique).toHaveLength(24);
     expect(indexes.filter(index => index.descriptor.startsWith("fk-reverse/"))
       .map(index => `${index.localName}/${index.descriptor}`).sort()).toEqual([
@@ -53,6 +53,15 @@ describe("actual Product schema", () => {
       256, reason => new Error(reason)))).toBe(true);
     expect(indexes.some(index => index.localName === "product" && index.descriptor === "index/product.active"))
       .toBe(true);
+    expect(indexes.find(index => index.localName === "product" &&
+      index.descriptor === "index/product.deleted_at.range"))
+      .toMatchObject({ physicalSpec: { orderedFields: [
+        { kind: "documentPath", path: "deleted_at" }, { kind: "systemCreationTime" },
+      ] } });
+    expect(Result.getOrThrow(compileLogicalRelationalRead(productTable, schema.capabilities,
+      { order: { column: "id", direction: "asc" }, predicate: { kind: "greaterThan", column: "deleted_at",
+        value: "2022-01-01T00:00:00.000Z" } }, 256, reason => new Error(reason))).selections)
+      .toEqual([{ column: "deleted_at", value: { gt: "2022-01-01T00:00:00.000Z" } }]);
     expect(unique.find(constraint => constraint.localName === "product" &&
       constraint.descriptor === "index/IDX_product_handle_unique"))
       .toMatchObject({ physicalSpec: { predicate: { kind: "fieldIsNull", field: "deleted_at" } } });
@@ -66,7 +75,7 @@ describe("actual Product schema", () => {
     // canonical artifact remains pinned, including all models and pivots.
     expect(captured.artifact.identity.lineageId).toBe("commerce.product");
     expect(createHash("sha256").update(captured.artifact.canonicalJson).digest("hex"))
-      .toBe("cfbe80cbf3c487dcb18b6af7019c7ffb8b9adc23d1b2984bd1fd7e6eaabf8d86");
+      .toBe("eefac3961a8ec412fd2c2720f356e397aa558e324bb5d984c130cd6c4ebe0185");
     expect(captured.schema.tables).toHaveLength(13);
     const boundTables = captured.schema.tables.map((table, position) => ({
       tableId: decodeCatalogTableId(position + 1), logicalName: `commerce.product/${table.identity.tableId}`, relational: table,

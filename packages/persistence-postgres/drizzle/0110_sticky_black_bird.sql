@@ -1,0 +1,4 @@
+ALTER TABLE "fx_system_commit_event" DROP CONSTRAINT "fx_commit_event_values_check";--> statement-breakpoint
+ALTER TABLE "fx_system_commit" DROP CONSTRAINT "fx_system_commit_event_count_check";--> statement-breakpoint
+ALTER TABLE "fx_system_commit_event" ADD CONSTRAINT "fx_commit_event_values_check" CHECK ("fx_system_commit_event"."event_ordinal" between 0 and 2047 and jsonb_typeof("fx_system_commit_event"."envelope") = 'object' and octet_length("fx_system_commit_event"."envelope"::text) <= 131072);--> statement-breakpoint
+ALTER TABLE "fx_system_commit" ADD CONSTRAINT "fx_system_commit_event_count_check" CHECK ("fx_system_commit"."event_count" between 0 and 2048);

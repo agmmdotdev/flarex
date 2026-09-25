@@ -4,7 +4,7 @@ import { commerceError, commerceLimits } from "./model";
 const ceiling = (maximum: number) => Schema.Int.check(Schema.isBetween({ minimum: 1, maximum }));
 export const CommerceCallLimit = ceiling(4096);
 const Resources = Schema.Struct({
-  catalogRows: ceiling(4096), queryRows: ceiling(4096), writeBatchRows: ceiling(256),
+  catalogRows: ceiling(4096), queryRows: ceiling(4096), writeBatchRows: ceiling(2048),
   facts: ceiling(4096), calls: CommerceCallLimit, eventMessages: ceiling(2048), eventIds: ceiling(4096),
   commandBytes: ceiling(16_777_216), valueNodes: ceiling(131_072),
 });
@@ -16,6 +16,13 @@ export const defaultCommerceResources: CommerceResources = Object.freeze({
   writeBatchRows: commerceLimits.catalogRows, facts: commerceLimits.catalogRows,
   calls: commerceLimits.calls, eventMessages: commerceLimits.calls, eventIds: commerceLimits.catalogRows,
   commandBytes: commerceLimits.commandBytes, valueNodes: 8192,
+});
+/** Trusted logical-commerce profile for one bounded multi-page write. The
+ * 2,048-row ceiling is shared with logical materialization, not request data. */
+export const logicalCommerceBatchResources: CommerceResources = Object.freeze({
+  ...defaultCommerceResources,
+  catalogRows: 2048, queryRows: 2048, writeBatchRows: 2048, facts: 2048,
+  eventIds: 2048, commandBytes: 8_388_608, valueNodes: 32_768,
 });
 const decode = Schema.decodeUnknownResult(Resources, { onExcessProperty: "error" });
 
