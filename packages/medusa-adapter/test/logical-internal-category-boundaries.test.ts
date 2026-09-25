@@ -4,8 +4,7 @@ import { Effect } from "effect";
 import { CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCategoryChangeEventPolicy, productLogicalCategoryCreateEventPolicy,
-  productLogicalInternalCategoryPolicy } from "../src/product-local-events";
+import { productLogicalCallEventPolicy } from "../src/product-local-events";
 import { decodeCategoryProjection } from "../src/product-category-projection";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from
   "../../persistence-postgres/src/atomicCommerce/commands";
@@ -38,13 +37,9 @@ async function command(operation: "create" | "update" | "delete" | "publicCreate
         : operation === "publicCreate" ? product.runtime.commands.createCategories
           : operation === "publicUpdate" ? product.runtime.commands.updateCategories
             : product.runtime.commands.deleteCategories;
-  const publicPolicy = operation === "publicCreate" ? productLogicalCategoryCreateEventPolicy(catalog)
-    : operation === "publicUpdate" ? productLogicalCategoryChangeEventPolicy(catalog, "update")
-      : operation === "publicDelete" ? productLogicalCategoryChangeEventPolicy(catalog, "delete") : undefined;
-  const internalOperation = operation === "publicCreate" ? "create"
-    : operation === "publicUpdate" ? "update" : operation === "publicDelete" ? "delete" : operation;
-  const validateLogical = publicPolicy?.validateLogical ??
-    productLogicalInternalCategoryPolicy(catalog, internalOperation).validateLogical;
+  const policy = productLogicalCallEventPolicy(catalog);
+  const publicPolicy = operation.startsWith("public") ? policy : undefined;
+  const validateLogicalCall = policy.validateLogicalCall;
   const participant = defineAtomicCommerceParticipant("product");
   const root = defineAtomicCommerceCommand(`logicalCategory${operation}`, (ctx, input) => ctx.call(participant, selected, input));
   const revision = createHash("sha256").update(`logical-category-${operation}`).digest("hex");
@@ -58,7 +53,7 @@ async function command(operation: "create" | "update" | "delete" | "publicCreate
   const host = await run(makeAtomicCommerceHost({ ...source.hostInput,
     identityAndAccessPolicy: { profile: `logical-category-${operation}` },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-      commands: [selected], validateLogical,
+      commands: [selected], validateLogicalCall,
       ...(publicPolicy === undefined ? {} : { events: { contracts, select: message => {
         const event = typeof message === "object" && message !== null && "name" in message &&
           typeof message.name === "string" ? byName.get(message.name) : undefined;
@@ -151,17 +146,17 @@ describe("internal Category boundaries on shared logical Product storage", () =>
       fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const rootDelete = { ordinal: 0, table: catalog.category.table.name, operation: "delete" as const,
       before, after: null };
-    const policy = productLogicalCategoryChangeEventPolicy(catalog, "delete");
-    await run(policy.validateLogical([deletion], [rootDelete], [], [], []));
-    await expect(run(policy.validateLogical([{ ...deletion, toAttempt: 2 }], [rootDelete, {
+    const policy = productLogicalCallEventPolicy(catalog);
+    await run(policy.validateLogicalCall(deletion, { mutations: [rootDelete], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }));
+    await expect(run(policy.validateLogicalCall({ ...deletion, toAttempt: 2 }, { mutations: [rootDelete, {
       ordinal: 1, table: relation.pivotTable, operation: "delete" as const,
       before: { id: "forged", [relation.sourceColumns[0] ?? "category_id"]: "unselected" }, after: null,
-    }], [], [], []))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
-    await expect(run(policy.validateLogical([{ ...deletion, events: [{ ...deletedEvent,
-      data: { id: "unselected" } }] }], [rootDelete], [], [], [])))
+    }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    await expect(run(policy.validateLogicalCall({ ...deletion, events: [{ ...deletedEvent,
+      data: { id: "unselected" } }] }, { mutations: [rootDelete], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
 
-    const updatePolicy = productLogicalCategoryChangeEventPolicy(catalog, "update");
+    const updatePolicy = productLogicalCallEventPolicy(catalog);
     const updatedRow = { ...before, name: "Changed" };
     const updatedEvent = { name: catalog.category.updatedEvent,
       metadata: { source: Modules.PRODUCT, object: catalog.category.eventObject, action: CommonEvents.UPDATED },
@@ -171,13 +166,13 @@ describe("internal Category boundaries on shared logical Product storage", () =>
       events: [updatedEvent], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0 };
     const updateMutation = { ordinal: 0, table: catalog.category.table.name, operation: "patch" as const,
       before, after: updatedRow };
-    await run(updatePolicy.validateLogical([updateReceipt], [updateMutation], [], [], []));
-    await expect(run(updatePolicy.validateLogical([{ ...updateReceipt,
-      result: { ...updatedRow, name: "Fabricated" } }], [updateMutation], [], [], [])))
+    await run(updatePolicy.validateLogicalCall(updateReceipt, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }));
+    await expect(run(updatePolicy.validateLogicalCall({ ...updateReceipt,
+      result: { ...updatedRow, name: "Fabricated" } }, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
     const { name: _omittedName, ...missingName } = updatedRow;
-    await expect(run(updatePolicy.validateLogical([{ ...updateReceipt,
-      result: missingName }], [updateMutation], [], [], [])))
+    await expect(run(updatePolicy.validateLogicalCall({ ...updateReceipt,
+      result: missingName }, { mutations: [updateMutation], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
   }, 120_000);
 
@@ -238,7 +233,7 @@ describe("internal Category boundaries on shared logical Product storage", () =>
       identityAndAccessPolicy: { profile: "native-category-other-shop" },
       participants: [{ participant: otherParticipant, logicalStorage: otherProduct.hostInput.logicalStorage,
         commands: [otherProduct.runtime.commands.internalCategoryCreate],
-        validateLogical: productLogicalInternalCategoryPolicy(catalog, "create").validateLogical }],
+        validateLogicalCall: productLogicalCallEventPolicy(catalog).validateLogicalCall }],
       commands: [otherRoot],
     }));
     cleanup.push(() => run(otherWriter.close));
@@ -270,68 +265,66 @@ describe("internal Category boundaries on shared logical Product storage", () =>
   }, 120_000);
 
   it("refuses rank maintenance outside the selected root's sibling group", async () => {
-    const policy = productLogicalInternalCategoryPolicy(catalog, "update");
+    const policy = productLogicalCallEventPolicy(catalog);
     const rootBefore = { id: "selected", name: "selected", rank: 1, mpath: "selected",
       parent_category_id: null, deleted_at: null };
     const otherBefore = { id: "other", name: "other", rank: 1, mpath: "parent.other",
       parent_category_id: "parent", deleted_at: null };
-    await expect(run(policy.validateLogical([{
+    await expect(run(policy.validateLogicalCall({
       commandName: "productInternalCategoryupdate", mode: "write",
       input: [{ id: "selected", rank: 0 }], result: [{ id: "selected", rank: 0 }],
       events: [], fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0,
-    }], [
+    }, { mutations: [
       { ordinal: 0, table: catalog.category.table.name, operation: "patch",
         before: rootBefore, after: { ...rootBefore, rank: 0 } },
       { ordinal: 1, table: catalog.category.table.name, operation: "patch",
         before: otherBefore, after: { ...otherBefore, rank: 2 } },
-    ], [], [], []))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
-    await expect(run(policy.validateLogical([{
+    ], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    await expect(run(policy.validateLogicalCall({
       commandName: "productInternalCategoryupdate", mode: "write",
       input: [{ id: "selected", name: "changed" }], result: [{ id: "selected", name: "changed" }],
       events: [], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0,
-    }], [{ ordinal: 0, table: catalog.category.table.name, operation: "patch",
-      before: rootBefore, after: { ...rootBefore, rank: 0 } }], [], [], [])))
+    }, { mutations: [{ ordinal: 0, table: catalog.category.table.name, operation: "patch",
+      before: rootBefore, after: { ...rootBefore, rank: 0 } }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
     const sameParentSibling = { ...otherBefore, parent_category_id: null, mpath: "other" };
-    await expect(run(policy.validateLogical([{
+    await expect(run(policy.validateLogicalCall({
       commandName: "productInternalCategoryupdate", mode: "write",
       input: [{ id: "selected", rank: 0 }], result: [{ id: "selected", rank: 0, mpath: "selected" }],
       events: [], fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 0,
-    }], [
+    }, { mutations: [
       { ordinal: 0, table: catalog.category.table.name, operation: "patch",
         before: rootBefore, after: { ...rootBefore, rank: 0 } },
       { ordinal: 1, table: catalog.category.table.name, operation: "patch",
         before: sameParentSibling, after: { ...sameParentSibling, rank: 100 } },
-    ], [], [], []))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+    ], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
     for (const forged of [
       { ...rootBefore, name: "changed", rank: 100 },
       { ...rootBefore, name: "changed", mpath: "elsewhere.selected" },
-    ]) await expect(run(policy.validateLogical([{
+    ]) await expect(run(policy.validateLogicalCall({
       commandName: "productInternalCategoryupdate", mode: "write",
       input: [{ id: "selected", name: "changed" }], result: [forged],
       events: [], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0,
-    }], [{ ordinal: 0, table: catalog.category.table.name, operation: "patch",
-      before: rootBefore, after: forged }], [], [], [])))
+    }, { mutations: [{ ordinal: 0, table: catalog.category.table.name, operation: "patch",
+      before: rootBefore, after: forged }], lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
-    await expect(run(policy.validateLogical([{
+    await expect(run(policy.validateLogicalCall({
       commandName: "productInternalCategoryupdate", mode: "write",
       input: [{ id: "selected", parent_category_id: "right" }],
       result: [{ id: "selected", parent_category_id: "right", rank: 1, mpath: "wrong.selected" }],
       events: [], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0,
-    }], [{ ordinal: 0, table: catalog.category.table.name, operation: "patch",
-      before: rootBefore, after: { ...rootBefore, parent_category_id: "right", mpath: "wrong.selected" } }],
-    [], [{ table: catalog.category.table.name, row: { id: "right", mpath: "right" } }], [])))
+    }, { mutations: [{ ordinal: 0, table: catalog.category.table.name, operation: "patch",
+      before: rootBefore, after: { ...rootBefore, parent_category_id: "right", mpath: "wrong.selected" } }], lifecycle: [], observedRows: [{ table: catalog.category.table.name, row: { id: "right", mpath: "right" } }], setNull: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
-    const createPolicy = productLogicalInternalCategoryPolicy(catalog, "create");
-    await expect(run(createPolicy.validateLogical([{
+    const createPolicy = productLogicalCallEventPolicy(catalog);
+    await expect(run(createPolicy.validateLogicalCall({
       commandName: "productInternalCategorycreate", mode: "write",
       input: [{ id: "child", name: "child", handle: "child", parent_category_id: "right" }],
       result: [{ id: "child", rank: 0 }],
       events: [], fromAttempt: 0, toAttempt: 1, fromLifecycle: 0, toLifecycle: 0,
-    }], [{ ordinal: 0, table: catalog.category.table.name, operation: "insert", before: null,
+    }, { mutations: [{ ordinal: 0, table: catalog.category.table.name, operation: "insert", before: null,
       after: { id: "child", name: "child", handle: "child", parent_category_id: "right",
-        rank: 0, mpath: "wrong.child", deleted_at: null } }],
-    [], [{ table: catalog.category.table.name, row: { id: "right", mpath: "right" } }], [])))
+        rank: 0, mpath: "wrong.child", deleted_at: null } }], lifecycle: [], observedRows: [{ table: catalog.category.table.name, row: { id: "right", mpath: "right" } }], setNull: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
   });
 

@@ -72,8 +72,11 @@ remain distinct from logical schema evolution.
   and Product-tag [command composition](./44-native-command-composition.md)
   now validates each outer call against its operation-time pending evidence;
   repeated commands and child workflows reuse the same policy and settlement.
-  Category, Collection and other aggregate receipt policies remain until their
-  broader read/relationship evidence has an equivalent per-call proof. The
+  [Direct Category/Collection commands](./45-category-collection-command-composition.md)
+  now share the Product call policy with Tags, preserving tree/pivot semantics
+  and terminal Collection transitions. The preceding-read membership workflows
+  and other aggregate receipt policies remain until their broader relationship
+  evidence has an equivalent per-call proof. The
   workflow binder refuses unsupported method invocations through one common
   boundary, replacing per-module deny lists. The
   lifecycle planner now selects declared child and nullable-reference rows by

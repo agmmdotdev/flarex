@@ -5,8 +5,7 @@ import { isJsonObject, type Json } from "flarex-protocol/json";
 import { currencyCommands } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalCollectionCreateEventPolicy, productLogicalCreateEventPolicy,
-  productLogicalTagEventPolicy, productLogicalTypeEventPolicy } from "../src/product-local-events";
+import { productLogicalCallEventPolicy, productLogicalCreateEventPolicy, productLogicalTypeEventPolicy } from "../src/product-local-events";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, getAtomicCommerceCommand,
   type AtomicCommerceContext } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from
@@ -78,12 +77,12 @@ describe("mixed Category/Currency atomic boundaries on logical Currency", () => 
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const fixtures = [
       { command: product.runtime.commands.createTags, value: { id: "graph-tag", value: "Graph tag" },
-        policy: productLogicalTagEventPolicy(catalog), entities: [catalog.tag] },
+        policy: productLogicalCallEventPolicy(catalog), entities: [catalog.tag] },
       { command: product.runtime.commands.createTypes, value: { id: "graph-type", value: "Graph type" },
         policy: productLogicalTypeEventPolicy(catalog, "create"), entities: [catalog.type] },
       { command: product.runtime.commands.createCollections,
         value: { id: "graph-collection", title: "Graph collection", handle: "graph-collection" },
-        policy: productLogicalCollectionCreateEventPolicy(catalog), entities: [catalog.collection] },
+        policy: productLogicalCallEventPolicy(catalog), entities: [catalog.collection] },
       { command: product.runtime.commands.create,
         value: { title: "Graph shirt", handle: "graph-shirt", type_id: "graph-type", collection_id: "graph-collection",
           tags: [{ id: "graph-tag" }], images: [{ url: "graph.png" }], options: [{ title: "Size", values: ["S"] }],

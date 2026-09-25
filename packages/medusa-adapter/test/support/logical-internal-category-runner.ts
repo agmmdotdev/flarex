@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { Cause, Effect, Option } from "effect";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
-import { productLogicalInternalCategoryPolicy } from "../../src/product-local-events";
+import { productLogicalCallEventPolicy } from "../../src/product-local-events";
 import { decodeCategoryProjection } from "../../src/product-category-projection";
 import { captureCommerceInput } from "../../src/commerce-input";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -59,7 +59,7 @@ export function moduleIntegrationTestRunner(options: ProductRunnerOptions): void
         identityAndAccessPolicy: { profile: "native-internal-category-" + operation },
         participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
           commands: [selected],
-          validateLogical: productLogicalInternalCategoryPolicy(catalog, operation).validateLogical }],
+          validateLogicalCall: productLogicalCallEventPolicy(catalog).validateLogicalCall }],
         commands: [root[operation]],
       }));
       cleanup.push(() => run(host.close));

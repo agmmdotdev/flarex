@@ -3,9 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Result, Schema } from "effect";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
-import { productLogicalCategoryCreateEventPolicy, productLogicalCategoryMembershipEventPolicy,
-  productLogicalCollectionCreateEventPolicy, productLogicalCollectionMembershipEventPolicy,
-  productLogicalCreateEventPolicy, productLogicalRelationshipsEventPolicy } from "../src/product-local-events";
+import { productLogicalCallEventPolicy, productLogicalCategoryMembershipEventPolicy, productLogicalCollectionMembershipEventPolicy, productLogicalCreateEventPolicy, productLogicalRelationshipsEventPolicy } from "../src/product-local-events";
 import { decodeCategoryProjection } from "../src/product-category-projection";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductCollectionMembershipWorkflow } from "../src/product-collection-workflow";
@@ -53,7 +51,7 @@ async function prepareCreationHost() {
 }
 
 async function prepareCollectionCreationHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
-  const policy = productLogicalCollectionCreateEventPolicy(catalog);
+  const policy = productLogicalCallEventPolicy(catalog);
   const participant = defineAtomicCommerceParticipant("product");
   const root = defineAtomicCommerceCommand("productCollectionCreateRoot", (ctx, input) =>
     ctx.call(participant, product.runtime.commands.createCollections, input));
@@ -63,7 +61,7 @@ async function prepareCollectionCreationHost(catalog: Awaited<ReturnType<typeof 
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
     identityAndAccessPolicy: { profile: "logical-product-collection-create" },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-      commands: [product.runtime.commands.createCollections], validateLogical: policy.validateLogical,
+      commands: [product.runtime.commands.createCollections], validateLogicalCall: policy.validateLogicalCall,
       events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
     commands: [root], events: { producerRevision: revision, contracts: [contract],
       subscribers: [{ id: "logical-product-collection-create", revision: "a".repeat(64) }],
@@ -85,7 +83,7 @@ async function prepareCollectionMembershipHost(catalog: Awaited<ReturnType<typeo
 }
 
 async function prepareCategoryCreationHost(catalog: Awaited<ReturnType<typeof prepareCreationHost>>["catalog"]) {
-  const policy = productLogicalCategoryCreateEventPolicy(catalog);
+  const policy = productLogicalCallEventPolicy(catalog);
   const participant = defineAtomicCommerceParticipant("product");
   const root = defineAtomicCommerceCommand("productCategoryCreateRoot", (ctx, input) =>
     ctx.call(participant, product.runtime.commands.createCategories, input));
@@ -98,7 +96,7 @@ async function prepareCategoryCreationHost(catalog: Awaited<ReturnType<typeof pr
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
     identityAndAccessPolicy: { profile: "logical-product-category-create" },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-      commands: [product.runtime.commands.createCategories], validateLogical: policy.validateLogical,
+      commands: [product.runtime.commands.createCategories], validateLogicalCall: policy.validateLogicalCall,
       events: { contracts, select: (message: Json) => isJsonObject(message) && message.name === catalog.category.updatedEvent
         ? Effect.succeed(updated) : Effect.succeed(created) } }],
     commands: [root], events: { producerRevision: revision, contracts,
@@ -675,7 +673,7 @@ describe("native Product creation on shared logical storage", () => {
   it("refuses a public Category receipt with an unrequested Product pivot", async () => {
     const catalog = await Effect.runPromise(captureProductSchema("category-pivot-receipt")
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const policy = productLogicalCategoryCreateEventPolicy(catalog);
+    const policy = productLogicalCallEventPolicy(catalog);
     const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
     if (relation?.join.type !== "manyToMany") throw new Error("Missing Category Product pivot");
     const [categoryColumn] = relation.join.sourceColumns;
@@ -685,10 +683,10 @@ describe("native Product creation on shared logical storage", () => {
     const created = { name: catalog.category.createdEvent,
       metadata: { source: Modules.PRODUCT, object: catalog.category.eventObject, action: CommonEvents.CREATED },
       data: { id } };
-    const calls = [{ commandName: "productCreatecategory", mode: "write" as const,
+    const call = { commandName: "productCreatecategory", mode: "write" as const,
       input: { id, name: "Receipt", products: [{ id: "requested" }] },
       result: { id, rank: 0 }, events: [created], fromAttempt: 0, toAttempt: 3,
-      fromLifecycle: 0, toLifecycle: 0 }];
+      fromLifecycle: 0, toLifecycle: 0 };
     const mutations = [
       { ordinal: 0, table: catalog.category.table.name, operation: "insert" as const, before: null,
         after: { id, name: "Receipt", rank: 0, parent_category_id: null, mpath: id, deleted_at: null } },
@@ -697,7 +695,7 @@ describe("native Product creation on shared logical storage", () => {
       { ordinal: 2, table: relation.join.pivotTable, operation: "insert" as const, before: null,
         after: { [categoryColumn]: id, [productColumn]: "unrequested" } },
     ];
-    await expect(Effect.runPromise(policy.validateLogical(calls, mutations, [], [], [])))
+    await expect(Effect.runPromise(policy.validateLogicalCall(call, { mutations: mutations, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))
       .rejects.toMatchObject({ reason: "receiptMismatch" });
   });
 

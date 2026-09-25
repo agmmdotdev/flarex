@@ -6,6 +6,7 @@ import { commerceError, isJsonObject, type CommerceTransactionError, type Json, 
 import { defaultCommerceResources, type CommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { captureCommerceInput } from "./commerce-input";
+import { decodeProductLifecycleIds } from "./product-lifecycle";
 import { captureCategoryProjection, decodeCategoryProjection } from "./product-category-projection";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import type { ProductEntityMetadata, ProductRuntimeMetadata } from "./product-runtime-metadata";
@@ -17,6 +18,44 @@ import { ProductRelationshipCategoryListCall, ProductRelationshipCategoryProduct
 
 
 const EventId = Schema.String.check(Schema.isLengthBetween(1, 256));
+/** Public native rows contain the stored fields without Flarex document metadata. */
+function matchesPublicRow(stored: JsonObject, returned: Json): boolean {
+  if (!isJsonObject(returned)) return false;
+  const fields = Object.keys(stored).filter(key => key !== "_id" && key !== "_creationTime");
+  return Object.keys(returned).length === fields.length && fields.every(key => {
+    const actual = returned[key], expected = stored[key];
+    return actual !== undefined && expected !== undefined && jsonEqual(actual, expected);
+  });
+}
+
+/** Native Collection update returns requested Product ID stubs, not a loaded relation. */
+function matchesCollectionUpdateRow(before: JsonObject, stored: JsonObject, returned: Json, input: Json | undefined): boolean {
+  if (!isJsonObject(returned) || input === undefined || !isJsonObject(input)) return false;
+  for (const field of ["title", "handle", "metadata"] as const) {
+    const supplied = input[field];
+    if (supplied === undefined) continue;
+    const persisted = stored[field];
+    // Pinned internal-service metadata merges nonempty objects, deleting keys
+    // whose requested value is an empty string. Empty objects/null replace it.
+    if (field === "metadata" && isJsonObject(supplied) && Object.keys(supplied).length > 0) {
+      if (persisted === undefined || !isJsonObject(persisted)) return false;
+      const prior = before.metadata !== undefined && isJsonObject(before.metadata) ? before.metadata : {};
+      const keys = new Set([...Object.keys(prior), ...Object.keys(supplied), ...Object.keys(persisted)]);
+      for (const key of keys) {
+        const expected = Object.hasOwn(supplied, key) ? supplied[key] : prior[key];
+        const actual = persisted[key];
+        if (Object.hasOwn(supplied, key) && expected === "") {
+          if (actual !== undefined) return false;
+        } else if (expected === undefined || actual === undefined || !jsonEqual(expected, actual)) return false;
+      }
+    } else if (persisted === undefined || !jsonEqual(supplied, persisted)) return false;
+  }
+  const { products, ...scalars } = returned;
+  const ids = input.product_ids ?? [];
+  return matchesPublicRow(stored, scalars) && products !== undefined && Array.isArray(ids) &&
+    ids.every(id => typeof id === "string") && jsonEqual(products, ids.map(id => ({ id })));
+}
+
 const messageSchema = (maximumIds: number) => Schema.Struct({
   name: Schema.String,
   metadata: Schema.Struct({ source: Schema.Literal(Modules.PRODUCT), object: Schema.String, action: Schema.Literals([CommonEvents.CREATED, CommonEvents.UPDATED, CommonEvents.DELETED, CommonEvents.RESTORED]) }),
@@ -238,19 +277,65 @@ function productLogicalEntityEventPolicy(catalog: ProductRuntimeMetadata, entity
   return { capture, validateLogical };
 }
 
+/** Selected Product commands validate at the same native call boundary. Selection
+ * of callable methods stays with the host; unsupported writes fail closed here. */
+export function productLogicalCallEventPolicy(catalog: ProductRuntimeMetadata) {
+  const categoryCreate = categoryCreateEventPolicy(catalog);
+  const categoryUpdate = categoryChangeEventPolicy(catalog, "update");
+  const categoryDelete = categoryChangeEventPolicy(catalog, "delete");
+  const internalCreate = internalCategoryPolicy(catalog, "create");
+  const internalUpdate = internalCategoryPolicy(catalog, "update");
+  const internalDelete = internalCategoryPolicy(catalog, "delete");
+  const collectionCreate = collectionWriteEventPolicy(catalog, "create");
+  const collectionUpdate = collectionWriteEventPolicy(catalog, "update");
+  const collectionUpsert = collectionWriteEventPolicy(catalog, "upsert");
+  const collectionDelete = productLogicalNullableReferenceDeleteEventPolicy(catalog, catalog.collection,
+    "collection_id", "productDeletecollection");
+  const tags = tagCallEventPolicy(catalog);
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalCall")(
+    function* (call, activity) {
+      if (call.mode === "read") return;
+      if (call.commandName === "productDeletecollection") {
+        const decoded = yield* Effect.fromResult(decodeProductLifecycleIds(call.input))
+          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+        const requested = new Set(typeof decoded === "string" ? [decoded] : decoded);
+        if (call.result !== null || activity.referenceReplacements.length !== 0 ||
+          activity.mutations.some(mutation => typeof mutation.before?.id !== "string" || !requested.has(mutation.before.id)))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        yield* collectionDelete.validateLogical([call], activity.mutations, activity.lifecycle,
+          activity.observedRows, activity.setNull);
+        return;
+      }
+      const policy = call.commandName === "productCreatecategory" ? categoryCreate
+        : call.commandName === "productupdatecategory" ? categoryUpdate
+        : call.commandName === "productDeletecategory" ? categoryDelete
+        : call.commandName === "productInternalCategorycreate" ? internalCreate
+        : call.commandName === "productInternalCategoryupdate" ? internalUpdate
+        : call.commandName === "productInternalCategorydelete" ? internalDelete
+        : call.commandName === "productCreatecollection" ? collectionCreate
+        : call.commandName === "productupdatecollection" ? collectionUpdate
+        : call.commandName === "productupsertcollection" ? collectionUpsert
+        : ["productCreatetag", "productUpdateTagsBySelector", "productSoftDeleteTag"].includes(call.commandName) ? tags
+        : undefined;
+      if (policy === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
+      yield* policy.validateLogicalCall(call, activity);
+    });
+  return { capture: categoryCreate.capture, validateLogicalCall };
+}
+
 /** Bind public Category creation to the native tree transition, requested
  * Product memberships and the module messages for every affected Category. */
-export function productLogicalCategoryCreateEventPolicy(catalog: ProductRuntimeMetadata) {
+function categoryCreateEventPolicy(catalog: ProductRuntimeMetadata) {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const tree = productLogicalInternalCategoryPolicy(catalog, "create");
+  const tree = internalCategoryPolicy(catalog, "create");
   const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
   const join = relation?.join;
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCategoryCreate")(
-    function* (calls, mutations, lifecycle, observedRows, setNull, referenceReplacements = []) {
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalCategoryCreate")(
+    function* (write, activity) {
+      const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       const mismatch = () => commerceError("receiptMismatch");
-      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, "productCreatecategory");
-      const write = calls.find(call => call.mode === "write");
-      if (write === undefined || lifecycle.length !== 0 || setNull.length !== 0 ||
+      const emitted = write.events;
+      if (lifecycle.length !== 0 || setNull.length !== 0 ||
         referenceReplacements.length !== 0 || join?.type !== "manyToMany" ||
         join.sourceColumns.length !== 1 || join.targetColumns.length !== 1 ||
         mutations.some((mutation, index) => mutation.ordinal !== index))
@@ -302,9 +387,9 @@ export function productLogicalCategoryCreateEventPolicy(catalog: ProductRuntimeM
       if (expectedPivots.size !== 0) return yield* Effect.fail(mismatch());
       const syntheticResult = yield* Effect.fromResult(captureCategoryProjection(result, defaultCommerceResources))
         .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-      yield* tree.validateLogical([{ ...write, commandName: "productInternalCategorycreate",
-        input: treeInput, result: syntheticResult, events: [], fromAttempt: 0, toAttempt: categories.length }],
-      categories, [], observedRows, [], []);
+      yield* tree.validateLogicalCall({ ...write, commandName: "productInternalCategorycreate",
+        input: treeInput, result: syntheticResult, events: [], fromAttempt: 0, toAttempt: categories.length },
+      { ...activity, mutations: categories });
       for (const event of emitted) {
         const message = yield* capture(event);
         if (message.metadata.object !== catalog.category.eventObject ||
@@ -316,24 +401,23 @@ export function productLogicalCategoryCreateEventPolicy(catalog: ProductRuntimeM
       }
       if (expectedEvents.size !== 0) return yield* Effect.fail(mismatch());
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 /** Public Category update/delete retain the same native tree mutations as the
  * internal service, with public result shapes, module events and delete pivots. */
-export function productLogicalCategoryChangeEventPolicy(catalog: ProductRuntimeMetadata,
+function categoryChangeEventPolicy(catalog: ProductRuntimeMetadata,
   operation: "update" | "delete") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const tree = productLogicalInternalCategoryPolicy(catalog, operation);
+  const tree = internalCategoryPolicy(catalog, operation);
   const relation = catalog.queryRelations.get(catalog.category.table.name)?.get("products");
   const join = relation?.join;
-  const commandName = operation === "update" ? "productupdatecategory" : "productDeletecategory";
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCategoryChange")(
-    function* (calls, mutations, lifecycle, observedRows, setNull, referenceReplacements = []) {
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalCategoryChange")(
+    function* (write, activity) {
+      const { mutations, lifecycle, setNull, referenceReplacements } = activity;
       const mismatch = () => commerceError("receiptMismatch");
-      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
-      const write = calls.find(call => call.mode === "write");
-      if (write === undefined || lifecycle.length !== 0 || setNull.length !== 0 ||
+      const emitted = write.events;
+      if (lifecycle.length !== 0 || setNull.length !== 0 ||
         referenceReplacements.length !== 0 || join?.type !== "manyToMany" ||
         join.sourceColumns.length !== 1 || join.targetColumns.length !== 1 ||
         mutations.some((mutation, index) => mutation.ordinal !== index))
@@ -372,20 +456,13 @@ export function productLogicalCategoryChangeEventPolicy(catalog: ProductRuntimeM
       const syntheticResult = yield* Effect.fromResult(captureCategoryProjection(
         operation === "update" ? [write.result] : ids, defaultCommerceResources))
         .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-      yield* tree.validateLogical([{ ...write, commandName: "productInternalCategory" + operation,
+      yield* tree.validateLogicalCall({ ...write, commandName: "productInternalCategory" + operation,
         input: operation === "update" ? [update] : ids, result: syntheticResult, events: [],
-        fromAttempt: 0, toAttempt: categories.length }], categories, [], observedRows, [], []);
+        fromAttempt: 0, toAttempt: categories.length }, { ...activity, mutations: categories });
       if (operation === "update" && update !== undefined && isJsonObject(write.result)) {
         const final = categories.findLast(mutation => mutation.after?.id === update.id)?.after;
         if (final === undefined || final === null || !isJsonObject(final)) return yield* Effect.fail(mismatch());
-        const publicFields = Object.keys(final).filter(key => key !== "_id" && key !== "_creationTime");
-        if (Object.keys(write.result).length !== publicFields.length) return yield* Effect.fail(mismatch());
-        for (const key of publicFields) if (!Object.hasOwn(write.result, key))
-          return yield* Effect.fail(mismatch());
-        for (const [key, returned] of Object.entries(write.result)) {
-          const stored = final[key];
-          if (stored === undefined || !jsonEqual(stored, returned)) return yield* Effect.fail(mismatch());
-        }
+        if (!matchesPublicRow(final, write.result)) return yield* Effect.fail(mismatch());
       }
       for (const event of emitted) {
         const message = yield* capture(event);
@@ -398,7 +475,7 @@ export function productLogicalCategoryChangeEventPolicy(catalog: ProductRuntimeM
       }
       if (expectedEvents.size !== 0) return yield* Effect.fail(mismatch());
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
 
 const InternalCategoryCreateRows = Schema.Array(Schema.StructWithRest(Schema.Struct({
@@ -412,7 +489,7 @@ const decodeInternalCategoryCreateRows = Schema.decodeUnknownEffect(InternalCate
 
 /** Direct internal Category calls emit no module events. Admit only their
  * selected root mutations and native sibling/path maintenance. */
-export function productLogicalInternalCategoryPolicy(catalog: ProductRuntimeMetadata,
+function internalCategoryPolicy(catalog: ProductRuntimeMetadata,
   operation: "create" | "update" | "delete") {
   const mismatch = () => commerceError("receiptMismatch");
   const ids = Schema.decodeUnknownEffect(Schema.Array(EventId).check(Schema.isLengthBetween(1, 256)),
@@ -420,9 +497,10 @@ export function productLogicalInternalCategoryPolicy(catalog: ProductRuntimeMeta
   const selectedRows = Schema.decodeUnknownEffect(Schema.Array(Schema.StructWithRest(
     Schema.Struct({ id: EventId }), [Schema.Record(Schema.String, Schema.Json)]))
     .check(Schema.isLengthBetween(1, 256)), { onExcessProperty: "error" });
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateInternalCategory")(
-    function* (calls, mutations, lifecycle, observedRows, setNull, referenceReplacements = []) {
-      if (lifecycle.length !== 0 || setNull.length !== 0 || referenceReplacements.length !== 0 ||
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateInternalCategory")(
+    function* (call, activity) {
+      const { mutations, lifecycle, observedRows, setNull, referenceReplacements } = activity;
+      if (call.events.length !== 0 || lifecycle.length !== 0 || setNull.length !== 0 || referenceReplacements.length !== 0 ||
         mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(mismatch());
       const currentPaths = new Map<string, string>();
@@ -439,185 +517,175 @@ export function productLogicalInternalCategoryPolicy(catalog: ProductRuntimeMeta
         if (typeof mutation.before?.mpath === "string") currentPaths.set(id, mutation.before.mpath);
         else currentPaths.delete(id);
       }
-      let cursor = 0;
-      for (const call of calls) {
-        if (call.fromAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(mismatch());
-        if (call.mode === "read") {
-          if (call.toAttempt !== cursor) return yield* Effect.fail(mismatch());
-          continue;
-        }
-        if (call.commandName !== "productInternalCategory" + operation ||
-          call.toAttempt > mutations.length) return yield* Effect.fail(mismatch());
-        const createRows = operation === "create" ? yield* decodeInternalCategoryCreateRows(call.input)
-          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : [];
-        const updateRows = operation === "update" ? yield* selectedRows(call.input)
-          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : [];
-        const inputIds = operation === "delete" ? yield* ids(call.input)
-          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)))
-          : operation === "update" ? updateRows.map(row => row.id) : [];
-        const resultRows = yield* Effect.fromResult(decodeCategoryProjection(call.result))
-          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        const count = operation === "create" ? createRows.length : inputIds.length;
-        if (!Array.isArray(resultRows) || resultRows.length !== count ||
-          resultRows.some((row, index) => operation === "delete" ? row !== inputIds[index]
-            : !isJsonObject(row) || typeof row.id !== "string" ||
-              (operation === "create" ? createRows[index]?.id !== undefined && row.id !== createRows[index]?.id
-                : row.id !== inputIds[index]))) return yield* Effect.fail(mismatch());
-        const input = operation === "create" ? resultRows.map(row => isJsonObject(row) ? row.id as string : "") : inputIds;
-        if (new Set(input).size !== input.length) return yield* Effect.fail(mismatch());
-        const selected = new Set(input);
-        const seen = new Set<string>();
-        const segment = mutations.slice(cursor, call.toAttempt);
-        const roots = new Map<string, { before: JsonObject | null; after: JsonObject | null }>();
-        for (const mutation of segment) {
-          const id = mutation.before?.id ?? mutation.after?.id;
-          if (typeof id !== "string" || !selected.has(id)) continue;
-          const previous = roots.get(id);
-          roots.set(id, { before: previous === undefined ? mutation.before : previous.before, after: mutation.after });
-        }
-        const pathMoves: Array<{ rootId: string; oldPath: string; newPath: string }> = [];
-        const matchesSiblingRank = (before: JsonObject, after: JsonObject, id: string) => {
-          const parent = before.parent_category_id, oldRank = before.rank, nextRank = after.rank;
-          if (parent !== after.parent_category_id ||
-            !(parent === null || typeof parent === "string") ||
-            typeof oldRank !== "number" || typeof nextRank !== "number") return false;
-          return [...roots].some(([rootId, root]) => {
-            if (rootId === id) return false;
-            const old = root.before, next = root.after;
-            if (old !== null && old.parent_category_id === parent &&
-              (next === null || next.parent_category_id !== parent) &&
-              typeof old.rank === "number" && oldRank > old.rank && nextRank === oldRank - 1) return true;
-            if (next !== null && next.parent_category_id === parent &&
-              (old === null || old.parent_category_id !== parent) &&
-              typeof next.rank === "number" && oldRank >= next.rank && nextRank === oldRank + 1) return true;
-            return old !== null && next !== null && old.parent_category_id === parent &&
-              next.parent_category_id === parent && typeof old.rank === "number" &&
-              typeof next.rank === "number" && (
-                old.rank < next.rank && oldRank > old.rank && oldRank <= next.rank && nextRank === oldRank - 1 ||
-                old.rank > next.rank && oldRank >= next.rank && oldRank < old.rank && nextRank === oldRank + 1);
-          });
-        };
-        const matchesDescendantPath = (before: JsonObject, after: JsonObject, id: string) => {
-          const oldPath = before.mpath, newPath = after.mpath;
-          return before.parent_category_id === after.parent_category_id &&
-            typeof oldPath === "string" && typeof newPath === "string" &&
-            pathMoves.some(move => move.rootId !== id && oldPath.startsWith(move.oldPath + ".") &&
-              newPath === move.newPath + oldPath.slice(move.oldPath.length));
-        };
-        for (const mutation of segment) {
-          const before = mutation.before, after = mutation.after;
-          const id = operation === "delete" ? before?.id : after?.id;
-          if (mutation.table !== catalog.category.table.name || typeof id !== "string")
+      const createRows = operation === "create" ? yield* decodeInternalCategoryCreateRows(call.input)
+        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : [];
+      const updateRows = operation === "update" ? yield* selectedRows(call.input)
+        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause))) : [];
+      const inputIds = operation === "delete" ? yield* ids(call.input)
+        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)))
+        : operation === "update" ? updateRows.map(row => row.id) : [];
+      const resultRows = yield* Effect.fromResult(decodeCategoryProjection(call.result))
+        .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
+      const count = operation === "create" ? createRows.length : inputIds.length;
+      if (!Array.isArray(resultRows) || resultRows.length !== count ||
+        resultRows.some((row, index) => operation === "delete" ? row !== inputIds[index]
+          : !isJsonObject(row) || typeof row.id !== "string" ||
+            (operation === "create" ? createRows[index]?.id !== undefined && row.id !== createRows[index]?.id
+              : row.id !== inputIds[index]))) return yield* Effect.fail(mismatch());
+      const input = operation === "create" ? resultRows.map(row => isJsonObject(row) ? row.id as string : "") : inputIds;
+      if (new Set(input).size !== input.length) return yield* Effect.fail(mismatch());
+      const selected = new Set(input);
+      const seen = new Set<string>();
+      const segment = mutations;
+      const roots = new Map<string, { before: JsonObject | null; after: JsonObject | null }>();
+      for (const mutation of segment) {
+        const id = mutation.before?.id ?? mutation.after?.id;
+        if (typeof id !== "string" || !selected.has(id)) continue;
+        const previous = roots.get(id);
+        roots.set(id, { before: previous === undefined ? mutation.before : previous.before, after: mutation.after });
+      }
+      const pathMoves: Array<{ rootId: string; oldPath: string; newPath: string }> = [];
+      const matchesSiblingRank = (before: JsonObject, after: JsonObject, id: string) => {
+        const parent = before.parent_category_id, oldRank = before.rank, nextRank = after.rank;
+        if (parent !== after.parent_category_id ||
+          !(parent === null || typeof parent === "string") ||
+          typeof oldRank !== "number" || typeof nextRank !== "number") return false;
+        return [...roots].some(([rootId, root]) => {
+          if (rootId === id) return false;
+          const old = root.before, next = root.after;
+          if (old !== null && old.parent_category_id === parent &&
+            (next === null || next.parent_category_id !== parent) &&
+            typeof old.rank === "number" && oldRank > old.rank && nextRank === oldRank - 1) return true;
+          if (next !== null && next.parent_category_id === parent &&
+            (old === null || old.parent_category_id !== parent) &&
+            typeof next.rank === "number" && oldRank >= next.rank && nextRank === oldRank + 1) return true;
+          return old !== null && next !== null && old.parent_category_id === parent &&
+            next.parent_category_id === parent && typeof old.rank === "number" &&
+            typeof next.rank === "number" && (
+              old.rank < next.rank && oldRank > old.rank && oldRank <= next.rank && nextRank === oldRank - 1 ||
+              old.rank > next.rank && oldRank >= next.rank && oldRank < old.rank && nextRank === oldRank + 1);
+        });
+      };
+      const matchesDescendantPath = (before: JsonObject, after: JsonObject, id: string) => {
+        const oldPath = before.mpath, newPath = after.mpath;
+        return before.parent_category_id === after.parent_category_id &&
+          typeof oldPath === "string" && typeof newPath === "string" &&
+          pathMoves.some(move => move.rootId !== id && oldPath.startsWith(move.oldPath + ".") &&
+            newPath === move.newPath + oldPath.slice(move.oldPath.length));
+      };
+      for (const mutation of segment) {
+        const before = mutation.before, after = mutation.after;
+        const id = operation === "delete" ? before?.id : after?.id;
+        if (mutation.table !== catalog.category.table.name || typeof id !== "string")
+          return yield* Effect.fail(mismatch());
+        if (typeof before?.mpath === "string" && !currentPaths.has(id))
+          currentPaths.set(id, before.mpath);
+        const root = selected.has(id);
+        if (mutation.operation === "insert") {
+          if (operation !== "create" || !root || before !== null || !isJsonObject(after) ||
+            after.deleted_at !== null) return yield* Effect.fail(mismatch());
+          const selectedRow = createRows[input.indexOf(id)];
+          const resultRow = resultRows[input.indexOf(id)];
+          const parentPath = typeof after.parent_category_id === "string"
+            ? currentPaths.get(after.parent_category_id) : undefined;
+          if (selectedRow === undefined || after.name !== selectedRow.name ||
+            (selectedRow.handle !== undefined && after.handle !== selectedRow.handle) ||
+            after.parent_category_id !== (selectedRow.parent_category_id ?? null) ||
+            !(after.parent_category_id === null ? after.mpath === id
+              : parentPath !== undefined && after.mpath === parentPath + "." + id) ||
+            !isJsonObject(resultRow) || after.rank !== resultRow.rank ||
+            Object.entries(selectedRow).some(([key, value]) =>
+              !["id", "name", "handle", "parent_category_id", "rank"].includes(key) &&
+              (after[key] === undefined || !jsonEqual(value, after[key]))))
             return yield* Effect.fail(mismatch());
-          if (typeof before?.mpath === "string" && !currentPaths.has(id))
-            currentPaths.set(id, before.mpath);
-          const root = selected.has(id);
-          if (mutation.operation === "insert") {
-            if (operation !== "create" || !root || before !== null || !isJsonObject(after) ||
-              after.deleted_at !== null) return yield* Effect.fail(mismatch());
-            const selectedRow = createRows[input.indexOf(id)];
-            const resultRow = resultRows[input.indexOf(id)];
+          seen.add(id);
+        } else if (mutation.operation === "delete") {
+          if (operation !== "delete" || !root || !isJsonObject(before) || after !== null)
+            return yield* Effect.fail(mismatch());
+          seen.add(id);
+        } else if (mutation.operation === "patch" || mutation.operation === "replace") {
+          if (!isJsonObject(before) || !isJsonObject(after) || before.id !== after.id ||
+            before.deleted_at !== after.deleted_at) return yield* Effect.fail(mismatch());
+          const requested = operation === "update" && root
+            ? updateRows.find(row => row.id === id) : undefined;
+          for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+            if (before[key] !== undefined && after[key] !== undefined &&
+              jsonEqual(before[key], after[key])) continue;
+            if (["rank", "mpath", "updated_at"].includes(key)) continue;
+            if (requested === undefined || requested[key] === undefined ||
+              after[key] === undefined || !jsonEqual(requested[key], after[key]))
+              return yield* Effect.fail(mismatch());
+          }
+          const rankChanged = before.rank === undefined || after.rank === undefined
+            ? before.rank !== after.rank : !jsonEqual(before.rank, after.rank);
+          const pathChanged = before.mpath === undefined || after.mpath === undefined
+            ? before.mpath !== after.mpath : !jsonEqual(before.mpath, after.mpath);
+          const parentChanged = before.parent_category_id !== after.parent_category_id;
+          if (root) {
+            if (rankChanged && requested?.rank === undefined && !parentChanged &&
+              !matchesSiblingRank(before, after, id)) return yield* Effect.fail(mismatch());
+            if (pathChanged && !parentChanged && !matchesDescendantPath(before, after, id))
+              return yield* Effect.fail(mismatch());
+            if (parentChanged && !pathChanged) return yield* Effect.fail(mismatch());
             const parentPath = typeof after.parent_category_id === "string"
               ? currentPaths.get(after.parent_category_id) : undefined;
-            if (selectedRow === undefined || after.name !== selectedRow.name ||
-              (selectedRow.handle !== undefined && after.handle !== selectedRow.handle) ||
-              after.parent_category_id !== (selectedRow.parent_category_id ?? null) ||
+            if (pathChanged && parentChanged &&
               !(after.parent_category_id === null ? after.mpath === id
-                : parentPath !== undefined && after.mpath === parentPath + "." + id) ||
-              !isJsonObject(resultRow) || after.rank !== resultRow.rank ||
-              Object.entries(selectedRow).some(([key, value]) =>
-                !["id", "name", "handle", "parent_category_id", "rank"].includes(key) &&
-                (after[key] === undefined || !jsonEqual(value, after[key]))))
+                : parentPath !== undefined && after.mpath === parentPath + "." + id))
               return yield* Effect.fail(mismatch());
-            seen.add(id);
-          } else if (mutation.operation === "delete") {
-            if (operation !== "delete" || !root || !isJsonObject(before) || after !== null)
+          } else if (rankChanged === pathChanged ||
+            rankChanged && !matchesSiblingRank(before, after, id) ||
+            pathChanged && !matchesDescendantPath(before, after, id))
+            return yield* Effect.fail(mismatch());
+          if (root && operation === "update") seen.add(id);
+        } else return yield* Effect.fail(mismatch());
+        if (root && before !== null && after !== null &&
+          before.parent_category_id !== after.parent_category_id &&
+          typeof before.mpath === "string" && typeof after.mpath === "string")
+          pathMoves.push({ rootId: id, oldPath: before.mpath, newPath: after.mpath });
+        if (typeof after?.mpath === "string") currentPaths.set(id, after.mpath);
+        else currentPaths.delete(id);
+      }
+      if (operation === "update") {
+        for (const requested of updateRows) {
+          const final = roots.get(requested.id)?.after;
+          if (final === undefined || final === null) return yield* Effect.fail(mismatch());
+          const result = resultRows[input.indexOf(requested.id)];
+          if (!isJsonObject(result) ||
+            (typeof requested.rank === "number" &&
+              (typeof result.rank !== "number" || result.rank > requested.rank)) ||
+            !segment.some(mutation => mutation.after?.id === requested.id &&
+              mutation.after.rank === result.rank && mutation.after.mpath === result.mpath))
+            return yield* Effect.fail(mismatch());
+          for (const [key, value] of Object.entries(requested)) {
+            if (key === "id" || key === "rank" || key === "mpath" || key === "updated_at") continue;
+            if (final[key] === undefined || !jsonEqual(value, final[key]))
               return yield* Effect.fail(mismatch());
-            seen.add(id);
-          } else if (mutation.operation === "patch" || mutation.operation === "replace") {
-            if (!isJsonObject(before) || !isJsonObject(after) || before.id !== after.id ||
-              before.deleted_at !== after.deleted_at) return yield* Effect.fail(mismatch());
-            const requested = operation === "update" && root
-              ? updateRows.find(row => row.id === id) : undefined;
-            for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-              if (before[key] !== undefined && after[key] !== undefined &&
-                jsonEqual(before[key], after[key])) continue;
-              if (["rank", "mpath", "updated_at"].includes(key)) continue;
-              if (requested === undefined || requested[key] === undefined ||
-                after[key] === undefined || !jsonEqual(requested[key], after[key]))
-                return yield* Effect.fail(mismatch());
-            }
-            const rankChanged = before.rank === undefined || after.rank === undefined
-              ? before.rank !== after.rank : !jsonEqual(before.rank, after.rank);
-            const pathChanged = before.mpath === undefined || after.mpath === undefined
-              ? before.mpath !== after.mpath : !jsonEqual(before.mpath, after.mpath);
-            const parentChanged = before.parent_category_id !== after.parent_category_id;
-            if (root) {
-              if (rankChanged && requested?.rank === undefined && !parentChanged &&
-                !matchesSiblingRank(before, after, id)) return yield* Effect.fail(mismatch());
-              if (pathChanged && !parentChanged && !matchesDescendantPath(before, after, id))
-                return yield* Effect.fail(mismatch());
-              if (parentChanged && !pathChanged) return yield* Effect.fail(mismatch());
-              const parentPath = typeof after.parent_category_id === "string"
-                ? currentPaths.get(after.parent_category_id) : undefined;
-              if (pathChanged && parentChanged &&
-                !(after.parent_category_id === null ? after.mpath === id
-                  : parentPath !== undefined && after.mpath === parentPath + "." + id))
-                return yield* Effect.fail(mismatch());
-            } else if (rankChanged === pathChanged ||
-              rankChanged && !matchesSiblingRank(before, after, id) ||
-              pathChanged && !matchesDescendantPath(before, after, id))
-              return yield* Effect.fail(mismatch());
-            if (root && operation === "update") seen.add(id);
-          } else return yield* Effect.fail(mismatch());
-          if (root && before !== null && after !== null &&
-            before.parent_category_id !== after.parent_category_id &&
-            typeof before.mpath === "string" && typeof after.mpath === "string")
-            pathMoves.push({ rootId: id, oldPath: before.mpath, newPath: after.mpath });
-          if (typeof after?.mpath === "string") currentPaths.set(id, after.mpath);
-          else currentPaths.delete(id);
-        }
-        if (operation === "update") {
-          for (const requested of updateRows) {
-            const final = roots.get(requested.id)?.after;
-            if (final === undefined || final === null) return yield* Effect.fail(mismatch());
-            const result = resultRows[input.indexOf(requested.id)];
-            if (!isJsonObject(result) ||
-              (typeof requested.rank === "number" &&
-                (typeof result.rank !== "number" || result.rank > requested.rank)) ||
-              !segment.some(mutation => mutation.after?.id === requested.id &&
-                mutation.after.rank === result.rank && mutation.after.mpath === result.mpath))
-              return yield* Effect.fail(mismatch());
-            for (const [key, value] of Object.entries(requested)) {
-              if (key === "id" || key === "rank" || key === "mpath" || key === "updated_at") continue;
-              if (final[key] === undefined || !jsonEqual(value, final[key]))
-                return yield* Effect.fail(mismatch());
-            }
           }
         }
-        if (seen.size !== selected.size) return yield* Effect.fail(mismatch());
-        cursor = call.toAttempt;
       }
-      if (cursor !== mutations.length) return yield* Effect.fail(mismatch());
+      if (seen.size !== selected.size) return yield* Effect.fail(mismatch());
+
     });
-  return { validateLogical };
+  return { validateLogicalCall };
 }
 
 
 /** Native Collection writes may change their own roots and, when product_ids
  * is present, only the requested Product.collection_id memberships. */
-function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadata,
+function collectionWriteEventPolicy(catalog: ProductRuntimeMetadata,
   operation: "create" | "update" | "upsert") {
   const capture = productModuleEventCapture(catalog, defaultCommerceResources);
-  const commandName = operation === "create" ? "productCreatecollection"
-    : operation === "update" ? "productupdatecollection" : "productupsertcollection";
   const mismatch = () => commerceError("receiptMismatch");
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCollectionWrite")(
-    function* (calls, mutations, lifecycle, _observedRows, setNull, referenceReplacements = []) {
-      const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalCollectionWrite")(
+    function* (write, activity) {
+      const { mutations, lifecycle, setNull, referenceReplacements } = activity;
+      const emitted = write.events;
       if (lifecycle.length !== 0 || setNull.length !== 0) return yield* Effect.fail(mismatch());
-      const write = calls.find(call => call.mode === "write");
-      if (write === undefined) return yield* Effect.fail(mismatch());
+      const replacesMembership = operation === "update" && isJsonObject(write.input) &&
+        write.input.data !== undefined && isJsonObject(write.input.data) &&
+        Object.hasOwn(write.input.data, "product_ids");
+      if (replacesMembership && referenceReplacements.length !== 1) return yield* Effect.fail(mismatch());
       if (referenceReplacements.length !== 0) {
         const intent = referenceReplacements[0];
         const supplied = isJsonObject(write.input) && write.input.data !== undefined &&
@@ -637,7 +705,7 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
           mutations.length !== 1 || root?.table !== catalog.collection.table.name ||
           !["patch", "replace"].includes(root.operation) || root.before?.id !== intent.targetKey ||
           root.after?.id !== intent.targetKey || root.after.deleted_at !== null ||
-          !isJsonObject(write.result) || write.result.id !== intent.targetKey ||
+          !matchesCollectionUpdateRow(root.before, root.after, write.result, write.input.data) ||
           emitted.length !== 1 || event?.name !== catalog.collection.updatedEvent ||
           event.metadata.object !== catalog.collection.eventObject ||
           event.metadata.action !== CommonEvents.UPDATED || event.data.id !== intent.targetKey)
@@ -654,12 +722,11 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
       const createdCount = createdRequests.length;
       const updatedIds = operation === "upsert" ? new Set(requested.flatMap(item =>
         isJsonObject(item) && typeof item.id === "string" ? [item.id] : [])) : new Set<string>();
-      const generatedMembership = operation !== "update" && requested.some(item =>
-        isJsonObject(item) && typeof item.id !== "string" && Object.hasOwn(item, "product_ids"));
-      const resultRows = generatedMembership
+      const returnsRoots = operation !== "update";
+      const resultRows = returnsRoots
         ? Array.isArray(write.result) ? write.result : [write.result] : [];
       const returnedIds = new Set<string>();
-      if (generatedMembership) {
+      if (returnsRoots) {
         if (resultRows.length !== requested.length) return yield* Effect.fail(mismatch());
         for (const row of resultRows) {
           if (!isJsonObject(row) || typeof row.id !== "string" || row.id.length === 0 || returnedIds.has(row.id))
@@ -698,7 +765,8 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
       const createdRoots: string[] = [];
       const createdRootRows = new Map<string, JsonObject>();
       const updatedRoots: string[] = [];
-      const attachedByRoot = new Map<string, Set<string>>();
+      const attachedByRoot = new Map<string, Map<string, JsonObject>>();
+      const returnedMembers = new Map<string, readonly Json[]>();
       for (const mutation of mutations) {
         const { before, after } = mutation;
         const created = mutation.operation === "insert" && before === null && after?.deleted_at === null;
@@ -722,8 +790,8 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
             !memberships.get(before.collection_id)?.has(after.id);
           if (!attached && !detached) return yield* Effect.fail(mismatch());
           if (attached && typeof after.collection_id === "string") {
-            const members = attachedByRoot.get(after.collection_id) ?? new Set<string>();
-            members.add(after.id);
+            const members = attachedByRoot.get(after.collection_id) ?? new Map<string, JsonObject>();
+            members.set(after.id, after);
             attachedByRoot.set(after.collection_id, members);
           }
           const identity = catalog.product.updatedEvent + ":" + after.id;
@@ -734,7 +802,21 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
         if (mutation.table !== catalog.collection.table.name ||
           operation === "create" && !created || operation === "update" && (!updated || after.id !== updateId) || roots.has(after.id))
           return yield* Effect.fail(mismatch());
-        if (generatedMembership && !returnedIds.has(after.id)) return yield* Effect.fail(mismatch());
+        if (returnsRoots && !returnedIds.has(after.id)) return yield* Effect.fail(mismatch());
+        const returned = operation === "update" ? write.result
+          : resultRows.find(row => isJsonObject(row) && row.id === after.id);
+        if (returned === undefined || !isJsonObject(returned)) return yield* Effect.fail(mismatch());
+        if (created) {
+          // Native create uses upsertWithReplace(..., { relations: ["products"] });
+          // updated roots instead return their normalized requested ID stubs.
+          const { products, ...scalars } = returned;
+          if (!Array.isArray(products) || !matchesPublicRow(after, scalars)) return yield* Effect.fail(mismatch());
+          returnedMembers.set(after.id, products);
+        } else {
+          const input = operation === "update" && isJsonObject(write.input) ? write.input.data
+            : requested.find(row => isJsonObject(row) && row.id === after.id);
+          if (before === null || !matchesCollectionUpdateRow(before, after, returned, input)) return yield* Effect.fail(mismatch());
+        }
         roots.add(after.id);
         (created ? createdRoots : updatedRoots).push(after.id);
         if (created) createdRootRows.set(after.id, after);
@@ -743,10 +825,10 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
         expected.add(identity);
       }
       for (const root of memberships.keys()) if (!roots.has(root)) return yield* Effect.fail(mismatch());
-      if (generatedMembership && roots.size !== returnedIds.size) return yield* Effect.fail(mismatch());
-      if (generatedMembership && (createdRoots.length !== createdCount || updatedRoots.length !== updatedIds.size ||
+      if (returnsRoots && roots.size !== returnedIds.size) return yield* Effect.fail(mismatch());
+      if (returnsRoots && (createdRoots.length !== createdCount || updatedRoots.length !== updatedIds.size ||
         updatedRoots.some(id => !updatedIds.has(id)))) return yield* Effect.fail(mismatch());
-      if (generatedMembership) for (const [index, input] of createdRequests.entries()) {
+      if (returnsRoots) for (const [index, input] of createdRequests.entries()) {
         const returned = resultRows[index];
         const stored = isJsonObject(returned) && typeof returned.id === "string"
           ? createdRootRows.get(returned.id) : undefined;
@@ -763,6 +845,15 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
         const selected = memberships.get(root);
         if (selected !== undefined && ((attachedByRoot.get(root)?.size ?? 0) !== selected.size ||
           [...selected].some(id => !attachedByRoot.get(root)?.has(id)))) return yield* Effect.fail(mismatch());
+        const returned = returnedMembers.get(root);
+        const expectedMembers = new Map(attachedByRoot.get(root));
+        if (returned === undefined || returned.length !== expectedMembers.size) return yield* Effect.fail(mismatch());
+        for (const member of returned) {
+          if (!isJsonObject(member) || typeof member.id !== "string") return yield* Effect.fail(mismatch());
+          const stored = expectedMembers.get(member.id);
+          if (stored === undefined || !matchesPublicRow(stored, member)) return yield* Effect.fail(mismatch());
+          expectedMembers.delete(member.id);
+        }
       }
       if (operation === "update" && (updateId === undefined || !roots.has(updateId)))
         return yield* Effect.fail(mismatch());
@@ -780,24 +871,7 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
       }
       if (expected.size !== 0) return yield* Effect.fail(mismatch());
     });
-  return { capture, validateLogical };
-}
-
-export function productLogicalCollectionCreateEventPolicy(catalog: ProductRuntimeMetadata) {
-  return productLogicalCollectionWriteEventPolicy(catalog, "create");
-}
-
-export function productLogicalCollectionUpdateEventPolicy(catalog: ProductRuntimeMetadata) {
-  return productLogicalCollectionWriteEventPolicy(catalog, "update");
-}
-
-export function productLogicalCollectionUpsertEventPolicy(catalog: ProductRuntimeMetadata) {
-  return productLogicalCollectionWriteEventPolicy(catalog, "upsert");
-}
-
-export function productLogicalCollectionDeleteEventPolicy(catalog: ProductRuntimeMetadata) {
-  return productLogicalNullableReferenceDeleteEventPolicy(catalog, catalog.collection,
-    "collection_id", "productDeletecollection");
+  return { capture, validateLogicalCall };
 }
 
 /** The event belongs to the deleted native root; Product detachment is a
@@ -1657,7 +1731,7 @@ export function productLogicalDeleteEventPolicy(catalog: ProductRuntimeMetadata)
 }
 
 /** Every selected tag method validates at the shared outer-call boundary. */
-export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata) {
+function tagCallEventPolicy(catalog: ProductRuntimeMetadata) {
   const created = productLogicalEntityEventPolicy(catalog, catalog.tag, "productCreatetag", "created");
   const updated = productLogicalEntityEventPolicy(catalog, catalog.tag, "productUpdateTagsBySelector", "updated");
   const deleted = productLogicalEntityEventPolicy(catalog, catalog.tag, "productSoftDeleteTag", "deleted");

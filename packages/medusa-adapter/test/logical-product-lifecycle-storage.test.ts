@@ -6,10 +6,7 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { createStep, createWorkflow, WorkflowResponse } from "@medusajs/workflows-sdk";
 import { batchVariantImagesWorkflow } from "@medusajs/core-flows/product/batch-variant-images";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
-import { productLogicalCategoryCreateEventPolicy, productLogicalCreateEventPolicy,
-  productLogicalDeleteEventPolicy, productLogicalTagEventPolicy,
-  productLogicalLifecycleEventPolicy, productLogicalUpdateEventPolicy,
-  productLogicalVariantImagesEventPolicy } from "../src/product-local-events";
+import { productLogicalCallEventPolicy, productLogicalCreateEventPolicy, productLogicalDeleteEventPolicy, productLogicalLifecycleEventPolicy, productLogicalUpdateEventPolicy, productLogicalVariantImagesEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
 import { prepareVariantImagesWorkflow, variantImagesWorkflowEvents } from "../src/product-variant-images-workflow";
@@ -67,7 +64,7 @@ async function variantImagesHost(selectedCurrency = currency, selectedProduct = 
 }
 
 async function categoryHost() {
-  const policy = productLogicalCategoryCreateEventPolicy(catalog);
+  const policy = productLogicalCallEventPolicy(catalog);
   const participant = defineAtomicCommerceParticipant("product");
   const root = defineAtomicCommerceCommand("productCategoryCreateRoot", (ctx, input) =>
     ctx.call(participant, product.runtime.commands.createCategories, input));
@@ -77,7 +74,7 @@ async function categoryHost() {
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
     identityAndAccessPolicy: { profile: "logical-product-category-create" },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
-      commands: [product.runtime.commands.createCategories], validateLogical: policy.validateLogical,
+      commands: [product.runtime.commands.createCategories], validateLogicalCall: policy.validateLogicalCall,
       events: { contracts: [contract], select: (message: Json) => isJsonObject(message) &&
         message.name === catalog.category.createdEvent ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }],
     commands: [root], events: { producerRevision: revision, contracts: [contract],
@@ -92,7 +89,7 @@ async function tagHost() {
     execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
     modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalTagEventPolicy(catalog) },
+      moduleEvents: productLogicalCallEventPolicy(catalog) },
     currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
     revision: createHash("sha256").update("logical-product-membership-tag").digest("hex"),
     subscribers: [{ id: "logical-product-membership", revision: "a".repeat(64) }],

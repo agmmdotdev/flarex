@@ -11,7 +11,7 @@ import { currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import type { ProductRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalTagEventPolicy } from "../src/product-local-events";
+import { productLogicalCallEventPolicy } from "../src/product-local-events";
 import { CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
@@ -34,7 +34,7 @@ const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_D
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
 let fixture: { currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   product: Awaited<ReturnType<typeof prepareLogicalProductHost>> };
-let policy: ReturnType<typeof productLogicalTagEventPolicy>;
+let policy: ReturnType<typeof productLogicalCallEventPolicy>;
 let catalog: ProductRuntimeMetadata;
 let revision: string;
 const subscribers = [{ id: "composition", revision: "a".repeat(64) }];
@@ -82,7 +82,7 @@ describe("native composed Product workflows", () => {
     await runEffect(product.host.close);
     fixture = { currency, product };
     catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    policy = productLogicalTagEventPolicy(catalog);
+    policy = productLogicalCallEventPolicy(catalog);
   }, 150_000);
   afterAll(async () => {
     const failures: unknown[] = [];

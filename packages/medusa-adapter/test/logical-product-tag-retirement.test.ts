@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { deleteProductTagsWorkflow } from "@medusajs/core-flows/product/delete-product-tags";
 import { currencyWorkflowModule } from "../src/currency-service";
-import { productLogicalCreateEventPolicy, productLogicalTagEventPolicy } from "../src/product-local-events";
+import { productLogicalCreateEventPolicy, productLogicalCallEventPolicy } from "../src/product-local-events";
 import { prepareProductCreateWorkflow } from "../src/product-create-workflow";
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
 import { prepareProductTagUpdateWorkflow, type ProductTagUpdateWorkflowHooks } from "../src/product-tag-update-workflow";
@@ -63,15 +63,15 @@ async function hosts(options?: {
       makeAtomicCommerceHost({ ...product.hostInput, session: options?.session ?? currency.session, ...composition }) };
   const selected = { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage };
   const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog) },
+    modules: { product: { ...selected, moduleEvents: productLogicalCallEventPolicy(catalog) },
       currency: { module: Result.getOrThrow(currencyWorkflowModule),
         logicalStorage: currency.hostInput.logicalStorage } },
     revision, subscribers }));
   const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
-    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog) } },
+    modules: { product: { ...selected, moduleEvents: productLogicalCallEventPolicy(catalog) } },
     revision, subscribers, ...(options?.updateHooks === undefined ? {} : { hooks: options.updateHooks }) }));
   const remove = await Effect.runPromise(prepareProductTagDeleteWorkflow({ execution,
-    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog) } },
+    modules: { product: { ...selected, moduleEvents: productLogicalCallEventPolicy(catalog) } },
     revision, subscribers, ...(options?.deleteHooks === undefined ? {} : { hooks: options.deleteHooks }) }));
   return { create, update, remove, close: async () => {
     await Effect.runPromise(create.close);
@@ -317,7 +317,7 @@ describe("native Product-tag update/delete on logical storage", () => {
         prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) },
       modules: { product: { module: product.runtime.workflow,
         logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalTagEventPolicy(catalog) } },
+        moduleEvents: productLogicalCallEventPolicy(catalog) } },
       revision, subscribers,
       workflow: { name: "wrongLogicalProductTagDeletionOutput", resources,
         prepared: Result.getOrThrow(deleteProductTagsWorkflow.prepare()),

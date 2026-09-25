@@ -25,9 +25,11 @@ equality access; SalesChannel `is_disabled` uses a declared Boolean index under
 Selected scalar and Product-tag commands now validate at the shared outer-call
 boundary, supporting repeated calls and native child workflows with one
 settlement. [Native command composition](./44-native-command-composition.md)
-owns that contract and the common unsupported-method refusal boundary. Category,
-Collection and other aggregate receipt consumers retain their explicit semantic
-migration gates; this does not admit arbitrary relationship composition.
+owns that contract and the common unsupported-method refusal boundary.
+[Direct Category/Collection commands](./45-category-collection-command-composition.md)
+now use the same Product call policy as Tags. Their preceding-read membership
+workflows and other aggregate receipt consumers retain explicit semantic migration
+gates; this does not admit arbitrary relationship composition.
 Native ProductType CRUD and Product `type_id` references have a selected
 [logical path](./26-product-type-native-cutover.md), while the wider pinned
 Product compatibility runner retains its physical source.

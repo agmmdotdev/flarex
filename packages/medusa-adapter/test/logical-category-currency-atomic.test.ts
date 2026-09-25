@@ -64,12 +64,20 @@ describe("Category/Currency on two logical participants", () => {
     expect(await inventory()).toEqual(after);
   }, 120_000);
 
-  it("refuses an unreceipted Category field and rolls back its logical row", async () => {
+  it("refuses a Category receipt that changes a requested field and rolls back its row", async () => {
     const { input, proof } = fixture;
     const command = defineAtomicCommerceCommand("mixedExtraCategoryField", ctx =>
       ctx.call(proof.productParticipant, required(proof.productCommands[0]),
         [{ id: "extra-category", name: "Extra category", handle: "extra-category", is_active: true }]));
-    const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [command] }));
+    const host = await runEffect(makeAtomicCommerceHost({ ...input, commands: [command],
+      participants: input.participants.map(member => {
+        const validate = member.validateLogicalCall;
+        return member.participant !== proof.productParticipant || validate === undefined ? member
+          : { ...member, validateLogicalCall: (call, activity) => validate(call, { ...activity,
+            mutations: activity.mutations.map(mutation => ({ ...mutation,
+              after: mutation.after === null ? null : { ...mutation.after, is_active: false } })),
+          }) };
+      }) }));
     try {
       const before = await inventory();
       expect(await runEffectFailure(host.run(host.newRequestKey(), command, null)))
@@ -222,7 +230,7 @@ describe("Category/Currency on two logical participants", () => {
     const product = input.participants.find(member => member.participant === proof.productParticipant);
     if (product === undefined) throw new Error("Missing Product participant");
     const refused = await runEffect(makeAtomicCommerceHost({ ...input, commands: [failingRoot], events,
-      participants: [{ ...product, commands: [rejected], validateLogical: () => Effect.fail(commerceError("receiptMismatch")) }] }));
+      participants: [{ ...product, commands: [rejected], validateLogicalCall: () => Effect.fail(commerceError("receiptMismatch")) }] }));
     try {
       expect(await runEffectFailure(refused.run(refused.newRequestKey(), failingRoot, null)))
         .toMatchObject({ reason: "receiptMismatch" });

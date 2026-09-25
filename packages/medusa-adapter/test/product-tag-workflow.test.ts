@@ -9,7 +9,7 @@ import { prepareProductTagWorkflow, type ProductTagWorkflowHooks } from "../src/
 import { currencyCommands, currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalTagEventPolicy } from "../src/product-local-events";
+import { productLogicalCallEventPolicy } from "../src/product-local-events";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { expireCommerceResult, compactRetainedCommitHistory } from "../../persistence-postgres/test/commerceInventory";
 import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
@@ -33,7 +33,7 @@ const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_D
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
 let fixture: { currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   product: Awaited<ReturnType<typeof prepareLogicalProductHost>> };
-let policy: ReturnType<typeof productLogicalTagEventPolicy>;
+let policy: ReturnType<typeof productLogicalCallEventPolicy>;
 let revision: string;
 const subscribers = [{ id: "tags-index", revision: "a".repeat(64) }, { id: "tags-audit", revision: "b".repeat(64) }];
 const args = (value: string) => ({ product_tags: [{ value }], additional_data: { witness: value } });
@@ -84,7 +84,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     await runEffect(product.host.close);
     fixture = { currency, product };
     const catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    policy = productLogicalTagEventPolicy(catalog);
+    policy = productLogicalCallEventPolicy(catalog);
   }, 150_000);
   afterAll(async () => {
     const failures: unknown[] = [];

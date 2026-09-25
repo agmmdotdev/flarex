@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Effect, Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { currencyWorkflowModule } from "../src/currency-service";
-import { productLogicalTagEventPolicy } from "../src/product-local-events";
+import { productLogicalCallEventPolicy } from "../src/product-local-events";
 import { prepareProductTagWorkflow } from "../src/product-tag-workflow";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
@@ -42,7 +42,7 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
         product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalTagEventPolicy(metadata) },
+          moduleEvents: productLogicalCallEventPolicy(metadata) },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow").digest("hex"),
@@ -87,7 +87,7 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
         product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalTagEventPolicy(metadata) },
+          moduleEvents: productLogicalCallEventPolicy(metadata) },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-no-hook").digest("hex"),
@@ -108,7 +108,7 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
     let hooks = 0;
     const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const policy = productLogicalTagEventPolicy(metadata);
+    const policy = productLogicalCallEventPolicy(metadata);
     const host = await Effect.runPromise(prepareProductTagWorkflow({
       execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },

@@ -26,11 +26,13 @@ general composition contract. The authenticated outer call in atomic execution
 is the correct owner for immediate validation and local ordinal rebasing.
 
 Use an explicit call validator, mutually exclusive with the existing aggregate
-validator. Keep aggregate validation for named Product Category, Collection,
-Option, lifecycle, Pricing and Link consumers whose whole-root evidence has
-not moved. Their removal gate is equivalent per-call semantic proof, including
-preceding reads and deferred transitions. Do not silently reinterpret their
-final-row evidence or claim arbitrary Product composition.
+validator. Direct Category/Collection commands now share the Product call policy
+under [their semantic cutover](./45-category-collection-command-composition.md).
+Keep aggregate validation for the preceding-read Category/Collection membership
+workflows, Option, lifecycle, Pricing and Link consumers whose whole-root evidence
+has not moved. Their removal gate is equivalent per-call semantic proof,
+including preceding reads and deferred transitions. Do not silently reinterpret
+their final-row evidence or claim arbitrary Product composition.
 
 Manual refused-method lists are incomplete by construction. Replace them with
 one invocation boundary in the existing scoped binder, preserving finite typed
