@@ -1,7 +1,7 @@
 # Core-owned Collection membership replacement
 
 Status: focused preflight under the standing shared-storage completion approval.
-The bounded shared-event prerequisite is implemented; the 129-member native
+The bounded shared-event and delivery prerequisites are implemented; the 129-member native
 Collection update remains an atomic capacity refusal until the connected
 core/native replacement and both-driver proof pass.
 
@@ -33,7 +33,9 @@ that budget at its trusted host and prove its native event count. Do not
 coalesce native per-Product events merely to fit a ceiling; event count, bytes,
 digest, delivery rows and the outer fact budget are independent resource
 dimensions. Delivery claim cost and hot-shop lock time at higher fan-out still
-need measurement before scale claims.
+need measurement before scale claims. The shared
+[delivery batch correction](./35-core-event-delivery-batches.md) prevents one
+complete family reread per claim; it does not prove handler throughput.
 
 ## Recommended contract and breaks
 

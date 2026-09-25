@@ -118,8 +118,10 @@ claiming. Missing/extra rows and changed payloads fail closed. Partial header
 indexes serve event discovery and event-free history compaction so their bounded
 pages do not scan long runs of the excluded family.
 
-Capture allows at most 64 messages, 8 subscribers and 65,536 bytes per envelope,
-under the existing shared root budget. Claims use database time, a 30-second
+Capture defaults to 64 messages; a trusted, identity-bound root selection may
+admit up to 256, subject to any physical participant profile. Each envelope
+allows at most 8 subscribers and 65,536 bytes, with the shared request byte
+budget still enforced. Claims use database time, a 30-second
 lease, monotonic fences and at most 5 attempts. Retry delay grows from 1 second
 up to 60 seconds; typed failure codes are bounded and retained. Handler execution
 has a 1-second cooperative timeout. Defects/interruption leave a lease for repair.
@@ -143,9 +145,12 @@ must find pending committed deliveries even when the post-commit call or wake
 is lost. Its durable state tracks delivery of the single committed event family;
 it is not an independently writable second event feed. The private pump returns a commit cursor: callers scan to the end and restart
 from zero on a later repair pass so delayed retries and unavailable handler
-revisions are revisited. Each page invokes at most 64 deliveries; it does not
-claim ahead while a previous handler runs. Production polling/wake fan-out
-remains a later host decision.
+revisions are revisited. Each page invokes at most 64 deliveries. The private
+pump claims at most eight ahead in one short SQL session and then invokes their
+handlers sequentially outside the session. Interruption or a defect can leave
+the remaining claims leased for up to 30 seconds; their fences and the repair
+scan recover them after expiry. Production polling/wake fan-out remains a later
+host decision.
 
 Delivery is at least once: destination success followed by a lost acknowledgement
 can cause invocation again with the same event/delivery identity. Claim fencing

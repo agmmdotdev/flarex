@@ -27,21 +27,24 @@ export const makeCommitEventPump = Effect.fn("CommitEvents.makePump")(function* 
     if (Option.isNone(next)) return { done: true, cursor: 0n, delivered: 0, failed: 0 };
     let delivered = 0;
     let failed = 0;
-    for (let index = 0; index < commitEventLimits.batch; index++) {
-      const claimed = yield* store.claim(next.value, selected);
-      if (Option.isNone(claimed)) return { done: false, cursor: next.value, delivered, failed };
-      const claim = claimed.value;
-      const handler = selected.find(candidate => candidate.id === claim.message.subscriber.id && candidate.revision === claim.message.subscriber.revision);
-      if (handler === undefined) return yield* Effect.fail(eventError("invalidAuthority"));
-      // Handler execution is outside every SQL session. Interruption or a defect
-      // leaves the lease recoverable; expected subscriber failure is durable evidence.
-      yield* Effect.suspend(() => handler.handle(claim.message)).pipe(
-        Effect.timeoutOrElse({ duration: 1000, orElse: () => Effect.fail(new CommitEventSubscriberFailure({ retryable: true, code: "handler-timeout" })) }),
-        Effect.matchEffect({
-          onSuccess: () => store.settle(claim).pipe(Effect.tap(() => Effect.sync(() => { delivered++; }))),
-          onFailure: failure => store.settle(claim, failure).pipe(Effect.tap(() => Effect.sync(() => { failed++; }))),
-        }),
-      );
+    for (let index = 0; index < commitEventLimits.batch;) {
+      const claims = yield* store.claimBatch(next.value, selected,
+        Math.min(commitEventLimits.claimBatch, commitEventLimits.batch - index));
+      if (claims.length === 0) return { done: false, cursor: next.value, delivered, failed };
+      index += claims.length;
+      for (const claim of claims) {
+        const handler = selected.find(candidate => candidate.id === claim.message.subscriber.id && candidate.revision === claim.message.subscriber.revision);
+        if (handler === undefined) return yield* Effect.fail(eventError("invalidAuthority"));
+        // Handler execution is outside every SQL session. Interruption or a defect
+        // leaves the lease recoverable; expected subscriber failure is durable evidence.
+        yield* Effect.suspend(() => handler.handle(claim.message)).pipe(
+          Effect.timeoutOrElse({ duration: 1000, orElse: () => Effect.fail(new CommitEventSubscriberFailure({ retryable: true, code: "handler-timeout" })) }),
+          Effect.matchEffect({
+            onSuccess: () => store.settle(claim).pipe(Effect.tap(() => Effect.sync(() => { delivered++; }))),
+            onFailure: failure => store.settle(claim, failure).pipe(Effect.tap(() => Effect.sync(() => { failed++; }))),
+          }),
+        );
+      }
     }
     // Keep the previous cursor when the delivery bound cuts a commit short.
     return { done: false, cursor: afterCommit, delivered, failed };

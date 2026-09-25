@@ -35,6 +35,7 @@ import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../pers
 import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
 import { commitEventsDigest } from "../../persistence-postgres/src/commitEvents/digest";
+import { makeCommitEventPump } from "../../persistence-postgres/src/commitEvents/pump";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
 import { preparedHostTestRuntime, openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "../../persistence-postgres/test/preparedHostRuntimeTestSupport";
 import { makePreparedHostRuntime, retainPreparedHost } from "../../persistence-postgres/src/preparedHostRuntime";
@@ -319,6 +320,25 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
           .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
         expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
           cause => new Error("Atomic logical Currency rollback rows", { cause }))).toHaveLength(beforeRows.length + 2);
+        const consumed: unknown[] = [];
+        let familyReads = 0;
+        const pump = yield* makeCommitEventPump({ ...hostInput, observeQuery: query => {
+          if (query.name === "eventFamily") familyReads++;
+        } }, [{ id: "logical-currency", revision: "a".repeat(64),
+          handle: message => Effect.sync(() => { consumed.push(message.envelope.message); }) }]);
+        let cursor = batchCommit - 1n;
+        for (let pass = 0; pass < 5; pass++) {
+          const progress = yield* pump.runNext(cursor);
+          cursor = progress.cursor;
+          if (progress.done) break;
+          if (pass === 4) throw new Error("Many-event pump did not finish");
+        }
+        expect(consumed).toEqual(Array.from({ length: 129 }, (_, index) => ({ code: `event-${index}` })));
+        expect(familyReads).toBeLessThanOrEqual(18);
+        expect(yield* pump.runNext(batchCommit)).toMatchObject({ done: true, delivered: 0 });
+        const settled = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEventDeliveries),
+          cause => new Error("Atomic logical Currency delivered events", { cause }));
+        expect(settled.filter(row => row.commitSeq === batchCommit && row.state === "delivered")).toHaveLength(129);
       }), atomic => atomic.close);
       let loseCommitAcknowledgement = true;
       let recoverExecutions = 0;

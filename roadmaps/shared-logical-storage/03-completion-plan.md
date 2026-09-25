@@ -179,6 +179,9 @@ remain distinct from logical schema evolution.
   [core replacement preflight](./34-core-collection-membership-replacement.md)
   names the native selector-enumeration seam and shared bounded settlement
   needed to remove that limit without adapter pagination.
+  The [shared event delivery batch](./35-core-event-delivery-batches.md)
+  keeps the admitted larger event family from being reread for each claim;
+  higher-fan-out delivery and hot-shop throughput remain unmeasured.
   More complex membership batches and other unported Product methods remain
   with the named physical compatibility runner;
   other relationship kinds still need their own coherent cutovers. General

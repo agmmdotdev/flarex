@@ -1034,7 +1034,7 @@
     {
       "target": "packages/medusa-adapter/test/product-tag-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "84375dbb3e0d64b13403262b6b1d94ea81c865af52cfda087064c0e867e27360"
+      "targetSha256": "11c9654ef72ae1e94564aee3b96ee932b48ae020182b81106db181fec9e2735c"
     },
     {
       "target": "packages/medusa-adapter/test/product-tags-upstream.test.ts",
@@ -4431,7 +4431,7 @@
     {
       "target": "packages/medusa-adapter/test/logicalSchemaBindings.test.ts",
       "classification": "authored",
-      "targetSha256": "59814d6a2be68203ce383274b2edfb95dc7a7c14661115fa0e90af9ebc90025e"
+      "targetSha256": "8a655863fce0ed963ade45b649d4049e0a9d462cb23bb1b04000bd2df25e4846"
     },
     {
       "target": "packages/medusa-adapter/src/product-category-workflow.ts",

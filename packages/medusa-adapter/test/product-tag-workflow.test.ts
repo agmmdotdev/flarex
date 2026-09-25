@@ -241,19 +241,39 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const commit = (await inventory()).logical.commits.at(-1);
     if (commit === undefined) throw new Error("Missing event commit");
     const store = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
-    const first = await runEffect(store.claim(commit.commitSeq, subscribers));
-    if (Option.isNone(first)) throw new Error("Missing claim");
+    const first = (await runEffect(store.claimBatch(commit.commitSeq, subscribers, 1)))[0];
+    if (first === undefined) throw new Error("Missing claim");
     // Handler succeeded but acknowledgement was lost. Only the lease changes;
     // the immutable event family and pinned handler identities remain intact.
     await expireEventClaims(fixture.currency.persistence.drizzle, commit.commitSeq);
     const restarted = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
-    const second = await runEffect(restarted.claim(commit.commitSeq, subscribers));
-    if (Option.isNone(second)) throw new Error("Missing recovered claim");
-    expect(second.value.message.deliveryId).toBe(first.value.message.deliveryId);
-    expect(await runEffectFailure(store.settle(first.value))).toMatchObject({ reason: "staleClaim" });
-    await runEffect(restarted.settle(second.value));
+    const second = (await runEffect(restarted.claimBatch(commit.commitSeq, subscribers, 1)))[0];
+    if (second === undefined) throw new Error("Missing recovered claim");
+    expect(second.message.deliveryId).toBe(first.message.deliveryId);
+    expect(await runEffectFailure(store.settle(first))).toMatchObject({ reason: "staleClaim" });
+    await runEffect(restarted.settle(second));
     const rows = (await inventory()).deliveries.filter(row => row.commitSeq === commit.commitSeq && row.state === "delivered");
     expect(rows).toHaveLength(1); expect(rows[0]?.attempts).toBe(2);
+  }, 30_000);
+
+  it("recovers unhandled claims after a batch is interrupted", async () => {
+    const workflow = await assemble();
+    await runEffect(workflow.host.run(workflow.host.newRequestKey(), args("interrupted-batch")));
+    const commit = (await inventory()).logical.commits.at(-1);
+    if (commit === undefined) throw new Error("Missing event commit");
+    const store = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
+    const original = await runEffect(store.claimBatch(commit.commitSeq, subscribers, 2));
+    expect(original).toHaveLength(2);
+    await expireEventClaims(fixture.currency.persistence.drizzle, commit.commitSeq);
+    const restarted = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
+    const recovered = await runEffect(restarted.claimBatch(commit.commitSeq, subscribers, 2));
+    expect(recovered.map(claim => claim.message.deliveryId)).toEqual(original.map(claim => claim.message.deliveryId));
+    for (const token of original)
+      expect(await runEffectFailure(store.settle(token))).toMatchObject({ reason: "staleClaim" });
+    for (const token of recovered) await runEffect(restarted.settle(token));
+    const delivered = (await inventory()).deliveries.filter(row => row.commitSeq === commit.commitSeq && row.state === "delivered");
+    expect(delivered).toHaveLength(2);
+    expect(delivered.every(row => row.attempts === 2)).toBe(true);
   }, 30_000);
 
   it("keeps acknowledged subscribers independent and persists bounded failures without compensating writes", async () => {
@@ -285,20 +305,45 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     const commit = before.logical.commits.at(-1);
     if (commit === undefined) throw new Error("Missing event commit");
     const store = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
-    expect(Option.isNone(await runEffect(store.claim(commit.commitSeq, subscribers.map(subscriber => ({ ...subscriber, revision: "f".repeat(64) })))))).toBe(true);
+    for (const maximum of [0, 9])
+      expect(await runEffectFailure(store.claimBatch(commit.commitSeq, subscribers, maximum)))
+        .toMatchObject({ reason: "invalidInput" });
+    expect(await runEffect(store.claimBatch(commit.commitSeq, subscribers.map(subscriber => ({ ...subscriber, revision: "f".repeat(64) })), 1))).toEqual([]);
     expect(await inventory()).toEqual(before);
     await corruptEventCount(fixture.currency.persistence.drizzle, commit.commitSeq, 3);
-    expect(await runEffectFailure(store.claim(commit.commitSeq, subscribers))).toMatchObject({ reason: "storedCorruption" });
+    expect(await runEffectFailure(store.claimBatch(commit.commitSeq, subscribers, 1))).toMatchObject({ reason: "storedCorruption" });
     await corruptEventCount(fixture.currency.persistence.drizzle, commit.commitSeq, 2);
     expect(await inventory()).toEqual(before);
     const event = before.events.find(row => row.commitSeq === commit.commitSeq);
     if (event === undefined) throw new Error("Missing event envelope");
     for (const envelope of [{ ...event.envelope, message: { name: "changed", data: { id: "different" } } }, { ...event.envelope, producerRevision: "f".repeat(64) }, { ...event.envelope, internal: false }]) {
       await replaceEventEnvelope(fixture.currency.persistence.drizzle, { ...event, envelope });
-      expect(await runEffectFailure(store.claim(commit.commitSeq, subscribers))).toMatchObject({ reason: "storedCorruption" });
+      expect(await runEffectFailure(store.claimBatch(commit.commitSeq, subscribers, 1))).toMatchObject({ reason: "storedCorruption" });
       await replaceEventEnvelope(fixture.currency.persistence.drizzle, event);
     }
     expect(await inventory()).toEqual(before);
+  }, 30_000);
+
+  it("rolls back an entire claim batch when a later delivery cannot be fenced", async () => {
+    const workflow = await assemble();
+    await runEffect(workflow.host.run(workflow.host.newRequestKey(), args("batch-rollback")));
+    const before = await inventory();
+    const commit = before.logical.commits.at(-1);
+    if (commit === undefined) throw new Error("Missing event commit");
+    const store = await runEffect(makeCommitEventStore(fixture.currency.hostInput));
+    await fixture.currency.persistence.exec("create function fx_test_claim_batch_failure() returns trigger language plpgsql as $$ begin if new.state = 'claimed' and new.subscriber_id = 'tags-index' then raise exception 'claim batch failure'; end if; return new; end $$");
+    try {
+      await fixture.currency.persistence.exec('create trigger fx_test_claim_batch_failure before update on "fx_system_commit_event_delivery" for each row execute function fx_test_claim_batch_failure()');
+      expect(await runEffectFailure(store.claimBatch(commit.commitSeq, subscribers, 2)))
+        .toMatchObject({ reason: "statementFailure" });
+      expect(await inventory()).toEqual(before);
+    } finally {
+      await fixture.currency.persistence.exec('drop trigger if exists fx_test_claim_batch_failure on "fx_system_commit_event_delivery"');
+      await fixture.currency.persistence.exec("drop function fx_test_claim_batch_failure()");
+    }
+    const claimed = await runEffect(store.claimBatch(commit.commitSeq, subscribers, 2));
+    expect(claimed).toHaveLength(2);
+    for (const token of claimed) await runEffect(store.settle(token));
   }, 30_000);
 
   it.runIf(driver === "postgres")("serializes competing claims without claiming the same delivery twice", async () => {
@@ -311,16 +356,18 @@ describe("native Medusa Product-tag workflow and committed events", () => {
         makeCommitEventStore(fixture.currency.hostInput),
         makeCommitEventStore(fixture.currency.hostInput),
       ], { concurrency: 2 });
-      const claims = yield* Effect.all(stores.map(store => store.claim(commit.commitSeq, subscribers)), { concurrency: 2 });
+      const claims = yield* Effect.all(stores.map(store => store.claimBatch(commit.commitSeq, subscribers, 2)), { concurrency: 2 });
       return { stores, claims };
     }));
-    expect(claims.every(Option.isSome)).toBe(true);
-    expect(new Set(claims.flatMap(claim => Option.isSome(claim) ? [claim.value.message.deliveryId] : [])).size).toBe(2);
-    for (const [index, claim] of claims.entries()) {
+    expect(claims.every(claim => claim.length === 2)).toBe(true);
+    expect(new Set(claims.flatMap(claim => claim.map(item => item.message.deliveryId))).size).toBe(4);
+    for (const [index, batch] of claims.entries()) {
       const store = stores[index];
-      if (store === undefined || Option.isNone(claim)) throw new Error("Missing concurrent claim");
-      expect(Object.isFrozen(claim.value.message.envelope.message)).toBe(true);
-      await runEffect(store.settle(claim.value));
+      if (store === undefined) throw new Error("Missing concurrent store");
+      for (const claim of batch) {
+        expect(Object.isFrozen(claim.message.envelope.message)).toBe(true);
+        await runEffect(store.settle(claim));
+      }
     }
   }, 30_000);
 

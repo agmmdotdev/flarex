@@ -16,7 +16,7 @@ import { eventError, CommitEventError, EventEnvelope, commitEventLimits, type Co
 import { commitEventsDigest } from "./digest";
 import { observeDrizzleQuery } from "../drizzleQueryObservation";
 
-export interface CommitEventQuery { readonly name: "eventDirectory"; readonly sql: string; readonly params: readonly unknown[] }
+export interface CommitEventQuery { readonly name: "eventDirectory" | "eventFamily"; readonly sql: string; readonly params: readonly unknown[] }
 
 export interface CommitEventStoreInput {
   readonly database: FlarexMetadataDatabase;
@@ -62,7 +62,10 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
     const headers = yield* statement(tx.select().from(fxSystemCommits).where(and(eq(fxSystemCommits.scopeUuid, pins.scopeUuid), eq(fxSystemCommits.epochUuid, pins.epochUuid), eq(fxSystemCommits.commitSeq, pins.commitSeq))));
     const header = headers[0];
     if (headers.length !== 1 || header === undefined || !Number.isSafeInteger(header.eventCount) || header.eventCount < 0 || header.eventCount > commitEventLimits.messages) return yield* Effect.fail(eventError("storedCorruption"));
-    const rows = yield* statement(tx.select().from(fxSystemCommitEvents).where(sameCommit(fxSystemCommitEvents, pins)).orderBy(asc(fxSystemCommitEvents.eventOrdinal)).limit(commitEventLimits.messages + 1));
+    const eventQuery = tx.select().from(fxSystemCommitEvents).where(sameCommit(fxSystemCommitEvents, pins))
+      .orderBy(asc(fxSystemCommitEvents.eventOrdinal)).limit(commitEventLimits.messages + 1);
+    observeDrizzleQuery("eventFamily", eventQuery, observeQuery);
+    const rows = yield* statement(eventQuery);
     if (rows.length !== header.eventCount) return yield* Effect.fail(eventError("storedCorruption"));
     const deliveries = yield* statement(tx.select().from(fxSystemCommitEventDeliveries).where(sameCommit(fxSystemCommitEventDeliveries, pins)).orderBy(asc(fxSystemCommitEventDeliveries.eventOrdinal), asc(fxSystemCommitEventDeliveries.subscriberId)).limit(commitEventLimits.messages * commitEventLimits.subscribers + 1).for("update"));
     const expected = new Map<string, string>();
@@ -99,9 +102,13 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
     const rows = yield* statement(query);
     return Option.fromNullishOr(rows[0]?.commitSeq);
   })));
-  const claim = Effect.fn("CommitEvents.claim")((commitSeq: CommitSeq, registered: readonly CommitEventSubscriber[]) => transact((tx, pins, now, lastCommitSeq) => Effect.gen(function* () {
-    if (typeof commitSeq !== "bigint" || commitSeq < 1n || commitSeq > lastCommitSeq) return yield* Effect.fail(eventError("invalidInput"));
+  const claimBatch = Effect.fn("CommitEvents.claimBatch")((commitSeq: CommitSeq,
+    registered: readonly CommitEventSubscriber[], maximum: number) => transact((tx, pins, now, lastCommitSeq) => Effect.gen(function* () {
+    if (typeof commitSeq !== "bigint" || commitSeq < 1n || commitSeq > lastCommitSeq ||
+      !Number.isSafeInteger(maximum) || maximum < 1 || maximum > commitEventLimits.claimBatch)
+      return yield* Effect.fail(eventError("invalidInput"));
     const { events, deliveries } = yield* family(tx, { ...pins, commitSeq });
+    const selected: CommitEventClaim[] = [];
     for (const row of deliveries) {
       if (!registered.some(handler => handler.id === row.subscriberId && handler.revision === row.handlerRevision)) continue;
       if (row.state === "delivered" || row.state === "failed" || row.nextAttemptAt.getTime() > now.getTime() || (row.state === "claimed" && (row.leaseExpiresAt?.getTime() ?? Infinity) > now.getTime())) continue;
@@ -121,9 +128,10 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
       const token = Object.freeze({ message: Object.freeze({ eventId, deliveryId: `${eventId}/${row.subscriberId}`,
         subscriber: Object.freeze({ id: row.subscriberId, revision: row.handlerRevision }), envelope }) }) as CommitEventClaim;
       claims.set(token, claimed);
-      return Option.some(token);
+      selected.push(token);
+      if (selected.length === maximum) break;
     }
-    return Option.none<CommitEventClaim>();
+    return Object.freeze(selected);
   })));
   const settle = Effect.fn("CommitEvents.settle")((claimToken: CommitEventClaim, failure?: { readonly retryable: boolean; readonly code: string }) => transact((tx, pins, now) => Effect.gen(function* () {
     const row = claims.get(claimToken);
@@ -138,7 +146,7 @@ export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function
       eq(fxSystemCommitEventDeliveries.owner, row.owner ?? ""), gt(fxSystemCommitEventDeliveries.leaseExpiresAt, now))).returning({ fence: fxSystemCommitEventDeliveries.fence }));
     if (changed.length !== 1) return yield* Effect.fail(eventError("staleClaim"));
   })));
-  return Object.freeze({ nextCommit, claim, settle });
+  return Object.freeze({ nextCommit, claimBatch, settle });
 });
 
 function validDelivery(row: Delivery): boolean {
