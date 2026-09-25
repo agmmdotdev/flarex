@@ -774,21 +774,30 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         sourceColumn: intent.sourceColumn, targetTableId: intent.targetTableId,
         targetColumn: intent.targetColumn, targetKey: intent.targetKey, desiredKeys }));
     })));
+  const activitySnapshot = Effect.fn("LogicalDocuments.activitySnapshot")(function* () {
+    if (closed) return yield* Effect.fail(error("closed"));
+    const observedRows: LogicalDocumentObservedRow[] = [];
+    for (const row of rows.values()) {
+      if (row.current === null) continue;
+      const value = row.current.valueJson;
+      if (!isJsonObject(value) || !dependencies.has(row.documentId)) return yield* Effect.fail(error("storedCorruption"));
+      observedRows.push(Object.freeze({ documentId: row.documentId, tableId: row.tableId,
+        tableName: row.tableName, value }));
+    }
+    observedRows.sort((left, right) => left.tableId - right.tableId || left.documentId.localeCompare(right.documentId));
+    return Object.freeze({ attempts: Object.freeze([...attempts]), lifecycle: Object.freeze([...lifecycle]),
+      observedRows: Object.freeze(observedRows), setNull: Object.freeze([...setNull]),
+      referenceReplacements: Object.freeze([...referenceReplacements]) });
+  });
   const close = Effect.fn("LogicalDocuments.close")(function* (): Effect.fn.Return<LogicalDocumentChanges, Failure> {
     if (closed || !lifetime.isClosing()) return yield* Effect.fail(error("invalidAuthority"));
     yield* state.requireAdmission;
     yield* validateRelationalReferences();
+    const activity = yield* activitySnapshot();
     closed = true;
     const changes: LogicalDocumentChange[] = [];
     const noFinalRows: AppDocumentIdV1[] = [];
-    const observedRows: LogicalDocumentObservedRow[] = [];
     for (const row of rows.values()) {
-      if (row.current !== null) {
-        const value = row.current.valueJson;
-        if (!isJsonObject(value) || !dependencies.has(row.documentId)) return yield* Effect.fail(error("storedCorruption"));
-        observedRows.push(Object.freeze({ documentId: row.documentId, tableId: row.tableId,
-          tableName: row.tableName, value }));
-      }
       if (row.attempts.length === 0) continue;
       if (row.base === null && row.current === null) { noFinalRows.push(row.documentId); continue; }
       const dependency = dependencies.get(row.documentId);
@@ -797,15 +806,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         { ...dependency, kind: "live", creationTime: row.creationTime, document: row.current }));
     }
     changes.sort((left, right) => left.tableId - right.tableId || left.rowId.localeCompare(right.rowId));
-    observedRows.sort((left, right) => left.tableId - right.tableId || left.documentId.localeCompare(right.documentId));
     noFinalRows.sort();
-    return Object.freeze({ changes: Object.freeze(changes),
-      attempts: Object.freeze([...attempts]), lifecycle: Object.freeze([...lifecycle]),
-      observedRows: Object.freeze(observedRows), noFinalRows: Object.freeze(noFinalRows),
+    return Object.freeze({ ...activity, changes: Object.freeze(changes),
+      noFinalRows: Object.freeze(noFinalRows),
       dependencies: Object.freeze([...dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
       scans: Object.freeze([...scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
-      uniqueReads: Object.freeze([...uniqueReads.values()]), indexReads: Object.freeze([...indexReads.values()]),
-      setNull: Object.freeze([...setNull]), referenceReplacements: Object.freeze([...referenceReplacements]) });
+      uniqueReads: Object.freeze([...uniqueReads.values()]), indexReads: Object.freeze([...indexReads.values()]) });
   });
   const documents = Object.freeze({ get, getMany, find, insert, delete: remove,
     patch: (context, id, documentId, fields, tableName) => edit(context, id, documentId, fields, "patch", tableName),
@@ -822,6 +828,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         lifecycle: (context, operation, keys) => relationalChange(context, id, tableName, operation, keys),
       } satisfies LogicalRelationalStore<Failure>);
     })));
-  return Object.freeze({ documents, relationalFind, relationalChange, relationalTable, planSetNull, planReferenceReplacement, close, requirePendingDeletion,
+  return Object.freeze({ documents, relationalFind, relationalChange, relationalTable, planSetNull, planReferenceReplacement, close, requirePendingDeletion, activitySnapshot,
+    activityCursor: () => Object.freeze({ attempts: attempts.length, lifecycle: lifecycle.length,
+      setNull: setNull.length, referenceReplacements: referenceReplacements.length }),
     attemptCount: () => attempts.length, lifecycleCount: () => lifecycle.length });
 });

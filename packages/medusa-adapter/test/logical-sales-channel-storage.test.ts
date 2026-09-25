@@ -3,7 +3,7 @@ import { Cause, Effect, Result } from "effect";
 import { Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { isJsonObject, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { CommerceTransactionError, commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
@@ -33,7 +33,9 @@ const eventName = (action: "created" | "updated" | "deleted") => buildModuleReso
 });
 
 async function prepareNativeHost(selectedFixture = fixture, selectedSales = sales,
-  substituteEvents?: (events: readonly Json[]) => readonly Json[]) {
+  substituteEvents?: (events: readonly Json[]) => readonly Json[],
+  observe?: LogicalCommerceCallValidation) {
+  const caught: CommerceTransactionError[] = [];
   const participant = defineAtomicCommerceParticipant("salesChannel");
   const create = defineAtomicCommerceCommand("nativeSalesChannelCreate", (ctx, input) =>
     ctx.call(participant, selectedSales.runtime.create, input));
@@ -41,10 +43,21 @@ async function prepareNativeHost(selectedFixture = fixture, selectedSales = sale
     ctx.call(participant, selectedSales.runtime.update, input));
   const remove = defineAtomicCommerceCommand("nativeSalesChannelDelete", (ctx, input) =>
     ctx.call(participant, selectedSales.runtime.delete, input));
+  const compose = defineAtomicCommerceCommand("nativeSalesChannelCompose", (ctx, input) => Effect.gen(function* () {
+    if (typeof input !== "string") return yield* Effect.fail(commerceError("invalidInput"));
+    yield* ctx.call(participant, selectedSales.runtime.create, { id: input, name: "First" });
+    yield* ctx.call(participant, selectedSales.runtime.create, { id: `${input}-second`, name: "Second" });
+    const pending = yield* ctx.call(participant, selectedSales.runtime.count,
+      { filters: { id: input }, config: { select: ["id", "name"], take: 1 } });
+    yield* ctx.call(participant, selectedSales.runtime.update, { id: input, data: { name: "Updated" } });
+    const result = yield* ctx.call(participant, selectedSales.runtime.update, { id: input, data: { name: "Final" } });
+    yield* ctx.call(participant, selectedSales.runtime.delete, [`${input}-second`]);
+    return { pending, result };
+  }).pipe(Effect.catch(error => Effect.sync(() => { caught.push(error); return "caught"; }))));
   const policy = selectedSales.runtime.logicalEventPolicy();
-  const validateLogical: LogicalCommerceEventValidation = substituteEvents === undefined ? policy.validateLogical
-    : (calls, mutations, lifecycle, observedRows, setNull) => policy.validateLogical(calls.map(call => call.mode === "write"
-      ? { ...call, events: substituteEvents(call.events) } : call), mutations, lifecycle, observedRows, setNull);
+  const validateLogicalCall: LogicalCommerceCallValidation = (call, activity) => policy.validateLogicalCall(
+    substituteEvents !== undefined && call.mode === "write" ? { ...call, events: substituteEvents(call.events) } : call,
+    activity).pipe(Effect.andThen(() => observe?.(call, activity) ?? Effect.void));
   const revision = "1".repeat(64);
   const contracts = {
     created: defineCommerceEventContract({ name: eventName("created"), revision, internal: true, decode: policy.capture }),
@@ -55,19 +68,19 @@ async function prepareNativeHost(selectedFixture = fixture, selectedSales = sale
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
     identityAndAccessPolicy: { profile: "logical-sales-channel-native" },
     participants: [{ participant, logicalStorage: selectedSales.hostInput.logicalStorage,
-      commands: selectedSales.runtime.commands, validateLogical,
+      commands: selectedSales.runtime.commands, validateLogicalCall,
       events: { contracts: eventContracts, select: (message: Json) => {
         const selected = (["created", "updated", "deleted"] as const).find(action =>
           isJsonObject(message) && message.name === eventName(action));
         return selected === undefined ? Effect.fail(commerceError("unadmittedEvent"))
           : Effect.succeed(contracts[selected]);
-      } } }], commands: [create, update, remove],
+      } } }], commands: [create, update, remove, compose],
     events: { producerRevision: revision, contracts: eventContracts,
       subscribers: [{ id: "logical-sales-channel", revision: "2".repeat(64) }],
       validate: emitted => emitted.some(event => !event.internal)
         ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
   }));
-  return { host, create, update, remove };
+  return { host, create, update, remove, compose, caught };
 }
 
 describe("native SalesChannel service on shared logical storage", () => {
@@ -81,6 +94,44 @@ describe("native SalesChannel service on shared logical storage", () => {
     await Effect.runPromise(product.host.close);
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+
+  it("composes repeated scalar writes with call-local evidence, pending reads and replay", async () => {
+    const observations: Array<Parameters<LogicalCommerceCallValidation>[1]> = [];
+    const { host, compose } = await prepareNativeHost(fixture, sales, undefined,
+      (_call, activity) => Effect.sync(() => { observations.push(activity); }));
+    const before = await events();
+    try {
+      const key = host.newRequestKey();
+      const result = await Effect.runPromise(host.run(key, compose, "composed-channel"));
+      expect(result).toMatchObject({ pending: [[{ id: "composed-channel", name: "First" }], 1],
+        result: { id: "composed-channel", name: "Final" } });
+      expect(observations.map(activity => activity.mutations.map(mutation => mutation.ordinal)))
+        .toEqual([[0], [0], [], [0], [0], [0]]);
+      expect(observations[0]?.observedRows.map(value => value.row.name)).toEqual(["First"]);
+      expect(observations[3]?.mutations[0]?.before?.name).toBe("First");
+      expect(observations[4]?.mutations[0]?.before?.name).toBe("Updated");
+      const after = await events();
+      expect(after.slice(before.length).map(event => event.envelope.contract))
+        .toEqual((["created", "created", "updated", "updated", "deleted"] as const).map(eventName));
+      expect(new Set(after.slice(before.length).map(event => event.commitSeq)).size).toBe(1);
+      expect(await Effect.runPromise(host.run(key, compose, "composed-channel"))).toEqual(result);
+      expect(observations).toHaveLength(6);
+      expect(await events()).toEqual(after);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("rolls back earlier scalar calls when a caught second-call receipt fails", async () => {
+    let calls = 0;
+    const { host, compose, caught } = await prepareNativeHost(fixture, sales, emitted => ++calls === 2 ? [] : emitted);
+    const before = { rows: await fixture.persistence.drizzle.select().from(fxAppRowCurrent), events: await events() };
+    try {
+      await expect(Effect.runPromise(host.run(host.newRequestKey(), compose, "refused-composed-channel")))
+        .rejects.toMatchObject({ reason: "rollbackOnly" });
+      expect(caught).toMatchObject([{ reason: "receiptMismatch" }]);
+      expect(calls).toBe(2);
+      expect({ rows: await fixture.persistence.drizzle.select().from(fxAppRowCurrent), events: await events() }).toEqual(before);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
 
   it("admits the pinned model without a generated SalesChannel table", async () => {
     expect(sales.definition.schema.tables.map(table => table.identity.tableId)).toEqual(["sales_channel"]);
@@ -161,14 +212,13 @@ describe("native SalesChannel service on shared logical storage", () => {
     ] as const;
     const mutation = [{ ordinal: 0, table: "sales_channel", operation: "insert", before: null,
       after: { id: "orphan-channel", name: "Orphan", deleted_at: null } }] as const;
-    expect(await Effect.runPromise(Effect.result(policy.validateLogical(attempted, mutation, [], [], []))))
+    expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall(attempted[0], { mutations: mutation, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] }))))
       .toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     const attached = { name: eventName("created"), metadata: { source: Modules.SALES_CHANNEL,
       object: "sales_channel", action: "created" }, data: { id: "orphan-channel" } };
     for (const emitted of [[attached, attached], [{ ...attached, data: { id: "forged-channel" } }]]) {
-      expect(await Effect.runPromise(Effect.result(policy.validateLogical([
-        { ...attempted[0], events: emitted },
-      ], mutation, [], [], [])))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
+      expect(await Effect.runPromise(Effect.result(policy.validateLogicalCall({ ...attempted[0], events: emitted },
+        { mutations: mutation, lifecycle: [], observedRows: [], setNull: [], referenceReplacements: [] })))).toMatchObject({ _tag: "Failure", failure: { reason: "receiptMismatch" } });
     }
     const { host, create, update } = await prepareNativeHost();
     const reader = await Effect.runPromise(makeCommerceHost(sales.hostInput));
@@ -420,7 +470,7 @@ describe("native SalesChannel service on shared logical storage", () => {
           validateLogical: productPolicy.validateLogical,
           events: { contracts: [productCreated], select: () => Effect.succeed(productCreated) } },
         { participant: salesParticipant, logicalStorage: sales.hostInput.logicalStorage,
-          commands: [sales.runtime.create, sales.runtime.count], validateLogical: salesPolicy.validateLogical,
+          commands: [sales.runtime.create, sales.runtime.count], validateLogicalCall: salesPolicy.validateLogicalCall,
           events: { contracts: [salesCreated], select: () => Effect.succeed(salesCreated) } },
       ], commands: [root], events: { producerRevision: revision,
         contracts: [productCreated, salesCreated], subscribers: [{ id: "logical-sales-endpoints", revision: "4".repeat(64) }],

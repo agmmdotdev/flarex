@@ -22,6 +22,12 @@ and Product Links workflows execute through generic rows while other consumers
 remain physical. SalesChannel name and ShippingProfile type use shared exact-text
 equality access; SalesChannel `is_disabled` uses a declared Boolean index under
 [its connected selection cutover](./24-sales-channel-boolean-selection.md).
+Selected scalar and Product-tag commands now validate at the shared outer-call
+boundary, supporting repeated calls and native child workflows with one
+settlement. [Native command composition](./44-native-command-composition.md)
+owns that contract and the common unsupported-method refusal boundary. Category,
+Collection and other aggregate receipt consumers retain their explicit semantic
+migration gates; this does not admit arbitrary relationship composition.
 Native ProductType CRUD and Product `type_id` references have a selected
 [logical path](./26-product-type-native-cutover.md), while the wider pinned
 Product compatibility runner retains its physical source.

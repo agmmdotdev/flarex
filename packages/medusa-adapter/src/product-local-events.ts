@@ -1,3 +1,4 @@
+import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { Effect, Schema } from "effect";
 import { jsonEqual } from "flarex-protocol/json";
 import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
@@ -1655,31 +1656,21 @@ export function productLogicalDeleteEventPolicy(catalog: ProductRuntimeMetadata)
   return { capture, validateLogical };
 }
 
-/** Selected tag create, selector update and soft-delete retain distinct native commands. */
-export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata,
-  action: "created" | "updated" | "deleted") {
-  return productLogicalEntityEventPolicy(catalog, catalog.tag,
-    action === "created" ? "productCreatetag" : action === "updated" ? "productUpdateTagsBySelector" : "productSoftDeleteTag", action);
-}
-
-/** A composed root may invoke several native tag commands. Authenticate each
- * command against only its own ordered mutation and event transcript. */
-export function productLogicalTagCompositionEventPolicy(catalog: ProductRuntimeMetadata) {
-  const created = productLogicalTagEventPolicy(catalog, "created");
-  const updated = productLogicalTagEventPolicy(catalog, "updated");
-  const deleted = productLogicalTagEventPolicy(catalog, "deleted");
-  const policies = new Map([
-    ["productCreatetag", created],
-    ["productUpdateTagsBySelector", updated],
-    ["productSoftDeleteTag", deleted],
-  ]);
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalTagComposition")(
-    function* (calls, mutations, lifecycle, observedRows) {
-      let cursor = 0;
-      let writes = 0;
-      for (const [index, mutation] of mutations.entries()) {
-        if (mutation.ordinal !== index) return yield* Effect.fail(commerceError("receiptMismatch"));
-      }
+/** Every selected tag method validates at the shared outer-call boundary. */
+export function productLogicalTagEventPolicy(catalog: ProductRuntimeMetadata) {
+  const created = productLogicalEntityEventPolicy(catalog, catalog.tag, "productCreatetag", "created");
+  const updated = productLogicalEntityEventPolicy(catalog, catalog.tag, "productUpdateTagsBySelector", "updated");
+  const deleted = productLogicalEntityEventPolicy(catalog, catalog.tag, "productSoftDeleteTag", "deleted");
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ProductEvents.validateLogicalTagCall")(
+    function* (call, activity) {
+      const { mutations, lifecycle, observedRows, setNull, referenceReplacements } = activity;
+      if (setNull.length !== 0 || referenceReplacements.length !== 0)
+        return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (call.mode === "read") return;
+      const policy = call.commandName === "productCreatetag" ? created
+        : call.commandName === "productUpdateTagsBySelector" ? updated
+        : call.commandName === "productSoftDeleteTag" ? deleted : undefined;
+      if (policy === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
       const lifecycleAttempts = new Set<number>();
       for (const observation of lifecycle) {
         const mutation = observation.attemptOrdinal === null ? undefined : mutations[observation.attemptOrdinal];
@@ -1690,30 +1681,11 @@ export function productLogicalTagCompositionEventPolicy(catalog: ProductRuntimeM
           return yield* Effect.fail(commerceError("receiptMismatch"));
         lifecycleAttempts.add(mutation.ordinal);
       }
-      for (const call of calls) {
-        if (call.fromAttempt !== cursor || call.toAttempt < cursor || call.toAttempt > mutations.length)
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-        if (call.mode === "read") {
-          if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-          continue;
-        }
-        const policy = policies.get(call.commandName);
-        if (policy === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
-        const owned = mutations.slice(cursor, call.toAttempt);
-        const observations = lifecycle.filter(observation =>
-          observation.attemptOrdinal !== null && observation.attemptOrdinal >= cursor && observation.attemptOrdinal < call.toAttempt);
-        if (call.commandName === "productSoftDeleteTag"
-          ? observations.length !== owned.length : observations.length !== 0)
-          return yield* Effect.fail(commerceError("receiptMismatch"));
-        yield* policy.validateLogical([{ ...call, fromAttempt: 0, toAttempt: owned.length }],
-          owned, observations, observedRows, []);
-        writes++;
-        cursor = call.toAttempt;
-      }
-      if (cursor !== mutations.length || (writes === 0 && lifecycle.length !== 0))
+      if (call.commandName === "productSoftDeleteTag" ? lifecycle.length !== mutations.length : lifecycle.length !== 0)
         return yield* Effect.fail(commerceError("receiptMismatch"));
+      yield* policy.validateLogical([call], mutations, lifecycle, observedRows, setNull);
     });
-  return { capture: created.capture, validateLogical };
+  return { capture: created.capture, validateLogicalCall };
 }
 
 /** Existing standalone local delivery profile. */

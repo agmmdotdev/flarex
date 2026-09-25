@@ -68,7 +68,14 @@ remain distinct from logical schema evolution.
   on both drivers. Selected native Product-tag create, update and delete
   workflows now execute through logical Product rows with module-event/row
   correlation and atomic publication. Tag deletion selects requested roots by
-  indexed ID even beyond the logical request's catalog-wide row bound. The
+  indexed ID even beyond the logical request's catalog-wide row bound. Scalar
+  and Product-tag [command composition](./44-native-command-composition.md)
+  now validates each outer call against its operation-time pending evidence;
+  repeated commands and child workflows reuse the same policy and settlement.
+  Category, Collection and other aggregate receipt policies remain until their
+  broader read/relationship evidence has an equivalent per-call proof. The
+  workflow binder refuses unsupported method invocations through one common
+  boundary, replacing per-module deny lists. The
   lifecycle planner now selects declared child and nullable-reference rows by
   indexed reverse keys, including a selected-image regression beyond the
   unrelated-row bound. The native Product creation step now writes Product

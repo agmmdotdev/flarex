@@ -44,9 +44,9 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
   it("updates and deletes native tags against logical row transitions", async () => {
     const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const createdPolicy = productLogicalTagEventPolicy(metadata, "created");
-    const updatedPolicy = productLogicalTagEventPolicy(metadata, "updated");
-    const deletedPolicy = productLogicalTagEventPolicy(metadata, "deleted");
+    const createdPolicy = productLogicalTagEventPolicy(metadata);
+    const updatedPolicy = productLogicalTagEventPolicy(metadata);
+    const deletedPolicy = productLogicalTagEventPolicy(metadata);
     const revision = createHash("sha256").update("logical-product-tag-lifecycle").digest("hex");
     const subscribers = [{ id: "logical-product-tags", revision: "a".repeat(64) }];
     const execution: AtomicWorkflowExecution = { identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
@@ -136,15 +136,15 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
       prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) };
     const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
       modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalTagEventPolicy(metadata, "created") },
+        moduleEvents: productLogicalTagEventPolicy(metadata) },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
       revision, subscribers }));
     const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
       modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: forgeModuleId(productLogicalTagEventPolicy(metadata, "updated")) } }, revision, subscribers }));
+        moduleEvents: forgeModuleId(productLogicalTagEventPolicy(metadata)) } }, revision, subscribers }));
     const remove = await Effect.runPromise(prepareProductTagDeleteWorkflow({ execution,
       modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: forgeModuleId(productLogicalTagEventPolicy(metadata, "deleted")) } }, revision, subscribers }));
+        moduleEvents: forgeModuleId(productLogicalTagEventPolicy(metadata)) } }, revision, subscribers }));
     try {
       const tags = await Effect.runPromise(create.run(create.newRequestKey(),
         { product_tags: [{ value: "refusal-tag" }] }));
@@ -152,11 +152,14 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
       if (typeof id !== "string") throw new Error("Missing refusal tag ID");
       const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
       const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
-      expect(await runEffectFailure(update.run(update.newRequestKey(),
-        { selector: { id }, update: { value: "uncommitted-update" } })))
-        .toMatchObject({ reason: "receiptMismatch" });
-      expect(await runEffectFailure(remove.run(remove.newRequestKey(), { ids: [id] })))
-        .toMatchObject({ reason: "receiptMismatch" });
+      const failures = [await runEffectFailure(update.run(update.newRequestKey(),
+        { selector: { id }, update: { value: "uncommitted-update" } })),
+      await runEffectFailure(remove.run(remove.newRequestKey(), { ids: [id] }))];
+      for (const failure of failures) {
+        expect(failure).toMatchObject({ reason: "rollbackOnly" });
+        if (!Cause.isCause(failure.cause)) throw new Error("Missing native call refusal cause");
+        expect(Result.getOrThrow(Cause.findError(failure.cause))).toMatchObject({ reason: "receiptMismatch" });
+      }
       expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
       expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
     } finally {
@@ -175,12 +178,12 @@ describe("native Product-tag lifecycle on logical Product storage", () => {
       prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) };
     const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
       modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalTagEventPolicy(metadata, "created") },
+        moduleEvents: productLogicalTagEventPolicy(metadata) },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
       revision, subscribers }));
     const remove = await Effect.runPromise(prepareProductTagDeleteWorkflow({ execution,
       modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalTagEventPolicy(metadata, "deleted") } }, revision, subscribers }));
+        moduleEvents: productLogicalTagEventPolicy(metadata) } }, revision, subscribers }));
     const reader = await Effect.runPromise(makeCommerceHost({ ...product.hostInput,
       commands: [product.runtime.commands.listTags] }));
     try {

@@ -123,36 +123,7 @@ export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapte
     const createShippingProfiles = yield* defineWorkflowMethod({ command: create, arguments: decodeCreateArguments,
       encode: ([profiles]) => profiles, output: decodeCreatedProfiles,
       moduleEvents: [buildModuleResourceEventName({ prefix: Modules.FULFILLMENT, objectName: "shipping_profile", action: "created" })] });
-    const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description, methods: { createShippingProfiles }, graph,
-      // The pinned native module's remaining public methods are sticky refusals;
-      // catching a call must not turn unsupported work into a successful root.
-      refusedMethods: [
-        "retrieveFulfillmentSet", "listFulfillmentSets", "listAndCountFulfillmentSets",
-        "createFulfillmentSets", "updateFulfillmentSets", "deleteFulfillmentSets",
-        "softDeleteFulfillmentSets", "restoreFulfillmentSets", "retrieveServiceZone",
-        "listServiceZones", "listAndCountServiceZones", "createServiceZones",
-        "updateServiceZones", "upsertServiceZones", "deleteServiceZones",
-        "softDeleteServiceZones", "restoreServiceZones", "retrieveGeoZone",
-        "listGeoZones", "listAndCountGeoZones", "createGeoZones",
-        "updateGeoZones", "deleteGeoZones", "softDeleteGeoZones",
-        "restoreGeoZones", "retrieveShippingOption", "listShippingOptions",
-        "listShippingOptionsForContext", "listAndCountShippingOptions", "createShippingOptions",
-        "updateShippingOptions", "upsertShippingOptions", "deleteShippingOptions",
-        "softDeleteShippingOptions", "restoreShippingOptions", "retrieveShippingProfile",
-        "listShippingProfiles", "listAndCountShippingProfiles", "updateShippingProfiles",
-        "deleteShippingProfiles", "upsertShippingProfiles", "softDeleteShippingProfiles",
-        "restoreShippingProfiles", "retrieveShippingOptionRule", "listShippingOptionRules",
-        "listAndCountShippingOptionRules", "createShippingOptionRules", "updateShippingOptionRules",
-        "deleteShippingOptionRules", "retrieveShippingOptionType", "createShippingOptionTypes",
-        "updateShippingOptionTypes", "upsertShippingOptionTypes", "listShippingOptionTypes",
-        "listAndCountShippingOptionTypes", "deleteShippingOptionTypes", "softDeleteShippingOptionTypes",
-        "restoreShippingOptionTypes", "retrieveFulfillment", "listFulfillments",
-        "listAndCountFulfillments", "createFulfillment", "deleteFulfillment",
-        "createReturnFulfillment", "updateFulfillment", "cancelFulfillment",
-        "retrieveFulfillmentOptions", "validateFulfillmentOption", "validateFulfillmentData",
-        "validateShippingOption", "validateShippingOptionsForPriceCalculation", "calculateShippingOptionsPrices",
-        "listFulfillmentProviders"
-      ] satisfies (keyof IFulfillmentModuleService)[] });
+    const workflow = yield* defineWorkflowModule({ name: Modules.FULFILLMENT, source: module.description, methods: { createShippingProfiles }, graph });
     return { create, list, count, retrieve, graph, workflow,
       commands: [create, list, count, retrieve],
       withService: module.use,

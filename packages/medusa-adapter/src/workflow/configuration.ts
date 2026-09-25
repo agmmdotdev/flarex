@@ -28,7 +28,7 @@ export function captureWorkflowRecord<T extends object>(input: T) {
 }
 
 export const isWorkflowResourceName = (name: unknown): name is string => typeof name === "string" && /^[a-z][a-zA-Z0-9_-]{0,63}$/.test(name)
-  && !["initialize", "__proto__", "constructor", "prototype", "then"].includes(name);
+  && !["initialize", "__proto__", "constructor", "prototype", "then", "toJSON"].includes(name);
 
 export function captureWorkflowArray<Value>(input: readonly Value[]) {
   return Result.gen(function* () {

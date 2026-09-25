@@ -128,6 +128,9 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     events: eventPolicy?.identity ?? null,
     participantEvents: eventPolicy === undefined ? [] : participantEvents,
     requestCallLimit: selectedCallLimit === undefined ? null : callLimit,
+    ...(members.some(member => member.validateLogicalCall !== undefined) ? {
+      logicalCallValidation: members.filter(member => member.validateLogicalCall !== undefined).map(member => member.name),
+    } : {}),
     ...(selectedEventLimit === undefined ? {} : { requestEventLimit: eventLimit }),
   }, commerceLimits.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(

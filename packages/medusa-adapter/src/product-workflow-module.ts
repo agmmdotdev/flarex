@@ -92,8 +92,7 @@ export function productWorkflowModule(source: CommerceModuleDescription,
       encode: ([selector, update]) => ({ selector, update }), output: decodeListResult, moduleEvents: [events.variantUpdated] });
     const relationships = yield* productRelationshipWorkflowMethods(commands, events);
     return yield* defineWorkflowModule({ name: "product", source,
-      methods: { ...relationships, createProducts, createProductVariants, createProductTags, listProductTags, updateProductTags, softDeleteProductTags, addImageToVariant, removeImageFromVariant, listProductVariants, updateProductVariants }, graph,
-      refusedMethods: ["deleteProductTags", "upsertProductTags", "restoreProductTags", "upsertProductVariants"] });
+      methods: { ...relationships, createProducts, createProductVariants, createProductTags, listProductTags, updateProductTags, softDeleteProductTags, addImageToVariant, removeImageFromVariant, listProductVariants, updateProductVariants }, graph });
   });
 }
 export type ProductWorkflowModule = Result.Result.Success<ReturnType<typeof productWorkflowModule>>;

@@ -72,56 +72,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       moduleEvents: ["price_set", "price", "price_rule"].map(objectName => buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action: "created" })),
     });
     const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description, methods: { createPriceSets }, graph,
-      refusedMethods: pricingRefusedMethods,
     });
     return { create, list, count, retrieve, commands: [create, list, count, retrieve], graph, workflow, withService: module.use, eventPolicy: pricingEventPolicy };
   }));
 });
-
-/** Checked against the pinned public module interface; unsupported calls remain
- * fatal even if native callback code catches their rejected promises. */
-export const pricingRefusedMethods = [
-  "calculatePrices",
-  "retrievePriceSet",
-  "listPriceSets",
-  "listAndCountPriceSets",
-  "upsertPriceSets",
-  "updatePriceSets",
-  "deletePriceSets",
-  "addPrices",
-  "listPrices",
-  "softDeletePrices",
-  "restorePrices",
-  "listAndCountPrices",
-  "retrievePriceRule",
-  "listPriceRules",
-  "listAndCountPriceRules",
-  "createPriceRules",
-  "updatePriceRules",
-  "deletePriceRules",
-  "retrievePriceList",
-  "listPriceLists",
-  "listAndCountPriceLists",
-  "createPriceLists",
-  "updatePriceLists",
-  "deletePriceLists",
-  "softDeletePriceLists",
-  "restorePriceLists",
-  "retrievePriceListRule",
-  "listPriceListRules",
-  "listAndCountPriceListRules",
-  "deletePriceListRules",
-  "addPriceListPrices",
-  "updatePriceListPrices",
-  "setPriceListRules",
-  "removePriceListRules",
-  "removePrices",
-  "retrievePricePreference",
-  "listPricePreferences",
-  "createPricePreferences",
-  "upsertPricePreferences",
-  "updatePricePreferences",
-  "softDeletePricePreferences",
-  "restorePricePreferences",
-  "deletePricePreferences"
-] satisfies (keyof IPricingModuleService)[];

@@ -17,7 +17,7 @@ export { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "./
 export type { AtomicCommerceCommand, AtomicCommerceContext, AtomicCommerceParticipant, AtomicCommerceHost } from "./atomicCommerce/commands";
 export type { AtomicCommerceHostInput } from "./atomicCommerce/configuration";
 export type { AtomicCommerceParticipantInput, LogicalCommerceCallObservation,
-  LogicalCommerceEventValidation } from "./atomicCommerce/participants";
+  LogicalCommerceEventValidation, LogicalCommerceCallValidation } from "./atomicCommerce/participants";
 export type { LogicalCommerceMutation } from "./commerceTransaction/logicalParticipant";
 export { defineCommerceEventContract } from "./atomicCommerce/events";
 export type { CommerceEventContract, ParticipantEventSelection, AtomicCommerceEvents, AtomicCommerceCallObservation } from "./atomicCommerce/events";

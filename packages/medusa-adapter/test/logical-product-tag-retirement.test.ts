@@ -63,15 +63,15 @@ async function hosts(options?: {
       makeAtomicCommerceHost({ ...product.hostInput, session: options?.session ?? currency.session, ...composition }) };
   const selected = { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage };
   const create = await Effect.runPromise(prepareProductTagWorkflow({ execution,
-    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog, "created") },
+    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog) },
       currency: { module: Result.getOrThrow(currencyWorkflowModule),
         logicalStorage: currency.hostInput.logicalStorage } },
     revision, subscribers }));
   const update = await Effect.runPromise(prepareProductTagUpdateWorkflow({ execution,
-    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog, "updated") } },
+    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog) } },
     revision, subscribers, ...(options?.updateHooks === undefined ? {} : { hooks: options.updateHooks }) }));
   const remove = await Effect.runPromise(prepareProductTagDeleteWorkflow({ execution,
-    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog, "deleted") } },
+    modules: { product: { ...selected, moduleEvents: productLogicalTagEventPolicy(catalog) } },
     revision, subscribers, ...(options?.deleteHooks === undefined ? {} : { hooks: options.deleteHooks }) }));
   return { create, update, remove, close: async () => {
     await Effect.runPromise(create.close);
@@ -317,7 +317,7 @@ describe("native Product-tag update/delete on logical storage", () => {
         prepare: composition => makeAtomicCommerceHost({ ...product.hostInput, ...composition }) },
       modules: { product: { module: product.runtime.workflow,
         logicalStorage: product.hostInput.logicalStorage,
-        moduleEvents: productLogicalTagEventPolicy(catalog, "deleted") } },
+        moduleEvents: productLogicalTagEventPolicy(catalog) } },
       revision, subscribers,
       workflow: { name: "wrongLogicalProductTagDeletionOutput", resources,
         prepared: Result.getOrThrow(deleteProductTagsWorkflow.prepare()),

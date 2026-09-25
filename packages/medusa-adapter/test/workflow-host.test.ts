@@ -35,6 +35,49 @@ const context = (): AtomicCommerceContext => ({ eventGroupId: "unit", checkpoint
 });
 
 describe("workflow registration and scoped resource composition", () => {
+  it("keeps unknown and unselected method refusals sticky after native callbacks catch them", async () => {
+    const registered = Result.getOrThrow(defineWorkflowModule({ name: "sample", source,
+      methods: { echo: method, unselected: method }, graph: graphDefinition() }));
+    const selection = Result.getOrThrow(prepareWorkflowResources({
+      sample: { module: registered, methods: ["echo"], graph: false },
+    }, false));
+    const selected = workflowResourceSelections(selection);
+    if (selected === undefined) throw new Error("Missing selection");
+    for (const name of ["unselected", "omittedUnsupported"]) {
+      const step = createStep("caught-method", (_input: unknown, { container }) => {
+        const service = container.resolve<Record<string, () => unknown>>("sample");
+        try { service[name]!(); } catch { /* The root still owns refusal. */ }
+        return "continued";
+      });
+      const flow = createWorkflow("caught-method", () => new WorkflowResponse(step(null)));
+      const ctx = context();
+      const result = await Effect.runPromise(Effect.result(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), ctx, null,
+        owner => bindWorkflowResources(selection, selected, undefined, [], ctx, owner))));
+      expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
+    }
+  });
+
+  it("keeps resource inspection inert and exposes only selected own methods", async () => {
+    const step = createStep("inspect-resource", async (_input: unknown, { container }) => {
+      const service = container.resolve<{ echo(value: string): Promise<string> }>("sample");
+      expect(await Promise.resolve(service)).toBe(service);
+      expect(JSON.stringify(service)).toBe("{}");
+      expect(Object.keys(service)).toEqual(["echo"]);
+      expect("omittedUnsupported" in service).toBe(false);
+      expect(Object.getOwnPropertyDescriptor(service, "omittedUnsupported")).toBeUndefined();
+      expect(Reflect.get(service, Symbol.iterator)).toBeUndefined();
+      expect(service.toString()).toBe("[object Object]");
+      expect(Object.isFrozen(service)).toBe(true);
+      return service.echo("inspected");
+    });
+    const flow = createWorkflow("inspect-resource", () => new WorkflowResponse(step(null)));
+    const ctx = context();
+    expect(await Effect.runPromise(runNativeMedusaWorkflow(Result.getOrThrow(flow.prepare()), ctx, null,
+      owner => bindWorkflowResources(resources, members, undefined, [], ctx, owner)))).toBe("inspected");
+    expect(Result.isFailure(defineWorkflowModule({ name: "sample", source,
+      methods: { toJSON: method }, graph: graphDefinition() }))).toBe(true);
+  });
+
   it("captures finite method event sets and rejects malformed or ambiguous declarations", () => {
     const names = ["product.updated", "collection.updated"];
     const registered = Result.getOrThrow(defineWorkflowMethod({ ...methodInput, moduleEvents: names }));

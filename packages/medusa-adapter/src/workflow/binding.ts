@@ -15,6 +15,19 @@ export interface WorkflowEventDefinition {
 }
 export interface BoundWorkflowEvent extends WorkflowEventDefinition { readonly contract: CommerceEventContract }
 
+/** Missing native methods refuse on invocation. Reflection and protocol probes
+ * remain inert; the target still exposes only the admitted own properties. */
+function scopedResource(methods: object, owner: CommercePromiseOwner): object {
+  const refuse = () => owner.reject(commerceError("unsupportedProfile"));
+  return new Proxy(Object.freeze(methods), {
+    get(target, key, receiver) {
+      if (Reflect.has(target, key)) return Reflect.get(target, key, receiver);
+      if (typeof key !== "string" || key === "then" || key === "toJSON") return undefined;
+      return refuse;
+    },
+  });
+}
+
 /** This is the sole Promise facade for admitted workflow resources. It owns no
  * manager and invokes only the supplied root's authentic commands/graph/events. */
 export function bindWorkflowResources(selection: PreparedWorkflowResources, members: readonly PreparedWorkflowSelection[],
@@ -35,20 +48,17 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
         return yield* checkedCommerceValue(ctx, () => method.output(result));
       }))]);
     }
-    for (const name of new Set([...definition.refusedMethods, ...Object.keys(member.module.methods).filter(name => !member.methods.includes(name))])) {
-      methods.push([name, () => owner.reject(commerceError("unsupportedProfile"))]);
-    }
-    entries.push([member.name, Object.freeze(Object.fromEntries(methods))]);
+    entries.push([member.name, scopedResource(Object.fromEntries(methods), owner)]);
   }
   if (graph !== undefined) {
     const query = graph.bind(ctx);
-    entries.push(["query", Object.freeze({ maxPageSize: commerceLimits.catalogRows,
+    entries.push(["query", scopedResource({ maxPageSize: commerceLimits.catalogRows,
       graph: (...args: unknown[]) => owner.run(args.length === 1 ? query.graph(args[0]) : ctx.refuse(commerceError("unsupportedProfile"))),
-    })]);
+    }, owner)]);
   }
   if (selection.events) {
     const contracts = new Map(events.map(event => [event.name, event]));
-    entries.push(["event_bus", Object.freeze({
+    entries.push(["event_bus", scopedResource({
       emit: (input: unknown) => owner.run(Effect.gen(function* () {
         const messages = yield* checkedCommerceValue(ctx, () => captureCommerceInput(input));
         if (!Array.isArray(messages)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
@@ -63,7 +73,7 @@ export function bindWorkflowResources(selection: PreparedWorkflowResources, memb
       })),
       clearGroupedEvents: () => owner.reject(commerceError("unadmittedEvent")),
       releaseGroupedEvents: () => owner.reject(commerceError("unadmittedEvent")),
-    })]);
+    }, owner)]);
   }
   const resources = Object.freeze(Object.fromEntries(entries));
   const container: WorkflowContainer = Object.freeze({ resolve<T>(name: string): T {

@@ -92,7 +92,7 @@ async function tagHost() {
     execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
       prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
     modules: { product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-      moduleEvents: productLogicalTagEventPolicy(catalog, "created") },
+      moduleEvents: productLogicalTagEventPolicy(catalog) },
     currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage } },
     revision: createHash("sha256").update("logical-product-membership-tag").digest("hex"),
     subscribers: [{ id: "logical-product-membership", revision: "a".repeat(64) }],

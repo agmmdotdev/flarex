@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect";
 import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-sdk";
 import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, type AtomicCommerceHost, type AtomicCommerceHostInput,
   type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract,
-  type LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+  type LogicalCommerceEventValidation, type LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { prepareLocalGraph } from "../local-graph/query";
@@ -26,6 +26,7 @@ type InstalledWorkflowModuleBase<Module extends WorkflowModule> = {
   readonly module: Module;
   readonly moduleEvents?: Readonly<{ capture: LocalCommerceEventPolicy["capture"];
     validate?: LocalCommerceEventPolicy["validate"]; validateLogical?: LogicalCommerceEventValidation;
+    validateLogicalCall?: LogicalCommerceCallValidation;
     /** Admit only a policy that validates the sealed core transition. */
     allowSetNull?: true }>;
 };
@@ -105,8 +106,9 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     const moduleEvents = binding.moduleEvents === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(binding.moduleEvents));
     if (moduleEvents !== undefined && (typeof moduleEvents.capture !== "function" ||
       (moduleEvents.allowSetNull !== undefined && (moduleEvents.allowSetNull !== true || !hasLogicalStorage)) || (hasLogicalStorage
-      ? typeof moduleEvents.validateLogical !== "function" || moduleEvents.validate !== undefined
-      : typeof moduleEvents.validate !== "function" || moduleEvents.validateLogical !== undefined)))
+      ? (typeof moduleEvents.validateLogical !== "function" && typeof moduleEvents.validateLogicalCall !== "function") ||
+        (moduleEvents.validateLogical !== undefined && moduleEvents.validateLogicalCall !== undefined) || moduleEvents.validate !== undefined
+      : typeof moduleEvents.validate !== "function" || moduleEvents.validateLogical !== undefined || moduleEvents.validateLogicalCall !== undefined)))
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     const commands = new Set<CommerceCommand>();
     const methodIdentities = [];
@@ -146,6 +148,7 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
     }
     const selected = { participant: member.participant, commands: [...commands],
       ...(hasLogicalStorage && moduleEvents?.allowSetNull === true ? { allowSetNull: true as const } : {}),
+      ...(hasLogicalStorage && moduleEvents?.validateLogicalCall !== undefined ? { validateLogicalCall: moduleEvents.validateLogicalCall } : {}),
       ...(hasLogicalStorage
         ? moduleEvents?.validateLogical === undefined ? {} : { validateLogical: moduleEvents.validateLogical }
         : moduleEvents?.validate === undefined ? {} : { validate: moduleEvents.validate }),

@@ -87,7 +87,23 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     closures.set(closure, { admission, tx, lifetime, changes });
     return closure;
   });
+  const names = new Map(state.tables.map(table => [table.tableId, table.localName]));
+  const callActivity = Effect.fn("LogicalCommerce.callActivity")(function* (
+    cursor: ReturnType<typeof working.activityCursor>,
+  ) {
+    const snapshot = yield* working.activitySnapshot();
+    return yield* projectLogicalCommerceActivity(names, {
+      ...snapshot,
+      attempts: snapshot.attempts.slice(cursor.attempts).map(attempt =>
+        Object.freeze({ ...attempt, ordinal: attempt.ordinal - cursor.attempts })),
+      lifecycle: snapshot.lifecycle.slice(cursor.lifecycle).map(observation => Object.freeze({ ...observation,
+        attemptOrdinal: observation.attemptOrdinal === null ? null : observation.attemptOrdinal - cursor.attempts })),
+      setNull: snapshot.setNull.slice(cursor.setNull),
+      referenceReplacements: snapshot.referenceReplacements.slice(cursor.referenceReplacements),
+    });
+  });
   return Object.freeze({ store, resources: defaultCommerceResources, close,
+    activityCursor: working.activityCursor, callActivity,
     attemptCount: working.attemptCount, lifecycleCount: working.lifecycleCount,
     planSetNull: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.gen(function* () {
       const admitted = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
@@ -121,8 +137,17 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
     return yield* Effect.fail(commerceError("invalidAuthority"));
   const state = yield* requireLogicalRelationalAdmission(closed.admission, closed.tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   const names = new Map(state.tables.map(table => [table.tableId, table.localName]));
+  return yield* projectLogicalCommerceActivity(names, closed.changes);
+});
+
+/** Both live call evidence and closed aggregate evidence use the same projection.
+ * Neither view carries a storage or settlement capability. */
+const projectLogicalCommerceActivity = Effect.fn("LogicalCommerce.projectActivity")(function* (
+  names: ReadonlyMap<number, string>,
+  activity: Pick<LogicalDocumentChanges, "attempts" | "lifecycle" | "observedRows" | "setNull" | "referenceReplacements">,
+) {
   const mutations: LogicalCommerceMutation[] = [];
-  for (const attempt of closed.changes.attempts) {
+  for (const attempt of activity.attempts) {
     const table = names.get(attempt.tableId);
     const before = attempt.before?.valueJson ?? null;
     const after = attempt.after?.valueJson ?? null;
@@ -132,7 +157,7 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
     mutations.push(Object.freeze({ ordinal: attempt.ordinal, table, operation: attempt.operation, before, after }));
   }
   const lifecycle: LogicalCommerceLifecycleObservation[] = [];
-  for (const observation of closed.changes.lifecycle) {
+  for (const observation of activity.lifecycle) {
     const table = names.get(observation.tableId);
     if (table === undefined || table !== observation.tableName) return yield* Effect.fail(commerceError("storedCorruption"));
     lifecycle.push(Object.freeze({ table, key: observation.key, operation: observation.operation,
@@ -140,14 +165,14 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
       attemptOrdinal: observation.attemptOrdinal, rowAtOperation: observation.rowAtOperation }));
   }
   const observedRows: LogicalCommerceObservedRow[] = [];
-  for (const observation of closed.changes.observedRows) {
+  for (const observation of activity.observedRows) {
     const table = names.get(observation.tableId);
     if (table === undefined || table !== observation.tableName || !isJsonObject(observation.value))
       return yield* Effect.fail(commerceError("storedCorruption"));
     observedRows.push(Object.freeze({ table, row: observation.value }));
   }
   const setNull: LogicalCommerceSetNull[] = [];
-  for (const intent of closed.changes.setNull) {
+  for (const intent of activity.setNull) {
     const sourceTable = names.get(intent.sourceTableId);
     const targetTable = names.get(intent.targetTableId);
     if (sourceTable === undefined || targetTable === undefined) return yield* Effect.fail(commerceError("storedCorruption"));
@@ -155,7 +180,7 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
       targetColumn: intent.targetColumn, targetKey: intent.targetKey }));
   }
   const referenceReplacements: LogicalCommerceReferenceReplacement[] = [];
-  for (const intent of closed.changes.referenceReplacements) {
+  for (const intent of activity.referenceReplacements) {
     const sourceTable = names.get(intent.sourceTableId);
     const targetTable = names.get(intent.targetTableId);
     if (sourceTable === undefined || targetTable === undefined)

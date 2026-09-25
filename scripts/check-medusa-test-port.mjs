@@ -42,23 +42,38 @@ export function verifyPricingCreateTests(source, target) {
     throw new Error("Changed selected native Pricing test bodies or seed");
 }
 
-/** Every native Pricing business method except createPriceSets is an explicit
- * workflow refusal; module infrastructure fields are not business methods.
+/** Pricing admits only its selected native creation method. All other calls
+ * share the workflow binder's runtime refusal boundary.
  * @param {string} source @param {string} target */
-export function verifyPricingWorkflowRefusals(source, target) {
+export function verifyPricingWorkflowSelection(source, target) {
   const contract = ts.createSourceFile("native.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   const declaration = contract.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === "IPricingModuleService");
   if (declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Pricing interface");
   const methods = new Set(declaration.members.filter(ts.isMethodSignature).map(member => member.name.getText(contract)));
-  if (!methods.delete("createPriceSets") || methods.size === 0) throw new Error("Missing native Pricing creation method");
+  if (!methods.has("createPriceSets")) throw new Error("Missing native Pricing creation method");
   const adapter = ts.createSourceFile("adapter.ts", target, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
-  const selections = adapter.statements.filter(ts.isVariableStatement).flatMap(statement => statement.declarationList.declarations)
-    .filter(node => ts.isIdentifier(node.name) && node.name.text === "pricingRefusedMethods");
-  const initializer = selections[0]?.initializer;
-  const array = initializer !== undefined && ts.isSatisfiesExpression(initializer) ? initializer.expression : initializer;
-  if (selections.length !== 1 || array === undefined || !ts.isArrayLiteralExpression(array) ||
-    array.elements.length !== methods.size || array.elements.some(value => !ts.isStringLiteral(value) || !methods.delete(value.text)) || methods.size !== 0)
-    throw new Error("Incomplete native Pricing workflow refusals");
+  /** @type {ts.CallExpression[]} */
+  const selections = [];
+  /** @param {ts.Node} node */
+  const visit = node => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "defineWorkflowModule") selections.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(adapter);
+  const input = selections[0]?.arguments[0];
+  // A later spread, getter or computed key can replace an earlier literal.
+  // This maintained registration must remain an unambiguous data literal.
+  if (input === undefined || !ts.isObjectLiteralExpression(input) || input.properties.some(property =>
+    (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) ||
+    !ts.isIdentifier(property.name) || (ts.isShorthandPropertyAssignment(property) && property.name.text === "methods")))
+    throw new Error("Ambiguous native Pricing workflow selection");
+  const selected = input !== undefined && ts.isObjectLiteralExpression(input)
+    ? input.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "methods") : [];
+  const initializer = selected[0]?.initializer;
+  if (selections.length !== 1 || selected.length !== 1 || initializer === undefined ||
+    !ts.isObjectLiteralExpression(initializer) || initializer.properties.length !== 1 ||
+    !ts.isShorthandPropertyAssignment(initializer.properties[0]) || initializer.properties[0].name.text !== "createPriceSets")
+    throw new Error("Unadmitted native Pricing workflow selection");
 }
 
 /** The admitted ShippingProfile subset preserves two complete native bodies;

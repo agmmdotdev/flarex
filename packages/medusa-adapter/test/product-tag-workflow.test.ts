@@ -84,7 +84,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     await runEffect(product.host.close);
     fixture = { currency, product };
     const catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    policy = productLogicalTagEventPolicy(catalog, "created");
+    policy = productLogicalTagEventPolicy(catalog);
   }, 150_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -578,7 +578,7 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     if (description === undefined) throw new Error("Missing Product registration");
     const defect = new Error("graph decoder defect");
     const module = Result.getOrThrow(defineWorkflowModule({ name: "product", source: description.source,
-      methods: modules.product.module.methods, refusedMethods: description.refusedMethods,
+      methods: modules.product.module.methods,
       graph: { ...description.graph, reads: description.graph.reads.map(read => ({ ...read, decode: () => { throw defect; } })) },
     }));
     const host = await runEffect(prepareProductTagWorkflow({ execution: execution(), modules: { ...modules, product: { ...modules.product, module } }, revision, subscribers,

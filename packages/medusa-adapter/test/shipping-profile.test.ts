@@ -40,7 +40,7 @@ beforeAll(async () => {
   host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
     identityAndAccessPolicy: { profile: "logical-shipping-profile-native" },
     participants: [{ participant, logicalStorage: shipping.hostInput.logicalStorage,
-      commands: shipping.runtime.commands, validateLogical: policy.validateLogical,
+      commands: shipping.runtime.commands, validateLogicalCall: policy.validateLogicalCall,
       events: { contracts: [contract], select: (message: Json) =>
         isJsonObject(message) && message.name === eventName ? Effect.succeed(contract) : Effect.fail(commerceError("unadmittedEvent")) } }],
     commands: [create],

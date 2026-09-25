@@ -78,7 +78,7 @@ describe("mixed Category/Currency atomic boundaries on logical Currency", () => 
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
     const fixtures = [
       { command: product.runtime.commands.createTags, value: { id: "graph-tag", value: "Graph tag" },
-        policy: productLogicalTagEventPolicy(catalog, "created"), entities: [catalog.tag] },
+        policy: productLogicalTagEventPolicy(catalog), entities: [catalog.tag] },
       { command: product.runtime.commands.createTypes, value: { id: "graph-type", value: "Graph type" },
         policy: productLogicalTypeEventPolicy(catalog, "create"), entities: [catalog.type] },
       { command: product.runtime.commands.createCollections,
@@ -101,7 +101,8 @@ describe("mixed Category/Currency atomic boundaries on logical Currency", () => 
         ctx.call(proof.productParticipant, fixtureRow.command, value));
       const setup = await selected({ ...currency.hostInput, commands: [root],
         participants: [{ participant: proof.productParticipant, logicalStorage: product.hostInput.logicalStorage,
-          commands: [fixtureRow.command], validateLogical: fixtureRow.policy.validateLogical,
+          commands: [fixtureRow.command], ...("validateLogicalCall" in fixtureRow.policy ? { validateLogicalCall: fixtureRow.policy.validateLogicalCall }
+            : { validateLogical: fixtureRow.policy.validateLogical }),
           events: { contracts, select: event => {
             const contract = isJsonObject(event) && typeof event.name === "string"
               ? named.find(entry => entry.name === event.name)?.contract : undefined;

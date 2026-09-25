@@ -44,12 +44,23 @@ export type LogicalCommerceEventValidation = (calls: readonly LogicalCommerceCal
   referenceReplacements?: readonly LogicalCommerceReferenceReplacement[])
   => Effect.Effect<void, ReturnType<typeof commerceError>>;
 
+/** Immediate evidence for exactly one successful outer command. Ordinals start
+ * at zero; observed rows are the pending view at this call's completion. */
+export type LogicalCommerceCallValidation = (call: LogicalCommerceCallObservation,
+  activity: Readonly<{ mutations: readonly LogicalCommerceMutation[];
+    lifecycle: readonly LogicalCommerceLifecycleObservation[];
+    observedRows: readonly LogicalCommerceObservedRow[];
+    setNull: readonly LogicalCommerceSetNull[];
+    referenceReplacements: readonly LogicalCommerceReferenceReplacement[] }>)
+  => Effect.Effect<void, ReturnType<typeof commerceError>>;
+
 interface AtomicCommerceParticipantBase {
   readonly participant: AtomicCommerceParticipant;
   readonly commands: readonly CommerceCommand[];
   /** Required for local profiles; all captured messages must match real facts. */
   readonly validate?: LocalCommerceEventPolicy["validate"];
   readonly validateLogical?: LogicalCommerceEventValidation;
+  readonly validateLogicalCall?: LogicalCommerceCallValidation;
   readonly allowSetNull?: true;
   readonly allowReferenceReplacement?: true;
   readonly derivedIdEvent?: CommerceDerivedIdEvent;
@@ -65,6 +76,7 @@ function captureParticipant(member: AtomicCommerceParticipantInput) {
   const derived = member.derivedIdEvent;
   return Object.freeze({ participant: member.participant,
     commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
+    validateLogicalCall: member.validateLogicalCall,
     allowSetNull: member.allowSetNull, allowReferenceReplacement: member.allowReferenceReplacement,
     derivedIdEvent: derived === undefined ? undefined : Object.freeze({ contract: derived.contract }),
     events: captureParticipantEvents(member.events),
@@ -112,12 +124,15 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
       .pipe(Effect.mapError(projectCommerceRequestFailure));
     const common = { participant: member.participant, name, commands,
       commandNames: [...commandNames].toSorted(compareUtf16Strings), validate: member.validate,
-      validateLogical: member.validateLogical, allowSetNull: member.allowSetNull,
+      validateLogical: member.validateLogical, validateLogicalCall: member.validateLogicalCall, allowSetNull: member.allowSetNull,
       allowReferenceReplacement: member.allowReferenceReplacement, derivedIdEvent, events };
     if (member.kind === "logical") {
-      if (location === undefined || member.validate !== undefined || (events !== undefined && member.validateLogical === undefined)
-        || (member.allowSetNull === true && member.validateLogical === undefined)
-        || (member.allowReferenceReplacement === true && (member.validateLogical === undefined ||
+      const validated = member.validateLogical !== undefined || member.validateLogicalCall !== undefined;
+      if (location === undefined || member.validate !== undefined ||
+        (member.validateLogical !== undefined && member.validateLogicalCall !== undefined) ||
+        (events !== undefined && !validated)
+        || (member.allowSetNull === true && !validated)
+        || (member.allowReferenceReplacement === true && (!validated ||
           derivedIdEvent === undefined || events === undefined ||
           !events.contracts.includes(derivedIdEvent.contract))) ||
         (derivedIdEvent !== undefined && member.allowReferenceReplacement !== true))
@@ -142,7 +157,7 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     const reference = capturedReference.value;
     yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectCommerceRequestFailure));
     const descriptor = yield* requireCommerceProfile(member.profile);
-    if (member.validateLogical !== undefined || member.allowSetNull === true ||
+    if (member.validateLogical !== undefined || member.validateLogicalCall !== undefined || member.allowSetNull === true ||
       member.allowReferenceReplacement === true || derivedIdEvent !== undefined)
       return yield* Effect.fail(commerceError("unsupportedProfile"));
     if (descriptor.localOnly !== (member.validate !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));

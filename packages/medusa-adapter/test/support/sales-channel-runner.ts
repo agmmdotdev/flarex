@@ -52,7 +52,7 @@ export function moduleIntegrationTestRunner(options: {
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
       identityAndAccessPolicy: { profile: "logical-sales-channel-native-suite" },
       participants: [{ participant, logicalStorage: sales.hostInput.logicalStorage,
-        commands: sales.runtime.commands, validateLogical: policy.validateLogical,
+        commands: sales.runtime.commands, validateLogicalCall: policy.validateLogicalCall,
         events: { contracts: eventContracts, select: (message: Json) => {
           const selected = (["created", "updated", "deleted"] as const).find(action =>
             isJsonObject(message) && message.name === eventName(action));

@@ -1,5 +1,5 @@
 // @ts-check
-import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowRefusals } from "./check-medusa-test-port.mjs";
+import { verifyTestPort, verifyShippingProfileCreateTests, verifyPricingCreateTests, verifyPricingWorkflowSelection } from "./check-medusa-test-port.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -112,7 +112,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
     readFileSync(path.join(root, sourcePrefix + "packages/modules/pricing/integration-tests/__tests__/services/pricing-module/price-set.spec.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/test/support/pricing-native-tests.ts"), "utf8"),
   );
-  verifyPricingWorkflowRefusals(
+  verifyPricingWorkflowSelection(
     readFileSync(path.join(root, sourcePrefix + "packages/core/types/src/pricing/service.ts"), "utf8"),
     readFileSync(path.join(root, "packages/medusa-adapter/src/pricing-service.ts"), "utf8"),
   );

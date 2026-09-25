@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Result } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { currencyWorkflowModule } from "../src/currency-service";
 import { productLogicalTagEventPolicy } from "../src/product-local-events";
@@ -42,7 +42,7 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
         product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalTagEventPolicy(metadata, "created") },
+          moduleEvents: productLogicalTagEventPolicy(metadata) },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-workflow").digest("hex"),
@@ -87,7 +87,7 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
       modules: {
         product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage,
-          moduleEvents: productLogicalTagEventPolicy(metadata, "created") },
+          moduleEvents: productLogicalTagEventPolicy(metadata) },
         currency: { module: Result.getOrThrow(currencyWorkflowModule), logicalStorage: currency.hostInput.logicalStorage },
       },
       revision: createHash("sha256").update("logical-product-tag-no-hook").digest("hex"),
@@ -105,9 +105,10 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
   }, 120_000);
 
   it("refuses a module event ID without a matching logical Product insert", async () => {
+    let hooks = 0;
     const metadata = await Effect.runPromise(captureProductSchema("atomic-commerce")
       .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    const policy = productLogicalTagEventPolicy(metadata, "created");
+    const policy = productLogicalTagEventPolicy(metadata);
     const host = await Effect.runPromise(prepareProductTagWorkflow({
       execution: { identityAndAccessPolicy: currency.hostInput.identityAndAccessPolicy,
         prepare: composition => makeAtomicCommerceHost({ ...currency.hostInput, ...composition }) },
@@ -120,13 +121,17 @@ describe("native Product-tag workflow with logical Product and Currency", () => 
       },
       revision: createHash("sha256").update("logical-product-tag-workflow-refusal").digest("hex"),
       subscribers: [{ id: "logical-product-tags", revision: "a".repeat(64) }],
-      hooks: { productTagsCreated: async () => {} },
+      hooks: { productTagsCreated: async () => { hooks++; } },
     }));
     try {
       const beforeRows = await currency.persistence.drizzle.select().from(fxAppRowCurrent);
       const beforeEvents = await currency.persistence.drizzle.select().from(fxSystemCommitEvents);
-      expect(await runEffectFailure(host.run(host.newRequestKey(),
-        { product_tags: [{ value: "forged-event-tag" }] }))).toMatchObject({ reason: "receiptMismatch" });
+      const failure = await runEffectFailure(host.run(host.newRequestKey(),
+        { product_tags: [{ value: "forged-event-tag" }] }));
+      expect(failure).toMatchObject({ reason: "rollbackOnly" });
+      if (!Cause.isCause(failure.cause)) throw new Error("Missing native call refusal cause");
+      expect(Result.getOrThrow(Cause.findError(failure.cause))).toMatchObject({ reason: "receiptMismatch" });
+      expect(hooks).toBe(0);
       expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
       expect(await currency.persistence.drizzle.select().from(fxSystemCommitEvents)).toEqual(beforeEvents);
     } finally { await Effect.runPromise(host.close); }

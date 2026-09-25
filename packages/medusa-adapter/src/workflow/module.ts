@@ -53,7 +53,6 @@ export interface WorkflowModule<Methods extends Readonly<Record<string, Workflow
 interface ModuleDefinition {
   readonly source: Pick<CommerceModuleDescription, "name" | "profile">;
   readonly graph: GraphModuleDefinition;
-  readonly refusedMethods: readonly string[];
 }
 const modules = new WeakMap<object, ModuleDefinition>();
 const Table = Schema.Struct({ name: Schema.String, columns: Schema.Array(Schema.String), primaryKeys: Schema.Array(Schema.String),
@@ -71,7 +70,6 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
   readonly source: Pick<CommerceModuleDescription, "name" | "profile">;
   readonly methods: Methods;
   readonly graph: GraphModuleDefinition;
-  readonly refusedMethods?: readonly string[];
 }): Result.Result<WorkflowModule<Methods>, CommerceTransactionError> {
   return Result.gen(function* () {
     const definition = yield* captureWorkflowRecord(input);
@@ -82,16 +80,12 @@ export function defineWorkflowModule<const Methods extends Readonly<Record<strin
     for (const [name, method] of Object.entries(selected)) {
       if (!isWorkflowResourceName(name) || !methods.has(method)) return yield* Result.fail(commerceError("unsupportedProfile"));
     }
-    const refused = yield* captureCommerceInput(definition.refusedMethods ?? []);
-    if (!Array.isArray(refused) || refused.some(name => typeof name !== "string" || !isWorkflowResourceName(name) || Object.hasOwn(selected, name))
-      || new Set(refused).size !== refused.length) return yield* Result.fail(commerceError("unsupportedProfile"));
     // Graph preparation owns deep metadata snapshots and validation. Retain its
     // checked snapshot through the original definition captured below.
     const graph = yield* captureGraphDefinition(definition.graph);
     yield* prepareLocalGraph([{ participant: defineAtomicCommerceParticipant(definition.name), module: graph }]);
     const token = Object.freeze({ name: definition.name, methods: selected });
     modules.set(token, Object.freeze({ source: Object.freeze({ name: source.name, profile: source.profile }), graph,
-      refusedMethods: Object.freeze(refused.filter((name): name is string => typeof name === "string")),
     }));
     return token;
   });

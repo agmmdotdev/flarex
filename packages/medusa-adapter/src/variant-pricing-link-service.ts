@@ -68,7 +68,7 @@ export const prepareVariantPricingLink = Effect.fn("VariantPricingLink.prepare")
   const count = commands.read("linkCount", prepare(decodeRead), ({ service, context }, args) => service.listAndCount(args.filters, args.config as FindConfig<unknown> | undefined, context));
   const graph: GraphModuleDefinition = { aliases: yield* Effect.fromResult(moduleAliases(native.joiner)), reads: [{ model: native.entityName, command: count, table: native.prepared.table, paths: [], orderable: ["variant_id"], uniqueOrder: ["variant_id"], multipleOrder: false, decode: decodeGraphCount }] };
   const method = yield* Effect.fromResult(defineWorkflowMethod({ command: create, arguments: decodeArguments, encode: ([links]) => links, output: decodeCreated, moduleEvents: [native.entityName + ".attached"] }));
-  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: native.serviceName, profile: "medusa.variant-pricing.link-workflow" }, methods: { create: method }, graph, refusedMethods: ["dismiss", "delete", "restore", "list"] }));
+  const workflow = yield* Effect.fromResult(defineWorkflowModule({ name: "link", source: { name: native.serviceName, profile: "medusa.variant-pricing.link-workflow" }, methods: { create: method }, graph }));
   const eventPolicy = (descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]) => linkEventPolicy("product_variant_price_set", native.serviceName, native.entityName, descriptor, deliver);
   const logicalEventPolicy = () => linkLogicalEventPolicy("product_variant_price_set", native.serviceName, native.entityName,
     ["variant_id", "price_set_id"]);

@@ -11,7 +11,7 @@ import { currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import type { ProductRuntimeMetadata } from "../src/product-runtime-metadata";
-import { productLogicalTagCompositionEventPolicy } from "../src/product-local-events";
+import { productLogicalTagEventPolicy } from "../src/product-local-events";
 import { CommonEvents, Modules } from "@medusajs/framework/utils/portable";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowHostComposition } from "../src/workflow/host";
@@ -34,7 +34,7 @@ const driver = process.env.FLAREX_TEST_DRIVER ?? process.env.MEDUSA_COMPARISON_D
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Medusa comparison driver");
 let fixture: { currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   product: Awaited<ReturnType<typeof prepareLogicalProductHost>> };
-let policy: ReturnType<typeof productLogicalTagCompositionEventPolicy>;
+let policy: ReturnType<typeof productLogicalTagEventPolicy>;
 let catalog: ProductRuntimeMetadata;
 let revision: string;
 const subscribers = [{ id: "composition", revision: "a".repeat(64) }];
@@ -82,7 +82,7 @@ describe("native composed Product workflows", () => {
     await runEffect(product.host.close);
     fixture = { currency, product };
     catalog = await runEffect(captureProductSchema("atomic-commerce").pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
-    policy = productLogicalTagCompositionEventPolicy(catalog);
+    policy = productLogicalTagEventPolicy(catalog);
   }, 150_000);
   afterAll(async () => {
     const failures: unknown[] = [];
@@ -100,9 +100,10 @@ describe("native composed Product workflows", () => {
       events: [{ name: catalog.tag.deletedEvent, metadata: { source: Modules.PRODUCT,
         object: catalog.tag.eventObject, action: CommonEvents.DELETED }, data: { id: ["tag-a", "tag-b"] } }],
       fromAttempt: 0, toAttempt: 2, fromLifecycle: 0, toLifecycle: 2 }];
-    await runEffect(policy.validateLogical(calls, mutations, lifecycle, [], []));
-    expect(await runEffectFailure(policy.validateLogical(calls, mutations,
-      [lifecycle[0]!, { ...lifecycle[1]!, key: { id: "tag-a" }, attemptOrdinal: 0 }], [], [])))
+    await runEffect(policy.validateLogicalCall(calls[0]!, { mutations, lifecycle, observedRows: [], setNull: [], referenceReplacements: [] }));
+    expect(await runEffectFailure(policy.validateLogicalCall(calls[0]!, { mutations,
+      lifecycle: [lifecycle[0]!, { ...lifecycle[1]!, key: { id: "tag-a" }, attemptOrdinal: 0 }],
+      observedRows: [], setNull: [], referenceReplacements: [] })))
       .toMatchObject({ reason: "receiptMismatch" });
   });
 
@@ -193,6 +194,10 @@ describe("native composed Product workflows", () => {
       () => { throw new Error("late child hook failure"); },
       async (_input, { resources }) => { try { await resources.query.graph({ entity: "external", fields: ["id"] }); } catch { /* refusal remains sticky */ } },
       async (_input, { resources }) => { try { await resources.event_bus.emit([{ name: "unselected", data: {} }]); } catch { /* refusal remains sticky */ } },
+      async (_input, { container }) => {
+        const service = container.resolve<{ omittedUnsupported(): Promise<void> }>("product");
+        try { await service.omittedUnsupported(); } catch { /* Root must roll back both completed children. */ }
+      },
       () => Symbol("invalid hook output"),
     ];
     const before = await inventory();
@@ -364,5 +369,25 @@ describe("native composed Product workflows", () => {
       const host = await runEffect(makeAtomicCommerceHost({ ...base, commands: [quiet], participants: [{ ...member, ...(events === undefined ? {} : { events }) }] }));
       expect(await runEffect(host.run(host.newRequestKey(), quiet, null))).toBeNull();
     }
+  }, 30_000);
+
+  it("binds logical validation mode into replay identity and rejects ambiguous policy ownership", async () => {
+    const participant = defineAtomicCommerceParticipant("validationMode");
+    const read = defineCommerceCommand("readValidationMode", "read", () => Effect.succeed(null));
+    const command = defineAtomicCommerceCommand("validationMode", ctx => ctx.call(participant, read, null));
+    const member = { participant, logicalStorage: fixture.product.hostInput.logicalStorage, commands: [read] };
+    const input = { ...fixture.product.hostInput, commands: [command] };
+    const aggregate = await runEffect(makeAtomicCommerceHost({ ...input,
+      participants: [{ ...member, validateLogical: () => Effect.void }] }));
+    const perCall = await runEffect(makeAtomicCommerceHost({ ...input,
+      participants: [{ ...member, validateLogicalCall: () => Effect.void }] }));
+    try {
+      const key = aggregate.newRequestKey();
+      expect(await runEffect(aggregate.run(key, command, null))).toBeNull();
+      expect(await runEffectFailure(perCall.run(key, command, null))).toMatchObject({ reason: "requestConflict" });
+      expect(await runEffectFailure(makeAtomicCommerceHost({ ...input, participants: [{ ...member,
+        validateLogical: () => Effect.void, validateLogicalCall: () => Effect.void }] })))
+        .toMatchObject({ reason: "unsupportedProfile" });
+    } finally { await runEffect(aggregate.close); await runEffect(perCall.close); }
   }, 30_000);
 });

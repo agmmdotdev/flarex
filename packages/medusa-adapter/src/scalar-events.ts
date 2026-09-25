@@ -4,7 +4,7 @@ import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEv
 import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
-import type { LogicalCommerceEventValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
+import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 
 function scalarCapture(source: string, tableName: string,
   resources: typeof defaultCommerceResources, spanName: string) {
@@ -63,27 +63,15 @@ export function scalarEventPolicy(source: string, tableName: string,
 export function scalarLogicalEventPolicy(source: string, tableName: string,
   commands: Readonly<{ insert: string; update?: string; delete?: string }>) {
   const capture = scalarCapture(source, tableName, defaultCommerceResources, "ScalarEvents.captureLogical");
-  const validateLogical: LogicalCommerceEventValidation = Effect.fn("ScalarEvents.validateLogical")(
-    function* (calls, mutations, lifecycle) {
-      if (lifecycle.length !== 0 || mutations.some((mutation, index) => mutation.ordinal !== index))
+  const validateLogicalCall: LogicalCommerceCallValidation = Effect.fn("ScalarEvents.validateLogicalCall")(
+    function* (call, { mutations, lifecycle, setNull, referenceReplacements }) {
+      if (lifecycle.length !== 0 || setNull.length !== 0 || referenceReplacements.length !== 0 ||
+        mutations.some((mutation, index) => mutation.ordinal !== index))
         return yield* Effect.fail(commerceError("receiptMismatch"));
-      let cursor = 0;
-      let command: string | undefined;
-      let emitted: readonly Json[] = [];
-      for (const call of calls) {
-        if (call.fromAttempt !== cursor) return yield* Effect.fail(commerceError("receiptMismatch"));
-        if (call.mode === "read") {
-          if (call.toAttempt !== cursor || call.events.length !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
-          continue;
-        }
-        if (command !== undefined || !Object.values(commands).includes(call.commandName)
-          || call.toAttempt !== mutations.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-        command = call.commandName;
-        cursor = call.toAttempt;
-        emitted = call.events;
-      }
-      if (cursor !== mutations.length || (command === undefined && mutations.length !== 0))
-        return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (call.mode === "read") return;
+      const command = call.commandName;
+      if (!Object.values(commands).includes(command)) return yield* Effect.fail(commerceError("receiptMismatch"));
+      const emitted = call.events;
       const expected = new Set<string>();
       for (const mutation of mutations) {
         const operation = mutation.operation;
@@ -112,5 +100,5 @@ export function scalarLogicalEventPolicy(source: string, tableName: string,
       }
       if (expected.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
     });
-  return { capture, validateLogical };
+  return { capture, validateLogicalCall };
 }
