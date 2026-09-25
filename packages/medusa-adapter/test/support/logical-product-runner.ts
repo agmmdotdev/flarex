@@ -11,7 +11,7 @@ import { captureCommerceInput } from "../../src/commerce-input";
 import { prepareProductReadInput } from "../../src/product-service-input";
 import { commerceError, logicalCommerceBatchResources, type Json, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceCommandIdentity } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../../persistence-postgres/src/atomicCommerce/commands";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, type AtomicCommerceCommand } from "../../../persistence-postgres/src/atomicCommerce/commands";
 import { defineCommerceDerivedIdEventContract, defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
 import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
@@ -22,10 +22,13 @@ import { logicalCurrencyFixture } from "./logical-currency-fixture";
 import { prepareLogicalProductHost } from "./logical-product-fixture";
 
 type Fixture = {
+  currency: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   product: Awaited<ReturnType<typeof prepareLogicalProductHost>>;
   reader: Effect.Success<ReturnType<typeof makeCommerceHost>>;
   writer: Effect.Success<ReturnType<typeof makeAtomicCommerceHost>>;
   root: ReturnType<typeof defineAtomicCommerceCommand>;
+  participant: ReturnType<typeof defineAtomicCommerceParticipant>;
+  prepareWriter: (command: AtomicCommerceCommand) => ReturnType<typeof makeAtomicCommerceHost>;
   commands: readonly CommerceCommand[];
   events: Awaited<ReturnType<typeof logicalCurrencyFixture>>["persistence"];
 };
@@ -33,6 +36,8 @@ const participant = defineAtomicCommerceParticipant("product");
 let current = Option.none<Fixture>();
 let destination = Option.none<IEventBusModuleService>();
 const get = () => Option.getOrThrow(current);
+/** Test-only access to the selected logical Product host and its authoritative store. */
+export const getLogicalProductRunnerFixture = get;
 
 // Narrow the already authenticated local message without changing its bytes or fields.
 function isCapturedMessage(event: Json): event is Json & { name: string; data: Json; metadata: { source: string; object: string; action: string } } {
@@ -207,7 +212,7 @@ export function productIntegrationTestRunner(options: ProductRunnerOptions) {
           return selected === undefined ? Effect.fail(commerceError("invalidAuthority"))
             : ctx.call(participant, selected, args.input);
         });
-        const writer = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+        const prepareWriter = (command: AtomicCommerceCommand) => makeAtomicCommerceHost({ ...fixture.hostInput,
           identityAndAccessPolicy: { profile: "native-product-logical-suite" },
           participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
             logicalResources: logicalCommerceBatchResources,
@@ -219,15 +224,17 @@ export function productIntegrationTestRunner(options: ProductRunnerOptions) {
                 ? byName.get(message.name) : undefined;
               return contract === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(contract);
             } } }],
-          commands: [root], requestCallLimit: 2048, requestByteLimit: logicalCommerceBatchResources.commandBytes,
+          commands: [command], requestCallLimit: 2048, requestByteLimit: logicalCommerceBatchResources.commandBytes,
           requestEventLimit: 2048, requestCommandMs: 30_000,
           events: { producerRevision: revision, contracts, derivedIdValidation: "capturedOnly",
             subscribers: [{ id: "native-product-logical-suite", revision }],
             validate: events => events.some(event => !event.internal)
               ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
-        }));
+        });
+        const writer = await Effect.runPromise(prepareWriter(root));
         cleanup.push(() => Effect.runPromise(writer.close));
-        current = Option.some({ product, reader, writer, root, commands, events: fixture.persistence });
+        current = Option.some({ currency: fixture, product, reader, writer, root, participant, prepareWriter,
+          commands, events: fixture.persistence });
       } catch (cause) {
         for (const close of cleanup.reverse()) await close();
         cleanup = [];

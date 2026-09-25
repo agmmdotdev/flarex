@@ -38,13 +38,18 @@ removed. The physical runner is named `legacy-product-runner` and is selected
 only by the still-unmigrated physical boundary configurations; it is not the
 canonical Product test path.
 
-Named physical consumers include Product local, failure, fixture-reset,
+Named physical consumers include Product local, fixture-reset,
 installation and exact-numeric tests; Category, internal Product and scale
 boundary checks; and the remaining mixed physical binding,
 link, population and persistence-core fixtures found by the reference inventory.
 The explicit legacy runner configurations are `product-categories`,
-`product-collections`, `product-failure`, `product-fixture`, `product-internal`,
-`product-options`, `product-scale`, `product-tags` and `product-variants`.
+`product-collections`, `product-fixture`, `product-internal`, `product-options`,
+`product-tags` and `product-variants`. The failure and scale boundary suites
+now select the logical runner: SQLSTATE cancellation targets generic row or
+outcome storage, while graph pages, ordered facts, native events, replay,
+late-page rollback, cancellation and capacity refusal use the same logical
+Product source as the canonical native suite. Their physical test selection
+and fixture dependencies are removed.
 For each, either migrate the same behavioral claim to generic storage or
 identify the framework-neutral core claim that already replaces it. A physical
 fixture is not retained merely to repeat a migrated claim. The physical
@@ -108,6 +113,13 @@ larger profile as a general capacity contract. The Type/Collection core-owned
 reverse fan-out has a separate bounded transition contract in
 [core relational fan-out](./28-core-relational-fanout-transition.md).
 
+Logical commerce materialization also enforces the trusted host's selected
+`facts` limit across root and derived row pages, within the global 2,048-row
+ceiling. An event-free 65-row Product graph against a 64-fact host is refused
+atomically; native over-budget Product graphs are separately refused through
+the shared request boundary. These are capacity-safety proofs, not throughput
+measurements.
+
 The shared event owner now admits at most 2,048 messages and 8 MiB of
 canonical event evidence for the selected native profile, with matching
 header and ordinal constraints. Stored verification retains the former
@@ -122,7 +134,10 @@ dependency at settlement. The measured 1,000-Image transaction is roughly
 15.5 seconds on ordinary-role PostgreSQL and 19 seconds on PGlite in this
 development fixture; these numbers justify the explicit 30-second safety
 envelope for conformance, not a scalability claim. Statement amplification
-and publication lock time remain performance gates. Measure a full 2,048-event
+and publication lock time remain performance gates. The selected logical
+1,000-Image create currently observes about 4,300 awaited Drizzle queries in
+both development drivers; its functional success is not a throughput claim.
+Measure a full 2,048-event
 family with eight subscribers, retries and interrupted repair before claiming
 scalable delivery at the raised ceiling. A new pump instance revalidates the
 family before claiming; the direct store claim path retains its per-call

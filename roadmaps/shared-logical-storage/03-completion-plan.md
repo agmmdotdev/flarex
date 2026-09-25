@@ -220,6 +220,8 @@ remain distinct from logical schema evolution.
   nullable-field index; a primary-identity fallback cannot authorize it.
   The canonical admitted Product runner is logical; physical-only boundary
   configurations retain a legacy runner for their still-unmigrated witnesses.
+  Product failure and large-graph scale boundaries now use the logical runner
+  and generic shared tables; their former physical test routes are retired.
   The selected native Type delete now uses the core-owned indexed,
   resource-accounted atomic `set null` transition specified in the
   [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions).

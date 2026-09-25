@@ -58,6 +58,7 @@ interface ClosureState {
   readonly lifetime: BoundedRequestLifetime<CommerceTransactionError>;
   readonly changes: LogicalDocumentChanges;
   readonly maximumIndexEntries: number;
+  readonly maximumFacts: number;
 }
 const closures = new WeakMap<object, ClosureState>();
 
@@ -90,7 +91,8 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     // SAFETY: only this registry authenticates a closed admission/lifetime pair.
     const closure = Object.freeze({}) as LogicalCommerceClosure;
     closures.set(closure, { admission, tx, lifetime, changes,
-      maximumIndexEntries: selectedResources?.catalogRows ?? 128 });
+      maximumIndexEntries: selectedResources?.catalogRows ?? 128,
+      maximumFacts: resources.facts });
     return closure;
   });
   const names = new Map(state.tables.map(table => [table.tableId, table.localName]));
@@ -286,6 +288,10 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
     appendRows: (rows: readonly { readonly tableId: typeof contribution.changes[number]["tableId"];
       readonly rowId: typeof contribution.changes[number]["rowId"] }[]) => Effect.Effect<void, CommerceTransactionError>) {
     let rowCount = 0;
+    const admitPage = Effect.fn("LogicalCommerce.admitFactPage")(function* (count: number) {
+      if (rowCount + count > closed.maximumFacts) return yield* Effect.fail(commerceError("limitExceeded"));
+      rowCount += count;
+    });
     const adjacencyChanges: Array<Effect.Success<ReturnType<Effect.Success<ReturnType<typeof core.prepareDelta>>["lower"]>>[number]> = [];
     const lowerRoot = Effect.fn("LogicalCommerce.lowerRoot")(function* () {
       for (const [index, rootPage] of rootPages.entries()) {
@@ -293,6 +299,7 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
         // Later pages repeat their own point check against the same transaction.
         const dependencies = index === 0 ? rootDependencies : rootPage;
         const root = yield* core.prepareDelta(rootPage, dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
+        yield* admitPage(rootPage.length);
         adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
         yield* appendRows(rootPage.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
       }
@@ -306,9 +313,9 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
         targetColumn: intent.targetColumn, targetKey: intent.targetKey,
         requireAdmission: admitted, error: logicalCommerceError }, changes => Effect.gen(function* () {
           const delta = yield* core.prepareDelta(changes, changes).pipe(Effect.mapError(projectCommerceRequestFailure));
+          yield* admitPage(changes.length);
           adjacencyChanges.push(...yield* delta.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
           yield* appendRows(changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
-          rowCount += changes.length;
         }));
     }
     for (const { intent, selection } of replacements) {
@@ -316,9 +323,9 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
       yield* forEachLogicalReferenceReplacementPage({ tx, ...intent, selection,
         requireAdmission: admitted, error: logicalCommerceError }, (changes, keys) => Effect.gen(function* () {
           const delta = yield* core.prepareDelta(changes, changes).pipe(Effect.mapError(projectCommerceRequestFailure));
+          yield* admitPage(changes.length);
           adjacencyChanges.push(...yield* delta.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
           yield* appendRows(changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
-          rowCount += changes.length;
           loweredIds.push(...keys);
         }));
       const pendingRows = new Set(selection.pendingChanges.map(change => change.rowId));
@@ -330,7 +337,6 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
     if (replacements.length === 0) yield* lowerRoot();
     if (closed.changes.setNull.length > 0 || replacements.length > 0 || pagedRoot)
       yield* core.completeBatch().pipe(Effect.mapError(projectCommerceRequestFailure));
-    rowCount += contribution.changes.length;
     return Object.freeze({ rowCount, adjacencyChanges: Object.freeze(adjacencyChanges) });
   });
   return Object.freeze({ changes: Object.freeze(rootChanges), derivedIds, hasReferenceReplacement: replacements.length > 0,

@@ -6,7 +6,7 @@ import upstream from "./vitest.product-upstream.config";
 export * from "./vitest.product-upstream.config";
 export default defineConfig({
   ...upstream,
-  test: { ...upstream.test, include: [], reporters: ["default"] },
+  test: { ...upstream.test, env: { FLAREX_PRODUCT_RESOURCES: "scale" }, include: [], reporters: ["default"] },
   resolve: { ...upstream.resolve, alias: [
     { find: /^@medusajs\/test-utils$/, replacement: fileURLToPath(new URL("./test/support/legacy-product-runner.ts", import.meta.url)) },
     ...(Array.isArray(upstream.resolve?.alias) ? upstream.resolve.alias.filter(alias =>
