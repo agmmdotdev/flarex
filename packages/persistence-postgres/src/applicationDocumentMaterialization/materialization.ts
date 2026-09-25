@@ -550,7 +550,8 @@ export async function materializeApplicationDocumentRows(
         : corruption("developerIndexBuildInvalid"))),
   ));
   const uniqueBuilds = await runUniqueCoverage(
-    prepareActiveUniqueCoverageInTransactionEffect(tx, clock, command.authorityPins.schemaVersionId, uniqueDefinitions, coverageContext, publicationProfile),
+    prepareActiveUniqueCoverageInTransactionEffect(tx, clock, command.authorityPins.schemaVersionId,
+      uniqueDefinitions, coverageContext, publicationProfile, deferCoverage),
   );
   for (const { build, definition } of maintainedBuilds) {
     const mode = publicationModeForTable(publicationProfile, definition.access.tableId);
@@ -589,6 +590,23 @@ export async function materializeApplicationDocumentRows(
       throw new PointCommitDeveloperIndexMaintenanceUnavailableV1Error({
         reason: "definitionSetUnavailable",
       });
+    // A batch can rely on table-local frontier proof only before its first
+    // page. Persist that baseline while the scope is locked so its own later
+    // pages remain covered without admitting any intervening committed write.
+    const baselineCoverage = build.coveredThroughCommitSeq;
+    if (deferCoverage && mode === "sourceBound" && baselineCoverage !== null &&
+      baselineCoverage < clock.lastCommitSeq) {
+      const updated = await sqlCall("resetDeveloperIndexValidation", () => tx.update(fxSystemIndexBuildStates)
+        .set({ coveredThroughCommitSeq: clock.lastCommitSeq, updatedAt: sql`clock_timestamp()` })
+        .where(and(eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
+          eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
+          eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
+          eq(fxSystemIndexBuildStates.epoch, build.epoch),
+          eq(fxSystemIndexBuildStates.storageGenerationFence, build.storageGenerationFence),
+          eq(fxSystemIndexBuildStates.coveredThroughCommitSeq, baselineCoverage),
+          eq(fxSystemIndexBuildStates.lifecycle, "enabled"))).returning({ id: fxSystemIndexBuildStates.indexDefinitionId }));
+      if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
+    }
   }
   const rowRevisions = command.rowIntents.map((intent) =>
     projectPointCommitTransactionResult(

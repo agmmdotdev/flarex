@@ -5,21 +5,24 @@ import { getCommerceCommand, type CommerceCommand, type CommerceCommandContext }
 import { commerceError, type CommerceTransactionError } from "./model";
 import type { CommerceStore } from "./storeModel";
 import type { CommerceResources } from "./resources";
-import type { CommerceSetNullSelection } from "./commands";
+import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
 
 /** Same borrowed-manager semantics for standalone and composite owners. */
 export function makeCommerceCommandContext(
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, working: Readonly<{ store: CommerceStore; resources: CommerceResources;
     table: (context: BoundedRequestContext, tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
-    planSetNull?: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError> }>,
+    planSetNull?: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
+    planReferenceReplacement?: (context: BoundedRequestContext, selection: CommerceReferenceReplacement) => Effect.Effect<void, CommerceTransactionError> }>,
   id: string, manager: BoundedRequestContext,
   invoke: (context: BoundedRequestContext, command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>,
   captureEvent: (context: BoundedRequestContext, event: unknown) => Effect.Effect<void, CommerceTransactionError>,
 ): CommerceCommandContext {
   const planSetNull = working.planSetNull;
+  const planReferenceReplacement = working.planReferenceReplacement;
   return Object.freeze({ manager, resources: working.resources, store: working.store,
     table: tableId => working.table(manager, tableId),
     ...(planSetNull === undefined ? {} : { planSetNull: (selection: CommerceSetNullSelection) => planSetNull(manager, selection) }),
+    ...(planReferenceReplacement === undefined ? {} : { planReferenceReplacement: (selection: CommerceReferenceReplacement) => planReferenceReplacement(manager, selection) }),
     captureLocalEvent: event => captureEvent(manager, event),
     nested: (child, args) => lifetime.nested(manager, id, context => invoke(context, child, args), getCommerceCommand(child)?.mode),
     rejectEvent: lifetime.operation(manager, id, "write", Effect.fail(commerceError("unadmittedEvent"))),

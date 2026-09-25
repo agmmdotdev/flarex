@@ -147,7 +147,10 @@ function makeAtomicCommerceExecution(
     }
     const existing = logicalWork.get(admission);
     if (existing !== undefined) return existing;
-    const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id);
+    const member = members[admissions.indexOf(admission)];
+    if (member?.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
+    const created = yield* makeLogicalCommerceParticipant(admission.admission, tx, lifetime, manager, id,
+      member.allowReferenceReplacement === true);
     logicalWork.set(admission, created);
     contributions.push({ kind: "logical", token: admission, working: created });
     return created;
@@ -244,6 +247,7 @@ function makeAtomicCommerceExecution(
     if (admissions.some(admission => !contributions.some(member => member.token === admission)))
       return yield* Effect.fail(commerceError("invalidAuthority"));
     const closed: CommerceContribution[] = [];
+    let derivedIdEvent: ExecutionConfiguration["members"][number]["derivedIdEvent"];
     for (const contribution of contributions) {
       if (contribution.kind === "physical") closed.push({ kind: "physical", admission: contribution.admission,
         closure: yield* contribution.working.close() });
@@ -254,16 +258,25 @@ function makeAtomicCommerceExecution(
         const activity = yield* inspectLogicalCommerceActivity(closure, lifetime);
         if (activity.setNull.length !== 0 && member.allowSetNull !== true)
           return yield* Effect.fail(commerceError("invalidAuthority"));
+        if (activity.referenceReplacements.length !== 0) {
+          if (activity.referenceReplacements.length !== 1 || member.allowReferenceReplacement !== true ||
+            member.derivedIdEvent === undefined || derivedIdEvent !== undefined)
+            return yield* Effect.fail(commerceError("invalidAuthority"));
+          derivedIdEvent = member.derivedIdEvent;
+        }
         if (member.validateLogical !== undefined) {
           yield* member.validateLogical(Object.freeze([...(logicalCalls.get(contribution.token) ?? [])]),
-            activity.mutations, activity.lifecycle, activity.observedRows, activity.setNull);
+            activity.mutations, activity.lifecycle, activity.observedRows, activity.setNull,
+            activity.referenceReplacements);
         }
         closed.push({ kind: "logical", closure });
       }
     }
     const root = closed[0];
     if (root === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
-    const eventClosure = eventCapture === undefined ? undefined : yield* eventCapture.close(observations);
+    if (derivedIdEvent !== undefined && eventCapture === undefined)
+      return yield* Effect.fail(commerceError("unadmittedEvent"));
+    const eventClosure = eventCapture === undefined ? undefined : yield* eventCapture.close(observations, derivedIdEvent);
     return {
       root,
       additional: closed.slice(1),

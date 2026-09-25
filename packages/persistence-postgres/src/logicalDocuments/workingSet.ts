@@ -90,6 +90,7 @@ export interface LogicalDocumentChanges {
   readonly uniqueReads: readonly LogicalUniqueRead[];
   readonly indexReads: readonly LogicalIndexRead[];
   readonly setNull: readonly LogicalSetNullIntent[];
+  readonly referenceReplacements: readonly LogicalReferenceReplacementIntent[];
 }
 /** A sealed command decision; affected rows are selected only by the trusted
  * settlement owner after publication exclusion. */
@@ -99,6 +100,11 @@ export interface LogicalSetNullIntent {
   readonly targetTableId: CatalogTableId;
   readonly targetColumn: string;
   readonly targetKey: string;
+}
+/** The framework chooses one root and desired keys. Core selects and lowers
+ * the complete affected set after publication exclusion. */
+export interface LogicalReferenceReplacementIntent extends LogicalSetNullIntent {
+  readonly desiredKeys: readonly string[];
 }
 export interface LogicalUniqueRead {
   readonly constraintId: AppUniqueConstraintIdV1;
@@ -157,12 +163,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   }));
   const rows = new Map<AppDocumentIdV1, PendingDocument>();
   const setNull: LogicalSetNullIntent[] = [];
+  const referenceReplacements: LogicalReferenceReplacementIntent[] = [];
   const runOperation: BoundedRequestLifetime<Failure>["operation"] = (context, id, mode, work) =>
     lifetime.operation(context, id, mode, state.requireAdmission.pipe(Effect.flatMap(() =>
-      closed ? Effect.fail(error("closed")) : setNull.length > 0 ? Effect.fail(error("invalidAuthority")) : work)));
+      closed ? Effect.fail(error("closed")) : setNull.length > 0 || referenceReplacements.length > 0
+        ? Effect.fail(error("invalidAuthority")) : work)));
   const requirePendingDeletion = Effect.fn("LogicalDocuments.requirePendingDeletion")(function* (documentId: string) {
     yield* state.requireAdmission;
-    if (setNull.length > 0) return yield* Effect.fail(error("invalidAuthority"));
+    if (setNull.length > 0 || referenceReplacements.length > 0) return yield* Effect.fail(error("invalidAuthority"));
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(documentId).pipe(Result.mapError(cause => error("invalidInput", cause))));
     const row = rows.get(identity.id);
     if (row === undefined || row.current !== null || row.attempts.length === 0) return yield* Effect.fail(error("invalidAuthority"));
@@ -721,7 +729,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const planSetNull = Effect.fn("LogicalDocuments.planSetNull")((context: BoundedRequestContext,
     id: PresentedTransactionId, intent: LogicalSetNullIntent) => lifetime.operation(context, id, "write", Effect.gen(function* () {
       yield* state.requireAdmission;
-      if (closed || setNull.length >= 16) return yield* Effect.fail(error(closed ? "closed" : "limitExceeded"));
+      if (closed || setNull.length >= 16 || referenceReplacements.length !== 0)
+        return yield* Effect.fail(error(closed ? "closed" : setNull.length >= 16 ? "limitExceeded" : "invalidAuthority"));
       const foreignKey = foreignKeys.find(key => key.source.tableId === intent.sourceTableId &&
         key.source.column === intent.sourceColumn && key.target.tableId === intent.targetTableId &&
         key.target.column === intent.targetColumn && key.source.nullable && key.onDelete === "noAction");
@@ -741,6 +750,29 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       yield* Effect.fromResult(lifetime.charge(128 + intent.targetKey.length * 2));
       setNull.push(Object.freeze({ sourceTableId: intent.sourceTableId, sourceColumn: intent.sourceColumn,
         targetTableId: intent.targetTableId, targetColumn: intent.targetColumn, targetKey: intent.targetKey }));
+    })));
+  const planReferenceReplacement = Effect.fn("LogicalDocuments.planReferenceReplacement")((context: BoundedRequestContext,
+    id: PresentedTransactionId, intent: LogicalReferenceReplacementIntent) => lifetime.operation(context, id, "write", Effect.gen(function* () {
+      yield* state.requireAdmission;
+      if (closed || setNull.length !== 0 || referenceReplacements.length !== 0)
+        return yield* Effect.fail(error(closed ? "closed" : "invalidAuthority"));
+      const foreignKey = foreignKeys.find(key => key.source.tableId === intent.sourceTableId &&
+        key.source.column === intent.sourceColumn && key.target.tableId === intent.targetTableId &&
+        key.target.column === intent.targetColumn && key.source.nullable && key.onDelete === "noAction");
+      if (foreignKey === undefined || typeof intent.targetKey !== "string" || !Array.isArray(intent.desiredKeys) ||
+        intent.desiredKeys.length > 256 || intent.desiredKeys.some(key => typeof key !== "string" || key.length === 0))
+        return yield* Effect.fail(error("invalidInput"));
+      const roots = [...rows.values()].filter(row => row.tableId === intent.targetTableId && row.base?.kind === "live" && row.current !== null &&
+        row.attempts.length > 0 && isJsonObject(row.current.valueJson) &&
+        row.current.valueJson[intent.targetColumn] === intent.targetKey);
+      if (roots.length !== 1 || [...rows.values()].some(row => row.tableId === intent.sourceTableId))
+        return yield* Effect.fail(error("invalidAuthority"));
+      const desiredKeys = Object.freeze([...new Set(intent.desiredKeys)]);
+      yield* Effect.fromResult(lifetime.charge(128 + intent.targetKey.length * 2 +
+        desiredKeys.reduce((bytes, key) => bytes + 32 + key.length * 2, 0)));
+      referenceReplacements.push(Object.freeze({ sourceTableId: intent.sourceTableId,
+        sourceColumn: intent.sourceColumn, targetTableId: intent.targetTableId,
+        targetColumn: intent.targetColumn, targetKey: intent.targetKey, desiredKeys }));
     })));
   const close = Effect.fn("LogicalDocuments.close")(function* (): Effect.fn.Return<LogicalDocumentChanges, Failure> {
     if (closed || !lifetime.isClosing()) return yield* Effect.fail(error("invalidAuthority"));
@@ -773,7 +805,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       dependencies: Object.freeze([...dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
       scans: Object.freeze([...scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
       uniqueReads: Object.freeze([...uniqueReads.values()]), indexReads: Object.freeze([...indexReads.values()]),
-      setNull: Object.freeze([...setNull]) });
+      setNull: Object.freeze([...setNull]), referenceReplacements: Object.freeze([...referenceReplacements]) });
   });
   const documents = Object.freeze({ get, getMany, find, insert, delete: remove,
     patch: (context, id, documentId, fields, tableName) => edit(context, id, documentId, fields, "patch", tableName),
@@ -790,6 +822,6 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         lifecycle: (context, operation, keys) => relationalChange(context, id, tableName, operation, keys),
       } satisfies LogicalRelationalStore<Failure>);
     })));
-  return Object.freeze({ documents, relationalFind, relationalChange, relationalTable, planSetNull, close, requirePendingDeletion,
+  return Object.freeze({ documents, relationalFind, relationalChange, relationalTable, planSetNull, planReferenceReplacement, close, requirePendingDeletion,
     attemptCount: () => attempts.length, lifecycleCount: () => lifecycle.length });
 });

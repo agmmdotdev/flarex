@@ -110,7 +110,7 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
       rowIntents: [],
       dependencies: [],
     };
-    const intrinsic = yield* participantKernel(() =>
+    let intrinsic = yield* participantKernel(() =>
       lockPointCommitIntrinsicIndexBuilds(
         tx,
         clock,
@@ -118,7 +118,7 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
         empty,
       ),
     );
-    const developer = yield* participantKernel(() =>
+    let developer = yield* participantKernel(() =>
       lockPointCommitDeveloperIndexBuilds(
         tx,
         clock,
@@ -273,6 +273,18 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
           );
 
         loweredCommitSeq = commitSeq;
+        if (prepared.batch === true) {
+          // All writes in this transaction are lowered by this trusted batch.
+          // Carry its proved source-bound baseline across pages while the
+          // persisted coverage watermark waits for completeBatch().
+          const advance = <T extends (typeof developer)[number]>(index: T): T =>
+            changed.has(index.definition.access.tableId) && index.build.lifecycle === "enabled" &&
+              index.build.maintenance === null && index.build.coveredThroughCommitSeq !== null &&
+              index.build.coveredThroughCommitSeq < scopeClock.lastCommitSeq
+              ? { ...index, build: { ...index.build, coveredThroughCommitSeq: scopeClock.lastCommitSeq } } : index;
+          developer = developer.map(advance);
+          intrinsic = intrinsic.map(advance);
+        }
         totalRows += changes.length;
         totalPages++;
         totalDocumentBytes += pageBytes;

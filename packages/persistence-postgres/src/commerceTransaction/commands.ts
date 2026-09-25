@@ -11,6 +11,14 @@ export interface CommerceSetNullSelection {
   readonly targetColumn: string;
   readonly targetKey: string;
 }
+export interface CommerceReferenceReplacement {
+  readonly sourceTable: string;
+  readonly sourceColumn: string;
+  readonly targetTable: string;
+  readonly targetColumn: string;
+  readonly targetKey: string;
+  readonly desiredKeys: readonly string[];
+}
 
 declare const commandBrand: unique symbol;
 export interface CommerceCommand { readonly [commandBrand]: true }
@@ -22,6 +30,8 @@ export interface CommerceCommandContext {
   /** Available only to admitted logical relational participants. Physical
    * compatibility commands keep their existing bounded row operations. */
   readonly planSetNull?: (selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
+  /** Seals one declared nullable-reference replacement for core settlement. */
+  readonly planReferenceReplacement?: (selection: CommerceReferenceReplacement) => Effect.Effect<void, CommerceTransactionError>;
   readonly captureLocalEvent: (event: unknown) => Effect.Effect<void, CommerceTransactionError>;
   readonly nested: (command: CommerceCommand, args: Json) => Effect.Effect<Json, CommerceTransactionError>;
   readonly rejectEvent: Effect.Effect<never, CommerceTransactionError>;

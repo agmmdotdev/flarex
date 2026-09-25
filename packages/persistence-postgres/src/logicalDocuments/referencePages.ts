@@ -1,16 +1,23 @@
 import { Clock, Effect, Option, Result } from "effect";
 import { eq, sql } from "drizzle-orm";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isJsonObject } from "flarex-protocol/json";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
 import { canonicalizeFlarexValueV1Effect } from "flarex-protocol/value";
-import type { CatalogTableId } from "flarex-protocol/catalog";
+import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
+import type { AppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputError, AppRowReadPersistenceError,
   type LiveAppRowRevisionV1 } from "../appRows";
 import { scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError } from "../appIndexEntries";
 import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect, ScopeClockNotFoundError,
   ScopeAuthorizationRevocationEpochPersistenceError, type ScopeClockRecord } from "../scopeClock";
-import { readRequiredEnabledIndexBuildsInTransactionEffect, IndexBuildStatePersistenceError } from "../indexBuildStates";
+import { decodeIndexBuildStateRowResult, isIndexBuildSnapshotCoveredInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect, readRequiredEnabledIndexBuildsInTransactionEffect,
+  IndexBuildStatePersistenceError } from "../indexBuildStates";
+import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
+import type { AppIndexDefinitionRecord } from "../appIndexDefinitions";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
@@ -20,7 +27,8 @@ import type { LogicalDocumentChange } from "./workingSet";
 import type { LogicalRelationalAdmissionState } from "./relationalAdmission";
 import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
 import { prepareLogicalRelationalRows } from "./relationalRows";
-import { selectLogicalIndex } from "./query";
+import { selectLogicalIndex, type LogicalWhere } from "./query";
+import { readLogicalIndexRange } from "./indexReads";
 
 /** Sixty-three update pages leave one materialization page for the root operation.
  * An extra scan page detects overflow without treating a full page as complete
@@ -28,6 +36,8 @@ import { selectLogicalIndex } from "./query";
 export const logicalReferenceTransitionBudget = Object.freeze({
   pageRows: 32, affectedRows: 2016, totalReadBytes: 4_194_304, scanMilliseconds: 30_000,
 });
+const compareReferenceKeys = (left: Readonly<{ key: string }>, right: Readonly<{ key: string }>) =>
+  compareUtf16Strings(left.key, right.key);
 
 type LogicalReferenceAdmission = Pick<LogicalRelationalAdmissionState,
   "tx" | "authority" | "schema" | "tables" | "indexes">;
@@ -45,6 +55,30 @@ export interface LogicalReferencePageInput<Failure> {
     requireAdmission: Effect.Effect<LogicalReferenceAdmission, Failure>;
     error: LogicalDocumentFailure<Failure>;
 }
+
+const requireSourceBoundIndexCoverage = Effect.fn("LogicalReferences.requireIndexCoverage")(function* <Failure>(
+  tx: FlarexMetadataTransaction, clock: ScopeClockRecord, definition: AppIndexDefinitionRecord,
+  error: LogicalDocumentFailure<Failure>,
+) {
+  const build = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock,
+    [definition.indexDefinitionId], "share")
+    .pipe(Effect.mapError(cause => error(cause instanceof IndexBuildStatePersistenceError
+      ? "statementFailure" : "storedCorruption", cause)));
+  if (build.status !== "ready") return yield* Effect.fail(error("invalidAuthority"));
+  const row = build.rows[0];
+  if (row === undefined) return yield* Effect.fail(error("storedCorruption"));
+  const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, clock.scopeId,
+    definition.indexDefinitionId)).pipe(Effect.mapError(cause => error("storedCorruption", cause)));
+  if (state.maintenance !== null) return yield* Effect.fail(error("invalidAuthority"));
+  const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock).pipe(
+    Effect.mapError(cause => error(cause.reason === "resourceFailure" ? "statementFailure" : "storedCorruption", cause)));
+  const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state,
+    { ...definition, tableId: definition.access.tableId }, clock.lastCommitSeq, context).pipe(
+    Effect.mapError(cause => error(cause instanceof AppRowReadPersistenceError ||
+      cause instanceof IndexMaintenanceError && cause.reason === "resourceFailure"
+      ? "statementFailure" : "storedCorruption", cause)));
+  if (!covered) return yield* Effect.fail(error("invalidAuthority"));
+});
 
 export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachPage")(function* <Failure>(
   input: Readonly<LogicalReferencePageInput<Failure>>,
@@ -70,16 +104,7 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
   const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId)
     .pipe(Effect.mapError(cause => error(cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
       ? "statementFailure" : cause instanceof ScopeClockNotFoundError ? "invalidAuthority" : "storedCorruption", cause)));
-  const build = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock,
-    [selected.value.definition.indexDefinitionId], "share")
-    .pipe(Effect.mapError(cause => error(cause instanceof IndexBuildStatePersistenceError
-      ? "statementFailure" : "storedCorruption", cause)));
-  if (build.status !== "ready") return yield* Effect.fail(error("invalidAuthority"));
-  const state = build.rows[0];
-  if (state === undefined || state.coveredThroughCommitSeq !== clock.lastCommitSeq ||
-    state.firstReadableCommitSeq === null || state.firstReadableCommitSeq > clock.lastCommitSeq ||
-    state.maintenanceActivationSequence !== null || state.maintenanceBytes !== null || state.maintenanceSha256 !== null)
-    return yield* Effect.fail(error("invalidAuthority"));
+  yield* requireSourceBoundIndexCoverage(tx, clock, selected.value.definition, error);
   const started = yield* Clock.currentTimeMillis;
   let after: Parameters<typeof scanCurrentAppIndexInTransactionEffect>[1]["after"];
   let affectedRows = 0;
@@ -194,4 +219,226 @@ export const forEachLogicalSetNullPage = Effect.fn("LogicalReferences.forEachSet
     return yield* Effect.fail(input.error("limitExceeded"));
   if (remaining !== 0) return yield* Effect.fail(input.error("invalidAuthority"));
   return changed;
+});
+
+export interface LogicalReferenceReplacementSelection {
+  readonly detach: readonly Readonly<{ key: string; rowId: AppRowIdHexV1; commitSeq: CommitSeq }>[];
+  readonly associate: readonly Readonly<{ key: string; rowId: AppRowIdHexV1; commitSeq: CommitSeq }>[];
+}
+const replacementSelections = new WeakMap<object, Readonly<{
+  tx: FlarexMetadataTransaction; scopeId: string; sourceTableId: CatalogTableId; sourceColumn: string;
+  targetTableId: CatalogTableId; targetColumn: string; targetKey: string;
+  clock: ScopeClockRecord; readBytes: number;
+}>>();
+
+/** Select exactly the active rows a native nullable-reference replacement
+ * would update. The caller holds one publication transaction and never gives
+ * these row identities to framework code. Materialization must recheck every
+ * selected revision before lowering and must account for all rows and events. */
+export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.selectReplacement")(function* <Failure>(
+  input: Readonly<LogicalReferencePageInput<Failure> & { readonly desiredKeys: readonly string[] }>,
+) {
+  const admission = yield* input.requireAdmission;
+  if (admission.tx !== input.tx) return yield* Effect.fail(input.error("invalidAuthority"));
+  const source = admission.tables.find(table => table.tableId === input.sourceTableId);
+  if (source === undefined || !admission.schema.tables.includes(source.definition))
+    return yield* Effect.fail(input.error("invalidAuthority"));
+  const policy = yield* Effect.fromResult(prepareLogicalRelationalRows(source.definition,
+    admission.schema.capabilities, input.error));
+  const identity = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
+  if (identity === undefined || input.desiredKeys.length > 256 ||
+    new Set(input.desiredKeys).size !== input.desiredKeys.length)
+    return yield* Effect.fail(input.error("invalidInput"));
+  const desired = new Set(input.desiredKeys);
+  const detach: LogicalReferenceReplacementSelection["detach"][number][] = [];
+  const associate: LogicalReferenceReplacementSelection["associate"][number][] = [];
+  let selectedBytes = 0;
+  const started = yield* Clock.currentTimeMillis;
+  const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(input.tx, admission.authority.scopeId)
+    .pipe(Effect.mapError(cause => input.error(cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
+      ? "statementFailure" : cause instanceof ScopeClockNotFoundError ? "invalidAuthority" : "storedCorruption", cause)));
+  const oldCount = yield* forEachLogicalReferencePage(input, (rows, current) => Effect.gen(function* () {
+    if (clock.scopeId !== current.scopeId || clock.epoch !== current.epoch ||
+      clock.storageGeneration !== current.storageGeneration || clock.lastCommitSeq !== current.lastCommitSeq)
+      return yield* Effect.fail(input.error("invalidAuthority"));
+    for (const row of rows) {
+      const value = row.document.valueJson;
+      selectedBytes += 256 + row.document.canonicalBytes.byteLength;
+      if (selectedBytes > logicalReferenceTransitionBudget.totalReadBytes)
+        return yield* Effect.fail(input.error("limitExceeded"));
+      if (!isJsonObject(value) || value._id !== appDocumentIdV1FromRowIdentity(row) ||
+        value._creationTime !== row.creationTime)
+        return yield* Effect.fail(input.error("storedCorruption"));
+      const native = Object.fromEntries(Object.entries(value).filter(([name]) =>
+        name !== "_id" && name !== "_creationTime"));
+      yield* Effect.fromResult(policy.validate(native, "storedCorruption"));
+      if (!isJsonObject(value) || typeof value[identity] !== "string" ||
+        (policy.deletedAt !== undefined && value[policy.deletedAt] !== null)) {
+        if (!isJsonObject(value) || typeof value[identity] !== "string")
+          return yield* Effect.fail(input.error("storedCorruption"));
+        continue;
+      }
+      if (!desired.has(value[identity])) detach.push(Object.freeze({ key: value[identity],
+        rowId: row.rowId, commitSeq: row.commitSeq }));
+      if (detach.length > 255) return yield* Effect.fail(input.error("limitExceeded"));
+    }
+  }));
+  if (oldCount > logicalReferenceTransitionBudget.affectedRows)
+    return yield* Effect.fail(input.error("invalidAuthority"));
+  const ready = new Set<CatalogIndexDefinitionId>();
+  for (const key of desired) {
+    if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
+      return yield* Effect.fail(input.error("limitExceeded"));
+    const where: LogicalWhere = { [identity]: key,
+      ...(policy.deletedAt === undefined ? {} : { [policy.deletedAt]: null }) };
+    const selectedResult = selectLogicalIndex(admission.indexes, input.sourceTableId, where, input.error);
+    const selectedIndex = yield* Effect.fromResult(selectedResult);
+    if (Option.isNone(selectedIndex) || selectedIndex.value.definition.physicalSpec.orderedFields[0]?.kind !== "documentPath" ||
+      selectedIndex.value.definition.physicalSpec.orderedFields[0].path !== String(identity))
+      return yield* Effect.fail(input.error("invalidAuthority"));
+    const definition = selectedIndex.value.definition;
+    if (!ready.has(definition.indexDefinitionId)) {
+      yield* requireSourceBoundIndexCoverage(input.tx, clock, definition, input.error);
+      ready.add(definition.indexDefinitionId);
+    }
+    const entries = yield* readLogicalIndexRange(input.tx, admission.authority.scopeId,
+      { definition, bounds: selectedIndex.value.bounds }, 2, input.error);
+    if (entries.length > 1) return yield* Effect.fail(input.error("storedCorruption"));
+    const entry = entries[0];
+    if (entry === undefined) continue;
+    if (entry.tableId !== input.sourceTableId) return yield* Effect.fail(input.error("storedCorruption"));
+    const captured = yield* readBoundedCurrentAppRowsInTransactionEffect(input.tx, {
+      scopeId: admission.authority.scopeId, tableId: input.sourceTableId,
+      minimumCommitSeq: clock.lastCommitSeq, maximumIdentities: 1,
+      maximumDocumentBytes: 65_536, maximumTotalValueBytes: 65_536, rowIds: [entry.rowId],
+    }).pipe(Effect.mapError(cause => input.error(cause instanceof AppRowReadPersistenceError ? "statementFailure" :
+      cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
+        ? "limitExceeded" : "storedCorruption", cause)));
+    const row = captured.rows[0];
+    if (captured.commitSeq !== clock.lastCommitSeq || captured.rows.length !== 1 || row?.kind !== "live" ||
+      row.commitSeq > clock.lastCommitSeq || row.commitSeq < entry.commitSeq ||
+      !isJsonObject(row.document.valueJson) || row.document.valueJson[identity] !== key ||
+      (policy.deletedAt !== undefined && row.document.valueJson[policy.deletedAt] !== null))
+      return yield* Effect.fail(input.error("writeConflict"));
+    if (row.document.valueJson._id !== appDocumentIdV1FromRowIdentity(row) ||
+      row.document.valueJson._creationTime !== row.creationTime)
+      return yield* Effect.fail(input.error("storedCorruption"));
+    const native = Object.fromEntries(Object.entries(row.document.valueJson).filter(([name]) =>
+      name !== "_id" && name !== "_creationTime"));
+    yield* Effect.fromResult(policy.validate(native, "storedCorruption"));
+    const indexKey = yield* Effect.fromResult(lowerAppDeveloperIndexKeyV1(definition, row.document, row.creationTime)
+      .pipe(Result.mapError(cause => input.error("storedCorruption", cause))));
+    if (indexKey !== entry.encodedKey) return yield* Effect.fail(input.error("writeConflict"));
+    selectedBytes += 128 + entry.encodedKey.length / 2 + row.document.canonicalBytes.byteLength;
+    if (selectedBytes > logicalReferenceTransitionBudget.totalReadBytes || detach.length + associate.length + 1 > 255)
+      return yield* Effect.fail(input.error("limitExceeded"));
+    if (associate.some(previous => previous.rowId === row.rowId) ||
+      detach.some(previous => previous.rowId === row.rowId))
+      return yield* Effect.fail(input.error("storedCorruption"));
+    associate.push(Object.freeze({ key, rowId: row.rowId, commitSeq: row.commitSeq }));
+  }
+  // The native selector updates each phase in ascending Product ID order.
+  const selection = Object.freeze({ detach: Object.freeze(detach.toSorted(compareReferenceKeys)),
+    associate: Object.freeze(associate.toSorted(compareReferenceKeys)) }) satisfies LogicalReferenceReplacementSelection;
+  replacementSelections.set(selection, Object.freeze({ tx: input.tx, scopeId: admission.authority.scopeId,
+    sourceTableId: input.sourceTableId, sourceColumn: input.sourceColumn,
+    targetTableId: input.targetTableId, targetColumn: input.targetColumn, targetKey: input.targetKey,
+    clock, readBytes: selectedBytes }));
+  return selection;
+});
+
+/** Lower a previously selected replacement in native detach-then-associate
+ * order. Each row is reread at its selected revision while the caller holds
+ * publication exclusion. Only one decoded page reaches the trusted callback. */
+export const forEachLogicalReferenceReplacementPage = Effect.fn("LogicalReferences.forEachReplacementPage")(function* <Failure>(
+  input: Readonly<LogicalReferencePageInput<Failure> & { readonly selection: LogicalReferenceReplacementSelection }>,
+  onPage: (changes: readonly LogicalDocumentChange[], keys: readonly string[]) => Effect.Effect<void, Failure>,
+) {
+  const admission = yield* input.requireAdmission;
+  if (admission.tx !== input.tx) return yield* Effect.fail(input.error("invalidAuthority"));
+  const sealed = replacementSelections.get(input.selection);
+  if (sealed === undefined || sealed.tx !== input.tx || sealed.scopeId !== admission.authority.scopeId ||
+    sealed.sourceTableId !== input.sourceTableId || sealed.sourceColumn !== input.sourceColumn ||
+    sealed.targetTableId !== input.targetTableId || sealed.targetColumn !== input.targetColumn ||
+    sealed.targetKey !== input.targetKey)
+    return yield* Effect.fail(input.error("invalidAuthority"));
+  replacementSelections.delete(input.selection);
+  const source = admission.tables.find(table => table.tableId === input.sourceTableId);
+  if (source === undefined || !admission.schema.tables.includes(source.definition))
+    return yield* Effect.fail(input.error("invalidAuthority"));
+  const policy = yield* Effect.fromResult(prepareLogicalRelationalRows(source.definition,
+    admission.schema.capabilities, input.error));
+  const identity = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
+  if (identity === undefined) return yield* Effect.fail(input.error("invalidAuthority"));
+  const selected = [...input.selection.detach, ...input.selection.associate];
+  if (selected.length > 255 || new Set(selected.map(row => row.rowId)).size !== selected.length)
+    return yield* Effect.fail(input.error("invalidAuthority"));
+  const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(input.tx, admission.authority.scopeId)
+    .pipe(Effect.mapError(cause => input.error(cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
+      ? "statementFailure" : cause instanceof ScopeClockNotFoundError ? "invalidAuthority" : "storedCorruption", cause)));
+  if (clock.scopeId !== sealed.clock.scopeId || clock.epoch !== sealed.clock.epoch ||
+    clock.storageGeneration !== sealed.clock.storageGeneration || clock.lastCommitSeq !== sealed.clock.lastCommitSeq)
+    return yield* Effect.fail(input.error("invalidAuthority"));
+  const time = yield* runDrizzleStatementEffect(input.tx.select({ timestamp: sql<unknown>`current_timestamp` })
+    .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, admission.authority.scopeId)),
+  cause => input.error("statementFailure", cause));
+  const timestamp = databaseTimestampFromUnknown(time[0]?.timestamp);
+  if (timestamp === null) return yield* Effect.fail(input.error("storedCorruption"));
+  const started = yield* Clock.currentTimeMillis;
+  let readBytes = sealed.readBytes;
+  let processed = 0;
+  for (const [rows, replacement] of [
+    [input.selection.detach, null], [input.selection.associate, input.targetKey],
+  ] as const) {
+    for (let offset = 0; offset < rows.length; offset += logicalReferenceTransitionBudget.pageRows) {
+      if ((yield* input.requireAdmission) !== admission)
+        return yield* Effect.fail(input.error("invalidAuthority"));
+      if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
+        return yield* Effect.fail(input.error("limitExceeded"));
+      const page = rows.slice(offset, offset + logicalReferenceTransitionBudget.pageRows);
+      const captured = yield* readBoundedCurrentAppRowsInTransactionEffect(input.tx, {
+        scopeId: admission.authority.scopeId, tableId: input.sourceTableId,
+        minimumCommitSeq: clock.lastCommitSeq, maximumIdentities: page.length,
+        maximumDocumentBytes: 65_536, maximumTotalValueBytes: 1_048_576,
+        rowIds: page.map(row => row.rowId),
+      }).pipe(Effect.mapError(cause => input.error(cause instanceof AppRowReadPersistenceError ? "statementFailure" :
+        cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
+          ? "limitExceeded" : "storedCorruption", cause)));
+      if (captured.commitSeq !== clock.lastCommitSeq || captured.rows.length !== page.length)
+        return yield* Effect.fail(input.error("writeConflict"));
+      const byId = new Map(captured.rows.map(row => [row.rowId, row]));
+      const changes: LogicalDocumentChange[] = [];
+      for (const selectedRow of page) {
+        const row = byId.get(selectedRow.rowId);
+        if (row?.kind !== "live" || row.commitSeq !== selectedRow.commitSeq ||
+          !isJsonObject(row.document.valueJson) || row.document.valueJson[identity] !== selectedRow.key ||
+          (policy.deletedAt !== undefined && row.document.valueJson[policy.deletedAt] !== null) ||
+          (replacement === null && row.document.valueJson[input.sourceColumn] !== input.targetKey))
+          return yield* Effect.fail(input.error("writeConflict"));
+        const previous = row.document.valueJson;
+        const documentId = appDocumentIdV1FromRowIdentity(row);
+        if (previous._id !== documentId || previous._creationTime !== row.creationTime)
+          return yield* Effect.fail(input.error("storedCorruption"));
+        const native = Object.fromEntries(Object.entries(previous).filter(([name]) =>
+          name !== "_id" && name !== "_creationTime"));
+        yield* Effect.fromResult(policy.validate(native, "storedCorruption"));
+        readBytes += 256 + row.document.canonicalBytes.byteLength;
+        if (readBytes > logicalReferenceTransitionBudget.totalReadBytes)
+          return yield* Effect.fail(input.error("limitExceeded"));
+        const updated = yield* Effect.fromResult(policy.normalize({ [input.sourceColumn]: replacement }, native,
+          timestamp.toISOString()).pipe(Result.mapError(cause => input.error("storedCorruption", cause))));
+        const document = yield* canonicalizeFlarexValueV1Effect({ ...updated, _id: documentId,
+          _creationTime: row.creationTime }, "appDocument").pipe(Effect.mapError(cause => input.error("storedCorruption", cause)));
+        changes.push(Object.freeze({ documentId, tableId: row.tableId, rowId: row.rowId,
+          readAt: clock.lastCommitSeq, dependency: Object.freeze({ kind: "appRowPoint" as const, documentId,
+            observed: Object.freeze({ kind: "present" as const, revisionCommitSeq: row.commitSeq }) }),
+          kind: "live" as const, creationTime: row.creationTime, document }));
+      }
+      yield* onPage(Object.freeze(changes), Object.freeze(page.map(row => row.key)));
+      processed += page.length;
+      if ((yield* Clock.currentTimeMillis) - started > logicalReferenceTransitionBudget.scanMilliseconds)
+        return yield* Effect.fail(input.error("limitExceeded"));
+    }
+  }
+  return processed;
 });

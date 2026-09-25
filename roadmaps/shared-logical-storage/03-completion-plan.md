@@ -175,10 +175,12 @@ remain distinct from logical schema evolution.
   [Collection membership cutover](./32-product-collection-membership-service-cutover.md).
   Generated-ID Collection creation and mixed upsert membership now use the
   [native result-bound logical receipt](./33-product-collection-generated-id-membership-cutover.md).
-  Large membership replacement remains an atomic capacity refusal; the
-  [core replacement preflight](./34-core-collection-membership-replacement.md)
-  names the native selector-enumeration seam and shared bounded settlement
-  needed to remove that limit without adapter pagination.
+  Selected single-root membership replacement now seals a native desired-ID
+  intent and uses shared indexed selection, bounded page materialization and
+  derived Product events in one settlement. The
+  [core replacement contract](./34-core-collection-membership-replacement.md)
+  removes the former 128-observed-identity refusal for the selected logical
+  path, while larger event/row budgets and multi-root semantics remain gated.
   The [shared event delivery batch](./35-core-event-delivery-batches.md)
   keeps the admitted larger event family from being reread for each claim;
   higher-fan-out delivery and hot-shop throughput remain unmeasured.

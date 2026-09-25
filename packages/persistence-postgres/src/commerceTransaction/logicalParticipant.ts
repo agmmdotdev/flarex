@@ -8,11 +8,12 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges } from "../logicalDocuments/workingSet";
-import type { CommerceSetNullSelection } from "./commands";
+import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
 import { prepareLogicalRelationalRows } from "../logicalDocuments/relationalRows";
 import { validateLogicalDocumentChanges } from "../logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization } from "../logicalDocuments/materialization";
-import { forEachLogicalSetNullPage } from "../logicalDocuments/referencePages";
+import { forEachLogicalSetNullPage, forEachLogicalReferenceReplacementPage,
+  selectLogicalReferenceReplacement } from "../logicalDocuments/referencePages";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
 import { defaultCommerceResources } from "./resources";
@@ -37,6 +38,9 @@ export interface LogicalCommerceSetNull {
   readonly targetColumn: string;
   readonly targetKey: string;
 }
+export interface LogicalCommerceReferenceReplacement extends LogicalCommerceSetNull {
+  readonly desiredKeys: readonly string[];
+}
 export interface LogicalCommerceLifecycleObservation {
   readonly table: string;
   readonly key: Readonly<Record<string, string>>;
@@ -59,6 +63,7 @@ const closures = new WeakMap<object, ClosureState>();
 export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(function* (
   admission: LogicalRelationalAdmission, tx: FlarexMetadataTransaction,
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, initialContext: BoundedRequestContext, id: string,
+  allowReferenceReplacement = false,
 ) {
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   // Reject incomplete semantic profiles before exposing any table operation.
@@ -92,6 +97,17 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
       yield* working.planSetNull(context, id, { sourceTableId: source.tableId, sourceColumn: selection.sourceColumn,
         targetTableId: target.tableId, targetColumn: selection.targetColumn, targetKey: selection.targetKey });
     }),
+    ...(allowReferenceReplacement ? { planReferenceReplacement: (context: BoundedRequestContext,
+      selection: CommerceReferenceReplacement) => Effect.gen(function* () {
+      const admitted = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+      const source = admitted.tables.find(table => table.localName === selection.sourceTable);
+      const target = admitted.tables.find(table => table.localName === selection.targetTable);
+      if (source === undefined || target === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+      yield* working.planReferenceReplacement(context, id, { sourceTableId: source.tableId,
+        sourceColumn: selection.sourceColumn, targetTableId: target.tableId,
+        targetColumn: selection.targetColumn, targetKey: selection.targetKey,
+        desiredKeys: selection.desiredKeys });
+    }) } : {}),
     table: (context: Parameters<typeof working.relationalTable>[0], table: string) => working.relationalTable(context, id, table) });
 });
 
@@ -138,8 +154,19 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
     setNull.push(Object.freeze({ sourceTable, sourceColumn: intent.sourceColumn, targetTable,
       targetColumn: intent.targetColumn, targetKey: intent.targetKey }));
   }
+  const referenceReplacements: LogicalCommerceReferenceReplacement[] = [];
+  for (const intent of closed.changes.referenceReplacements) {
+    const sourceTable = names.get(intent.sourceTableId);
+    const targetTable = names.get(intent.targetTableId);
+    if (sourceTable === undefined || targetTable === undefined)
+      return yield* Effect.fail(commerceError("storedCorruption"));
+    referenceReplacements.push(Object.freeze({ sourceTable, sourceColumn: intent.sourceColumn,
+      targetTable, targetColumn: intent.targetColumn, targetKey: intent.targetKey,
+      desiredKeys: intent.desiredKeys }));
+  }
   return Object.freeze({ mutations: Object.freeze(mutations), lifecycle: Object.freeze(lifecycle),
-    observedRows: Object.freeze(observedRows), setNull: Object.freeze(setNull) });
+    observedRows: Object.freeze(observedRows), setNull: Object.freeze(setNull),
+    referenceReplacements: Object.freeze(referenceReplacements) });
 });
 
 /** The root consumes exactly once while the source callback is still live. */
@@ -157,16 +184,24 @@ export const consumeLogicalCommerceClosure = Effect.fn("LogicalCommerce.consume"
 /** Called only after the outer owner has acquired publication exclusion. */
 export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.prepareContribution")(function* (
   closed: Effect.Success<ReturnType<typeof consumeLogicalCommerceClosure>>, clock: ScopeClockRecord,
+  allowReferenceReplacement = false,
 ) {
   const { state, tx, admission } = closed;
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.authority.scopeId)).pipe(Effect.mapError(projectCommerceRequestFailure));
   const contribution = yield* validateLogicalDocumentChanges({ tx, scopeId: state.authority.scopeId,
     tables: new Set(state.tables.map(table => table.tableId)), maximumIndexEntries: 128, error: logicalCommerceError,
-    ...(closed.changes.setNull.length === 0 ? {} : { allowSetNull: true as const }) }, closed.changes);
+    ...(closed.changes.setNull.length === 0 ? {} : { allowSetNull: true as const }),
+    ...(allowReferenceReplacement ? { allowReferenceReplacement: true as const } : {}) }, closed.changes);
   const admitted = requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
+  const replacements = yield* Effect.forEach(closed.changes.referenceReplacements, intent =>
+    selectLogicalReferenceReplacement({ tx, ...intent, requireAdmission: admitted,
+      error: logicalCommerceError }).pipe(Effect.map(selection => Object.freeze({ intent, selection }))));
+  const derivedIds = Object.freeze(replacements.flatMap(({ selection }) =>
+    [...selection.detach, ...selection.associate].map(row => row.key)));
   const requireAdmission = admitted.pipe(Effect.asVoid);
   const core = yield* enterLogicalDocumentMaterialization({
-    coverage: "sourceBound", ...(closed.changes.setNull.length === 0 ? {} : { batch: true as const }),
+    coverage: "sourceBound", ...(closed.changes.setNull.length === 0 && replacements.length === 0
+      ? {} : { batch: true as const }),
     command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(state.authority.deploymentId),
       scopeId: scope.scopeId, schemaVersionId: state.schemaVersionId }, rowIntents: state.tables.map(table => ({ tableId: table.tableId })) },
     intrinsic: state.indexes.filter(index => index.access.kind === "by_creation_time"),
@@ -192,13 +227,28 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
           rowCount += changes.length;
         }));
     }
+    for (const { intent, selection } of replacements) {
+      const loweredIds: string[] = [];
+      yield* forEachLogicalReferenceReplacementPage({ tx, ...intent, selection,
+        requireAdmission: admitted, error: logicalCommerceError }, (changes, keys) => Effect.gen(function* () {
+          const delta = yield* core.prepareDelta(changes, changes).pipe(Effect.mapError(projectCommerceRequestFailure));
+          adjacencyChanges.push(...yield* delta.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
+          yield* appendRows(changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
+          rowCount += changes.length;
+          loweredIds.push(...keys);
+        }));
+      if (loweredIds.length !== derivedIds.length ||
+        loweredIds.some((key, index) => key !== derivedIds[index]))
+        return yield* Effect.fail(commerceError("invalidAuthority"));
+    }
     const root = yield* core.prepareDelta(contribution.changes, contribution.dependencies).pipe(Effect.mapError(projectCommerceRequestFailure));
     adjacencyChanges.push(...yield* root.lower(commitSeq).pipe(Effect.mapError(projectCommerceRequestFailure)));
     yield* appendRows(contribution.changes.map(change => ({ tableId: change.tableId, rowId: change.rowId })));
-    if (closed.changes.setNull.length > 0) yield* core.completeBatch().pipe(Effect.mapError(projectCommerceRequestFailure));
+    if (closed.changes.setNull.length > 0 || replacements.length > 0)
+      yield* core.completeBatch().pipe(Effect.mapError(projectCommerceRequestFailure));
     rowCount += contribution.changes.length;
     return Object.freeze({ rowCount, adjacencyChanges: Object.freeze(adjacencyChanges) });
   });
-  return Object.freeze({ changes: contribution.changes,
+  return Object.freeze({ changes: contribution.changes, derivedIds, hasReferenceReplacement: replacements.length > 0,
     materialize });
 });

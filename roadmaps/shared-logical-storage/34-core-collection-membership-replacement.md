@@ -1,9 +1,47 @@
 # Core-owned Collection membership replacement
 
-Status: focused preflight under the standing shared-storage completion approval.
-The bounded shared-event and delivery prerequisites are implemented; the 129-member native
-Collection update remains an atomic capacity refusal until the connected
-core/native replacement and both-driver proof pass.
+Status: selected single-Collection replacement implemented under the standing
+shared-storage completion approval. The bounded shared-event and delivery
+prerequisites and connected core/native replacement are implemented. Multiple
+roots and operations beyond the admitted resource budgets remain separate gates.
+
+## Current selected result
+
+The logical Product host binds a private Collection replacement port into the
+pinned service. The service supplies the root and desired Product IDs; the
+adapter seals one declared nullable-reference intent without enumerating old
+members. After publication exclusion, shared core selects the then-current
+scoped membership and desired existing Products through authenticated indexes,
+lowers detach and associate pages with ordinary row/index/unique/history
+maintenance, derives exact Product event IDs, and publishes one outcome and
+commit sequence with the Collection root event. A late page failure rolls back
+the entire operation on PGlite and ordinary-role PostgreSQL. The selected
+129-member path, small replacement after an
+unrelated Collection update, two-shop separation and overlapping reference
+insertion are connected witnesses on the supported database lanes.
+The selected update preserves duplicate `product_ids` as one desired member
+and publishes each detach and associate phase in ascending Product ID order,
+matching the pinned native selector's set and ordering behavior.
+
+The source-bound reverse selector now uses the shared table-write-frontier
+coverage proof: an unrelated Collection commit does not invalidate a Product
+index. Before multi-page materialization, shared index and unique owners record
+that proved baseline so the transaction's own first page cannot be mistaken
+for an uncovered committed Product write on its next page. A real Product
+write beyond coverage still refuses. The physical full Product runner remains
+the named consumer of the generic selector path for unported methods; it is
+removed with that runner, not used as a fallback after a logical refusal.
+
+The selected operation remains bounded by 256 total root/derived messages,
+the separate relation transition and materialization budgets, and one root
+per command. Those ceilings are safety limits, not a general high-fan-out or
+hot-shop performance claim. The measurement and multi-root gates below remain.
+Derived Product messages use a core-owned exact ID-only event contract. A host
+must explicitly select captured-only global validation for this profile: its
+callback validates the root family before exclusion, while core validates the
+derived family from committed row IDs and static metadata under the lock.
+Arbitrary callback predicates over the combined family are not admitted to
+this profile because they would require executing caller code after exclusion.
 
 ## Trigger and ownership
 
@@ -54,7 +92,8 @@ runner retires, as tracked by the Product completion inventory.
 Extend the shared indexed reference transition owner to perform replacement.
 Under publication exclusion it verifies the declared nullable Product FK and
 ready current-coverage index, selects the complete old membership by scoped
-keyset pages, validates the explicitly selected Product IDs, and applies the
+keyset pages, filters to active Products as the pinned Collection selectors do,
+validates the explicitly selected active Product IDs, and applies the
 native detach-then-associate behavior through bounded ordinary logical row
 materialization pages. An already selected Product is still an update if the
 native selector update would update it; missing selected IDs retain the pinned
@@ -75,15 +114,45 @@ Collection result. A later failure rolls back every page and event. Keep a
 separate total affected-row, byte, statement and time budget; a page boundary
 never defines successful completion.
 
-The selected event boundary is after native execution has sealed and before
-the event buffer closes. Under the shared scope lock, core can select the
-complete bounded affected identity set, then let the admitted module event
-policy capture the original per-Product event shape. Settlement must verify
-that the identities it actually lowers match this locked selection. No
-untrusted callback runs after the lock. Extend the shared event-message budget
-only with an explicit measured total budget and paged/validated persistence as
-needed; increasing the Collection adapter's allowance cannot override the
-shared 256-message ceiling or physical profile limits.
+The existing atomic root closes and validates its event buffer in
+`closeContributions` **before** `finalizeCommerceCommit` acquires publication
+exclusion. Its publisher must therefore gain a narrow deferred-event contract:
+the framework finishes, seals a replacement intent and emits its Collection
+root event, while a trusted declarative policy reserves Product `updated`
+events derived from core-owned affected rows. The pinned native mutation
+subscriber builds these Product events from entity IDs; the policy must capture
+its exact contract, metadata and order without running the live Medusa service,
+an adapter callback or arbitrary decoder under the publication lock. The
+ordinary event buffer remains single-use and cannot be reopened by the adapter.
+
+After acquiring publication exclusion, core selects the complete old
+membership and explicitly selected existing Products through authenticated
+indexes, including their then-current `collection_id`. That selection is the
+authority for both bounded replacement pages and derived Product event IDs.
+Core validates the total event count and bytes, combines the root and derived
+messages, computes the digest and writes the publication prefix before lowering
+rows. It then verifies that the actual lowered Product identities and update
+multiplicity equal the selected event identities; any mismatch or late failure
+rolls back the prefix, rows, outcome and events together. A reference committed
+before the publication lock belongs to the selection. A competing writer after
+it must validate against the new state. No framework callback runs after the
+lock and no request-time preview claims to be authoritative.
+
+This requires splitting logical receipt validation: before publication, prove
+the native root call, Collection row attempt, sealed intent and root event;
+inside trusted settlement, prove the derived Product changes and event family.
+Do not fabricate Product attempts in the request working set or weaken the
+existing ordinary Collection receipt. Event capacity bounds the selected set
+independently of row, byte, statement and time budgets. The selected 129-member
+operation needs one Collection event plus its exact native Product events
+within the trusted 256-message ceiling and any installed physical profile cap;
+a larger operation must refuse atomically unless all coupled budgets are
+deliberately extended and measured.
+The first admission rejects an overlapping pending Product mutation in the same
+working set; otherwise the locked committed selection could omit an in-request
+membership change.
+Composed replacement after another Product command needs its own pending-state
+contract and connected proof before admission.
 
 This breaks private Collection repository/service and logical intent/event
 contracts. It does not change native public Collection inputs/results, generic

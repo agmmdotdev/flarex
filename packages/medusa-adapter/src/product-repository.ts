@@ -1,11 +1,11 @@
 import { productRelations, type ProductRuntimeMetadata, type ProductEntityMetadata } from "./product-runtime-metadata";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { Context, DAL } from "@medusajs/framework/types";
 import type { CommerceModuleEvents } from "./commerce-module";
 import { commerceMutationEvents } from "./commerce-mutation-events";
 import type { CommerceCommandContext } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import { commerceError, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { decodeProductProjection, decodeProductCount } from "./product-value-profile";
+import { commerceError, isJsonObject, type CommerceTransactionError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { decodeProductProjection, decodeProductCount, ProductRelationshipId, ProductRelationshipIds } from "./product-value-profile";
 import { commerceRepositoryContext } from "./commerce-repository-context";
 import type { CommercePromiseOwner } from "./commerce-promise-owner";
 import { captureCommerceInput } from "./commerce-input";
@@ -14,12 +14,16 @@ import { findProducts } from "./product-query";
 import { populateCommerceRelations } from "./commerce-relations";
 import { findProductRelated, insertProductRelated, updateProductRelated } from "./product-related";
 import { findCollectionMembershipProducts, updateCollectionMembershipProducts } from "./product-collection-membership";
+import { commerceDecoder } from "./commerce-decoder";
 import { replaceProductRows } from "./product-mutation";
 import { captureCategoryProjection } from "./product-category-projection";
 import { findCategoryRows, insertCategoryRows, updateCategoryRows } from "./product-category-repository";
 import { changeProductLifecycle } from "./product-lifecycle";
 
 export type ProductRepositoryProfile = "public" | "collectionMembership" | "categoryProjection" | "internalProduct";
+const decodeCollectionReplacement = commerceDecoder(Schema.Array(Schema.Struct({
+  id: ProductRelationshipId, productIds: ProductRelationshipIds,
+})).check(Schema.isLengthBetween(1, 1)), "invalidInput");
 
 /** Request-owned DAL composition; all framework transaction methods borrow core. */
 export function productRepository(root: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata, profile: ProductRepositoryProfile = "public") {
@@ -161,6 +165,18 @@ export function productRepository(root: CommerceCommandContext, owner: CommerceP
     }))),
   };
   return { repository, mutationPersistence, refuse, relatedRepository, categoryRepository,
+    replaceCollectionMembership: (selections: readonly Readonly<{ id: string; productIds: readonly string[] }>[], shared: unknown) =>
+      bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+        if (!collectionMembership || ctx.planReferenceReplacement === undefined ||
+          shared === null || typeof shared !== "object" || !events.isSubscribed(shared))
+          return yield* ctx.refuse(commerceError("invalidAuthority"));
+        const captured = yield* Effect.fromResult(captureCommerceInput(selections, ctx.resources));
+        const selected = (yield* Effect.fromResult(decodeCollectionReplacement(captured)))[0];
+        if (selected === undefined) return yield* ctx.refuse(commerceError("invalidInput"));
+        yield* ctx.planReferenceReplacement({ sourceTable: metadata.product.table.name,
+          sourceColumn: "collection_id", targetTable: metadata.collection.table.name,
+          targetColumn: "id", targetKey: selected.id, desiredKeys: selected.productIds });
+      }))),
     captureLocalEvent: (event: unknown) => Effect.suspend(() => bridge.current().captureLocalEvent(event)),
     rejectLocalEvent: (error: CommerceTransactionError) => Effect.suspend(() => bridge.current().refuse(error)),
   };

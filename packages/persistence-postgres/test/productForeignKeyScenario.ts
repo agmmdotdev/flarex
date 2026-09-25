@@ -31,7 +31,8 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
   fxSystemScopeClocks, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { validateLogicalDocumentChanges } from "../src/logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization } from "../src/logicalDocuments/materialization";
-import { forEachLogicalReferencePage } from "../src/logicalDocuments/referencePages";
+import { forEachLogicalReferencePage, forEachLogicalReferenceReplacementPage,
+  selectLogicalReferenceReplacement } from "../src/logicalDocuments/referencePages";
 import { forEachLogicalSetNullPage } from "../src/logicalDocuments/referencePages";
 import { readBoundedCurrentAppRowsInTransactionEffect } from "../src/appRows";
 
@@ -341,6 +342,31 @@ export const productForeignKeyScenario: (
     rows => Effect.sync(() => { for (const row of rows) referenced.add(row.rowId); })));
   expect(count).toBe(144);
   expect(referenced.size).toBe(144);
+  const replacementPages: Array<{ readonly count: number; readonly reference: unknown }> = [];
+  const replacement = yield* transact(tx => Effect.gen(function* () {
+    const selected = yield* selectLogicalReferenceReplacement({ ...referenceInput(tx),
+      desiredKeys: ["batch_product_0", "batch_missing"] });
+    const forged = yield* Effect.result(forEachLogicalReferenceReplacementPage({ ...referenceInput(tx),
+      selection: { detach: selected.detach, associate: selected.associate } }, () => Effect.void));
+    expect(forged).toMatchObject({ _tag: "Failure", failure: { message: "invalidAuthority" } });
+    const replacementCount = yield* forEachLogicalReferenceReplacementPage({ ...referenceInput(tx),
+      selection: selected }, (changes, keys) => Effect.sync(() => {
+      const live = changes.filter(change => change.kind === "live");
+      expect(live).toHaveLength(keys.length);
+      expect(live.map(change => isJsonObject(change.document.valueJson) ? change.document.valueJson.id : undefined)).toEqual(keys);
+      const first = live[0]?.document.valueJson;
+      replacementPages.push({ count: changes.length,
+        reference: first !== undefined && isJsonObject(first) ? first.type_id : undefined });
+    }));
+    expect(replacementCount).toBe(144);
+    return selected;
+  }));
+  expect(replacement.detach).toHaveLength(143);
+  expect(replacement.associate.map(row => row.key)).toEqual(["batch_product_0"]);
+  expect(new Set(replacement.detach.map(row => row.key)).has("batch_product_0")).toBe(false);
+  expect(replacementPages.map(page => page.count)).toEqual([32, 32, 32, 32, 15, 1]);
+  expect(replacementPages.slice(0, -1).every(page => page.reference === null)).toBe(true);
+  expect(replacementPages.at(-1)?.reference).toBe("batch_type");
   const planned = yield* transact(tx => Effect.scoped(Effect.gen(function* () {
     const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
     const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,

@@ -13,6 +13,7 @@ import type { LogicalDocumentFailure } from "./model";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogTableId } from "flarex-protocol/catalog";
+import { isJsonObject } from "flarex-protocol/json";
 import { readLogicalIndexRange, sameLogicalIndexMembership } from "./indexReads";
 
 /** Validate the complete command, including decisions that did not produce writes. */
@@ -21,9 +22,11 @@ export const validateLogicalDocumentChanges = Effect.fn(
 )(function* <Failure>(input: Readonly<{
   tx: FlarexMetadataTransaction; scopeId: ScopeId; tables: ReadonlySet<CatalogTableId>;
   maximumIndexEntries: number; error: LogicalDocumentFailure<Failure>; allowSetNull?: true;
+  allowReferenceReplacement?: true;
 }>, closed: LogicalDocumentChanges) {
   const { tx, scopeId, tables: allowed, maximumIndexEntries, error } = input;
-  if (closed.setNull.length !== 0 && input.allowSetNull !== true)
+  if ((closed.setNull.length !== 0 && input.allowSetNull !== true) ||
+    (closed.referenceReplacements.length !== 0 && input.allowReferenceReplacement !== true))
     return yield* Effect.fail(error("invalidAuthority"));
   const reads = new Map(
     closed.dependencies.map((row) => [row.documentId, row]),
@@ -47,6 +50,13 @@ export const validateLogicalDocumentChanges = Effect.fn(
     }) ||
     closed.setNull.some(intent => !allowed.has(intent.sourceTableId) || !allowed.has(intent.targetTableId) ||
       !closed.changes.some(change => change.kind === "deleted" && change.tableId === intent.targetTableId)) ||
+    closed.referenceReplacements.length > 1 ||
+    closed.referenceReplacements.some(intent => !allowed.has(intent.sourceTableId) ||
+      !allowed.has(intent.targetTableId) || intent.desiredKeys.length > 256 ||
+      new Set(intent.desiredKeys).size !== intent.desiredKeys.length ||
+      closed.setNull.length !== 0 || closed.changes.some(change => change.tableId === intent.sourceTableId) ||
+      !closed.changes.some(change => change.kind === "live" && change.tableId === intent.targetTableId &&
+        isJsonObject(change.document.valueJson) && change.document.valueJson[intent.targetColumn] === intent.targetKey)) ||
     new Set(closed.setNull.map(intent => JSON.stringify([intent.sourceTableId, intent.sourceColumn,
       intent.targetTableId, intent.targetColumn, intent.targetKey]))).size !== closed.setNull.length ||
     closed.attempts.some(

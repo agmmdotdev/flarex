@@ -127,7 +127,7 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
   const sourceHashes = new Map(readFileSync(path.join(root, "third_party/medusa/SOURCE_SHA256SUMS"), "utf8")
     .split(/\r?\n/).filter(Boolean).map((line) => ["third_party/medusa/" + line.slice(66), line.slice(0, 64)]));
   for (const file of promotion.files) {
-    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "authored"].includes(file.classification)) {
+    if (!["unchanged", "preserved", "unchangedTest", "importRelocation", "selectedExportFacade", "testHarnessPort", "testPort", "testFixturePort", "workflowFork", "linkFork", "productServiceFork", "authored"].includes(file.classification)) {
       throw new Error(`Unadmitted source transformation: ${file.target}`);
     }
     if (file.classification === "workflowFork" && !(file.target.startsWith("packages/medusa-workflows-sdk/src/") || file.target.startsWith("packages/medusa-core-flows/src/") || file.target === "packages/medusa-adapter/test/workflow-composer-upstream.test.ts")) {
@@ -142,6 +142,9 @@ export function verifyCurrencyPromotion(root, supplied = JSON.parse(readFileSync
       "packages/medusa-link-modules/src/definitions/product-shipping-profile.ts",
       "packages/medusa-link-modules/src/definitions/product-variant-price-set.ts",
     ].includes(file.target)) throw new Error("Link adaptation outside its approved finite source closure");
+    if (file.classification === "productServiceFork" &&
+      file.target !== "packages/medusa-product/src/services/product-module-service.ts")
+      throw new Error("Product service adaptation outside its approved source file");
     const owned = [...owners.keys()].some((owner) => file.target.startsWith(owner + "/"))
       || file.target === "tools/medusa/tsconfig.fork.json";
     if (!validPath(file.target) || !owned) throw new Error(`Unadmitted promotion target: ${file.target}`);

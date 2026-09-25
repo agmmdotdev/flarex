@@ -250,11 +250,37 @@ function productLogicalCollectionWriteEventPolicy(catalog: ProductRuntimeMetadat
     : operation === "update" ? "productupdatecollection" : "productupsertcollection";
   const mismatch = () => commerceError("receiptMismatch");
   const validateLogical: LogicalCommerceEventValidation = Effect.fn("ProductEvents.validateLogicalCollectionWrite")(
-    function* (calls, mutations, lifecycle, _observedRows, setNull) {
+    function* (calls, mutations, lifecycle, _observedRows, setNull, referenceReplacements = []) {
       const emitted = yield* logicalSingleWriteEvents(calls, mutations.length, commandName);
       if (lifecycle.length !== 0 || setNull.length !== 0) return yield* Effect.fail(mismatch());
       const write = calls.find(call => call.mode === "write");
       if (write === undefined) return yield* Effect.fail(mismatch());
+      if (referenceReplacements.length !== 0) {
+        const intent = referenceReplacements[0];
+        const supplied = isJsonObject(write.input) && write.input.data !== undefined &&
+          isJsonObject(write.input.data)
+          ? write.input.data.product_ids : undefined;
+        const desired = Array.isArray(supplied) && supplied.every(id => typeof id === "string")
+          ? [...new Set(supplied)] : undefined;
+        const root = mutations[0];
+        const event = emitted[0] === undefined ? undefined : yield* capture(emitted[0]);
+        if (operation !== "update" || referenceReplacements.length !== 1 || intent === undefined ||
+          intent.sourceTable !== catalog.product.table.name || intent.sourceColumn !== "collection_id" ||
+          intent.targetTable !== catalog.collection.table.name || intent.targetColumn !== "id" ||
+          !isJsonObject(write.input) || typeof write.input.id !== "string" ||
+          intent.targetKey !== write.input.id || desired === undefined ||
+          desired.length !== intent.desiredKeys.length ||
+          desired.some((id, index) => id !== intent.desiredKeys[index]) ||
+          mutations.length !== 1 || root?.table !== catalog.collection.table.name ||
+          !["patch", "replace"].includes(root.operation) || root.before?.id !== intent.targetKey ||
+          root.after?.id !== intent.targetKey || root.after.deleted_at !== null ||
+          !isJsonObject(write.result) || write.result.id !== intent.targetKey ||
+          emitted.length !== 1 || event?.name !== catalog.collection.updatedEvent ||
+          event.metadata.object !== catalog.collection.eventObject ||
+          event.metadata.action !== CommonEvents.UPDATED || event.data.id !== intent.targetKey)
+          return yield* Effect.fail(mismatch());
+        return;
+      }
       const updateId = operation === "update" && isJsonObject(write.input) && typeof write.input.id === "string"
         ? write.input.id : undefined;
       if (operation === "update" && (updateId === undefined || !isJsonObject(write.result) || write.result.id !== updateId))

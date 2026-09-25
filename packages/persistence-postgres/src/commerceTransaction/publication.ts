@@ -15,7 +15,8 @@ import { allocateScopePublicationResult, readScopePublicationDatabaseTime, write
   advanceScopePublicationClock } from "../commitPublication/publication";
 import type { ScopePublicationContribution, ScopePublicationKernel, ScopePublicationOptions } from "../commitPublication/scopePublicationModel";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
-import { consumeCommerceEvents, type CommerceEventClosure } from "../atomicCommerce/events";
+import { appendDerivedCommerceIdEvents, consumeCommerceEvents,
+  type CommerceEventClosure } from "../atomicCommerce/events";
 import { consumeLogicalCommerceClosure, prepareLogicalCommerceContribution, type LogicalCommerceClosure } from "./logicalParticipant";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../scopeClock";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -74,8 +75,10 @@ const prepareAtomicContribution = Effect.fn("CommerceCommit.prepareAtomic")(func
     }
   }
   if (root === undefined || root.head === null) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const hasReplacement = logical.some(member => member.changes.referenceReplacements.length !== 0);
   return { state: root, publicationClock, facts, logical,
-    events: input.events === undefined ? undefined : yield* consumeCommerceEvents(input.events, lifetime) };
+    events: input.events === undefined || hasReplacement ? undefined : yield* consumeCommerceEvents(input.events, lifetime),
+    deferredEvents: hasReplacement ? input.events : undefined };
 });
 
 const preparePhysicalContribution = Effect.fn("CommerceCommit.preparePhysical")(function* (
@@ -125,7 +128,16 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
   const epoch = yield* Effect.fromResult(projectScopeEpochUuidV1Result(publicationClock.epoch)).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)));
   if (identity.scopeUuid !== scope.scopeUuid) return yield* Effect.fail(commerceError("invalidAuthority"));
   const logicalMembers = logical === undefined ? atomic?.logical ?? [] : [logical];
-  const deltas = yield* Effect.forEach(logicalMembers, member => prepareLogicalCommerceContribution(member, publicationClock));
+  const deltas = yield* Effect.forEach(logicalMembers, member => prepareLogicalCommerceContribution(
+    member, publicationClock, input.kind === "atomic" && atomic?.deferredEvents !== undefined));
+  const replacements = deltas.filter(delta => delta.hasReferenceReplacement);
+  if (replacements.length > 1) return yield* Effect.fail(commerceError("invalidAuthority"));
+  if (replacements.length === 1) {
+    if (atomic?.deferredEvents === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
+    yield* appendDerivedCommerceIdEvents(atomic.deferredEvents, lifetime, replacements[0]?.derivedIds ?? []);
+  }
+  const atomicEvents = atomic?.deferredEvents === undefined ? atomic?.events :
+    yield* consumeCommerceEvents(atomic.deferredEvents, lifetime);
   const clock = { record: publicationClock, scopeUuid: scope.scopeUuid, epochUuid: epoch.epochUuid };
   const now = yield* publishCommerceAtoms(() => readScopePublicationDatabaseTime(state.tx, scope.scopeId, options));
   const allocation = yield* Effect.fromResult(allocateScopePublicationResult(clock, now))
@@ -138,7 +150,7 @@ export const finalizeCommerceCommit = Effect.fn("CommerceCommit.finalize")(funct
     rowIntents: [], identityAccessPolicySha256: identity.expectedIdentityAccessPolicySha256,
     requestSha256: identity.expectedRequestSha256, resultSha256, successfulResult: result,
     ...((physical ?? atomic) === undefined ? {} : { relationalFacts }),
-    ...(physical?.events !== undefined ? { events: physical.events } : atomic?.events !== undefined ? { events: atomic.events } : {}),
+    ...(physical?.events !== undefined ? { events: physical.events } : atomicEvents !== undefined ? { events: atomicEvents } : {}),
   };
   const adjacencyChanges: ScopePublicationKernel["relationAdjacencyChanges"][number][] = [];
   const kernel: ScopePublicationKernel = { clock, ...allocation,

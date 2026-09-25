@@ -32,7 +32,8 @@ export function productImageAliasRepository(repository: DAL.RepositoryService, r
 function bindProduct(ctx: CommerceCommandContext, owner: CommercePromiseOwner, metadata: ProductRuntimeMetadata,
   entities: ReadonlyMap<typeof productModels[number], ProductEntityMetadata>, profile: ProductRepositoryProfile) {
   const bound = productRepository(ctx, owner, metadata, profile);
-  const { repository, refuse, categoryRepository, captureLocalEvent, rejectLocalEvent } = bound;
+  const { repository, refuse, categoryRepository, captureLocalEvent, rejectLocalEvent,
+    replaceCollectionMembership } = bound;
   const eventBus: IEventBusModuleService = {
     emit: (input, options) => owner.run(Effect.gen(function* () {
       const settings = yield* Effect.fromResult(captureCommerceInput(options));
@@ -74,6 +75,8 @@ function bindProduct(ctx: CommerceCommandContext, owner: CommercePromiseOwner, m
       mutationService = { interceptEntityMutationEvents: (event, args, context) => intercept(event, args, context) };
     },
     capture: (value: unknown) => owner.run(Effect.fromResult(captureCommerceInput(value, ctx.resources))),
+    collectionMembershipReplacement: profile === "collectionMembership" && ctx.planReferenceReplacement !== undefined
+      ? { replace: replaceCollectionMembership } : undefined,
   };
 }
 
@@ -109,6 +112,8 @@ export function defineProductModule(metadata: ProductRuntimeMetadata, profile: P
           // guard selects portable internal services when that method is absent.
           productRepository: binding.baseRepository as ConstructorParameters<typeof ProductModuleService>[0]["productRepository"],
           [Modules.EVENT_BUS]: binding.eventBus,
+          ...(binding.collectionMembershipReplacement === undefined ? {} :
+            { collectionMembershipReplacement: binding.collectionMembershipReplacement }),
         }, { scope: "internal" });
         binding.connect(service);
         return { service, productService: dependencies.productService, categoryService: dependencies.productCategoryService,

@@ -25,7 +25,7 @@ import {
   ProductVariant,
   ProductVariantProductImage,
 } from "../models"
-import type { ProductCategoryService } from "../runtime-contracts"
+import type { ProductCategoryService, ProductCollectionMembershipReplacement } from "../runtime-contracts"
 
 import {
   arrayDifference,
@@ -72,6 +72,7 @@ type InjectedDependencies = {
   productTagService: ModulesSdkTypes.IMedusaInternalService<any>
   productCategoryService: ProductCategoryService
   productCollectionService: ModulesSdkTypes.IMedusaInternalService<any>
+  collectionMembershipReplacement?: ProductCollectionMembershipReplacement
   productImageService: ModulesSdkTypes.IMedusaInternalService<any>
   productImageProductService: ModulesSdkTypes.IMedusaInternalService<any>
   productTypeService: ModulesSdkTypes.IMedusaInternalService<any>
@@ -144,6 +145,7 @@ export default class ProductModuleService
   protected readonly productCollectionService_: ModulesSdkTypes.IMedusaInternalService<
     InferEntityType<typeof ProductCollection>
   >
+  protected readonly collectionMembershipReplacement_?: ProductCollectionMembershipReplacement
   protected readonly productImageService_: ModulesSdkTypes.IMedusaInternalService<
     InferEntityType<typeof ProductImage>
   >
@@ -170,6 +172,7 @@ export default class ProductModuleService
       productTagService,
       productCategoryService,
       productCollectionService,
+      collectionMembershipReplacement,
       productImageService,
       productTypeService,
       productOptionService,
@@ -190,6 +193,7 @@ export default class ProductModuleService
     this.productTagService_ = productTagService
     this.productCategoryService_ = productCategoryService
     this.productCollectionService_ = productCollectionService
+    this.collectionMembershipReplacement_ = collectionMembershipReplacement
     this.productImageService_ = productImageService
     this.productTypeService_ = productTypeService
     this.productOptionService_ = productOptionService
@@ -1321,6 +1325,7 @@ export default class ProductModuleService
     )
 
     const collections: InferEntityType<typeof ProductCollection>[] = []
+    const replacements: { id: string; productIds: string[] }[] = []
     const toUpdate: {
       selector: ProductTypes.FilterableProductProps
       data: ProductTypes.UpdateProductDTO
@@ -1337,12 +1342,13 @@ export default class ProductModuleService
 
       if (isDefined(productsToUpdate)) {
         const productIds = productsToUpdate.map((p) => p.id)
+        replacements.push({ id: collectionData.id, productIds })
 
         dissociateSelector["id"] = { $nin: productIds }
         associateSelector["id"] = { $in: productIds }
       }
 
-      if (isPresent(dissociateSelector["id"])) {
+      if (!this.collectionMembershipReplacement_ && isPresent(dissociateSelector["id"])) {
         toUpdate.push({
           selector: dissociateSelector,
           data: {
@@ -1351,7 +1357,7 @@ export default class ProductModuleService
         })
       }
 
-      if (isPresent(associateSelector["id"])) {
+      if (!this.collectionMembershipReplacement_ && isPresent(associateSelector["id"])) {
         toUpdate.push({
           selector: associateSelector,
           data: {
@@ -1366,7 +1372,9 @@ export default class ProductModuleService
       } as InferEntityType<typeof ProductCollection>)
     })
 
-    if (toUpdate.length) {
+    if (this.collectionMembershipReplacement_ && replacements.length) {
+      await this.collectionMembershipReplacement_.replace(replacements, sharedContext)
+    } else if (toUpdate.length) {
       await this.productService_.update(toUpdate, sharedContext)
     }
 

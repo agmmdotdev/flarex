@@ -17,7 +17,8 @@ import {
   isCommerceDefinitionName,
   type AtomicCommerceParticipantInput,
 } from "./participants";
-import { admitParticipantEvents, captureAtomicCommerceEvents, prepareAtomicCommerceEvents, type AtomicCommerceEvents } from "./events";
+import { admitParticipantEvents, captureAtomicCommerceEvents, isCommerceDerivedIdEventContract,
+  prepareAtomicCommerceEvents, type AtomicCommerceEvents } from "./events";
 import { TransactionIdentityAccessPolicySha256V1Schema } from "flarex-protocol/transaction-session";
 import { commerceIdentityEvidence } from "../commerceTransaction/request";
 import { hashAtomicCommerceBytes } from "./request";
@@ -100,16 +101,26 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
     logicalLocation === undefined ? undefined : { deploymentId, scopeId: logicalLocation.authority.scopeId });
   const eventPolicy = eventInput === undefined ? undefined : yield* prepareAtomicCommerceEvents(yield* Effect.fromResult(eventInput));
+  const hasDerivedIdEvents = members.some(member => member.derivedIdEvent !== undefined);
+  if (hasDerivedIdEvents !== (eventPolicy?.derivedIdValidation === "capturedOnly"))
+    return yield* Effect.fail(commerceError("invalidAuthority"));
   const participantEvents = [];
   for (const member of members) {
     if (member.kind === "physical" && member.events !== undefined && member.validate === undefined)
       return yield* Effect.fail(commerceError("invalidAuthority"));
     const contracts = yield* Effect.fromResult(admitParticipantEvents(member.events, eventPolicy));
+    const derived = member.derivedIdEvent === undefined ? undefined :
+      eventPolicy?.allowed.get(member.derivedIdEvent.contract);
+    if (member.derivedIdEvent !== undefined && (derived === undefined || !derived.internal ||
+      !isCommerceDerivedIdEventContract(member.derivedIdEvent.contract)))
+      return yield* Effect.fail(commerceError("invalidAuthority"));
     participantEvents.push({
       participant: member.name,
       ...(member.kind === "physical" ? { installation: member.reference.installation.installationSha256 }
         : { logicalSource: member.contractSha256 }),
       contracts,
+      ...(derived === undefined ? {} : { derivedIdEvent: {
+        contract: derived.name, revision: derived.revision } }),
     });
   }
   const identity = yield* commerceIdentityEvidence("atomic-policy", {
@@ -135,7 +146,8 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     ),
   };
   const transitionFacts = members.every(member => member.kind === "logical") &&
-    members.some(member => member.kind === "logical" && member.allowSetNull === true)
+    members.some(member => member.kind === "logical" &&
+      (member.allowSetNull === true || member.allowReferenceReplacement === true))
     ? logicalMaterializationBatchBudget.rows : defaultCommerceResources.facts;
   const factLimit = Math.min(transitionFacts,
     ...members.filter(member => member.kind === "physical").map(member => member.descriptor.resources.facts));

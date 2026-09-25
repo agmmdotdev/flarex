@@ -3220,6 +3220,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
   definitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
   context: IndexCoverageContext,
   publicationProfile: import("./indexBuildStates").IndexPublicationProfile,
+  sourceBoundBatch = false,
 ) {
   if (definitions.length === 0) return Object.freeze([]);
   const snapshot = { schemaVersionId, members: definitions };
@@ -3276,6 +3277,12 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
     if (!(yield* hasDefinitionCoverage(tx, clock, snapshot, state, definition.tableId, clock, context))) {
       return yield* Effect.fail(stateError(clock, snapshot, "coverageMissing"));
     }
+    // A source-bound build may lag the scope clock when other tables changed.
+    // Record the proved table-local coverage before a batch writes its first
+    // page; later pages must not mistake this transaction's own rows for an
+    // uncovered committed write.
+    if (sourceBoundBatch && mode === "sourceBound" && state.coveredThroughCommitSeq < clock.lastCommitSeq)
+      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx, [state], clock.lastCommitSeq, schemaVersionId);
     states.push(state);
   }
   return Object.freeze(states);

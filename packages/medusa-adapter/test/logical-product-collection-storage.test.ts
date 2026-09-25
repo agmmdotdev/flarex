@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Cause, Effect, Result } from "effect";
+import { Effect, Result } from "effect";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 import { productLogicalCollectionCreateEventPolicy, productLogicalCollectionDeleteEventPolicy,
   productLogicalCollectionUpdateEventPolicy, productLogicalCollectionUpsertEventPolicy,
@@ -9,7 +9,7 @@ import { captureProductSchema } from "../src/product-schema";
 import { productRuntimeMetadata } from "../src/product-runtime-metadata";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
-import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
+import { defineCommerceDerivedIdEventContract, defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
@@ -37,7 +37,9 @@ describe("native Collection service on shared logical Product storage", () => {
   }, 120_000);
 
   async function command(operation: "createCollection" | "updateCollection" | "upsertCollection" | "deleteCollection" | "createProduct",
-    selectedFixture = fixture, selectedProduct = product, rejectReceipt = false, pendingRead = false) {
+    selectedFixture = fixture, selectedProduct = product, rejectReceipt = false, pendingRead = false,
+    replacement = false, afterValidation?: () => Promise<void>,
+    derivedAdmission: "static" | "generic" | "missingPolicy" = "static") {
     const native = operation === "createCollection" ? selectedProduct.runtime.commands.createCollections
       : operation === "updateCollection" ? selectedProduct.runtime.commands.updateCollections
         : operation === "upsertCollection" ? selectedProduct.runtime.commands.upsertCollections
@@ -53,8 +55,15 @@ describe("native Collection service on shared logical Product storage", () => {
         : operation === "upsertCollection" ? [catalog.collection.createdEvent, catalog.collection.updatedEvent, catalog.product.updatedEvent]
           : operation === "deleteCollection" ? [catalog.collection.deletedEvent] : [catalog.product.createdEvent];
     const revision = createHash("sha256").update(`logical-product-${operation}`).digest("hex");
+    const productUpdatedMetadata = { source: Modules.PRODUCT,
+      object: catalog.product.eventObject, action: CommonEvents.UPDATED };
     const namedContracts = eventNames.map(name => ({ name,
-      token: defineCommerceEventContract({ name, revision, internal: true, decode: policy.capture }) }));
+      token: replacement && derivedAdmission !== "generic" && name === catalog.product.updatedEvent
+        ? Result.getOrThrow(defineCommerceDerivedIdEventContract({ name, revision,
+          internal: true, metadata: productUpdatedMetadata }))
+        : defineCommerceEventContract({ name, revision, internal: true, decode: policy.capture }) }));
+    const productUpdatedContract = namedContracts.find(entry => entry.name === catalog.product.updatedEvent);
+    if (replacement && productUpdatedContract === undefined) throw new Error("Missing Product update event contract");
     const contracts = namedContracts.map(entry => entry.token);
     const participant = defineAtomicCommerceParticipant("product");
     const root = defineAtomicCommerceCommand(`native${operation}${pendingRead ? "PendingRead" : ""}`, (ctx, input) =>
@@ -70,17 +79,25 @@ describe("native Collection service on shared logical Product storage", () => {
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
       identityAndAccessPolicy: { profile: `logical-product-${operation}` },
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
-        commands: pendingRead ? [native, selectedProduct.runtime.commands.retrieveCollection] : [native], validateLogical: rejectReceipt
-          ? (...args) => policy.validateLogical(...args).pipe(Effect.andThen(Effect.fail(commerceError("receiptMismatch"))))
+        commands: pendingRead ? [native, selectedProduct.runtime.commands.retrieveCollection] : [native],
+        validateLogical: rejectReceipt || afterValidation !== undefined
+          ? (...args) => policy.validateLogical(...args).pipe(Effect.andThen(rejectReceipt
+            ? Effect.fail(commerceError("receiptMismatch"))
+            : afterValidation === undefined ? Effect.void : Effect.promise(afterValidation)))
           : policy.validateLogical,
         ...(operation === "deleteCollection" ? { allowSetNull: true as const } : {}),
+        ...(replacement && productUpdatedContract !== undefined ? { allowReferenceReplacement: true as const,
+          derivedIdEvent: { contract: productUpdatedContract.token } } : {}),
         events: { contracts, select: event => {
           const contract = isJsonObject(event) && typeof event.name === "string"
             ? namedContracts.find(candidate => candidate.name === event.name)?.token : undefined;
           return contract === undefined ? Effect.fail(commerceError("unadmittedEvent")) : Effect.succeed(contract);
         } } }],
-      commands: [root], events: { producerRevision: revision, contracts,
+      commands: [root], ...(replacement ? { requestEventLimit: 256 } : {}),
+      events: { producerRevision: revision, contracts,
         subscribers: [{ id: `logical-product-${operation}`, revision: "a".repeat(64) }],
+        ...(replacement && derivedAdmission !== "missingPolicy"
+          ? { derivedIdValidation: "capturedOnly" as const } : {}),
         validate: events => events.some(event => !event.internal)
           ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void },
     }));
@@ -277,7 +294,7 @@ describe("native Collection service on shared logical Product storage", () => {
   it("replaces, moves and clears 20 native Collection members in shared logical storage", async () => {
     const created = await command("createCollection");
     const pendingCreated = await command("createCollection", fixture, product, false, true);
-    const updated = await command("updateCollection");
+    const updated = await command("updateCollection", fixture, product, false, false, true);
     const upserted = await command("upsertCollection");
     const rejected = await command("updateCollection", fixture, product, true);
     const createProduct = await command("createProduct");
@@ -324,7 +341,7 @@ describe("native Collection service on shared logical Product storage", () => {
       await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
         { id: other, title: "Other" }));
       await Effect.runPromise(updated.host.run(updated.host.newRequestKey(), updated.root,
-        { id: other, data: { product_ids: [kept] } }));
+        { id: other, data: { product_ids: [kept, kept] } }));
       expect(await Effect.runPromise(reads.read(product.runtime.commands.retrieveCollection,
         { id: all, config: { select: ["title", "products.id"], relations: ["products"] } })))
         .toEqual({ id: all, title: "Renamed", products: [] });
@@ -370,7 +387,7 @@ describe("native Collection service on shared logical Product storage", () => {
     await Effect.runPromise(otherProduct.host.initialize([]));
     const firstCreate = await command("createCollection");
     const secondCreate = await command("createCollection", other, otherProduct);
-    const firstUpdate = await command("updateCollection");
+    const firstUpdate = await command("updateCollection", fixture, product, false, false, true);
     const firstProduct = await command("createProduct");
     const secondProduct = await command("createProduct", other, otherProduct);
     const id = "pcol_membership_shared", member = "prod_membership_shared";
@@ -416,14 +433,26 @@ describe("native Collection service on shared logical Product storage", () => {
     }
   }, 180_000);
 
-  it("refuses a membership replacement beyond the complete indexed-read budget atomically", async () => {
+  it("requires a static derived-ID contract and explicit captured-event validation", async () => {
+    await expect(command("updateCollection", fixture, product, false, false, true,
+      undefined, "generic")).rejects.toMatchObject({ reason: "invalidAuthority" });
+    await expect(command("updateCollection", fixture, product, false, false, true,
+      undefined, "missingPolicy")).rejects.toMatchObject({ reason: "invalidAuthority" });
+  });
+
+  it("replaces 129 members through one core-selected Collection settlement", async () => {
     const created = await command("createCollection");
     const createProduct = await command("createProduct");
-    const updated = await command("updateCollection");
+    const updated = await command("updateCollection", fixture, product, false, false, true);
     const id = "pcol_membership_read_bound";
+    const other = "pcol_membership_read_bound_other";
+    const moved = "prod_membership_bound_moved";
+    const desired = [moved, "prod_membership_bound_0", "prod_membership_bound_missing"];
     try {
       await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
         { id, title: "Bounded Collection" }));
+      await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
+        { id: other, title: "Other Collection" }));
       for (let batch = 0; batch < 5; batch++) {
         const rows = Array.from({ length: Math.min(32, 129 - batch * 32) }, (_, index) => {
           const number = batch * 32 + index;
@@ -432,24 +461,132 @@ describe("native Collection service on shared logical Product storage", () => {
         });
         await Effect.runPromise(createProduct.host.run(createProduct.host.newRequestKey(), createProduct.root, rows));
       }
+      await Effect.runPromise(createProduct.host.run(createProduct.host.newRequestKey(), createProduct.root,
+        [{ id: moved, title: "Moved", handle: "membership-bound-moved", collection_id: other }]));
       const before = await logicalCurrencyInventory(fixture);
-      const refusal = await Effect.runPromise(Effect.result(updated.host.run(updated.host.newRequestKey(), updated.root,
-        { id, data: { product_ids: [] } })));
-      if (!Result.isFailure(refusal)) throw new Error("Expected bounded membership refusal");
-      expect(refusal.failure.reason).toBe("rollbackOnly");
-      if (!Cause.isCause(refusal.failure.cause)) throw new Error("Missing bounded refusal cause");
-      expect(refusal.failure.cause.reasons.some(reason => Cause.isFailReason(reason) &&
-        reason.error !== null && typeof reason.error === "object" && "reason" in reason.error &&
-        reason.error.reason === "limitExceeded")).toBe(true);
-      expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+      const key = updated.host.newRequestKey();
+      if (fixture.observeSql !== undefined) {
+        let stagedFactPages = 0;
+        fixture.observeSql(text => {
+          if (/insert into "fx_system_commit_app_row_change"/i.test(text) && ++stagedFactPages === 3)
+            throw new Error("Injected Collection replacement failure after three fact pages");
+        });
+        try {
+          await expect(Effect.runPromise(updated.host.run(key, updated.root,
+            { id, data: { product_ids: desired } }))).rejects.toThrow();
+        } finally {
+          fixture.observeSql(undefined);
+        }
+        expect(stagedFactPages).toBe(3);
+        expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+      } else if (driver === "postgres") {
+        // A statement trigger counts fact-page inserts inside the ordinary-role
+        // publication transaction and fails only after earlier pages wrote.
+        await fixture.persistence.query(`create function flarex_test_fail_collection_fact_page()
+          returns trigger language plpgsql as $$
+          declare seen integer;
+          begin
+            seen := coalesce(nullif(current_setting('flarex.test_collection_fact_pages', true), '')::integer, 0) + 1;
+            if seen = 3 then raise exception 'injected third Collection fact page'; end if;
+            perform set_config('flarex.test_collection_fact_pages', seen::text, true);
+            return null;
+          end $$`);
+        await fixture.persistence.query(`create trigger flarex_test_fail_collection_fact_page
+          after insert on fx_system_commit_app_row_change for each statement
+          execute function flarex_test_fail_collection_fact_page()`);
+        try {
+          let failed: unknown;
+          try {
+            await Effect.runPromise(updated.host.run(key, updated.root,
+              { id, data: { product_ids: desired } }));
+          } catch (cause) { failed = cause; }
+          const messages: string[] = [];
+          let cause = failed;
+          for (let depth = 0; depth < 12 && cause !== null && typeof cause === "object"; depth++) {
+            if ("message" in cause && typeof cause.message === "string") messages.push(cause.message);
+            cause = "cause" in cause ? cause.cause : null;
+          }
+          expect(messages.join(" | ")).toContain("injected third Collection fact page");
+        } finally {
+          await fixture.persistence.query("drop trigger flarex_test_fail_collection_fact_page on fx_system_commit_app_row_change");
+          await fixture.persistence.query("drop function flarex_test_fail_collection_fact_page()");
+        }
+        expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+      }
+      expect(await Effect.runPromise(updated.host.run(key, updated.root,
+        { id, data: { product_ids: desired } }))).toMatchObject({ id });
+      const after = await logicalCurrencyInventory(fixture);
+      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 131);
+      const published = after.events.slice(before.events.length);
+      expect(published[0]?.envelope.contract).toBe(catalog.collection.updatedEvent);
+      const productEvents = published.filter(event => event.envelope.contract === catalog.product.updatedEvent);
+      expect(productEvents).toHaveLength(130);
+      const updatedIds = productEvents.map(event => {
+        const message = event.envelope.message;
+        return isJsonObject(message) && message.data !== undefined && isJsonObject(message.data)
+          ? message.data.id : null;
+      });
+      expect(updatedIds).toEqual([...Array.from({ length: 128 }, (_, index) =>
+        `prod_membership_bound_${index + 1}`).toSorted(),
+        "prod_membership_bound_0", moved]);
+      expect(new Set(after.rowChanges.slice(before.rowChanges.length).map(change => change.commitSeq)).size).toBe(1);
+      expect(await Effect.runPromise(updated.host.run(key, updated.root,
+        { id, data: { product_ids: desired } }))).toMatchObject({ id });
+      expect(await logicalCurrencyInventory(fixture)).toEqual(after);
       expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
-        { id: "prod_membership_bound_128" }))).toMatchObject({ collection_id: id });
+        { id: "prod_membership_bound_0" }))).toMatchObject({ collection_id: id });
+      expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
+        { id: moved }))).toMatchObject({ collection_id: id });
+      expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
+        { id: "prod_membership_bound_128" }))).toMatchObject({ collection_id: null });
     } finally {
       await Effect.runPromise(created.host.close);
       await Effect.runPromise(createProduct.host.close);
       await Effect.runPromise(updated.host.close);
     }
   }, 240_000);
+
+  it("includes a Product reference committed before Collection replacement settlement", async () => {
+    if (driver !== "postgres") return;
+    const id = "pcol_concurrent_replacement";
+    const created = await command("createCollection");
+    const createProduct = await command("createProduct");
+    let signalEntered!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>(resolve => { signalEntered = resolve; });
+    const released = new Promise<void>(resolve => { release = resolve; });
+    const updated = await command("updateCollection", fixture, product, false, false, true, async () => {
+      signalEntered();
+      await released;
+    });
+    try {
+      await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
+        { id, title: "Concurrent replacement" }));
+      await Effect.runPromise(createProduct.host.run(createProduct.host.newRequestKey(), createProduct.root,
+        { id: "prod_replacement_before", title: "Before", collection_id: id }));
+      const before = await logicalCurrencyInventory(fixture);
+      const replacing = Effect.runPromise(updated.host.run(updated.host.newRequestKey(), updated.root,
+        { id, data: { product_ids: [] } }));
+      try {
+        await Effect.runPromise(Effect.promise(() => entered).pipe(Effect.timeout(5000)));
+        await Effect.runPromise(createProduct.host.run(createProduct.host.newRequestKey(), createProduct.root,
+          { id: "prod_replacement_during", title: "During", collection_id: id }));
+      } finally { release(); }
+      await replacing;
+      const after = await logicalCurrencyInventory(fixture);
+      expect(after.rowChanges).toHaveLength(before.rowChanges.length + 4);
+      expect(after.events.slice(before.events.length).filter(event =>
+        event.envelope.contract === catalog.product.updatedEvent)).toHaveLength(2);
+      for (const member of ["prod_replacement_before", "prod_replacement_during"])
+        expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
+          { id: member }))).toMatchObject({ id: member, collection_id: null });
+    } finally {
+      release();
+      await Effect.runPromise(created.host.close);
+      await Effect.runPromise(createProduct.host.close);
+      await Effect.runPromise(updated.host.close);
+    }
+  }, 180_000);
 
   it("rejects an unaccounted lifecycle observation in a Collection update receipt", async () => {
     const policy = productLogicalCollectionUpdateEventPolicy(catalog);

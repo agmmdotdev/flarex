@@ -2,9 +2,8 @@ import { Result, Schema } from "effect";
 import type { CommerceCommand } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceDecoder } from "./commerce-decoder";
 import { defineWorkflowMethod } from "./workflow/module";
+import { ProductRelationshipId as Id, ProductRelationshipIds as Ids } from "./product-value-profile";
 
-const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
-const Ids = Schema.Array(Id).check(Schema.isMaxLength(256));
 export const ProductMembershipChange = Schema.Struct({ id: Id, add: Schema.optionalKey(Ids), remove: Schema.optionalKey(Ids) });
 /** The pinned Category step concatenates add and remove before one bounded list. */
 export const ProductCategoryMembershipInput = ProductMembershipChange.check(Schema.makeFilter(value =>
