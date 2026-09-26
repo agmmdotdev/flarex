@@ -1,5 +1,5 @@
 import { Effect, Result } from "effect";
-import { readPreparedLogicalSchemaCandidate } from "../../../analysis/src/logicalSchemaCandidate";
+import { prepareLogicalSchemaCandidate, readPreparedLogicalSchemaCandidate } from "../../../analysis/src/logicalSchemaCandidate";
 import { makeSchemaComposer } from "../../src/schemaComposition";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   createApplicationNativeMutationPostgresFixture, type ApplicationNativeMutationPGliteFixture,
@@ -44,7 +44,7 @@ import type { RelationalSession } from "../../../persistence-postgres/src/relati
 import { preparedHostTestRuntime } from "../../../persistence-postgres/test/preparedHostRuntimeTestSupport";
 import { decodeCatalogSchemaVersion, decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import type { LogicalSchemaExtension } from "flarex-protocol/internal/logical-schema-candidate";
+import type { LogicalSchemaExtension, LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { compileCurrencyDefinition } from "../../src/currency-schema";
 import { currencyInitialization } from "../../src/currency-contract";
@@ -64,7 +64,7 @@ type LogicalCurrencyResource =
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
   includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
-  extensions?: readonly LogicalSchemaExtension[];
+  extensions?: readonly LogicalSchemaExtension[]; additionalSources?: readonly LogicalSchemaSource[];
   includeVariantPricingLink?: boolean;
   includeSalesChannel?: boolean;
   includeProductSalesChannelLink?: boolean;
@@ -133,7 +133,7 @@ export async function logicalCurrencyFixture(
   const physicalTablesBeforeCandidate = (await target.query<{ name: string }>(
     "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows;
   return Effect.runPromise(Effect.fn("LogicalCurrencyFixture.prepare")(function* () {
-    const prepared = yield* makeSchemaComposer({ deploymentId: application.deploymentId,
+    const composed = yield* makeSchemaComposer({ deploymentId: application.deploymentId,
       authority: application.authority, applicationAnalyses: makeApplicationAnalysisRepository(target.drizzle),
       medusaModules: ["currency", ...(options?.includeProduct === true ? ["product" as const] : []),
         ...(options?.includePricing === true ? ["pricing" as const] : []),
@@ -145,6 +145,11 @@ export async function logicalCurrencyFixture(
         payloadCollections: options?.payloadCollections ??
           [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
         payloadViews: [], extensions: [...(options?.extensions ?? [])] });
+    const baseCandidate = yield* readPreparedLogicalSchemaCandidate(composed);
+    const prepared = options?.additionalSources?.length
+      ? yield* prepareLogicalSchemaCandidate({ ...baseCandidate,
+        sources: [...baseCandidate.sources, ...options.additionalSources] })
+      : composed;
     const candidate = yield* readPreparedLogicalSchemaCandidate(prepared);
     const nativeApplication = candidate.sources.find(source => source.key === "application");
     if (nativeApplication === undefined) throw new Error("Missing jointly composed Application source");

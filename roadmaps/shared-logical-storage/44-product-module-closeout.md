@@ -37,9 +37,11 @@ selected by outer host identity. The temporary logical probe and physical
 fixture-reset runner configurations are removed. The logical runner clears
 bounded fixture rows through admitted native commands before each native case.
 
-Named physical consumers include exact-numeric tests and the remaining link,
-population and persistence-core fixtures found by the
-reference inventory. The physical
+Named physical consumers include the remaining Link and persistence-core
+fixtures found by the reference inventory. The exact-numeric and population
+boundary suites now select shared logical sources, preserving native decimal
+pairing, replay, alias-filtered nested population, lifecycle behavior and
+two-shop confinement without generated module tables. The physical
 fixture-reset SQL, runner and configuration have no remaining consumer and are
 retired. Native logical Product deletion now proves original and tombstone
 revisions, retained idempotency outcomes, replay without additional events,

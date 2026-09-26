@@ -3972,7 +3972,7 @@
     {
       "target": "packages/medusa-adapter/test/exact-numeric-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "103fcd2337fcecdd29f5c78d3344fcd007a642826fb8b3f8a9171df2daf251ee"
+      "targetSha256": "fc1cac404f72a40c9858c4819be47ce00c188abe73a9c5bf81d21708e86c1015"
     },
     {
       "target": "packages/medusa-adapter/test/compound-index.test.ts",
@@ -3992,7 +3992,7 @@
     {
       "target": "packages/medusa-adapter/test/population-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "00909435f610dc914c0567cc1e6b30b3274cd778a998780ffd401dde310aacf6"
+      "targetSha256": "af356a1a11019d4188eafc0df3456a2de337bcd8e640ad3313fb8b7b602182fe"
     },
     {
       "target": "packages/medusa-link-modules/src/definitions/product-variant-price-set.ts",
@@ -4364,7 +4364,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "c5498bbfbbd99359c5d313944bb36dc66f42982f8891a00702172b5cdbfa16b1"
+      "targetSha256": "ec8ea76d708373bd1ca5acd74e924052dd6a0e7cb9b528e4208447b3f9edc73a"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",

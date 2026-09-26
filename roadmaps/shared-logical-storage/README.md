@@ -102,7 +102,7 @@ Selected Medusa models and Links now compile into shared logical definitions and
 execute through generic storage. Remaining physical commerce consumers still
 compile deployment-named module tables and retain installation obligations;
 the [completion inventory](./03-completion-plan.md) governs their removal.
-Native tests and exact numeric/index/Link contracts remain replacement witnesses,
+Native tests and remaining index/Link contracts remain replacement witnesses,
 not proof that every Medusa path has moved.
 
 ## Invariants And Trust Boundaries

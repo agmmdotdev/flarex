@@ -1,17 +1,12 @@
 import { Effect, Result, Schema } from "effect";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import { ScopeIdSchema } from "flarex-protocol/storage-authority";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { commerceHostFixture, type CommerceHostTestFixture } from "../../persistence-postgres/test/commerceHostFixture";
-import { createRelationalPGliteFixture } from "../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
-import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
-import { createFileScopedPostgresFixture } from "../../persistence-postgres/test/postgresHelpers";
-import { makePostgresRelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
-import { captureRelationalSchemaArtifact } from "../../persistence-postgres/src/relationalSchema/artifact";
-import { captureRelationalPhysicalLayout } from "../../persistence-postgres/src/relationalSchema/physical/canonical";
-import { registerLocalCommerceProfile } from "../../persistence-postgres/src/commerceTransaction/profile";
+import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { captureLogicalSchemaSource } from "@flarex/analysis/internal/logical-schema-candidate";
+import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { fxControlTables } from "../../persistence-postgres/src/schema";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
-import { fxSystemScopeClocks } from "../../persistence-postgres/src/schema";
+import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
+import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceDecoder } from "../src/commerce-decoder";
 import type { CommerceRelation } from "../src/commerce-relations";
 import { makeReadCatalog } from "../src/query/catalog";
@@ -19,31 +14,35 @@ import { compilePopulationWhere } from "../src/query/population";
 import { compileProjection, type ProjectionPolicy } from "../src/query/projection";
 import { executeRead } from "../src/query/read";
 import type { WherePolicy } from "../src/query/predicate";
+import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 
-const origin = { kind: "authored", sourceId: "fixture.population" };
+const origin = { kind: "authored" as const, sourceId: "fixture.population" };
 const specifications = [{ name: "bundles", columns: ["id", "deleted_at"] },
   { name: "entries", columns: ["id", "bundle_id", "price_list_id", "deleted_at"] }];
+const schema = Result.getOrThrow(normalizeRelationalSchema({
+  owner: "medusa", lineageId: "population", capabilities: [], tables: specifications.map(table => ({
+    tableId: table.name, origin, columns: table.columns.map(columnId => ({
+      columnId, type: columnId === "deleted_at" ? "timestamptz" as const : "text" as const,
+      nullable: ["deleted_at", "price_list_id"].includes(columnId), default: { kind: "none" as const }, origin,
+    })),
+    keys: [{ keyId: table.name + ".primary", kind: "primary" as const, columns: ["id"], origin }], indexes: [],
+    constraints: table.name === "entries" ? [{
+      constraintId: "entries.bundle", kind: "foreignKey" as const, sourceColumns: ["bundle_id"],
+      targetColumns: [{ tableId: "bundles", columnId: "id" }],
+      onDelete: "noAction" as const, onUpdate: "noAction" as const, origin,
+    }] : [], relationships: [],
+  })),
+}));
+const evidence = { kind: "synthetic", sourceId: "population" };
 const relations = new Map<string, ReadonlyMap<string, CommerceRelation>>([
-  ["bundles", new Map(["entries", "saleEntries"].map(name => [name, { name, sourcePrimaryKeys: ["id"], targetTable: "entries", targetPrimaryKeys: ["id"], join: { type: "hasMany", foreignKeys: ["bundle_id"] } }]))],
-  ["entries", new Map([["bundle", { name: "bundle", sourcePrimaryKeys: ["id"], targetTable: "bundles", targetPrimaryKeys: ["id"], join: { type: "belongsTo", foreignKeys: ["bundle_id"] } }]])],
+  ["bundles", new Map(["entries", "saleEntries"].map(name => [name, { name, sourcePrimaryKeys: ["id"],
+    targetTable: "entries", targetPrimaryKeys: ["id"], join: { type: "hasMany", foreignKeys: ["bundle_id"] } }]))],
+  ["entries", new Map([["bundle", { name: "bundle", sourcePrimaryKeys: ["id"], targetTable: "bundles",
+    targetPrimaryKeys: ["id"], join: { type: "belongsTo", foreignKeys: ["bundle_id"] } }]])],
 ]);
 const catalog = Result.getOrThrow(makeReadCatalog(specifications.map(table => ({ ...table,
   primaryKeys: ["id"], foreignKeys: table.name === "entries" ? ["bundle_id"] : [], companions: {},
 })), relations));
-const prepare = Effect.fn(function* (deploymentId: string, target: Parameters<Parameters<typeof commerceHostFixture>[2]>[1]) {
-  const captured = yield* captureRelationalSchemaArtifact({ deploymentId,
-    provenance: { kind: "sourceSnapshot", repository: "https://example.com/population", revision: "d".repeat(40), paths: ["model.ts"] },
-    schema: { owner: "medusa", lineageId: "population", capabilities: [], tables: specifications.map(table => ({
-      tableId: table.name, origin, columns: table.columns.map(columnId => ({ columnId,
-        type: columnId === "deleted_at" ? "timestamptz" : "text", nullable: ["deleted_at", "price_list_id"].includes(columnId), default: { kind: "none" }, origin })),
-      keys: [{ keyId: table.name + ".primary", kind: "primary", columns: ["id"], origin }], indexes: [],
-      constraints: table.name === "entries" ? [{ constraintId: "entries.bundle", kind: "foreignKey", sourceColumns: ["bundle_id"], targetColumns: [{ tableId: "bundles", columnId: "id" }], onDelete: "noAction", onUpdate: "noAction", origin }] : [], relationships: [],
-    })) },
-  });
-  const layout = yield* captureRelationalPhysicalLayout({ artifact: captured.artifact, ...target });
-  const profile = yield* registerLocalCommerceProfile(captured.artifact, layout, "test.population", specifications.map(table => ({ tableId: table.name, keyId: table.name + ".primary" })));
-  return { profile, initialization: { rows: undefined } };
-});
 const seed = defineCommerceCommand("seedPopulation", "write", Effect.fn(function* (ctx) {
   const bundles = yield* ctx.table("bundles");
   yield* bundles.write(ctx.manager, "insert", [{ id: "b1" }, { id: "b2" }]);
@@ -53,57 +52,115 @@ const seed = defineCommerceCommand("seedPopulation", "write", Effect.fn(function
     { id: "deleted", bundle_id: "b1", deleted_at: "2026-09-14T00:00:00.000Z" }]);
   return null;
 }));
+const seedOther = defineCommerceCommand("seedOtherPopulation", "write", Effect.fn(function* (ctx) {
+  yield* (yield* ctx.table("bundles")).write(ctx.manager, "insert", [{ id: "b1" }]);
+  yield* (yield* ctx.table("entries")).write(ctx.manager, "insert", [{ id: "foreign", bundle_id: "b1" }]);
+  return null;
+}));
 const leaf: ProjectionPolicy = { keys: "retain", storageKeys: "last", joinKeys: "storage", selectableRelations: [], nested: new Map() };
-const entryProjection: ProjectionPolicy = { ...leaf, allowedPaths: ["bundle"], selectableRelations: ["bundle"], nested: new Map([["bundle", leaf]]) };
-const rootProjection: ProjectionPolicy = { ...leaf, allowedPaths: ["entries", "entries.bundle", "saleEntries"], selectableRelations: ["entries", "saleEntries"], nested: new Map([["entries", entryProjection], ["saleEntries", leaf]]) };
+const entryProjection: ProjectionPolicy = { ...leaf, allowedPaths: ["bundle"], selectableRelations: ["bundle"],
+  nested: new Map([["bundle", leaf]]) };
+const rootProjection: ProjectionPolicy = { ...leaf, allowedPaths: ["entries", "entries.bundle", "saleEntries"],
+  selectableRelations: ["entries", "saleEntries"], nested: new Map([["entries", entryProjection], ["saleEntries", leaf]]) };
 const policy: WherePolicy = { decode: commerceDecoder(Schema.Record(Schema.String, Schema.Unknown), "unsupportedProfile"),
-  fields: new Map([["price_list_id", { column: "price_list_id", decode: commerceDecoder(Schema.Union([Schema.String, Schema.Null]), "invalidInput") }]]) };
+  fields: new Map([["price_list_id", { column: "price_list_id",
+    decode: commerceDecoder(Schema.Union([Schema.String, Schema.Null]), "invalidInput") }]]) };
 const read = defineCommerceCommand("readPopulation", "read", Effect.fn(function* (ctx, withDeleted) {
   const paths = ["entries.bundle", "saleEntries"];
   const projection = yield* Effect.fromResult(compileProjection(catalog, "bundles", undefined, paths, rootProjection));
   const populationFilters = yield* Effect.fromResult(compilePopulationWhere(catalog, "bundles", paths,
-    { entries: { price_list_id: null }, saleEntries: { price_list_id: "sale" } }, new Map([["entries", policy], ["saleEntries", policy]])));
+    { entries: { price_list_id: null }, saleEntries: { price_list_id: "sale" } },
+    new Map([["entries", policy], ["saleEntries", policy]])));
   const result = yield* executeRead(ctx, catalog, { table: "bundles", paths, projection, populationFilters,
-    query: { fields: projection.storageFields, take: 10, order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [] } },
-    relationFilters: [], withDeleted: withDeleted === true, ordering: new Map(), window: { kind: "database", countAt: "beforePopulation" },
+    query: { fields: projection.storageFields, take: 10, order: { column: "id", direction: "asc" },
+      predicate: { kind: "and", children: [] } },
+    relationFilters: [], withDeleted: withDeleted === true, ordering: new Map(),
+    window: { kind: "database", countAt: "beforePopulation" },
   }, true);
   return [result.rows, result.count ?? null];
 }));
+const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
+if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid population test driver");
 const cleanup: Array<() => Promise<void>> = [];
-let fixture: CommerceHostTestFixture;
-beforeAll(async () => {
-  const registerCleanup = (close: () => Promise<void>) => cleanup.push(close);
-  const postgres = process.env.FLAREX_TEST_DRIVER === "postgres";
-  const resource = postgres ? await (async () => { const value = await createFileScopedPostgresFixture(); registerCleanup(value.dispose);
-    return { persistence: value.persistence, session: makePostgresRelationalSession(value.persistence) }; })() : await createRelationalPGliteFixture({ registerCleanup });
-  const control = postgres ? resource.persistence : await createMigratedPGlitePersistence(registerCleanup);
-  fixture = await commerceHostFixture(resource.persistence, resource.session, prepare, [seed, read], control, () => ({
-    capture: () => Effect.fail(commerceError("unadmittedEvent")), validate: events => events.length ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void,
-    deliver: events => events.length ? Effect.fail(commerceError("unadmittedEvent")) : Effect.void,
-  }));
-  await Effect.runPromise(fixture.host.run(fixture.host.newRequestKey(), seed, null));
-}, 120000);
-afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120000);
+let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
+let source: Effect.Success<ReturnType<typeof captureLogicalSchemaSource>>;
+let host: Effect.Success<ReturnType<typeof makeCommerceHost>>;
 
-describe("scoped population predicates", () => {
-  it("filters children independently without losing roots, counts, nested parents or lifecycle semantics", async () => {
-    expect(await Effect.runPromise(fixture.host.read(read, false))).toMatchObject([[{ id: "b1", entries: [{ id: "base", bundle: { id: "b1" } }], saleEntries: [{ id: "sale" }] }, { id: "b2", entries: [], saleEntries: [{ id: "other" }] }], 2]);
-    expect(await Effect.runPromise(fixture.host.read(read, true))).toMatchObject([[{ id: "b1", entries: [{ id: "base" }, { id: "deleted" }], saleEntries: [{ id: "sale" }] }, { id: "b2", entries: [], saleEntries: [{ id: "other" }] }], 2]);
+async function openHost(selected: typeof fixture) {
+  const empty = await Effect.runPromise(capturePrivateCanonicalValue({ format: "flarex.initialization-dataset",
+    version: 1, rows: [] }, 1_048_576, { invalidInput: () => new Error("Invalid population seed"),
+      hashFailure: cause => new Error("Population seed hash", { cause }) }));
+  const opened = await Effect.runPromise(makeCommerceHost({ ...selected.hostInput,
+    identityAndAccessPolicy: { profile: "logical-population-test" },
+    logicalStorage: { ...selected.hostInput.logicalStorage,
+      source: { sourceKey: "medusa.population", writeProfile: "medusa.population", schema, evidence },
+      initialization: { stepId: "population-empty", datasetSha256: empty.sha256Hex, expectedRowCount: 0 } },
+    commands: [seed, seedOther, read],
+  }));
+  try { await Effect.runPromise(opened.initialize([])); }
+  catch (cause) {
+    try { await Effect.runPromise(opened.close); }
+    catch (closeCause) { throw new AggregateError([cause, closeCause], "Population host initialization and cleanup failed"); }
+    throw cause;
+  }
+  return opened;
+}
+
+beforeAll(async () => {
+  source = await Effect.runPromise(captureLogicalSchemaSource({
+    key: "medusa.population", owner: "medusa", writeProfile: "medusa.population", evidence,
+    definition: { kind: "relational", schema },
+    bindings: specifications.map(table => ({ kind: "definition" as const, localName: table.name,
+      table: { namespace: "medusa", logicalName: "population/" + table.name } })),
+  }));
+  fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { additionalSources: [source] });
+  host = await openHost(fixture);
+  await Effect.runPromise(host.run(host.newRequestKey(), seed, null));
+}, 180_000);
+afterAll(async () => {
+  if (host !== undefined) await Effect.runPromise(host.close);
+  for (const close of cleanup.reverse()) await close();
+}, 120_000);
+
+describe("scoped logical population predicates", () => {
+  it("keeps roots, counts, nested parents and lifecycle behavior without generated tables", async () => {
+    expect((await fixture.persistence.query<{ name: string }>(
+      "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+      .toEqual(fixture.physicalTablesBeforeCandidate);
+    expect(await Effect.runPromise(host.read(read, false))).toMatchObject([[{ id: "b1",
+      entries: [{ id: "base", bundle: { id: "b1" } }], saleEntries: [{ id: "sale" }] },
+      { id: "b2", entries: [], saleEntries: [{ id: "other" }] }], 2]);
+    expect(await Effect.runPromise(host.read(read, true))).toMatchObject([[{ id: "b1",
+      entries: [{ id: "base" }, { id: "deleted" }], saleEntries: [{ id: "sale" }] },
+      { id: "b2", entries: [], saleEntries: [{ id: "other" }] }], 2]);
   });
-  it("keeps colliding foreign-scope roots and matching children outside the read", async () => {
-    const before = await Effect.runPromise(fixture.host.read(read, false));
-    const clock = (await fixture.persistence.drizzle.select().from(fxSystemScopeClocks))[0];
-    if (!clock) throw new Error("Missing scope clock");
-    const uuid = "432bce99-65d0-4a4e-9c50-788af579ce13";
-    await fixture.persistence.drizzle.insert(fxSystemScopeClocks).values({ scopeId: ScopeIdSchema.make("scope_" + uuid), storageGeneration: clock.storageGeneration, epoch: clock.epoch });
-    const layout = fixture.descriptor.layout.frame;
-    const quote = (value: string) => '"' + value.replaceAll('"', '""') + '"';
-    for (const [tableId, row] of [["bundles", { id: "b1" }], ["entries", { id: "foreign", bundle_id: "b1" }]] as const) {
-      const table = layout.tables.find(table => table.identity.tableId === tableId);
-      if (!table) throw new Error("Missing physical fixture table");
-      const columns = Object.keys(row).map(name => { const column = table.columns.find(column => column.identity.columnId === name); if (!column) throw new Error("Missing physical fixture column"); return quote(column.name); });
-      await fixture.persistence.query(`insert into ${quote(layout.targetNamespace.schemaName)}.${quote(table.name)} (scope_uuid, ${columns.join(", ")}) values ($1::uuid, ${columns.map((_, i) => "$" + (i + 2)).join(", ")})`, [uuid, ...Object.values(row)]);
-    }
-    expect(await Effect.runPromise(fixture.host.read(read, false))).toEqual(before);
-  });
+  it("confines colliding roots and children in a second shop to their scope", async () => {
+    const before = await Effect.runPromise(host.read(read, false));
+    const other = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
+      resource: fixture.resource, additionalSources: [source],
+      fixtureIdentity: { deploymentId: "deployment_population_shop_b",
+        projectId: "project_population_shop_b", uuidOffset: 23_000 },
+    });
+    const firstTables = (await fixture.control.drizzle.select().from(fxControlTables))
+      .filter(table => table.deploymentId === fixture.deploymentId && table.namespace === "medusa"
+        && table.logicalName.startsWith("population/"));
+    const secondTables = (await other.control.drizzle.select().from(fxControlTables))
+      .filter(table => table.deploymentId === other.deploymentId && table.namespace === "medusa"
+        && table.logicalName.startsWith("population/"));
+    const identities = (rows: typeof firstTables) => rows.map(table => [table.logicalName, table.tableId])
+      .sort(([left], [right]) => String(left).localeCompare(String(right)));
+    expect(firstTables.map(table => table.logicalName).sort()).toEqual(["population/bundles", "population/entries"]);
+    expect(identities(secondTables)).toEqual(identities(firstTables));
+    expect(other.application.authority.scopeId).not.toBe(fixture.application.authority.scopeId);
+    const second = await openHost(other);
+    try {
+      expect((await other.persistence.query<{ name: string }>(
+        "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
+        .toEqual(other.physicalTablesBeforeCandidate);
+      await Effect.runPromise(second.run(second.newRequestKey(), seedOther, null));
+      expect(await Effect.runPromise(second.read(read, false))).toMatchObject([[{ id: "b1",
+        entries: [{ id: "foreign" }], saleEntries: [] }], 1]);
+      expect(await Effect.runPromise(host.read(read, false))).toEqual(before);
+    } finally { await Effect.runPromise(second.close); }
+  }, 180_000);
 });

@@ -51,8 +51,10 @@ remain distinct from logical schema evolution.
   uses existing shared index bytes. This is an ordered-value prerequisite;
   calculated Pricing and commerce cutover remain.
 - Remaining Medusa consumers still use physical relational artifacts and installation
-  evidence. Exact numeric presentation, native Links and current workflow tests
-  are replacement obligations, not generic query proofs.
+  evidence. Native Links and current workflow tests are replacement obligations,
+  not generic query proofs. Exact numeric storage and scoped population boundary
+  suites now use logical sources without generated module tables; native Pricing
+  still owns its separate calculated-query acceptance gate.
   The connected [Currency cutover](./10-currency-storage-cutover.md) is in progress;
   its native and atomic consumers use shared storage. A selected-source private
   announcement now combines native Currency, Payload and Application writes in
