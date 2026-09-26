@@ -3608,6 +3608,9 @@ export const fxSystemCommitAppRowChanges = pgTable(
     primaryKey({
       columns: [table.scopeUuid, table.commitSeq, table.changeOrdinal],
     }),
+    index("fx_system_commit_app_row_change_table_commit_idx").on(
+      table.scopeUuid, table.tableId, table.commitSeq,
+    ),
     unique("fx_system_commit_app_row_change_row_unique").on(
       table.scopeUuid,
       table.commitSeq,

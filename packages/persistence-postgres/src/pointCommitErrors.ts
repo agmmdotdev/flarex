@@ -63,6 +63,7 @@ import {
 } from "./scopeClock";
 
 import { LocatedReadCommittedTransactionFailureV1 } from "./transactionSessionAttemptKernel";
+import { ScopePublicationReferenceCapacityError, ScopePublicationReferenceConstraintError } from "./commitPublication/scopePublicationModel";
 
 export type PointCommitConflictCauseV1 =
   | Readonly<{
@@ -214,6 +215,8 @@ export type PointCommitSqlOperationV1 =
   | "readDatabaseTime"
   | "readBindingHead"
   | "readStrongReferenceFacts"
+  | "readStrongReferenceFullFacts"
+  | "readStrongReferenceProjection"
   | "enterFinishing"
   | "deleteExecutionClaim"
   | "loadRowHeads"
@@ -261,6 +264,8 @@ export type PointCommitRollbackProofV1Error =
   | PointCommitResourceExhaustionV1Error
   | PointCommitSqlErrorV1
   | PointCommitUnsupportedProfileV1Error
+  | ScopePublicationReferenceConstraintError
+  | ScopePublicationReferenceCapacityError
   | PointCommitIntrinsicIndexDefinitionUnavailableV1Error
   | PointCommitDeveloperIndexMaintenanceUnavailableV1Error
   | PointCommitUniqueConstraintMaintenanceUnavailableV1Error
@@ -300,6 +305,8 @@ export function mapTransactionFailure(
     cause instanceof PointCommitResourceExhaustionV1Error ||
     cause instanceof PointCommitSqlErrorV1 ||
     cause instanceof PointCommitUnsupportedProfileV1Error ||
+    cause instanceof ScopePublicationReferenceConstraintError ||
+    cause instanceof ScopePublicationReferenceCapacityError ||
     cause instanceof PointCommitIntrinsicIndexDefinitionUnavailableV1Error ||
     cause instanceof PointCommitDeveloperIndexMaintenanceUnavailableV1Error ||
     cause instanceof PointCommitUniqueConstraintMaintenanceUnavailableV1Error ||

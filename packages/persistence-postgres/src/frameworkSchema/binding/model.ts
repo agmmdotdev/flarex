@@ -7,6 +7,7 @@ import type {
 } from "../installation/model";
 import type { RelationalPhysicalCapabilityEvidence } from "../../relationalSchema/physical/model";
 import type { PrivateCanonicalValueSnapshot } from "../privateCanonicalValue";
+import type { StrongReferenceActivationProjection } from "./strongReferenceProjection";
 
 export const MAX_BINDING_BYTES = 1_048_576;
 export const MAX_BINDING_REQUIREMENTS = 64;
@@ -95,10 +96,11 @@ export type DataBindingActivationRequest = Readonly<{
   JsonObject;
 export type DataBindingActivationFrame = Readonly<{
   format: "flarex.data-binding-activation";
-  version: 1;
+  version: 2;
   request: DataBindingActivationRequest;
   sequence: string;
   activatedAt: string;
+  strongReferences: readonly StrongReferenceActivationProjection[];
 }> &
   JsonObject;
 export type DataBindingHeadFrame = Readonly<{

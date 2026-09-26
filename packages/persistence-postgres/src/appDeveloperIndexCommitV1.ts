@@ -11,6 +11,7 @@ import {
   encodeAppOrderedIndexKeyV1,
   OrderedIndexKeyTooLargeError,
   orderedIndexCreationTimeV1,
+  type AppOrderedIndexPhysicalSpecV1,
   type OrderedIndexComponentV1,
   type OrderedIndexKeyHexV1,
 } from "flarex-protocol/ordered-index";
@@ -149,17 +150,25 @@ export function lowerAppDeveloperIndexKeyV1(
   document: CanonicalFlarexValueV1,
   creationTime: AppCreationTimeV1,
 ): Result.Result<OrderedIndexKeyHexV1 | null, OrderedIndexKeyTooLargeError | ExactDecimalError> {
+  if (definition.access.kind !== "developer") throw new TypeError("Expected a located developer index definition.");
+  return lowerAppOrderedIndexPhysicalKeyV1(definition.physicalSpec, document, creationTime);
+}
+
+/** Same canonical key lowering for an authenticated target-side activation
+ * projection. The trusted publisher owns the definition and its digest. */
+export function lowerAppOrderedIndexPhysicalKeyV1(
+  physicalSpec: AppOrderedIndexPhysicalSpecV1,
+  document: CanonicalFlarexValueV1,
+  creationTime: AppCreationTimeV1,
+): Result.Result<OrderedIndexKeyHexV1 | null, OrderedIndexKeyTooLargeError | ExactDecimalError> {
   try {
-    if (definition.access.kind !== "developer") {
-      throw new TypeError("Expected a located developer index definition.");
-    }
-    const predicate = definition.physicalSpec.predicate;
+    const predicate = physicalSpec.predicate;
     if (predicate !== undefined && !(predicate.kind === "fieldIsNull"
       ? appDocumentPathIsNull(document, predicate.field)
       : appDocumentPathIsNull(document, predicate.nullField) &&
         appDocumentPathEqualsText(document, predicate.textField, predicate.value))) return Result.succeed(null);
     const values: OrderedIndexComponentV1[] = [];
-    const documentFields = definition.physicalSpec.orderedFields.filter(
+    const documentFields = physicalSpec.orderedFields.filter(
       (field): field is Extract<typeof field, { readonly kind: "documentPath" }> =>
         field.kind === "documentPath",
     );
@@ -168,7 +177,7 @@ export function lowerAppDeveloperIndexKeyV1(
       documentFields,
     );
     let documentFieldIndex = 0;
-    for (const field of definition.physicalSpec.orderedFields) {
+    for (const field of physicalSpec.orderedFields) {
       switch (field.kind) {
         case "documentPath":
           values.push(loweredDocumentValues[documentFieldIndex]!);
@@ -180,7 +189,7 @@ export function lowerAppDeveloperIndexKeyV1(
       }
     }
     return Result.succeed(encodeAppOrderedIndexKeyV1({
-      spec: definition.physicalSpec,
+      spec: physicalSpec,
       values: Object.freeze(values),
     }));
   } catch (cause) {

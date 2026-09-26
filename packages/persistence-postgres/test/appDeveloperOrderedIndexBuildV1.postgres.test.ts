@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { compileAppOrderedIndexBoundsV1, appOrderedIndexDocumentPathV1, orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
-import { scanCurrentAppIndexInTransactionEffect } from "../src/appIndexEntries";
+import { scanCurrentAppIndexInTransactionEffect, scanCurrentPublicationIndexInTransactionEffect } from "../src/appIndexEntries";
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeAppDocumentV1,
@@ -70,6 +70,11 @@ describePostgres("real PostgreSQL C08 developer ordered-index build", () => {
       const definition = await runEffect(locateAppIndexDefinitionByIdEffect(persistence.drizzle, fixture.scopeId, fixture.indexDefinitionId));
       if (definition === null) throw new Error("Missing decimal definition");
       const all = await persistence.drizzle.transaction(tx => runEffect(scanCurrentAppIndexInTransactionEffect(tx, { scopeId: fixture.scopeId, definition, bounds: {}, limit: 200 })));
+      const projected = await persistence.drizzle.transaction(tx => runEffect(scanCurrentPublicationIndexInTransactionEffect(tx,
+        { scopeId: fixture.scopeId, publicationIndex: { indexDefinitionId: definition.indexDefinitionId,
+          physicalSpec: definition.physicalSpec, physicalSpecSha256Hex: definition.physicalSpecSha256Hex },
+          bounds: {}, limit: 200 })));
+      expect(projected).toEqual(all);
       const expected = await persistence.query<{ ordinal: number }>("select ordinal::int from unnest($1::text[]) with ordinality as v(amount, ordinal) order by amount::numeric, ordinal", [values]);
       expect(all.entries.map(entry => Number.parseInt(entry.rowId.slice(0, 2), 16))).toEqual(expected.rows.map(row => row.ordinal));
       const bounds = compileAppOrderedIndexBoundsV1({ spec: definition.physicalSpec, expressions: [

@@ -22,8 +22,10 @@ import {
   physicalBindings,
   type DataBindingSetFrame,
   type DataBindingActivationRequest,
+  type DataBindingHeadFrame,
   type PhysicalBindingSlot,
 } from "./model";
+import type { StrongReferenceActivationProjection } from "./strongReferenceProjection";
 import {
   fxSystemDataBindingCandidates as candidates,
   fxSystemDataBindingPhysicalLanes as lanes,
@@ -302,6 +304,18 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
       head.frame.activationSha256 !== row.activationSha256
     )
       return yield* Effect.fail(bindingError("storedCorruption"));
+    yield* readBindingActiveReferenceProjection(tx, location, head);
+    return Option.some(head);
+  },
+);
+
+/** The head's digest binds this larger, activation-time policy projection.
+ * Only affected publishers need to read it; both reads use one target transaction. */
+export const readBindingActiveReferenceProjection = Effect.fn("DataBindingRepository.readActiveReferences")(
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation,
+    head: StoredBindingValue<DataBindingHeadFrame>) {
+    if (head.frame.scopeId !== location.scopeId || head.frame.storageGeneration !== location.storageGeneration)
+      return yield* Effect.fail(bindingError("storedCorruption"));
     const records = yield* bindingStatement(
       tx
         .select({
@@ -311,9 +325,9 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
         .from(activations)
         .where(
           and(
-            eq(activations.scopeId, location.scopeId),
-            eq(activations.storageGeneration, location.storageGeneration),
-            eq(activations.sequence, row.sequence),
+          eq(activations.scopeId, location.scopeId),
+          eq(activations.storageGeneration, location.storageGeneration),
+          eq(activations.sequence, BigInt(head.frame.sequence)),
           ),
         )
         .limit(1),
@@ -328,7 +342,12 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
     ) {
       return yield* Effect.fail(bindingError("storedCorruption"));
     }
-    return Option.some(head);
+    const endpoints = [...new Set(activation.frame.strongReferences.flatMap(reference =>
+      [reference.sourceTableId, reference.targetTableId]))].toSorted((left, right) => left - right);
+    if (endpoints.length !== head.frame.strongReferenceTableIds.length ||
+      endpoints.some((id, index) => id !== head.frame.strongReferenceTableIds[index]))
+      return yield* Effect.fail(bindingError("storedCorruption"));
+    return activation.frame.strongReferences;
   },
 );
 /** One bounded, authenticated head read for the common publication gate. The
@@ -341,6 +360,8 @@ export const readBindingHeadProjection = Effect.fn("DataBindingRepository.readHe
       canonicalBytes: boundedBytes(heads.canonicalBytes),
       canonicalByteLength: heads.canonicalByteLength,
       candidateSha256: heads.candidateSha256,
+      activationSha256: heads.activationSha256,
+      sequence: heads.sequence,
     }).from(heads).where(and(eq(heads.scopeId, location.scopeId),
       eq(heads.storageGeneration, location.storageGeneration))).limit(1);
     observeQuery?.(query.toSQL());
@@ -350,7 +371,9 @@ export const readBindingHeadProjection = Effect.fn("DataBindingRepository.readHe
     const restored = yield* decode(row, "flarex.data-binding-head", isDataBindingHeadFrame);
     if (restored.frame.scopeId !== location.scopeId ||
       restored.frame.storageGeneration !== location.storageGeneration ||
-      restored.frame.candidateSha256 !== row.candidateSha256)
+      restored.frame.candidateSha256 !== row.candidateSha256 ||
+      restored.frame.activationSha256 !== row.activationSha256 ||
+      restored.frame.sequence !== row.sequence.toString())
       return yield* Effect.fail(bindingError("storedCorruption"));
     return Option.some(restored);
   },
@@ -360,7 +383,7 @@ export const writeBindingActivation = Effect.fn(
 )(function* (
   tx: FlarexMetadataTransaction,
   request: DataBindingActivationRequest,
-  strongReferenceTableIds: readonly number[],
+  strongReferences: readonly StrongReferenceActivationProjection[],
 ) {
   const times = yield* bindingStatement(
     tx
@@ -384,13 +407,16 @@ export const writeBindingActivation = Effect.fn(
   const activation = yield* captureBindingValue(
     {
       format: "flarex.data-binding-activation",
-      version: 1,
+      version: 2,
       request,
       sequence: sequence.toString(),
       activatedAt: now.toISOString(),
+      strongReferences,
     },
     isDataBindingActivationFrame,
   );
+  const strongReferenceTableIds = [...new Set(strongReferences.flatMap(reference =>
+    [reference.sourceTableId, reference.targetTableId]))].toSorted((left, right) => left - right);
   const head = yield* captureBindingValue(
     {
       format: "flarex.data-binding-head",

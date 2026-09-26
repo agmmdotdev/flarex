@@ -7,7 +7,8 @@ import type { CmsMaterializationTestHooks } from "./testSupport";
 import type { FlarexMetadataDatabase } from "../deployments";
 
 import { PointCommitSqlErrorV1, mapTransactionFailure } from "../pointCommitErrors";
-import { ScopePublicationUnsupportedProfileError } from "../commitPublication/scopePublicationModel";
+import { ScopePublicationReferenceCapacityError, ScopePublicationReferenceConstraintError,
+  ScopePublicationUnsupportedProfileError } from "../commitPublication/scopePublicationModel";
 
 import { type ScopePublicationClock, type ScopePublicationContribution, type ScopePublicationKernel } from "../commitPublication/scopePublicationModel";
 import type { ApplicationRelationAdjacencyChange } from "../applicationRelationCommit";
@@ -58,6 +59,10 @@ const cmsPreparations = new WeakSet<object>();
 type PreparedCmsCommit = Effect.Success<ReturnType<typeof prepareCmsApplicationCommit>>;
 const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({ try: work, catch: cause => {
   if (cause instanceof ScopePublicationUnsupportedProfileError) return cmsError("unsupportedProfile", cause);
+  if (cause instanceof ScopePublicationReferenceConstraintError) return cmsError(
+    cause.reason === "targetNotLive" ? "relationTargetMissing" :
+      cause.reason === "targetDeleteRestricted" ? "relationDeleteRestricted" : "invalidInput", cause);
+  if (cause instanceof ScopePublicationReferenceCapacityError) return cmsError("limitExceeded", cause);
   const failure = mapTransactionFailure(cause);
   return cmsError(failure instanceof PointCommitSqlErrorV1 ? "statementFailure" : failure instanceof AppUniqueKeyConflictError ? "uniqueConflict" : "storedCorruption", failure);
 }});

@@ -88,14 +88,11 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   }
   const selectedTables = Object.freeze(tables);
   const tableIds = new Set(selectedTables.map(table => table.tableId));
-  const ownedTableKeys = new Set(source.bindings.filter(binding => binding.kind === "definition")
-    .map(binding => logicalTableKey(binding.table)));
-  const hasRelationships = (source.definition.kind === "documents" && source.definition.relations.length !== 0) ||
-    evidence.candidate.extensions.some(extension => ownedTableKeys.has(logicalTableKey(extension.source.table)) ||
-      ownedTableKeys.has(logicalTableKey(extension.target.table)));
-  // No current scalar or relational participant enforces cross-source edges.
-  // Refuse at the shared token owner so every affected framework stays closed.
-  if (hasRelationships) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
+  // Built-in document relations still require their separate edge owner.
+  // The common publisher maintains activated reverse indexes and enforces
+  // strong references for native as well as source-bound writes.
+  if (source.definition.kind === "documents" && source.definition.relations.length !== 0)
+    return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
   const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(capturedPorts.controlDb, captured);
   if (snapshot === null || encodeBytesToLowercaseHex(snapshot.manifestSha256) !== readiness.reference.manifestSha256)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));

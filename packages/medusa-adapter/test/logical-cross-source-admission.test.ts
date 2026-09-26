@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { compilePayloadCollections } from "@flarex/payload-adapter/internal/collections";
 import { prepareLogicalApplicationSourceAdmission } from "../../persistence-postgres/src/logicalDocuments/applicationAdmission";
 import { prepareLogicalDocumentSourceAdmission } from "../../persistence-postgres/src/logicalDocuments/documentAdmission";
-import { defineCmsCommand } from "../../persistence-postgres/src/cmsTransaction/host";
+import { defineCmsCommand, makeCmsHost } from "../../persistence-postgres/src/cmsTransaction/host";
 import { makeCurrencyAnnouncementHost } from "../../persistence-postgres/src/crossDomainCommand/host";
 import { preparedHostTestRuntime } from "../../persistence-postgres/test/preparedHostRuntimeTestSupport";
 import { currencyAnnouncementWrite } from "../src/currency-service";
@@ -11,7 +11,8 @@ import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
 import { requireStrongReferencePublication } from "../../persistence-postgres/src/commitPublication/strongReferenceAdmission";
-import { readBindingHeadProjection } from "../../persistence-postgres/src/frameworkSchema/binding/repository";
+import { readBindingActiveReferenceProjection, readBindingHeadProjection } from "../../persistence-postgres/src/frameworkSchema/binding/repository";
+import { requireSafeStrongReferenceActivation } from "../../persistence-postgres/src/frameworkSchema/binding/host";
 import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
 import { logicalTableKey, type QualifiedLogicalTable } from "flarex-protocol/internal/logical-schema-candidate";
@@ -32,7 +33,7 @@ const extensions = [{ name: "user_product", sourceKey: "application",
   target: { table: product, field: "id" }, policy: "strongReference",
   liveness: { source: { kind: "current" }, target: { kind: "softDeleteNull", field: "deleted_at" } }, onTargetDelete: "restrict" }] as const;
 
-describe("cross-source relationship admission stays closed until enforcement exists", () => {
+describe("cross-source relationship publication and source admission", () => {
   let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   beforeAll(async () => {
     fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
@@ -41,19 +42,18 @@ describe("cross-source relationship admission stays closed until enforcement exi
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
-  it("refuses every affected source but serves unrelated native Currency", async () => {
+  it("prepares affected sources and serves unrelated native Currency", async () => {
     const ports = { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts };
     const input = { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId,
       schemaVersionId: fixture.schemaVersionId };
-    await expect(prepareLogicalProductHost(fixture)).rejects.toMatchObject({ reason: "unsupportedProfile" });
-    expect(await Effect.runPromise(Effect.flip(prepareLogicalApplicationSourceAdmission(ports,
-      fixture.application.uniqueConstraintEligibility, input, fixture.applicationSource))))
-      .toMatchObject({ reason: "unsupportedProfile" });
+    const productHost = await prepareLogicalProductHost(fixture);
+    await Effect.runPromise(productHost.host.close);
+    await Effect.runPromise(prepareLogicalApplicationSourceAdmission(ports,
+      fixture.application.uniqueConstraintEligibility, input, fixture.applicationSource));
     const payload = await Effect.runPromise(compilePayloadCollections(payloadCollections));
-    expect(await Effect.runPromise(Effect.flip(prepareLogicalDocumentSourceAdmission(ports,
-      fixture.application.uniqueConstraintEligibility, input, payload.sourceContract))))
-      .toMatchObject({ reason: "unsupportedProfile" });
-    const compositeFailure = await Effect.runPromise(Effect.flip(makeCurrencyAnnouncementHost({
+    await Effect.runPromise(prepareLogicalDocumentSourceAdmission(ports,
+      fixture.application.uniqueConstraintEligibility, input, payload.sourceContract));
+    const composite = await Effect.runPromise(makeCurrencyAnnouncementHost({
       hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
       database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,
       session: fixture.session, deploymentId: fixture.deploymentId,
@@ -64,8 +64,8 @@ describe("cross-source relationship admission stays closed until enforcement exi
       currencyCommand: currencyAnnouncementWrite,
       cmsCommand: defineCmsCommand({ name: "payload-create", mode: "write", run: () => Effect.succeed(null) }),
       applicationTable: "users",
-    })));
-    expect(compositeFailure).toMatchObject({ reason: "unsupportedProfile" });
+    }));
+    await Effect.runPromise(composite.close);
     const value = { code: "csr", name: "Unrelated Currency", symbol: "C", symbol_native: "C" };
     expect(await Effect.runPromise(fixture.host.run(fixture.host.newRequestKey(), currencyAnnouncementWrite, value)))
       .toMatchObject({ code: value.code, name: value.name });
@@ -97,6 +97,17 @@ describe("cross-source relationship admission stays closed until enforcement exi
     if (head._tag !== "Some") throw new Error("Missing binding head");
     expect(head.value.frame.strongReferenceTableIds).toContain(productId);
     expect(head.value.frame.strongReferenceTableIds).not.toContain(currencyId);
+    const projected = await Effect.runPromise(inspect(tx => readBindingActiveReferenceProjection(tx, clock, head.value)));
+    expect(projected.map(reference => reference.name)).toEqual(["user_product", "news_product"]);
+    for (const reference of projected) {
+      expect(reference.targetTableId).toBe(productId);
+      expect(reference.targetLiveness).toEqual({ kind: "softDeleteNull", field: "deleted_at" });
+      expect(reference.targetIdentity.kind).toBe("textPrimaryKey");
+      expect(reference.reverseIndex.indexDefinitionId).toBeGreaterThan(0);
+      expect(reference.reverseIndex.physicalSpec.orderedFields[0]).toMatchObject({
+        kind: "documentPath", path: reference.sourceField,
+      });
+    }
     const publishedTables = await fixture.persistence.query<{ table_id: number }>(
       "select table_id from fx_system_commit_app_row_change where scope_uuid=$1 and commit_seq=$2",
       [scope.scopeUuid, clock.lastCommitSeq]);
@@ -107,10 +118,130 @@ describe("cross-source relationship admission stays closed until enforcement exi
     expect(observations).toEqual(["readBindingHead", "readStrongReferenceFacts"]);
   }, 120_000);
 
-  it("rolls back a standalone Application point commit into a referenced table", async () => {
+  it("rolls back a standalone Application point commit whose target is missing", async () => {
     const native = await Effect.runPromise(prepareNativeApplicationJournalOnLogicalScope(fixture.application, "insert"));
     expect(await Effect.runPromise(Effect.flip(native.publish)))
-      .toMatchObject({ reason: "strongReferenceUnenforced" });
+      .toMatchObject({ reason: "targetNotLive", reference: "user_product" });
     await Effect.runPromise(native.verifyUnchanged);
   }, 120_000);
+
+  it("enforces a Payload source against the same Product target", async () => {
+    const productHost = await prepareLogicalProductHost(fixture);
+    const compiled = await Effect.runPromise(compilePayloadCollections(payloadCollections));
+    const create = defineCmsCommand({ name: "createReferencedNews", mode: "write", run: (ctx, args) =>
+      ctx.documents.insert(ctx.context, ctx.transactionId, "news", args) });
+    const cms = await Effect.runPromise(makeCmsHost({
+      hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle), database: fixture.persistence.drizzle,
+      controlDatabase: fixture.control.drizzle, session: fixture.session, deploymentId: fixture.deploymentId,
+      authority: fixture.application.authorityPorts, application: fixture.application.activation,
+      commands: [create], identityAndAccessPolicy: { profile: "cross-source-payload" }, materialization: {},
+      expectedContentIdentity: compiled.contentIdentity,
+      logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
+        unique: fixture.application.uniqueConstraintEligibility, schemaVersionId: fixture.schemaVersionId,
+        source: compiled.sourceContract },
+    }));
+    try {
+      await Effect.runPromise(productHost.host.initialize([]));
+      await Effect.runPromise(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductCreate,
+        { id: "payload-reference-product", title: "Payload Target", handle: "payload-reference-product" }));
+      expect(await Effect.runPromise(cms.run(cms.newRequestKey(), create, {
+        title: "payload-reference-product", createdAt: "2026-09-23T00:00:00.000Z",
+        updatedAt: "2026-09-23T00:00:00.000Z",
+      }))).toMatchObject({ title: "payload-reference-product" });
+      expect(await Effect.runPromise(Effect.flip(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductSoftDelete, "payload-reference-product"))))
+        .toMatchObject({ reason: "invalidInput",
+          cause: { reason: "targetDeleteRestricted", reference: "news_product" } });
+    } finally {
+      await Effect.runPromise(cms.close);
+      await Effect.runPromise(productHost.host.close);
+    }
+  }, 150_000);
+
+  it("accepts a native Application source for a live Product and restricts Product soft deletion", async () => {
+    const productHost = await prepareLogicalProductHost(fixture);
+    try {
+      await Effect.runPromise(productHost.host.initialize([]));
+      await Effect.runPromise(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductCreate,
+        { id: "strong-reference-witness", title: "Referenced Product", handle: "strong-reference-witness" }));
+      const native = await Effect.runPromise(prepareNativeApplicationJournalOnLogicalScope(
+        fixture.application, "insert", "with-target"));
+      if (native.insertedDocumentId === undefined) throw new Error("Missing native source document identity");
+      await Effect.runPromise(native.publish);
+      await Effect.runPromise(native.verifyScrubbed);
+      const activationClock = await fixture.persistence.getScopeClock(fixture.application.authority.scopeId);
+      if (activationClock === null) throw new Error("Missing activation scope clock");
+      const activationCheck = (inherit: boolean) => runEffectTransaction(
+        work => fixture.persistence.drizzle.transaction(work), "Check strong-reference activation",
+        (tx: FlarexMetadataTransaction) => Effect.gen(function* () {
+          const head = yield* readBindingHeadProjection(tx, activationClock);
+          if (head._tag !== "Some") return yield* Effect.fail(new Error("Missing active reference head"));
+          const references = yield* readBindingActiveReferenceProjection(tx, activationClock, head.value);
+          yield* requireSafeStrongReferenceActivation(tx, activationClock.scopeId,
+            inherit ? references : [], references);
+        }), cause => new Error("Activation check transaction failed", { cause }));
+      expect(await Effect.runPromise(Effect.flip(activationCheck(false))))
+        .toMatchObject({ reason: "unsupportedProfile" });
+      await Effect.runPromise(activationCheck(true));
+      const deletion = await Effect.runPromise(Effect.flip(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductSoftDelete, "strong-reference-witness")));
+      expect(deletion).toMatchObject({ reason: "invalidInput",
+        cause: { reason: "targetDeleteRestricted", reference: "user_product" } });
+      const current = await Effect.runPromise(productHost.host.read(
+        productHost.runtime.commands.internalProductRetrieve,
+        { id: "strong-reference-witness", config: { select: ["id", "deleted_at"] } }));
+      expect(current).toMatchObject({ id: "strong-reference-witness", deleted_at: null });
+      const detach = await Effect.runPromise(prepareNativeApplicationJournalOnLogicalScope(
+        fixture.application, "delete", "detach-source", native.insertedDocumentId));
+      await Effect.runPromise(detach.publish);
+      await Effect.runPromise(detach.verifyScrubbed);
+      await Effect.runPromise(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductSoftDelete, "strong-reference-witness"));
+      expect(await Effect.runPromise(productHost.host.read(productHost.runtime.commands.internalProductRetrieve,
+        { id: "strong-reference-witness", config: { select: ["id", "deleted_at"], withDeleted: true } })))
+        .toMatchObject({ id: "strong-reference-witness", deleted_at: expect.any(String) });
+      const other = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
+        resource: fixture.resource, includeProduct: true, payloadCollections, extensions,
+        fixtureIdentity: { deploymentId: "deployment_cross_reference_shop_b",
+          projectId: "project_cross_reference_shop_b", uuidOffset: 10_000 },
+      });
+      const otherProduct = await prepareLogicalProductHost(other);
+      try {
+        expect(other.persistence).toBe(fixture.persistence);
+        await Effect.runPromise(otherProduct.host.initialize([]));
+        await Effect.runPromise(otherProduct.host.run(otherProduct.host.newRequestKey(),
+          otherProduct.runtime.commands.internalProductCreate,
+          { id: "strong-reference-witness", title: "Other Shop Product", handle: "other-shop-reference" }));
+        const foreign = await Effect.runPromise(prepareNativeApplicationJournalOnLogicalScope(
+          fixture.application, "insert", "other-shop-only"));
+        expect(await Effect.runPromise(Effect.flip(foreign.publish)))
+          .toMatchObject({ reason: "targetNotLive", reference: "user_product" });
+        await Effect.runPromise(foreign.verifyUnchanged);
+      } finally { await Effect.runPromise(otherProduct.host.close); }
+      if (driver === "postgres") {
+        await Effect.runPromise(productHost.host.run(productHost.host.newRequestKey(),
+          productHost.runtime.commands.internalProductRestore, "strong-reference-witness"));
+        const racingSource = await Effect.runPromise(prepareNativeApplicationJournalOnLogicalScope(
+          fixture.application, "insert", "concurrent-insert-delete"));
+        const [insert, remove] = await Promise.allSettled([
+          Effect.runPromise(racingSource.publish),
+          Effect.runPromise(productHost.host.run(productHost.host.newRequestKey(),
+            productHost.runtime.commands.internalProductSoftDelete, "strong-reference-witness")),
+        ]);
+        expect([insert.status, remove.status].sort()).toEqual(["fulfilled", "rejected"]);
+        const after = await Effect.runPromise(productHost.host.read(
+          productHost.runtime.commands.internalProductRetrieve,
+          { id: "strong-reference-witness", config: { select: ["id", "deleted_at"], withDeleted: true } }));
+        if (insert.status === "fulfilled") {
+          await Effect.runPromise(racingSource.verifyScrubbed);
+          expect(after).toMatchObject({ id: "strong-reference-witness", deleted_at: null });
+        } else {
+          await Effect.runPromise(racingSource.verifyUnchanged);
+          expect(after).toMatchObject({ id: "strong-reference-witness", deleted_at: expect.any(String) });
+        }
+      }
+    } finally { await Effect.runPromise(productHost.host.close); }
+  }, 180_000);
 });

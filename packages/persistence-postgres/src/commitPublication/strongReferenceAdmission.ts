@@ -1,15 +1,16 @@
-import { Effect, Option } from "effect";
-import { and, eq, inArray } from "drizzle-orm";
+import { Effect, Option, Result } from "effect";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { appRowIdHexV1FromBytesResult } from "flarex-protocol/app-document-id";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { fxSystemCommitAppRowChanges } from "../schema";
-import { readBindingHeadProjection } from "../frameworkSchema/binding/repository";
-import { ScopePublicationCorruptionError, ScopePublicationSqlFailure, ScopePublicationUnsupportedProfileError, type ScopePublicationClock, type ScopePublicationOptions } from "./scopePublicationModel";
+import { readBindingActiveReferenceProjection, readBindingHeadProjection } from "../frameworkSchema/binding/repository";
+import { ScopePublicationCorruptionError, ScopePublicationSqlFailure, type ScopePublicationClock, type ScopePublicationOptions } from "./scopePublicationModel";
+import { validateStrongReferenceFinalState } from "./strongReferenceValidation";
 
 /** All row publishers pass this shared gate after lowering and before clock
- * advancement. Until runtime enforcement exists, every affected endpoint
- * remains closed, including legacy Application point commits. */
+ * advancement. Only the authenticated final transaction state is inspected. */
 export const requireStrongReferencePublication = Effect.fn("ScopePublication.requireStrongReferences")(
   function* (tx: FlarexMetadataTransaction, clock: ScopePublicationClock,
     commitSeq: CommitSeq, options: ScopePublicationOptions = {}) {
@@ -35,7 +36,32 @@ export const requireStrongReferencePublication = Effect.fn("ScopePublication.req
       try: () => query,
       catch: cause => new ScopePublicationSqlFailure({ operation: "readStrongReferenceFacts", cause }),
     });
-    if (rows.length !== 0)
-      return yield* Effect.fail(new ScopePublicationUnsupportedProfileError({ reason: "strongReferenceUnenforced" }));
+    if (rows.length === 0) return;
+    const references = yield* readBindingActiveReferenceProjection(tx, clock.record, head.value)
+      .pipe(Effect.mapError(cause => cause.reason === "resourceFailure"
+        ? new ScopePublicationSqlFailure({ operation: "readStrongReferenceProjection", cause })
+        : new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid", cause })));
+    const facts = tx.select({ tableId: fxSystemCommitAppRowChanges.tableId,
+      rowId: fxSystemCommitAppRowChanges.rowId })
+      .from(fxSystemCommitAppRowChanges)
+      .where(and(eq(fxSystemCommitAppRowChanges.scopeUuid, clock.scopeUuid),
+        eq(fxSystemCommitAppRowChanges.epochUuid, clock.epochUuid),
+        eq(fxSystemCommitAppRowChanges.commitSeq, commitSeq),
+        inArray(fxSystemCommitAppRowChanges.tableId, endpoints)))
+      .orderBy(asc(fxSystemCommitAppRowChanges.changeOrdinal)).limit(16_001);
+    options.observeQuery?.({ name: "readStrongReferenceFullFacts", ...facts.toSQL() });
+    const affected = yield* Effect.tryPromise({ try: () => facts,
+      catch: cause => new ScopePublicationSqlFailure({ operation: "readStrongReferenceFullFacts", cause }) });
+    if (affected.length > 16_000) return yield* Effect.fail(new ScopePublicationCorruptionError({
+      reason: "publicationInvariantInvalid", cause: "reference fact prefix exceeds the commit limit",
+    }));
+    const changes = yield* Effect.forEach(affected, fact => Effect.fromResult(
+      appRowIdHexV1FromBytesResult(fact.rowId).pipe(Result.mapError(cause =>
+        new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid", cause })))).pipe(
+      Effect.map(rowId => ({ tableId: fact.tableId, rowId }))));
+    if (new Set(changes.map(change => `${change.tableId}/${change.rowId}`)).size !== changes.length)
+      return yield* Effect.fail(new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid",
+        cause: "reference endpoint has duplicate row facts" }));
+    yield* validateStrongReferenceFinalState(tx, clock.record, commitSeq, references, changes);
   },
 );

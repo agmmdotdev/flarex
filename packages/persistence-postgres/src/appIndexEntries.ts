@@ -29,6 +29,7 @@ import {
   type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
 import {
+  AppIndexPhysicalSpecSha256HexV1Schema,
   appIndexPhysicalSpecSha256HexV1ToBytes,
   canonicalizeAppIndexPhysicalSpecV1,
 } from "flarex-protocol/index-definition";
@@ -54,6 +55,7 @@ import {
   type LocatedAppIndexDefinitionV1,
 } from "./appIndexDefinitions";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
+import type { StrongReferenceActivationProjection } from "./frameworkSchema/binding/strongReferenceProjection";
 import {
   fxAppIndexEntryCurrent,
   fxAppIndexEntryRevisions,
@@ -100,6 +102,11 @@ export type AppendAppIndexEntryRevisionV1Input =
   | AppendLiveAppIndexEntryRevisionV1Input
   | AppendTombstoneAppIndexEntryRevisionV1Input;
 
+export type AppendPublicationIndexEntryRevisionInput = Omit<AppendAppIndexEntryRevisionV1Base, "definition"> & {
+  readonly kind: "live" | "tombstone";
+  readonly reference: StrongReferenceActivationProjection;
+};
+
 export interface AppIndexEntryRevisionV1 extends AppIndexEntryIdentityV1 {
   readonly kind: "live" | "tombstone";
   readonly scopeUuid: ScopeUuidV1;
@@ -127,6 +134,12 @@ export interface ScanAppIndexAtSnapshotV1Input extends AppIndexRangeReadV1Base {
 }
 
 export type ScanCurrentAppIndexV1Input = AppIndexRangeReadV1Base;
+
+type PublicationIndexRangeInput = Omit<AppIndexRangeReadV1Base, "definition"> & {
+  /** The caller must obtain this from the authenticated active binding in
+   * the same publication transaction. */
+  readonly publicationIndex: StrongReferenceActivationProjection["reverseIndex"];
+};
 
 export interface AppIndexRangeEntryV1 extends AppIndexEntryIdentityV1 {
   readonly scopeUuid: ScopeUuidV1;
@@ -359,6 +372,12 @@ const decodeScopeUuidResult = Schema.decodeUnknownResult(
 const decodeTableIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogTableIdSchema),
 );
+const decodeIndexDefinitionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogIndexDefinitionIdSchema),
+);
+const decodePhysicalSpecDigestResult = Schema.decodeUnknownResult(
+  Schema.toType(AppIndexPhysicalSpecSha256HexV1Schema),
+);
 const decodeCommitSeqResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSeqSchema),
 );
@@ -383,11 +402,21 @@ export const appendAppIndexEntryRevisionsInTransactionEffect = Effect.fn(
   return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions);
 });
 
+/** The common publisher supplies only a reference read from its authenticated
+ * active target binding. The ordinary index revision writer still owns row
+ * parent checks, revision/current writes and rollback semantics. */
+export const appendPublicationIndexEntryRevisionsInTransactionEffect = Effect.fn(
+  "AppIndexEntries.appendPublicationBatch",
+)(function* (tx: AppIndexEntryTransaction, inputs: readonly AppendPublicationIndexEntryRevisionInput[]) {
+  const revisions = yield* decodeAppendInputsEffect(tx, inputs);
+  return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions);
+});
+
 const decodeAppendInputsEffect = Effect.fn(
   "AppIndexEntries.decodeAppendInputs",
 )(function* (
   tx: AppIndexEntryTransaction,
-  inputs: ReadonlyArray<AppendAppIndexEntryRevisionV1Input>,
+  inputs: ReadonlyArray<AppendAppIndexEntryRevisionV1Input | AppendPublicationIndexEntryRevisionInput>,
 ): Effect.fn.Return<
   ReadonlyArray<DecodedAppendAppIndexEntryRevisionV1>,
   AppendAppIndexEntryRevisionV1Error
@@ -447,6 +476,13 @@ const decodeAppendInputsEffect = Effect.fn(
       });
       digest = appIndexPhysicalSpecSha256HexV1ToBytes(spec.sha256Hex);
       specs.set(captured.physicalSpec, digest);
+    }
+    if (captured.expectedPhysicalSpecSha256Hex !== undefined) {
+      const expected = yield* Effect.fromResult(decodePhysicalSpecDigestResult(
+        captured.expectedPhysicalSpecSha256Hex).pipe(Result.mapError(cause =>
+          new AppIndexEntryStorageCorruptionError("invalid activation index digest", { cause }))));
+      if (!bytesEqualFullScan(digest, appIndexPhysicalSpecSha256HexV1ToBytes(expected)))
+        return yield* Effect.fail(new AppIndexEntryStorageCorruptionError("activation index digest mismatch"));
     }
     revisions.push({
       historical: false,
@@ -1087,6 +1123,18 @@ export const scanCurrentAppIndexInTransactionEffect = Effect.fn(
   );
 });
 
+/** Reuse the bounded current-index reader for an index copied into the
+ * target-side activation. This never opens the control catalog at settlement. */
+export const scanCurrentPublicationIndexInTransactionEffect = Effect.fn(
+  "AppIndexEntries.scanCurrentPublicationIndex",
+)(function* (
+  tx: AppIndexEntryTransaction,
+  input: PublicationIndexRangeInput,
+): Effect.fn.Return<AppIndexRangePageV1, ReadAppIndexRangeV1Error> {
+  const decoded = yield* decodeRangeReadEffect(tx, input);
+  return yield* executeAndDecodeRangeEffect(tx, decoded, buildCurrentRangeStatement(decoded), "scanCurrent");
+});
+
 /** Bounded cardinality probe over the same current index range used by the
  * page reader. A transition can refuse over-budget fan-out before writing any
  * derived revisions. The result is capped at maximumEntries + 1; it is not an
@@ -1123,11 +1171,11 @@ export const countCurrentAppIndexRangeUpToLimitInTransactionEffect = Effect.fn(
   return count;
 });
 
-interface ReadCurrentAppIndexEntriesForRowV1Input {
+type ReadCurrentAppIndexEntriesForRowV1Input = {
   readonly scopeId: ScopeId;
-  readonly definition: LocatedAppIndexDefinitionV1;
   readonly rowId: OrderedIndexRowIdHexV1;
-}
+} & ({ readonly definition: LocatedAppIndexDefinitionV1 } |
+  { readonly publicationIndex: StrongReferenceActivationProjection["reverseIndex"] });
 
 /** Package-internal bounded C08 validation read for one authoritative row. */
 export const readCurrentAppIndexEntriesForRowInTransactionEffect = Effect.fn(
@@ -1139,12 +1187,7 @@ export const readCurrentAppIndexEntriesForRowInTransactionEffect = Effect.fn(
   ReadonlyArray<AppIndexRangeEntryV1>,
   ReadAppIndexRangeV1Error
 > {
-  const decoded = yield* decodeRangeReadEffect(tx, {
-    scopeId: input.scopeId,
-    definition: input.definition,
-    bounds: {},
-    limit: 2,
-  });
+  const decoded = yield* decodeRangeReadEffect(tx, { ...input, bounds: {}, limit: 2 });
   const rowId = yield* Effect.fromResult(
     decodeOrderedRowIdResult(input.rowId),
   ).pipe(
@@ -1191,7 +1234,7 @@ export const readCurrentAppIndexEntriesForRowInTransactionEffect = Effect.fn(
 });
 
 function captureAppendInputResult(
-  input: AppendAppIndexEntryRevisionV1Input,
+  input: AppendAppIndexEntryRevisionV1Input | AppendPublicationIndexEntryRevisionInput,
 ): Result.Result<
   DecodedAppendAppIndexEntryCapture,
   InvalidAppIndexEntryInputError
@@ -1206,17 +1249,13 @@ function captureAppendInputResult(
       decodeScopeIdResult(input.scopeId),
       "invalidScopeId",
     );
-    if (
-      !isLocatedAppIndexDefinitionV1(input.definition) ||
-      input.definition.scopeId !== scopeId
-    ) {
-      return yield* Result.fail(
-        new InvalidAppIndexEntryInputError("invalidLocatedDefinition"),
-      );
-    }
-    const indexDefinitionId = input.definition.indexDefinitionId;
-    const tableId = input.definition.access.tableId;
-    const physicalSpec = input.definition.physicalSpec;
+    if ("definition" in input &&
+      (!isLocatedAppIndexDefinitionV1(input.definition) || input.definition.scopeId !== scopeId))
+      return yield* Result.fail(new InvalidAppIndexEntryInputError("invalidLocatedDefinition"));
+    const indexDefinitionId = "reference" in input
+      ? input.reference.reverseIndex.indexDefinitionId : input.definition.indexDefinitionId;
+    const tableId = "reference" in input ? input.reference.sourceTableId : input.definition.access.tableId;
+    const physicalSpec = "reference" in input ? input.reference.reverseIndex.physicalSpec : input.definition.physicalSpec;
     const encodedKey = yield* decodeWriteFieldResult(
       decodeOrderedKeyResult(input.encodedKey),
       "invalidEncodedKey",
@@ -1264,6 +1303,7 @@ function captureAppendInputResult(
     return Object.freeze({
       kind: input.kind,
       physicalSpec,
+      ...( "reference" in input ? { expectedPhysicalSpecSha256Hex: input.reference.reverseIndex.physicalSpecSha256Hex } : {}),
       identity: Object.freeze({
         scopeId,
         indexDefinitionId,
@@ -1286,6 +1326,7 @@ interface DecodedAppendAppIndexEntryCapture {
   readonly writeEpochUuid: ScopeEpochUuidV1;
   readonly commitSeq: CommitSeq;
   readonly physicalSpec: AppOrderedIndexPhysicalSpecV1;
+  readonly expectedPhysicalSpecSha256Hex?: string;
   readonly keyBytes: Uint8Array;
 }
 
@@ -1457,12 +1498,29 @@ const prepareIndexReadDefinitionEffect = Effect.fn(
 const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
   function* (
     tx: AppIndexEntryTransaction,
-    input: AppIndexRangeReadV1Base,
+    input: AppIndexRangeReadV1Base | PublicationIndexRangeInput,
   ): Effect.fn.Return<DecodedAppIndexRangeReadV1, ReadAppIndexRangeV1Error> {
     const captured = yield* Effect.fromResult(
-      decodeRangeReadInputResult(input),
+      decodeRangeReadInputResult(input, () => "publicationIndex" in input
+        ? Result.gen(function* () {
+          const scopeId = yield* decodeReadFieldResult(decodeScopeIdResult(input.scopeId), "invalidScopeId");
+          const scopeProjection = yield* projectScopeIdUuidV1Result(scopeId).pipe(Result.mapError(cause =>
+            new InvalidAppIndexEntryInputError("invalidScopeId", cause)));
+          const indexDefinitionId = yield* decodeReadFieldResult(
+            decodeIndexDefinitionIdResult(input.publicationIndex.indexDefinitionId), "invalidLocatedDefinition");
+          return Object.freeze({ scopeId, scopeProjection, indexDefinitionId,
+            physicalSpec: input.publicationIndex.physicalSpec });
+        })
+        : captureIndexReadDefinitionResult(input.scopeId, input.definition)),
     );
     const definition = yield* prepareIndexReadDefinitionEffect(captured);
+    if ("publicationIndex" in input) {
+      const digest = yield* Effect.fromResult(decodePhysicalSpecDigestResult(
+        input.publicationIndex.physicalSpecSha256Hex).pipe(Result.mapError(cause =>
+          new AppIndexEntryStorageCorruptionError("invalid activation index digest", { cause }))));
+      if (!bytesEqualFullScan(definition.physicalSpecSha256, appIndexPhysicalSpecSha256HexV1ToBytes(digest)))
+        return yield* Effect.fail(new AppIndexEntryStorageCorruptionError("activation index digest mismatch"));
+    }
     const scopeUuid = yield* requireScopeUuidEffect(
       tx,
       captured.scopeId,
@@ -1482,7 +1540,8 @@ const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
 );
 
 function decodeRangeReadInputResult(
-  input: AppIndexRangeReadV1Base,
+  input: Pick<AppIndexRangeReadV1Base, "scopeId" | "bounds" | "after" | "limit">,
+  captureDefinition: () => Result.Result<CapturedIndexReadDefinition, InvalidAppIndexEntryInputError>,
 ): Result.Result<
   Omit<DecodedAppIndexRangeReadV1, "scopeUuid" | "physicalSpecSha256"> & {
     readonly scopeProjection: ScopeIdUuidProjectionV1;
@@ -1505,10 +1564,7 @@ function decodeRangeReadInputResult(
         new InvalidAppIndexEntryInputError("invalidBounds"),
       );
     }
-    const definition = yield* captureIndexReadDefinitionResult(
-      input.scopeId,
-      input.definition,
-    );
+    const definition = yield* captureDefinition();
     const startInclusive =
       input.bounds.startInclusive === undefined
         ? undefined

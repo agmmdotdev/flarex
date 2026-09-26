@@ -45,6 +45,7 @@ import {
   appendAppIndexEntryRevisionsInTransactionEffect,
   scanAppIndexAtSnapshotInTransactionEffect,
   scanCurrentAppIndexInTransactionEffect,
+  scanCurrentPublicationIndexInTransactionEffect,
   type AppendAppIndexEntryRevisionV1Input,
   type AppIndexEntryTransaction,
 } from "../src/appIndexEntries";
@@ -245,6 +246,14 @@ describe("S10 app-index revision and current storage", () => {
       [keyB, rowC],
       [keyC, rowA],
     ]);
+    const publicationView = await persistence.drizzle.transaction(tx => runEffect(
+      scanCurrentPublicationIndexInTransactionEffect(tx, {
+        scopeId, publicationIndex: { indexDefinitionId: locatedDefinition.indexDefinitionId,
+          physicalSpec: locatedDefinition.physicalSpec,
+          physicalSpecSha256Hex: locatedDefinition.physicalSpecSha256Hex },
+        bounds: {}, limit: 10,
+      })));
+    expect(publicationView).toEqual(current);
 
     const counts = await persistence.query<{
       revisions: string;

@@ -61,6 +61,20 @@ describe("data binding value boundaries", () => {
       expect(await runEffectFailure(captureBindingValue(predecessor, isDataBindingHeadFrame)))
         .toMatchObject({ reason: "invalidInput" });
   });
+  it("requires the activation-owned reference projection", async () => {
+    const activation = { format: "flarex.data-binding-activation", version: 2,
+      request: { format: "flarex.data-binding-activation-request", version: 1,
+        scopeId: frame().application.scopeId, storageGeneration: "flarexdb_v1",
+        requestId: "reference-projection", candidateSha256: "a".repeat(64), expectedHead: null },
+      sequence: "1", activatedAt: "2026-09-05T00:00:00.000Z", strongReferences: [] };
+    const captured = await runEffect(captureBindingValue(activation, isDataBindingActivationFrame));
+    expect(await runEffect(restoreBindingValue(captured.copyCanonicalBytes(), captured.sha256Hex,
+      activation.format, isDataBindingActivationFrame))).toEqual(activation);
+    for (const predecessor of [{ ...activation, version: 1 },
+      (({ strongReferences: _, ...missing }) => missing)(activation)])
+      expect(await runEffectFailure(captureBindingValue(predecessor, isDataBindingActivationFrame)))
+        .toMatchObject({ reason: "invalidInput" });
+  });
   it("round-trips the current contract and rejects development-only predecessor formats", async () => {
     for (const input of [frame()]) {
       const captured = await runEffect(captureBindingValue(input, isDataBindingSetFrame));
@@ -187,7 +201,7 @@ describe("data binding value boundaries", () => {
     expect(
       isDataBindingActivationFrame({
         format: "flarex.data-binding-activation",
-        version: 1,
+        version: 2,
         request: {
           format: "flarex.data-binding-activation-request",
           version: 1,
@@ -202,6 +216,7 @@ describe("data binding value boundaries", () => {
         },
         sequence: "9223372036854775808",
         activatedAt: "2026-09-05T00:00:00.000Z",
+        strongReferences: [],
       }),
     ).toBe(false);
   });

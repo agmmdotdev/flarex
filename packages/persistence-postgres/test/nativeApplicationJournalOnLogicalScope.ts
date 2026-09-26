@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { expect } from "vitest";
 import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { selectApplicationMutationAdmission } from "../src/applicationMutationAdmission";
 import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
 import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
@@ -23,7 +24,8 @@ type NativeApplication = ApplicationNativeMutationPGliteFixture | ApplicationNat
 
 /** Prepare an authentic native empty-range read before a framework-owned commit. */
 export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeApplication.prepareJournalOnLogicalScope")(
-  function* (application: NativeApplication, operation: "range" | "insert" = "range") {
+  function* (application: NativeApplication, operation: "range" | "insert" | "delete" = "range",
+    suffix?: string, targetDocumentId?: AppDocumentIdV1) {
     const schemaVersionId = application.active.basis.schemaVersionId;
     const admission = yield* selectApplicationMutationAdmission(application.active.selection, "users:create", {
       deploymentId: application.deploymentId, controlDb: application.control.drizzle,
@@ -33,7 +35,8 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
       { leaseDurationMilliseconds: 60_000 }).activateEffect(yield* Effect.promise(() => applicationMutationActivationFixture({
         deploymentId: application.deploymentId, selection: application.active.selection,
         executionAuthority: admission.executionAuthority,
-        requestKey: `logical-currency-native-journal-${operation}`, grantId: `logical-currency-native-journal-${operation}-grant`,
+        requestKey: `logical-currency-native-journal-${operation}${suffix === undefined ? "" : `-${suffix}`}`,
+        grantId: `logical-currency-native-journal-${operation}${suffix === undefined ? "" : `-${suffix}`}-grant`,
       })));
     if (activation.status !== "created") throw new Error("Expected native journal attempt");
     const store = createSessionJournalStorePersistenceV1(application.sessionAuthority,
@@ -41,6 +44,7 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
     const attempt = yield* store.openAttemptEffect({ selector: selectorFromRelationAnchor(activation.anchor),
       executionClaim: activation.executionClaim, snapshotToken: activation.anchor.snapshotToken, schemaVersionId });
     const table = yield* store.resolvePointTableEffect(attempt, "users");
+    let insertedDocumentId: AppDocumentIdV1 | undefined;
     if (operation === "range") {
       const index = yield* store.resolveDeveloperIndexEffect(table, "by_name");
       expect(yield* store.runIndexedQueryEffect(index, { kind: "indexRange",
@@ -49,9 +53,18 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
     } else {
       const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: application.authority.scopeId,
         schemaVersionId, schemaManifest: admission.schema.manifest });
-      expect(yield* store.runPointOperationEffect(table, { kind: "insert",
-        syscallSequence: CommitSyscallSequenceV1Schema.make(1n), fields: { name: "strong-reference-witness" } }, validator))
-        .toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
+      if (operation === "insert") {
+        const inserted = yield* store.runPointOperationEffect(table, { kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n), fields: { name: "strong-reference-witness" } }, validator);
+        expect(inserted).toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
+        if (inserted.kind !== "completed" || inserted.outcome.kind !== "inserted") throw new Error("Missing inserted document");
+        insertedDocumentId = inserted.outcome.documentId;
+      } else {
+        if (targetDocumentId === undefined) throw new Error("Delete requires a document identity");
+        expect(yield* store.runPointOperationEffect(table, { kind: "delete",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n), documentId: targetDocumentId }, validator))
+          .toMatchObject({ kind: "completed", outcome: { kind: "unit" } });
+      }
     }
     const sealed = yield* store.prepareSealEffect(attempt);
     const journal = yield* canonicalizeSessionJournalV1Effect(sealed.journal);
@@ -67,9 +80,9 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
     if (finishing.kind !== "loaded") throw new Error("Expected native finishing evidence");
     const command = yield* Effect.promise(() =>
       pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(authority, finishing.evidence));
-    expect(command.dependencies).toHaveLength(operation === "insert" ? 1 : 0);
+    expect(command.dependencies).toHaveLength(operation === "range" ? 0 : 1);
     expect(command.indexRangeDependencies).toHaveLength(operation === "range" ? 1 : 0);
-    expect(command.rowIntents).toHaveLength(operation === "insert" ? 1 : 0);
+    expect(command.rowIntents).toHaveLength(operation === "range" ? 0 : 1);
     const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(application.control.drizzle);
     const publisher = createPointCommitPublisherPortV1(application.sessionAuthority, {
       developerIndexes: application.developerIndexes,
@@ -79,7 +92,7 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
       candidateSchemaWriteGuard: application.candidateSchemaWriteGuard,
     });
     const payloadBefore = yield* Effect.promise(() => captureSessionStorage(application.target, activation.anchor));
-    return { publish: publisher.publish({ ...command, journalBytes: journal.canonicalBytes,
+    return { insertedDocumentId, publish: publisher.publish({ ...command, journalBytes: journal.canonicalBytes,
       successfulResult: { valueCodecVersion: result.evidence.valueCodecVersion, value: { observed: true },
         canonicalBytes: result.canonicalBytes, semanticSizeBytes: result.semanticSizeBytes,
         sha256Hex: result.evidence.sha256Hex } }),

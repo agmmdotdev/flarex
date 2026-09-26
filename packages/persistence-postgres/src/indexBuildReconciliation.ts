@@ -243,7 +243,7 @@ export type ReconcilePublishedIndexBuildsV1Error =
   | IndexBuildReconciliationIntegrationV1Error
   | IndexBuildReconciliationDecisionUncertainV1Error;
 
-interface PhysicalDefinitionRequirementV1 {
+export interface PhysicalDefinitionRequirementV1 {
   readonly access: AppIndexDefinitionRecord["access"];
   readonly tableId: AppIndexDefinitionRecord["access"]["tableId"];
   readonly indexDefinitionId: CatalogIndexDefinitionId;

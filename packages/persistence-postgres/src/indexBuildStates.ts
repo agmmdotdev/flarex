@@ -1,6 +1,6 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -25,6 +25,7 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
+  projectScopeIdUuidV1Result,
   type CommitSeq,
   type FlarexDbV1StorageGeneration,
   type ScopeEpoch,
@@ -43,6 +44,7 @@ import { readCoherentApplicationActiveHeadForShareInTransactionEffect, readAppli
 import { decodeIndexMaintenanceEvidenceResult, verifyIndexMaintenanceEvidence, IndexMaintenanceError, type IndexMaintenanceEvidence } from "./indexMaintenanceEvidence";
 import {
   fxSystemIndexBuildStates,
+  fxSystemCommitAppRowChanges,
   fxSystemScopeClocks,
 } from "./schema";
 
@@ -631,6 +633,7 @@ export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
   definition: IndexCoverageDefinition,
   snapshotCommitSeq: CommitSeq,
   context: IndexCoverageContext,
+  pendingPublicationCommitSeq?: CommitSeq,
 ): Effect.fn.Return<
   boolean,
   AppRowReadPersistenceError | InvalidAppRowReadInputError | AppRowTableFrontierCorruptionError | IndexMaintenanceError
@@ -662,6 +665,25 @@ export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
     return true;
   }
   if (covered >= snapshotCommitSeq) return true;
+  if (pendingPublicationCommitSeq !== undefined) {
+    if (pendingPublicationCommitSeq !== context.clock.lastCommitSeq + 1n ||
+      snapshotCommitSeq !== context.clock.lastCommitSeq)
+      return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(state.scopeId))
+      .pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: "storedState", cause })));
+    // Current pointers already include this transaction's writes. The
+    // immutable published fact prefix is the indexed proof of whether an
+    // older build missed any committed source-table write before this one.
+    const published = yield* Effect.uninterruptible(runDrizzleStatementEffect(
+      tx.select({ commitSeq: fxSystemCommitAppRowChanges.commitSeq })
+        .from(fxSystemCommitAppRowChanges).where(and(
+          eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid),
+          eq(fxSystemCommitAppRowChanges.tableId, definition.tableId),
+          gt(fxSystemCommitAppRowChanges.commitSeq, covered),
+          lte(fxSystemCommitAppRowChanges.commitSeq, snapshotCommitSeq),
+        )).limit(1), cause => new IndexMaintenanceError({ reason: "resourceFailure", cause })));
+    return published.length === 0;
+  }
   const latest = yield* readAppTableWriteFrontierInTransactionEffect(
     tx,
     state.scopeId,

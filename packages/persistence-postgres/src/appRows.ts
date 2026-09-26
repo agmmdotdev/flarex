@@ -55,6 +55,7 @@ import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   fxAppRowCurrent,
   fxAppRowRevisions,
+  fxSystemCommitAppRowChanges,
   fxSystemScopeClocks,
 } from "./schema";
 
@@ -351,6 +352,7 @@ export class AppRowReadPersistenceError extends Error {
       | "readSnapshotRevision"
       | "readCurrentPointer"
       | "readCurrentRevision"
+      | "readPublicationFact"
       | "readTableFrontier",
     readonly cause: unknown,
   ) {
@@ -782,14 +784,17 @@ export const MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES = 1_048_576;
  * either owns a physical snapshot or validates all observations at settlement.
  * Rows and their publication ceiling come from one statement snapshot.
  */
-export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
+type BoundedCurrentAppRowReadInput = Readonly<{ scopeId: ScopeId; tableId: CatalogTableId; minimumCommitSeq: CommitSeq;
+  maximumIdentities: number; maximumDocumentBytes: number; maximumTotalValueBytes: number;
+  rowId?: AppRowIdHexV1; rowIds?: readonly AppRowIdHexV1[] }>;
+
+const readBoundedCurrentAppRows = Effect.fn(
   "AppRows.readBoundedCurrentSet",
 )(function* (
   tx: AppRowTransaction,
-  input: Readonly<{ scopeId: ScopeId; tableId: CatalogTableId; minimumCommitSeq: CommitSeq;
-    maximumIdentities: number; maximumDocumentBytes: number; maximumTotalValueBytes: number;
-    rowId?: AppRowIdHexV1; rowIds?: readonly AppRowIdHexV1[] }>,
+  input: BoundedCurrentAppRowReadInput,
   observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2],
+  pendingCommitSeq?: CommitSeq,
 ): Effect.fn.Return<Readonly<{ rows: readonly AppRowRevisionV1[]; commitSeq: CommitSeq }>, ReadAppRowError> {
   if (!Number.isSafeInteger(input.maximumIdentities) || input.maximumIdentities < 0 || input.maximumIdentities > MAX_BOUNDED_APP_ROW_READ_IDENTITIES ||
     !Number.isSafeInteger(input.maximumDocumentBytes) || input.maximumDocumentBytes < 1 || input.maximumDocumentBytes > 1_048_576 ||
@@ -802,7 +807,8 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   const scopeUuid = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId).pipe(
     Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidScopeId", cause })),
   ));
-  const clock = tx.$with("capture_clock").as(tx.select({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq })
+  const clock = tx.$with("capture_clock").as(tx.select({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
+    epoch: fxSystemScopeClocks.epoch })
     .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid.scopeUuid)).limit(1));
   const join = and(
       eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
@@ -835,6 +841,7 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
         and ${bytes} <= ${input.maximumTotalValueBytes})`;
       return tx.with(clock).select({
         observedCommitSeq: clock.lastCommitSeq,
+        observedEpoch: clock.epoch,
         withinBudget,
         pointer: fxAppRowCurrent,
         revision: {
@@ -861,6 +868,7 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
     }).from(bounded));
     return tx.with(clock, bounded, budget).select({
       observedCommitSeq: clock.lastCommitSeq,
+      observedEpoch: clock.epoch,
       withinBudget: budget.allowed,
       pointer: { scopeUuid: bounded.scopeUuid, tableId: bounded.tableId, rowId: bounded.rowId, commitSeq: bounded.commitSeq },
       revision: fxAppRowRevisions,
@@ -882,6 +890,7 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
   }
   const commitSeq = yield* Effect.fromResult(decodeReadFieldResult(decodeCommitSeqResult(verdict.observedCommitSeq), "invalidSnapshotCommitSeq"));
   const revisions: AppRowRevisionV1[] = [];
+  const pendingRowIds: AppRowIdHexV1[] = [];
   for (const row of rows) {
     // A valid empty selection retains only the aggregate verdict.
     if (row.pointer === null) continue;
@@ -889,13 +898,54 @@ export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn(
       Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidRowId", cause })),
     ));
     const identity = { scopeId, tableId, rowId };
-    if (row.revision === null || row.pointer.commitSeq > row.observedCommitSeq) {
+    if (row.revision === null || (row.pointer.commitSeq > row.observedCommitSeq &&
+      (pendingCommitSeq === undefined || pendingCommitSeq !== row.pointer.commitSeq ||
+        pendingCommitSeq !== row.observedCommitSeq + 1n))) {
       return yield* Effect.fail(new AppRowStorageCorruptionError(identity, "bounded current pointer exceeds its statement publication clock"));
+    }
+    if (row.pointer.commitSeq > row.observedCommitSeq) {
+      if (row.revision.writeEpochUuid !== projectScopeEpochUuidV1(verdict.observedEpoch).epochUuid)
+        return yield* Effect.fail(new AppRowStorageCorruptionError(identity, "pending current revision has a stale scope epoch"));
+      pendingRowIds.push(rowId);
     }
     revisions.push(yield* decodeRevisionRowEffect(identity, row.revision));
   }
+  if (pendingRowIds.length > 0 && pendingCommitSeq !== undefined) {
+    const facts = yield* readAppRowRowsEffect(tx.select({ rowId: fxSystemCommitAppRowChanges.rowId })
+      .from(fxSystemCommitAppRowChanges).where(and(
+        eq(fxSystemCommitAppRowChanges.scopeUuid, scopeUuid.scopeUuid),
+        eq(fxSystemCommitAppRowChanges.epochUuid, projectScopeEpochUuidV1(verdict.observedEpoch).epochUuid),
+        eq(fxSystemCommitAppRowChanges.tableId, tableId),
+        eq(fxSystemCommitAppRowChanges.commitSeq, pendingCommitSeq),
+        inArray(fxSystemCommitAppRowChanges.rowId, pendingRowIds.map(appRowIdHexV1ToBytes)),
+      )), "readPublicationFact");
+    const factIds = yield* Effect.forEach(facts, fact => Effect.fromResult(appRowIdHexV1FromBytesResult(fact.rowId).pipe(
+      Result.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidRowId", cause })))));
+    if (factIds.length !== pendingRowIds.length || new Set(factIds).size !== pendingRowIds.length ||
+      factIds.some(id => !pendingRowIds.includes(id))) {
+      const firstPending = pendingRowIds[0];
+      if (firstPending === undefined) return yield* Effect.fail(new InvalidAppRowReadInputError({
+        reason: "rowLimitExceeded", cause: "missing pending row identity",
+      }));
+      return yield* Effect.fail(new AppRowStorageCorruptionError(
+        { scopeId, tableId, rowId: firstPending }, "pending current pointer has no exact publication fact"));
+    }
+  }
   return Object.freeze({ rows: Object.freeze(revisions), commitSeq });
 });
+
+/** Published current view. Unpublished current pointers remain corruption. */
+export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn("AppRows.readBoundedPublishedCurrentSet")(
+  (tx: AppRowTransaction, input: BoundedCurrentAppRowReadInput,
+    observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2]) =>
+    readBoundedCurrentAppRows(tx, input, observer));
+
+/** Publication-only final-state view. The pending row must belong to the
+ * immediately next commit and have an exact row-change fact in this transaction. */
+export const readBoundedPublicationAppRowsInTransactionEffect = Effect.fn("AppRows.readBoundedPublicationCurrentSet")(
+  (tx: AppRowTransaction, input: BoundedCurrentAppRowReadInput & { readonly pendingCommitSeq: CommitSeq },
+    observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2]) =>
+    readBoundedCurrentAppRows(tx, input, observer, input.pendingCommitSeq));
 
 export async function appendAppRowRevisionAndAdvanceCurrentInTransaction(
   tx: AppRowTransaction,

@@ -1,0 +1,1 @@
+CREATE INDEX "fx_system_commit_app_row_change_table_commit_idx" ON "fx_system_commit_app_row_change" USING btree ("scope_uuid","table_id","commit_seq");

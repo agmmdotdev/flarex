@@ -1,4 +1,6 @@
 import { Cause, Effect, Option, Result } from "effect";
+import { and, eq, inArray } from "drizzle-orm";
+import { projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { prepareLogicalStorageReadiness } from "../../logicalStorageReadiness";
 import type { AppUniqueConstraintSetEligibilityPortV1 } from "../../appUniqueConstraintSetBuildV1";
@@ -46,6 +48,7 @@ import {
   storeBindingCandidate,
   readBindingActivation,
   readBindingHead,
+  readBindingActiveReferenceProjection,
   writeBindingActivation,
   type StoredBindingValue,
 } from "./repository";
@@ -60,8 +63,34 @@ import {
 } from "./selection";
 import type { DataBindingTestProfiles } from "./profiles";
 import { scopePhysicalLocatorsEqual } from "../../scopePhysicalLocator";
+import { fxAppRowCurrent } from "../../schema";
 import type { ApplicationBindingReference, DataBindingSetFrame } from "./model";
 import type { PayloadContentProfiles } from "../../payloadPreferences/binding";
+import type { StrongReferenceActivationProjection } from "./strongReferenceProjection";
+
+/** Called under the activation scope lock. A new policy cannot inherit an
+ * invariant for rows committed before that policy existed. */
+export const requireSafeStrongReferenceActivation = Effect.fn("DataBindingHost.requireSafeReferences")(
+  function* (tx: FlarexMetadataTransaction, scopeId: ScopeId,
+    previouslyEnforced: readonly StrongReferenceActivationProjection[],
+    proposedReferences: readonly StrongReferenceActivationProjection[]) {
+    const newlyReferencedTables = [...new Set(proposedReferences.filter(reference =>
+      !previouslyEnforced.some(previous => previous.name === reference.name &&
+        sameBindingValue(previous, reference))).map(reference => reference.sourceTableId))];
+    if (newlyReferencedTables.length === 0) return;
+    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId))
+      .pipe(Effect.mapError(cause => bindingError("storedCorruption", cause)));
+    // A bounded existence probe refuses existing rows. A resumable validation
+    // certificate is needed before a populated table can gain a new policy.
+    const query = tx.select({ tableId: fxAppRowCurrent.tableId })
+      .from(fxAppRowCurrent).where(and(eq(fxAppRowCurrent.scopeUuid, scope.scopeUuid),
+        inArray(fxAppRowCurrent.tableId, newlyReferencedTables))).limit(1);
+    const existing = yield* Effect.tryPromise({ try: () => query,
+    catch: cause => bindingError("resourceFailure", cause) });
+    if (existing.length > 0) return yield* Effect.fail(bindingError("unsupportedProfile",
+      "new strong reference requires a validated existing-source backfill"));
+  },
+);
 
 type LogicalStoragePreparationFailure = Effect.Error<ReturnType<typeof prepareLogicalStorageReadiness>>;
 
@@ -455,8 +484,15 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
             current.value.sha256 === request.expectedHead.sha256 &&
             current.value.frame.sequence === request.expectedHead.sequence;
         if (!matches) return yield* Effect.fail(bindingError("concurrentHead"));
+        const proposedReferences = logicalStorage?.strongReferences ?? [];
+        if (proposedReferences.length > 0) {
+          const previouslyEnforced = Option.isSome(current)
+            ? yield* readBindingActiveReferenceProjection(tx, authority, current.value)
+            : [];
+          yield* requireSafeStrongReferenceActivation(tx, clock.scopeId, previouslyEnforced, proposedReferences);
+        }
         const written = yield* writeBindingActivation(tx, request,
-          logicalStorage?.strongReferenceTableIds ?? []);
+          proposedReferences);
         if (afterAcceptance !== undefined) yield* afterAcceptance();
         return written;
       }),

@@ -67,17 +67,19 @@ export const LogicalSchemaSourceSchema = Schema.Struct({
   bindings: Schema.Array(SourceBinding).check(Schema.isMaxLength(10_000)),
 }).annotate(strict);
 const Endpoint = Schema.Struct({ table: QualifiedLogicalTableSchema, field: Name }).annotate(strict);
-const EndpointLiveness = Schema.Union([
+export const LogicalSchemaEndpointLivenessSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("current") }).annotate(strict),
   Schema.Struct({ kind: Schema.Literal("softDeleteNull"), field: Name }).annotate(strict),
 ]);
+export type LogicalSchemaEndpointLiveness = typeof LogicalSchemaEndpointLivenessSchema.Type;
 export const LogicalSchemaExtensionSchema = Schema.Struct({
   name: Name,
   sourceKey: Name,
   source: Endpoint,
   target: Endpoint,
   policy: Schema.Literal("strongReference"),
-  liveness: Schema.Struct({ source: EndpointLiveness, target: EndpointLiveness }).annotate(strict),
+  liveness: Schema.Struct({ source: LogicalSchemaEndpointLivenessSchema,
+    target: LogicalSchemaEndpointLivenessSchema }).annotate(strict),
   onTargetDelete: Schema.Literal("restrict"),
 }).annotate(strict);
 

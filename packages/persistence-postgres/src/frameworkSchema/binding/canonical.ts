@@ -40,6 +40,7 @@ import {
   type DataBindingActivationFrame,
   type DataBindingHeadFrame,
 } from "./model";
+import { StrongReferenceActivationProjectionsSchema } from "./strongReferenceProjection";
 
 export function sameBindingValue(left: JsonObject, right: JsonObject): boolean {
   return (
@@ -54,6 +55,7 @@ const isScopeEpoch = Schema.is(ScopeEpochSchema);
 const isScopeId = Schema.is(ScopeIdSchema);
 const isLogicalSchemaBinding = Schema.is(LogicalSchemaBindingSchema);
 const isCatalogTableId = Schema.is(CatalogTableIdSchema);
+const isStrongReferenceActivationProjections = Schema.is(StrongReferenceActivationProjectionsSchema);
 
 function arrayOf<T>(
   input: unknown,
@@ -326,12 +328,14 @@ export function isDataBindingActivationFrame(
       "request",
       "sequence",
       "activatedAt",
+      "strongReferences",
     ]) &&
     input.format === "flarex.data-binding-activation" &&
-    input.version === 1 &&
+    input.version === 2 &&
     isDataBindingActivationRequest(input.request) &&
     positive(input.sequence) &&
     instant(input.activatedAt) &&
+    isStrongReferenceActivationProjections(input.strongReferences) &&
     BigInt(input.sequence) ===
       (input.request.expectedHead === null
         ? 1n
@@ -413,7 +417,7 @@ export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
         sha256Hex: digest,
         expectedFormat: format,
         expectedVersion: format === "flarex.data-binding-set" ? null :
-          format === "flarex.data-binding-head" ? 2 : 1,
+          format === "flarex.data-binding-head" || format === "flarex.data-binding-activation" ? 2 : 1,
         maximumCanonicalBytes: MAX_BINDING_BYTES,
         expectedKeys: undefined,
         validateFrame: guard,

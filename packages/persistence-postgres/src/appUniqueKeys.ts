@@ -29,6 +29,7 @@ import {
   ScopeIdSchema,
   ScopeUuidV1Schema,
   projectScopeIdUuidV1Result,
+  type CommitSeq,
   type ScopeEpoch,
   type ScopeId,
   type ScopeUuidV1,
@@ -50,6 +51,7 @@ import {
   fxAppRowCurrent,
   fxAppUniqueKeys,
   fxSystemScopeClocks,
+  fxSystemCommitAppRowChanges,
   fxSystemUniqueConstraintBuilds,
 } from "./schema";
 
@@ -1408,9 +1410,25 @@ const decodeSlotOwnerCommitSeq = Schema.decodeUnknownResult(Schema.toType(Commit
 /** Bounded committed-slot lookup. The caller owns admission and transaction
  * protection; pending changes and final claiming remain with their existing owners. */
 export const readAppUniqueKeySlotInTransactionEffect = Effect.fn("AppUniqueKeys.readSlot")(
+  (tx: AppUniqueKeyTransaction, input: {
+    readonly scopeId: ScopeId; readonly constraintId: AppUniqueConstraintIdV1; readonly key: AppUniqueKeyProjectionV1;
+  }) => readSlot(tx, input),
+);
+
+/** Publication-only final-state lookup. The owning transaction must have
+ * finished its row-change prefix under the scope write lock. A newly written
+ * slot owner is accepted only when this exact commit contains its row fact. */
+export const readAppUniqueKeySlotForPublicationInTransactionEffect = Effect.fn("AppUniqueKeys.readPublicationSlot")(
+  (tx: AppUniqueKeyTransaction, input: {
+    readonly scopeId: ScopeId; readonly constraintId: AppUniqueConstraintIdV1; readonly key: AppUniqueKeyProjectionV1;
+    readonly pendingCommitSeq: CommitSeq;
+  }) => readSlot(tx, input, input.pendingCommitSeq),
+);
+
+const readSlot = Effect.fn("AppUniqueKeys.readSlotState")(
   function* (tx: AppUniqueKeyTransaction, input: {
     readonly scopeId: ScopeId; readonly constraintId: AppUniqueConstraintIdV1; readonly key: AppUniqueKeyProjectionV1;
-  }) {
+  }, pendingCommitSeq?: CommitSeq) {
     const identity = yield* Effect.fromResult(decodeSlotIdentity(input)).pipe(Effect.mapError(cause => invalid("invalidTransition", cause)));
     const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(identity.scopeId)).pipe(Effect.mapError(cause => invalid("invalidScopeId", cause)));
     const canonical = yield* Effect.fromResult(canonicalizeAppUniqueKeyV1Result(input.key)).pipe(Effect.mapError(cause => invalid("invalidNextKey", cause)));
@@ -1432,14 +1450,31 @@ export const readAppUniqueKeySlotInTransactionEffect = Effect.fn("AppUniqueKeys.
     if (rows.length > 1) return yield* Effect.fail(corruption("one unique-key slot has multiple owners"));
     const stored = rows[0];
     if (stored === undefined) return Option.none();
-    if (stored.ownerCommitSeq === null || stored.tombstone !== false || stored.publishedThrough === null ||
-      stored.ownerCommitSeq > stored.publishedThrough) return yield* Effect.fail(corruption("slot owner is not a published live revision"));
+    if (stored.ownerCommitSeq === null || stored.tombstone !== false || stored.publishedThrough === null)
+      return yield* Effect.fail(corruption("slot owner is not a live revision"));
     const ownerCommitSeq = yield* Effect.fromResult(storedField(decodeSlotOwnerCommitSeq(stored.ownerCommitSeq)));
+    if (ownerCommitSeq > stored.publishedThrough) {
+      if (pendingCommitSeq === undefined)
+        return yield* Effect.fail(corruption("slot owner is not a published live revision"));
+      const pending = yield* Effect.fromResult(storedField(decodeSlotOwnerCommitSeq(pendingCommitSeq)));
+      if (pending !== stored.publishedThrough + 1n || ownerCommitSeq !== pending)
+        return yield* Effect.fail(corruption("slot owner is not the pending publication revision"));
+    }
     const row = yield* Effect.fromResult(storedField(decodeStoredClaimRowResult(stored.claim)));
     yield* Effect.fromResult(compareStoredKeyResult(row, expected, identity.constraintId));
     const claim = yield* Effect.fromResult(decodeStoredClaimResult(identity.scopeId, row, expected));
     if (claim.scopeUuid !== scope.scopeUuid || claim.constraintId !== identity.constraintId) {
       return yield* Effect.fail(corruption("slot lookup returned a foreign identity"));
+    }
+    if (ownerCommitSeq > stored.publishedThrough) {
+      const facts = yield* persistenceEffect(tx.select({ ordinal: fxSystemCommitAppRowChanges.changeOrdinal })
+        .from(fxSystemCommitAppRowChanges).where(and(
+          eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid),
+          eq(fxSystemCommitAppRowChanges.commitSeq, ownerCommitSeq),
+          eq(fxSystemCommitAppRowChanges.tableId, claim.tableId),
+          eq(fxSystemCommitAppRowChanges.rowId, appRowIdHexV1ToBytes(claim.rowId)),
+        )).limit(1));
+      if (facts.length !== 1) return yield* Effect.fail(corruption("pending slot owner has no publication fact"));
     }
     return Option.some(Object.freeze({ ...claim, ownerCommitSeq }));
   },

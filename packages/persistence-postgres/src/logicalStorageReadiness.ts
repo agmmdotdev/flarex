@@ -1,6 +1,5 @@
 import { Data, Effect } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
@@ -16,9 +15,11 @@ import type { AppRowTransaction } from "./appRows";
 import { chargeHostPreparation } from "./preparedHostRuntime";
 import { prepareLogicalSearchBuild } from "./logicalSearchBuild";
 import { readLogicalStorageRequirements } from "./logicalStorageDefinitions";
+import { prepareLogicalStrongReferenceProjections } from "./logicalStrongReferenceProjection";
 
 export class LogicalStorageReadinessError extends Data.TaggedError("LogicalStorageReadinessError")<{
-  readonly reason: "invalidComposition" | "notLogicalCandidate" | "scopeMismatch";
+  readonly reason: "invalidComposition" | "notLogicalCandidate" | "scopeMismatch" | "resourceFailure";
+  readonly cause?: unknown;
 }> {}
 
 /** Immutable catalog preparation, using the complete candidate's existing
@@ -49,16 +50,12 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     captured.deploymentId, captured.schemaVersionId);
   if (encodeBytesToLowercaseHex(sourceRequirements.artifact.manifestSha256) !== manifestSha256Hex)
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
-  const endpointIds: number[] = [];
-  for (const extension of sourceRequirements.evidence.candidate.extensions) {
-    for (const endpoint of [extension.source, extension.target]) {
-      const bound = sourceRequirements.evidence.tableBindings.find(binding =>
-        logicalTableKey(binding.table) === logicalTableKey(endpoint.table));
-      if (bound === undefined) return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
-      endpointIds.push(bound.tableId);
-    }
-  }
-  const strongReferenceTableIds = Object.freeze([...new Set(endpointIds)].toSorted((a, b) => a - b));
+  const strongReferences = yield* prepareLogicalStrongReferenceProjections(ports.controlDb,
+    captured.deploymentId, captured.scopeId, sourceRequirements, requirements.definitions)
+    .pipe(Effect.mapError(cause => new LogicalStorageReadinessError({
+      reason: cause.reason === "resourceFailure" ? "resourceFailure" : "invalidComposition", cause,
+    })));
+  yield* chargeHostPreparation(JSON.stringify(strongReferences));
 
   /** Call inside the accepting owner's transaction after it locks the scope
    * clock. This observes fresh structural coverage; the outer binding owner
@@ -116,5 +113,5 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
   });
   return Object.freeze({ status: "prepared" as const, inspect, advanceEmptySearch: search.advanceEmpty,
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
-    applicationAnalysis: requirements.manifest.applicationAnalysis, strongReferenceTableIds });
+    applicationAnalysis: requirements.manifest.applicationAnalysis, strongReferences });
 });

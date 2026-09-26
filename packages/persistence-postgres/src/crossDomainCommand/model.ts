@@ -7,7 +7,8 @@ import { ApplicationCommandError } from "../applicationDocumentMaterialization/i
 import { LogicalDocumentMaterializationError } from "../logicalDocuments/materialization";
 import { RelationalSessionError } from "../relationalTransaction/model";
 import { CommittedPointOutcomeRequestKeyReuseErrorV1, CommittedPointOutcomeCorruptionErrorV1 } from "../committedPointOutcome";
-import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure, ScopePublicationUnsupportedProfileError } from "../commitPublication/scopePublicationModel";
+import { ScopePublicationCorruptionError, ScopePublicationReferenceCapacityError, ScopePublicationReferenceConstraintError,
+  ScopePublicationResourceError, ScopePublicationSqlFailure, ScopePublicationUnsupportedProfileError } from "../commitPublication/scopePublicationModel";
 import { LogicalApplicationSourceAdmissionError } from "../logicalDocuments/applicationAdmission";
 import { LogicalDocumentSourceAdmissionError } from "../logicalDocuments/documentAdmission";
 import { LogicalRelationalAdmissionError } from "../logicalDocuments/relationalAdmission";
@@ -54,6 +55,8 @@ export function projectCompositeFailure(cause: unknown): CompositeFailure {
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return compositeError("requestConflict", cause);
   if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return compositeError("storedCorruption", cause);
   if (cause instanceof ScopePublicationUnsupportedProfileError) return compositeError("unsupportedProfile", cause);
+  if (cause instanceof ScopePublicationReferenceConstraintError) return compositeError("invalidInput", cause);
+  if (cause instanceof ScopePublicationReferenceCapacityError) return compositeError("resourceFailure", cause);
   if (cause instanceof ScopePublicationCorruptionError || cause instanceof ScopePublicationResourceError || cause instanceof ScopePublicationSqlFailure) return projectCompositePublicationFailure(cause);
   if (cause instanceof RelationalSessionError) return compositeError(cause.reason === "decisionUncertain" ? "decisionUncertain" : "resourceFailure", cause);
   return compositeError("invalidAuthority", cause);
