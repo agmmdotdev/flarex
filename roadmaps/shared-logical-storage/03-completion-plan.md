@@ -334,7 +334,11 @@ remain distinct from logical schema evolution.
   previously permissive Medusa path. Indexed traversal, target liveness and
   deletion/restore enforcement remain required for runtime support. The
   [identity/index preparation](./51-strong-reference-identity-and-index.md)
-  records the contract break and the next connected gate.
+  records the contract break. The [common publication gate](./53-strong-reference-settlement-preflight.md)
+  now authenticates a compact active-head endpoint projection and refuses
+  touched writes from every common row publisher, including standalone
+  Application point commits; unrelated Currency remains writable. This closes
+  an older-writer bypass but does not activate reference execution.
 
 ## Finite Delivery Packages
 

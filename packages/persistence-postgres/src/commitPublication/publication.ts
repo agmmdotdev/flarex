@@ -4,7 +4,7 @@ import { commitEventLimits } from "../commitEvents/model";
 import { copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, eq, sql } from "drizzle-orm";
-import { Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { MAX_PERSISTED_SIGNED_INT64_V1, CommitSeqSchema, type CommitSeq, type ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
@@ -13,6 +13,7 @@ import { type AppRowTransaction } from "../appRows";
 import { observeDrizzleQuery as observeCompiledDrizzleQuery } from "../drizzleQueryObservation";
 import { fxSystemCommitAppRowChanges, fxSystemCommitRelationAdjacencyChanges, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks } from "../schema";
 import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure, type ScopePublicationClock, type ScopePublicationContribution, type ScopePublicationKernel, type ScopePublicationOptions, type ScopePublicationSqlOperation, type ScopePublicationStep } from "./scopePublicationModel";
+import { requireStrongReferencePublication } from "./strongReferenceAdmission";
 
 export async function writeScopePublicationPrefix(
   tx: AppRowTransaction,
@@ -311,6 +312,12 @@ export async function advanceScopePublicationClock(
   kernel: ScopePublicationKernel,
   options: ScopePublicationOptions,
 ): Promise<void> {
+  const admission = await Effect.runPromise(requireStrongReferencePublication(tx, kernel.clock,
+    kernel.commitSeq, options).pipe(Effect.match({
+    onFailure: cause => ({ kind: "failure" as const, cause }),
+    onSuccess: () => ({ kind: "success" as const }),
+  })));
+  if (admission.kind === "failure") throw admission.cause;
   const scopeUuid = kernel.clock.scopeUuid;
   const commitSeq = kernel.commitSeq;
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);

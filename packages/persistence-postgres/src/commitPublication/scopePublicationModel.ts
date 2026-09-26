@@ -31,12 +31,15 @@ export interface ScopePublicationKernel {
   readonly relationAdjacencyChanges: readonly ApplicationRelationAdjacencyChange[];
 }
 export type ScopePublicationStep = "commitHeaderWritten" | "commitChangeWritten" | "commitRelationAdjacencyChangeWritten" | "outcomeWritten" | "wakeWritten" | "clockAdvanced";
-export type ScopePublicationSqlOperation = "readDatabaseTime" | "writeCommitHeader" | "writeCommitChange" | "writeCommitRelationAdjacencyChange" | "writeOutcome" | "writeWake" | "advanceScopeClock";
+export type ScopePublicationSqlOperation = "readDatabaseTime" | "readBindingHead" | "readStrongReferenceFacts" | "writeCommitHeader" | "writeCommitChange" | "writeCommitRelationAdjacencyChange" | "writeOutcome" | "writeWake" | "advanceScopeClock";
 export interface ScopePublicationOptions {
   /** Row and adjacency change steps fire once per verified INSERT batch. */
   readonly afterTransactionStep?: (event: { readonly scopeId: ReplacementScopeIdV1; readonly step: ScopePublicationStep }) => Promise<void>;
   readonly observeQuery?: (query: { readonly name: ScopePublicationSqlOperation; readonly sql: string; readonly params: readonly unknown[] }) => void;
 }
-export class ScopePublicationCorruptionError extends Data.TaggedError("ScopePublicationCorruptionError")<{ readonly reason: "scopeClockInvalid" | "publicationInvariantInvalid" }> {}
+export class ScopePublicationCorruptionError extends Data.TaggedError("ScopePublicationCorruptionError")<{ readonly reason: "scopeClockInvalid" | "publicationInvariantInvalid"; readonly cause?: unknown }> {}
 export class ScopePublicationResourceError extends Data.TaggedError("ScopePublicationResourceError")<{ readonly dimension: "commitSequence"; readonly maximum: bigint }> {}
 export class ScopePublicationSqlFailure extends Data.TaggedError("ScopePublicationSqlFailure")<{ readonly operation: ScopePublicationSqlOperation; readonly cause: unknown }> {}
+export class ScopePublicationUnsupportedProfileError extends Data.TaggedError("ScopePublicationUnsupportedProfileError")<{
+  readonly reason: "strongReferenceUnenforced";
+}> {}

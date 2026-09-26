@@ -14,6 +14,7 @@ import { applicationMutationActivationFixture } from "./applicationMutationActiv
 import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "./pointCommitRelationTestSupport";
 import { pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1 } from "./pointCommitTransactionTestSupport";
+import { issueSetupSeededSyscallValidatorProofV1 } from "./applicationRevisionSyscallValidatorTestSupport";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from "./transactionSessionActivationTestSupport";
 import type { ApplicationNativeMutationPGliteFixture,
   ApplicationNativeMutationPostgresFixture } from "./fixtures/applicationNativeMutationTestFixture";
@@ -22,7 +23,7 @@ type NativeApplication = ApplicationNativeMutationPGliteFixture | ApplicationNat
 
 /** Prepare an authentic native empty-range read before a framework-owned commit. */
 export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeApplication.prepareJournalOnLogicalScope")(
-  function* (application: NativeApplication) {
+  function* (application: NativeApplication, operation: "range" | "insert" = "range") {
     const schemaVersionId = application.active.basis.schemaVersionId;
     const admission = yield* selectApplicationMutationAdmission(application.active.selection, "users:create", {
       deploymentId: application.deploymentId, controlDb: application.control.drizzle,
@@ -32,7 +33,7 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
       { leaseDurationMilliseconds: 60_000 }).activateEffect(yield* Effect.promise(() => applicationMutationActivationFixture({
         deploymentId: application.deploymentId, selection: application.active.selection,
         executionAuthority: admission.executionAuthority,
-        requestKey: "logical-currency-native-journal", grantId: "logical-currency-native-journal-grant",
+        requestKey: `logical-currency-native-journal-${operation}`, grantId: `logical-currency-native-journal-${operation}-grant`,
       })));
     if (activation.status !== "created") throw new Error("Expected native journal attempt");
     const store = createSessionJournalStorePersistenceV1(application.sessionAuthority,
@@ -40,10 +41,18 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
     const attempt = yield* store.openAttemptEffect({ selector: selectorFromRelationAnchor(activation.anchor),
       executionClaim: activation.executionClaim, snapshotToken: activation.anchor.snapshotToken, schemaVersionId });
     const table = yield* store.resolvePointTableEffect(attempt, "users");
-    const index = yield* store.resolveDeveloperIndexEffect(table, "by_name");
-    expect(yield* store.runIndexedQueryEffect(index, { kind: "indexRange",
-      syscallSequence: CommitSyscallSequenceV1Schema.make(1n), bounds: {}, limit: 32 }))
-      .toMatchObject({ kind: "completed", outcome: { documents: [], isDone: true } });
+    if (operation === "range") {
+      const index = yield* store.resolveDeveloperIndexEffect(table, "by_name");
+      expect(yield* store.runIndexedQueryEffect(index, { kind: "indexRange",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n), bounds: {}, limit: 32 }))
+        .toMatchObject({ kind: "completed", outcome: { documents: [], isDone: true } });
+    } else {
+      const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: application.authority.scopeId,
+        schemaVersionId, schemaManifest: admission.schema.manifest });
+      expect(yield* store.runPointOperationEffect(table, { kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n), fields: { name: "strong-reference-witness" } }, validator))
+        .toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
+    }
     const sealed = yield* store.prepareSealEffect(attempt);
     const journal = yield* canonicalizeSessionJournalV1Effect(sealed.journal);
     const result = yield* canonicalizeSuccessfulResultV1Effect({ observed: true });
@@ -58,9 +67,9 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
     if (finishing.kind !== "loaded") throw new Error("Expected native finishing evidence");
     const command = yield* Effect.promise(() =>
       pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(authority, finishing.evidence));
-    expect(command.dependencies).toHaveLength(0);
-    expect(command.indexRangeDependencies).toHaveLength(1);
-    expect(command.rowIntents).toHaveLength(0);
+    expect(command.dependencies).toHaveLength(operation === "insert" ? 1 : 0);
+    expect(command.indexRangeDependencies).toHaveLength(operation === "range" ? 1 : 0);
+    expect(command.rowIntents).toHaveLength(operation === "insert" ? 1 : 0);
     const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(application.control.drizzle);
     const publisher = createPointCommitPublisherPortV1(application.sessionAuthority, {
       developerIndexes: application.developerIndexes,

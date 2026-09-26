@@ -331,11 +331,36 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
     return Option.some(head);
   },
 );
+/** One bounded, authenticated head read for the common publication gate. The
+ * full activation/candidate check remains with source admission. */
+export const readBindingHeadProjection = Effect.fn("DataBindingRepository.readHeadProjection")(
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation,
+    observeQuery?: (query: { readonly sql: string; readonly params: readonly unknown[] }) => void) {
+    const query = tx.select({
+      sha256: heads.sha256,
+      canonicalBytes: boundedBytes(heads.canonicalBytes),
+      canonicalByteLength: heads.canonicalByteLength,
+      candidateSha256: heads.candidateSha256,
+    }).from(heads).where(and(eq(heads.scopeId, location.scopeId),
+      eq(heads.storageGeneration, location.storageGeneration))).limit(1);
+    observeQuery?.(query.toSQL());
+    const rows = yield* bindingStatement(query);
+    const row = rows[0];
+    if (row === undefined) return Option.none();
+    const restored = yield* decode(row, "flarex.data-binding-head", isDataBindingHeadFrame);
+    if (restored.frame.scopeId !== location.scopeId ||
+      restored.frame.storageGeneration !== location.storageGeneration ||
+      restored.frame.candidateSha256 !== row.candidateSha256)
+      return yield* Effect.fail(bindingError("storedCorruption"));
+    return Option.some(restored);
+  },
+);
 export const writeBindingActivation = Effect.fn(
   "DataBindingRepository.writeActivation",
 )(function* (
   tx: FlarexMetadataTransaction,
   request: DataBindingActivationRequest,
+  strongReferenceTableIds: readonly number[],
 ) {
   const times = yield* bindingStatement(
     tx
@@ -369,12 +394,13 @@ export const writeBindingActivation = Effect.fn(
   const head = yield* captureBindingValue(
     {
       format: "flarex.data-binding-head",
-      version: 1,
+      version: 2,
       scopeId: request.scopeId,
       storageGeneration: request.storageGeneration,
       sequence: sequence.toString(),
       candidateSha256: request.candidateSha256,
       activationSha256: activation.sha256Hex,
+      strongReferenceTableIds,
     },
     isDataBindingHeadFrame,
   );

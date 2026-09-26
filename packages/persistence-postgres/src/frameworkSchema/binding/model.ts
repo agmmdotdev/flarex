@@ -103,12 +103,14 @@ export type DataBindingActivationFrame = Readonly<{
   JsonObject;
 export type DataBindingHeadFrame = Readonly<{
   format: "flarex.data-binding-head";
-  version: 1;
+  version: 2;
   scopeId: string;
   storageGeneration: string;
   sequence: string;
   activationSha256: string;
   candidateSha256: string;
+  /** Authenticated projection of every table touched by a strong reference. */
+  strongReferenceTableIds: readonly number[];
 }> &
   JsonObject;
 export type DataBindingCandidate =

@@ -3,6 +3,7 @@ import {
   captureBindingValue,
   isDataBindingSetFrame,
   isDataBindingActivationFrame,
+  isDataBindingHeadFrame,
   restoreBindingValue,
 } from "../src/frameworkSchema/binding/canonical";
 import {
@@ -47,6 +48,19 @@ function frame(): DataBindingSetFrame {
 }
 
 describe("data binding value boundaries", () => {
+  it("binds sorted strong-reference endpoints into the current head format", async () => {
+    const head = { format: "flarex.data-binding-head", version: 2,
+      scopeId: frame().application.scopeId, storageGeneration: "flarexdb_v1", sequence: "1",
+      activationSha256: "a".repeat(64), candidateSha256: "b".repeat(64),
+      strongReferenceTableIds: [1, 3] };
+    const captured = await runEffect(captureBindingValue(head, isDataBindingHeadFrame));
+    expect(await runEffect(restoreBindingValue(captured.copyCanonicalBytes(), captured.sha256Hex,
+      head.format, isDataBindingHeadFrame))).toEqual(head);
+    for (const predecessor of [{ ...head, version: 1 }, { ...head, strongReferenceTableIds: [3, 1] },
+      { ...head, strongReferenceTableIds: [1, 1] }])
+      expect(await runEffectFailure(captureBindingValue(predecessor, isDataBindingHeadFrame)))
+        .toMatchObject({ reason: "invalidInput" });
+  });
   it("round-trips the current contract and rejects development-only predecessor formats", async () => {
     for (const input of [frame()]) {
       const captured = await runEffect(captureBindingValue(input, isDataBindingSetFrame));

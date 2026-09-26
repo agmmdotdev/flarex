@@ -57,8 +57,9 @@ index build or serving readiness. A joint candidate with Application and Payload
 Product still refuses affected runtime hosts while an unrelated Currency host
 serves. This proves preparation and safe refusal, not relation execution.
 
-The next connected slice must bind the authenticated extension set to the
-selected runtime head and install a shared settlement check for source writes,
+The [settlement-core preflight](./53-strong-reference-settlement-preflight.md)
+binds the authenticated extension set to the selected runtime head and installs
+a shared settlement check for source writes,
 target delete/restore and races, including soft-delete and Payload draft policy.
 It must preserve one publication owner and indexed forward/reverse traversal,
 then replace common source-admission refusal only for completely enforced

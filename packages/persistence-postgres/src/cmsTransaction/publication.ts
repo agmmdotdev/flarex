@@ -7,6 +7,7 @@ import type { CmsMaterializationTestHooks } from "./testSupport";
 import type { FlarexMetadataDatabase } from "../deployments";
 
 import { PointCommitSqlErrorV1, mapTransactionFailure } from "../pointCommitErrors";
+import { ScopePublicationUnsupportedProfileError } from "../commitPublication/scopePublicationModel";
 
 import { type ScopePublicationClock, type ScopePublicationContribution, type ScopePublicationKernel } from "../commitPublication/scopePublicationModel";
 import type { ApplicationRelationAdjacencyChange } from "../applicationRelationCommit";
@@ -56,6 +57,7 @@ export const prepareCmsApplicationCommit = Effect.fn("CmsCommit.prepare")(
 const cmsPreparations = new WeakSet<object>();
 type PreparedCmsCommit = Effect.Success<ReturnType<typeof prepareCmsApplicationCommit>>;
 const cmsKernel = <Value>(work: () => Promise<Value>) => Effect.tryPromise({ try: work, catch: cause => {
+  if (cause instanceof ScopePublicationUnsupportedProfileError) return cmsError("unsupportedProfile", cause);
   const failure = mapTransactionFailure(cause);
   return cmsError(failure instanceof PointCommitSqlErrorV1 ? "statementFailure" : failure instanceof AppUniqueKeyConflictError ? "uniqueConflict" : "storedCorruption", failure);
 }});

@@ -2,6 +2,7 @@ import { pointCommitSqlCallFailure } from "../pointCommitErrors";
 
 import {
   PointCommitResourceExhaustionV1Error,
+  PointCommitUnsupportedProfileV1Error,
   corruption,
 } from "../pointCommitErrors";
 
@@ -15,6 +16,7 @@ import {
   ScopePublicationCorruptionError,
   ScopePublicationResourceError,
   ScopePublicationSqlFailure,
+  ScopePublicationUnsupportedProfileError,
 } from "../commitPublication/scopePublicationModel";
 
 import { Result } from "effect";
@@ -49,6 +51,8 @@ export const advanceScopePublicationClock: typeof advanceSharedPublicationClock 
     advanceSharedPublicationClock(...args).catch(rethrowPublicationFailure);
 
 export function rethrowPublicationFailure(cause: unknown): never {
+  if (cause instanceof ScopePublicationUnsupportedProfileError)
+    throw new PointCommitUnsupportedProfileV1Error({ reason: cause.reason });
   if (cause instanceof ScopePublicationCorruptionError)
     throw corruption(cause.reason);
   if (cause instanceof ScopePublicationResourceError)

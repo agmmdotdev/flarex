@@ -1,5 +1,6 @@
 import { Data, Effect } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
@@ -14,6 +15,7 @@ import { lockScopeClockForSnapshotReadInTransactionEffect, type ScopeClockRecord
 import type { AppRowTransaction } from "./appRows";
 import { chargeHostPreparation } from "./preparedHostRuntime";
 import { prepareLogicalSearchBuild } from "./logicalSearchBuild";
+import { readLogicalStorageRequirements } from "./logicalStorageDefinitions";
 
 export class LogicalStorageReadinessError extends Data.TaggedError("LogicalStorageReadinessError")<{
   readonly reason: "invalidComposition" | "notLogicalCandidate" | "scopeMismatch";
@@ -43,6 +45,20 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
   yield* chargeUniqueConstraintPreparation(constraints.preparation);
   const definitionIds = Object.freeze(requirements.definitions.map(definition => definition.indexDefinitionId));
   const manifestSha256Hex = encodeBytesToLowercaseHex(requirements.manifestSha256);
+  const sourceRequirements = yield* readLogicalStorageRequirements(ports.controlDb,
+    captured.deploymentId, captured.schemaVersionId);
+  if (encodeBytesToLowercaseHex(sourceRequirements.artifact.manifestSha256) !== manifestSha256Hex)
+    return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  const endpointIds: number[] = [];
+  for (const extension of sourceRequirements.evidence.candidate.extensions) {
+    for (const endpoint of [extension.source, extension.target]) {
+      const bound = sourceRequirements.evidence.tableBindings.find(binding =>
+        logicalTableKey(binding.table) === logicalTableKey(endpoint.table));
+      if (bound === undefined) return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+      endpointIds.push(bound.tableId);
+    }
+  }
+  const strongReferenceTableIds = Object.freeze([...new Set(endpointIds)].toSorted((a, b) => a - b));
 
   /** Call inside the accepting owner's transaction after it locks the scope
    * clock. This observes fresh structural coverage; the outer binding owner
@@ -100,5 +116,5 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
   });
   return Object.freeze({ status: "prepared" as const, inspect, advanceEmptySearch: search.advanceEmpty,
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
-    applicationAnalysis: requirements.manifest.applicationAnalysis });
+    applicationAnalysis: requirements.manifest.applicationAnalysis, strongReferenceTableIds });
 });

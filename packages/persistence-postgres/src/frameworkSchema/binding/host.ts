@@ -455,7 +455,8 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
             current.value.sha256 === request.expectedHead.sha256 &&
             current.value.frame.sequence === request.expectedHead.sequence;
         if (!matches) return yield* Effect.fail(bindingError("concurrentHead"));
-        const written = yield* writeBindingActivation(tx, request);
+        const written = yield* writeBindingActivation(tx, request,
+          logicalStorage?.strongReferenceTableIds ?? []);
         if (afterAcceptance !== undefined) yield* afterAcceptance();
         return written;
       }),

@@ -4,6 +4,7 @@ import {
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
 import { encodeCanonicalJson, type JsonObject } from "flarex-protocol/json";
+import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import {
   isExactPrivateValueRecord as record,
   isPrivateValueSha256 as sha,
@@ -52,6 +53,7 @@ function invalidCanonical(): never {
 const isScopeEpoch = Schema.is(ScopeEpochSchema);
 const isScopeId = Schema.is(ScopeIdSchema);
 const isLogicalSchemaBinding = Schema.is(LogicalSchemaBindingSchema);
+const isCatalogTableId = Schema.is(CatalogTableIdSchema);
 
 function arrayOf<T>(
   input: unknown,
@@ -339,23 +341,21 @@ export function isDataBindingActivationFrame(
 export function isDataBindingHeadFrame(
   input: unknown,
 ): input is DataBindingHeadFrame {
+  if (!record(input, [
+    "format", "version", "scopeId", "storageGeneration", "sequence",
+    "activationSha256", "candidateSha256", "strongReferenceTableIds",
+  ])) return false;
+  const endpointIds = input.strongReferenceTableIds;
   return (
-    record(input, [
-      "format",
-      "version",
-      "scopeId",
-      "storageGeneration",
-      "sequence",
-      "activationSha256",
-      "candidateSha256",
-    ]) &&
     input.format === "flarex.data-binding-head" &&
-    input.version === 1 &&
+    input.version === 2 &&
     identity(input.scopeId) &&
     input.storageGeneration === "flarexdb_v1" &&
     positive(input.sequence) &&
     sha(input.activationSha256) &&
-    sha(input.candidateSha256)
+    sha(input.candidateSha256) &&
+    arrayOf(endpointIds, 256, isCatalogTableId) &&
+    endpointIds.every((tableId, index) => index === 0 || tableId > (endpointIds[index - 1] ?? 0))
   );
 }
 
@@ -412,7 +412,8 @@ export const restoreBindingValue = Effect.fn("DataBinding.restoreValue")(
         canonicalBytes: bytes,
         sha256Hex: digest,
         expectedFormat: format,
-        expectedVersion: format === "flarex.data-binding-set" ? null : 1,
+        expectedVersion: format === "flarex.data-binding-set" ? null :
+          format === "flarex.data-binding-head" ? 2 : 1,
         maximumCanonicalBytes: MAX_BINDING_BYTES,
         expectedKeys: undefined,
         validateFrame: guard,

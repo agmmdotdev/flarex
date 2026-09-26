@@ -212,6 +212,8 @@ export type PointCommitSqlOperationV1 =
   | "lockJournalRoot"
   | "lockExecutionClaim"
   | "readDatabaseTime"
+  | "readBindingHead"
+  | "readStrongReferenceFacts"
   | "enterFinishing"
   | "deleteExecutionClaim"
   | "loadRowHeads"
@@ -258,6 +260,7 @@ export type PointCommitRollbackProofV1Error =
   | PointCommitCorruptionV1Error
   | PointCommitResourceExhaustionV1Error
   | PointCommitSqlErrorV1
+  | PointCommitUnsupportedProfileV1Error
   | PointCommitIntrinsicIndexDefinitionUnavailableV1Error
   | PointCommitDeveloperIndexMaintenanceUnavailableV1Error
   | PointCommitUniqueConstraintMaintenanceUnavailableV1Error
@@ -276,6 +279,10 @@ export type PointCommitRollbackProofV1Error =
   | AppUniqueKeyHashError
   | CanonicalAppUniqueKeyHashCollisionError;
 
+export class PointCommitUnsupportedProfileV1Error extends Data.TaggedError("PointCommitUnsupportedProfileV1Error")<{
+  readonly reason: "strongReferenceUnenforced";
+}> {}
+
 export class PointCommitSqlFailureMarkerV1 {
   constructor(
     readonly operation: PointCommitSqlOperationV1,
@@ -292,6 +299,7 @@ export function mapTransactionFailure(
     cause instanceof PointCommitCorruptionV1Error ||
     cause instanceof PointCommitResourceExhaustionV1Error ||
     cause instanceof PointCommitSqlErrorV1 ||
+    cause instanceof PointCommitUnsupportedProfileV1Error ||
     cause instanceof PointCommitIntrinsicIndexDefinitionUnavailableV1Error ||
     cause instanceof PointCommitDeveloperIndexMaintenanceUnavailableV1Error ||
     cause instanceof PointCommitUniqueConstraintMaintenanceUnavailableV1Error ||
