@@ -1,6 +1,7 @@
 import { Data, Effect } from "effect";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { compileLogicalSourceUniqueConstraints, compileLogicalSourceIndexes, compileLogicalSourceSearches,
+  compileLogicalExtensionIndexes,
   type LogicalSourceIndexRequirement, type LogicalSourceSearchRequirement,
   type LogicalSourceUniqueRequirement } from "flarex-protocol/internal/logical-storage-requirements";
 import type { CatalogTableId } from "flarex-protocol/catalog";
@@ -53,6 +54,13 @@ export const readLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitio
     for (const requirement of yield* Effect.fromResult(compileLogicalSourceSearches(source)))
       search.push({ ...yield* bind(requirement), sourceKey: source.key, sourceSha256: source.sourceSha256 });
     for (const requirement of yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source))) unique.push(yield* bind(requirement));
+  }
+  for (const requirement of yield* Effect.fromResult(compileLogicalExtensionIndexes(evidence.candidate))) {
+    const table = evidence.tableBindings.find(binding =>
+      logicalTableKey(binding.table) === logicalTableKey(requirement.table));
+    if (table === undefined) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }));
+    ordered.push({ localName: requirement.localName, descriptor: requirement.descriptor,
+      physicalSpec: requirement.physicalSpec, tableId: table.tableId });
   }
   for (const binding of evidence.tableBindings) {
     const current = yield* getStableTableIdentityByValidatedIdEffect(db, { deploymentId, tableId: binding.tableId });

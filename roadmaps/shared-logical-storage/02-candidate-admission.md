@@ -42,6 +42,10 @@ native Product model or prove executable traversal/constraint enforcement.
 Extensions explicitly select `strongReference`; they are not native Module Links.
 Application ID fields resolve their declared target through producer bindings,
 so two different table IDs are not interchangeable merely because both are IDs.
+The later [identity and reverse-index correction](./51-strong-reference-identity-and-index.md)
+requires a document `_id` or single text primary key as the target and derives
+an unconditional reverse path when the producer has none. This does not grant
+runtime serving authority.
 Non-global Application placement is explicitly refused until typed partition and
 colocation requirements are supported; it must never disappear in projection.
 

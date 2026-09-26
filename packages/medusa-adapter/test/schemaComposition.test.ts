@@ -157,7 +157,7 @@ async function witness(
     ] }], bindings: [{ localName: "cms_view", table }] }],
     extensions: [
       { name: "page_product", sourceKey: "application", source: { table, field: "commerceId" }, target: { table: productTable, field: "id" }, policy: "strongReference", onTargetDelete: "restrict" },
-      { name: "product_page", sourceKey: "medusa.product", source: { table: productTable, field: "handle" }, target: { table, field: "title" }, policy: "strongReference", onTargetDelete: "restrict" },
+      { name: "product_page", sourceKey: "medusa.product", source: { table: productTable, field: "handle" }, target: { table, field: "_id" }, policy: "strongReference", onTargetDelete: "restrict" },
     ],
   };
   const linkWithoutEndpoints = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses,
@@ -266,7 +266,9 @@ async function witness(
       binding.table.namespace === "medusa" && binding.table.logicalName.startsWith("commerce.product/"))
       .map(binding => binding.tableId));
     expect(productTableIds.size).toBe(13);
-    expect(definitions.requirements.ordered.filter(index => productTableIds.has(index.tableId))).toHaveLength(60);
+    const productIndexes = definitions.requirements.ordered.filter(index => productTableIds.has(index.tableId));
+    expect(productIndexes).toHaveLength(61);
+    expect(productIndexes.filter(index => index.descriptor === "strong-reference/handle")).toHaveLength(1);
     expect(definitions.requirements.unique.filter(unique => productTableIds.has(unique.tableId))).toHaveLength(24);
     if (proveForeignKeys) await Effect.runPromise(productForeignKeyScenario(persistence.drizzle, deploymentId,
       authority.scopeId, identity.schemaVersionId, productDefinition.schema,
@@ -327,6 +329,8 @@ async function witness(
     ? { ...source, definition: { ...productDefinition, schema: { ...productDefinition.schema, tables: productDefinition.schema.tables.slice(1) } } } : source) }))).toBe(true);
   expect(Result.isFailure(decodeLogicalSchemaCandidate({ ...candidate, extensions: [{ ...candidate.extensions[0], sourceKey: "payload" }] }))).toBe(true);
   expect(Result.isFailure(decodeLogicalSchemaCandidate({ ...candidate, extensions: [{ ...candidate.extensions[0], target: { table: { ...table, logicalName: "missing" }, field: "title" } }] }))).toBe(true);
+  for (const target of [{ table, field: "title" }, { table: productTable, field: "handle" }])
+    expect(Result.isFailure(decodeLogicalSchemaCandidate({ ...candidate, extensions: [{ ...candidate.extensions[0], target }] }))).toBe(true);
   expect(await Effect.runPromise(Effect.result(compose({ ...request, payloadViews: [{ ...request.payloadViews[0],
     collections: [{ slug: "cms-view", fields: [{ name: "title", type: "number", required: true }] }],
   }] })))).toMatchObject({ _tag: "Failure" });

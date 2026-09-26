@@ -1,6 +1,7 @@
 import { Data, Result, Schema } from "effect";
 import { CatalogDefinitionNameSchema, type CatalogDefinitionName } from "./catalog";
-import type { LogicalSchemaSource } from "./logical-schema-candidate";
+import { logicalTableKey, type LogicalSchemaCandidate, type LogicalSchemaSource,
+  type QualifiedLogicalTable } from "./logical-schema-candidate";
 import { SchemaManifestAppDeveloperOrderedIndexSpecV1Schema } from "./schema-manifest";
 import { decodeAppOrderedIndexPhysicalSpecV1Result, lowerAppDeveloperOrderedIndexPhysicalSpecV1,
   type AppOrderedIndexPhysicalSpecV1 } from "./ordered-index";
@@ -18,6 +19,10 @@ export interface LogicalSourceIndexRequirement {
   readonly localName: string;
   readonly descriptor: CatalogDefinitionName;
   readonly physicalSpec: AppOrderedIndexPhysicalSpecV1;
+}
+export interface LogicalExtensionIndexRequirement extends LogicalSourceIndexRequirement {
+  readonly sourceKey: string;
+  readonly table: QualifiedLogicalTable;
 }
 export interface LogicalSourceUniqueRequirement {
   readonly localName: string;
@@ -103,6 +108,47 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
       }
     }
     return Object.freeze(requirements);
+  });
+}
+
+/** Strong references need complete reverse membership at target deletion.
+ * Reuse an unconditional leading-field index when the producer already has
+ * one; otherwise derive one stable index per source table and field. */
+export function compileLogicalExtensionIndexes(candidate: LogicalSchemaCandidate) {
+  return Result.gen(function* () {
+    const derived: LogicalExtensionIndexRequirement[] = [];
+    const sourceIndexes = new Map<string, readonly LogicalSourceIndexRequirement[]>();
+    for (const extension of candidate.extensions) {
+      const source = candidate.sources.find(member => member.key === extension.sourceKey);
+      if (source === undefined) return yield* Result.fail(new LogicalStorageRequirementError({
+        reason: "unsupportedDefinition", sourceKey: extension.sourceKey,
+      }));
+      const binding = source.bindings.find(member => member.kind === "definition" &&
+        logicalTableKey(member.table) === logicalTableKey(extension.source.table));
+      if (binding === undefined) return yield* Result.fail(failure(source));
+      let indexes = sourceIndexes.get(source.key);
+      if (indexes === undefined) {
+        indexes = yield* compileLogicalSourceIndexes(source);
+        sourceIndexes.set(source.key, indexes);
+      }
+      const covers = (index: LogicalSourceIndexRequirement) => index.localName === binding.localName &&
+        index.physicalSpec.predicate === undefined &&
+        index.physicalSpec.orderedFields[0]?.kind === "documentPath" &&
+        index.physicalSpec.orderedFields[0].path === extension.source.field &&
+        index.physicalSpec.orderedFields[0].valueFormat !== "exactDecimal";
+      if (indexes.some(covers) || derived.some(index =>
+        logicalTableKey(index.table) === logicalTableKey(extension.source.table) && covers(index))) continue;
+      const descriptor = yield* decodeName(`strong-reference/${extension.source.field}`)
+        .pipe(Result.mapError(cause => failure(source, cause)));
+      if (indexes.some(index => index.localName === binding.localName && index.descriptor === descriptor))
+        return yield* Result.fail(failure(source));
+      const logical = yield* decodeIndex({ kind: "developerOrdered", specVersion: 1,
+        fields: [extension.source.field] }).pipe(Result.mapError(cause => failure(source, cause)));
+      derived.push(Object.freeze({ sourceKey: source.key, table: extension.source.table,
+        localName: binding.localName, descriptor,
+        physicalSpec: lowerAppDeveloperOrderedIndexPhysicalSpecV1(logical) }));
+    }
+    return Object.freeze(derived);
   });
 }
 

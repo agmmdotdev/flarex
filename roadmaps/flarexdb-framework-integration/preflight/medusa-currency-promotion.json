@@ -4426,7 +4426,7 @@
     {
       "target": "packages/medusa-adapter/test/schemaComposition.test.ts",
       "classification": "authored",
-      "targetSha256": "6895ac68361da7e7793441dbf47972d0b5dfad5c0d201347990850382f865d07"
+      "targetSha256": "48284d026eb7a79191f1a01378df7347e0eb903764afdd3960fa1486e56da90c"
     },
     {
       "target": "packages/medusa-adapter/test/logicalSchemaBindings.test.ts",

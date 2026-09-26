@@ -7,6 +7,7 @@ import { LogicalDocumentUniqueConstraintDeclarationSchema } from "./app-unique-c
 import {
   SchemaManifestAppTableDeclarationV1Schema,
   SchemaManifestAppIndexDeclarationV1Schema,
+  SchemaManifestAppIndexFieldPathSchema,
   SchemaManifestJsonSchema,
   decodeSchemaManifestAppTableDeclarationsV1Result,
   decodeSchemaManifestAppIndexDeclarationsV1Result,
@@ -199,18 +200,28 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
     const target = definitions.get(logicalTableKey(extension.target.table));
     if (source === undefined || target === undefined) return "Unresolved extension endpoint";
     if (source.source.key !== extension.sourceKey) return "Extension is not authorized by its source owner";
-    const left = endpointKind(source, extension.source.field);
-    const right = endpointKind(target, extension.target.field);
-    if (left === undefined || right === undefined || left !== right) return "Incompatible extension endpoints";
+    const left = sourceReferenceKind(source, extension.source.field);
+    const right = targetIdentityKind(target, extension.target.field);
+    if (left === undefined || right === undefined || (left !== "text" && left !== right))
+      return "Incompatible extension endpoints";
   }
   return undefined;
 }
 
-function endpointKind({ source, binding }: DefinitionBinding, field: string): string | undefined {
+const decodeIndexableReferenceField = Schema.decodeUnknownResult(SchemaManifestAppIndexFieldPathSchema);
+const isIndexableReferenceField = (field: string) => !field.includes(".") &&
+  Result.isSuccess(decodeIndexableReferenceField(field));
+
+function sourceReferenceKind({ source, binding }: DefinitionBinding, field: string): string | undefined {
+  // Ordered document paths split on dots. A relational column named "a.b"
+  // is a literal key, not a nested path, so its reverse index would be false.
+  if (!isIndexableReferenceField(field)) return undefined;
   if (source.definition.kind === "documents") {
-    if (field === "_id") return `identity:${logicalTableKey(binding.table)}`;
+    if (field === "_id") return undefined;
     const table = source.definition.tables.find(entry => entry.logicalName === binding.localName);
     const type = table?.definition.documentType.value[field]?.fieldType;
+    if (source.definition.indexes.some(index => index.tableLogicalName === binding.localName &&
+      index.decimalFields?.some(path => path === field))) return undefined;
     if (type?.type === "id") {
       const target = source.bindings.find(entry => entry.localName === type.tableName);
       return target === undefined ? undefined : `identity:${logicalTableKey(target.table)}`;
@@ -220,6 +231,20 @@ function endpointKind({ source, binding }: DefinitionBinding, field: string): st
   const table = source.definition.schema.tables.find(entry => entry.identity.tableId === binding.localName);
   const column = table?.columns.find(entry => entry.identity.columnId === field);
   return column?.type === "text" ? "text" : undefined;
+}
+
+/** A strong reference names one record. Arbitrary matching text fields can
+ * have duplicates, so only a document identity or a single text primary key
+ * may be its target. Source strings may carry either identity format; typed
+ * document IDs retain their declared table restriction. */
+function targetIdentityKind({ source, binding }: DefinitionBinding, field: string): string | undefined {
+  if (!isIndexableReferenceField(field)) return undefined;
+  if (source.definition.kind === "documents")
+    return field === "_id" ? `identity:${logicalTableKey(binding.table)}` : undefined;
+  const table = source.definition.schema.tables.find(entry => entry.identity.tableId === binding.localName);
+  const primary = table?.keys.find(key => key.kind === "primary");
+  return primary?.columns.length === 1 && primary.columns[0]?.columnId === field &&
+    table?.columns.find(column => column.identity.columnId === field)?.type === "text" ? "text" : undefined;
 }
 
 function canonical(value: unknown): string {
