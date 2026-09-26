@@ -113,6 +113,7 @@ or that separate profiles have universally better performance.
 | --- | --- | --- |
 | [Native session journal](../packages/persistence-postgres/src/sessionJournalStore.ts) and [commit owner](../packages/persistence-postgres/src/pointCommitTransaction.ts) | Attempt identity, snapshot reads, pending point/index state, authenticated sealing, OCC and recovery | Authenticate framework operations and their complete dependencies without granting ordinary Application writes to framework-owned tables |
 | [Logical working set](../packages/persistence-postgres/src/logicalDocuments/workingSet.ts) | Pending documents, indexed queries, unique observations, relational checks and resource accounting | Its [construction contract](../packages/persistence-postgres/src/logicalDocuments/model.ts) borrows a physical transaction and request lifetime; current observations do not establish native historical-snapshot semantics |
+| [Shared index/search definitions and entries](../packages/persistence-postgres/src/logicalDocuments/searchEntries.ts) | Ordered and unique access, current text/JSON search, atomic maintenance and scoped readiness | Establish snapshot candidate selection and complete conflict evidence for each admitted access path; current-search entries alone do not provide historical search |
 | [Shared materialization](../packages/persistence-postgres/src/logicalDocuments/materialization.ts) | Generic row/index/constraint preparation and lowering | Validate one combined mutation contribution across authenticated semantic owners |
 | [Medusa repository context](../packages/medusa-adapter/src/commerce-repository-context.ts) and [Payload adapter](../packages/payload-adapter/src/adapter.ts) | Opaque manager/request propagation and framework translation | Borrow mutation-attempt capabilities instead of independently executing a root command |
 | [Workflow runner](../packages/medusa-workflows-sdk/src/runtime.ts) and [adapter runtime](../packages/medusa-adapter/src/workflow-runtime.ts) | Finite ordered steps, child frames, captured results and caller-owned execution | Participate in a native attempt and its whole-mutation retry contract |
@@ -237,6 +238,93 @@ Begin with the current ordered workflow profile. Unsupported parallel workflow
 constructs remain explicit refusals; do not silently serialize upstream parallel
 semantics. Concurrent calls against one mutable attempt require their own
 sequencing and visibility proof before admission.
+
+## Shared Index And Search Participation
+
+Index and search correctness belong in the core execution design for Application,
+Payload and Medusa. Reassess and reuse the migration's final shared owners before
+changing their contracts. Framework adapters translate their native declarations,
+operators and results; core owns logical identity, scope confinement, build and
+readiness, atomic maintenance, bounded execution, pending visibility, snapshot
+selection and conflict evidence. Keep domain-specific matching and lifecycle
+semantics explicit. Shared storage does not automatically admit every query in
+every execution profile or expose a developer search API.
+
+### Existing Access Paths And Semantic Boundaries
+
+| Requirement | Existing foundation and boundary |
+| --- | --- |
+| Equality, ranges and ordered pages | Shared ordered logical indexes, typed bounds and membership evidence. [Payload scalar and compound declarations](../roadmaps/shared-logical-storage/05-indexed-payload-queries.md) already reuse Application index machinery. |
+| Conditional uniqueness | Scoped unique claims with predicate and null semantics; observation is not a substitute for atomic enforcement. |
+| Medusa Product `q` | [Shared text search](../roadmaps/shared-logical-storage/45-core-indexed-text-search.md) over current declared fields using trigram GIN and exact native matching. |
+| JSON containment | [Shared JSON access](../roadmaps/shared-logical-storage/46-core-json-containment-index.md) over explicitly declared current fields using GIN with `jsonb_path_ops` and exact containment checks. |
+
+The [physical schemas](../packages/persistence-postgres/src/schema.ts) use generic
+families shared across scopes and logical definitions. Product `q` uses
+`gin_trgm_ops`; `btree_gin` supplies scalar operator classes for scope and index
+identifiers inside the composite GIN path. It is not ordinary B-tree substring
+search. Different physical access paths are justified by different query
+operators; their lifecycle and transaction authority remain shared.
+
+The current Product contract is ASCII-folded SQL `LIKE` matching over declared
+fields, including its wildcard behavior. It does not establish ranked full-text
+search, typo tolerance, language analysis or arbitrary Payload operator parity.
+Text equality, substring matching, JSON containment and ranked search must not be
+treated as interchangeable capabilities. Reuse the mechanics where semantics
+agree and admit each consumer's query contract explicitly.
+
+### Snapshot Search Is A Required Design Decision
+
+The current text and JSON families retain current entries tied to row revisions.
+The working set merges pending rows and [revalidates captured search membership](../packages/persistence-postgres/src/logicalDocuments/contribution.ts)
+at settlement. Those mechanics do not alone implement an older native attempt
+snapshot across separate physical transactions.
+
+For example, Product A is named `red shirt` when a mutation starts at snapshot
+100. Another writer commits `blue shirt` at 101 before the mutation first
+searches for `red`. A current-only search index can omit A even though it belongs
+in the snapshot result. Loading historical bodies for returned candidates cannot
+recover an omitted candidate. Repeating the same current search at settlement
+does not repair that initial snapshot mismatch.
+
+For each admitted access path, select and prove historical candidate selection,
+or a conservative change-detection protocol that retries/refuses when the current
+path cannot safely serve the attempt snapshot. The latter must cover relevant
+changes since the snapshot and races between its protection/check and candidate
+read; it cannot return an inconsistent result and rely only on a later recheck.
+Keep unsupported paths unavailable until their contract is proved. Do not move
+the attempt snapshot forward mid-execution or hold a database transaction across
+untrusted work to bypass this requirement. Indexing every historical document
+into GIN is not a default decision; compare its retention and write costs with
+the alternatives before selecting a representation.
+
+### Required Per-Path Contract And Proofs
+
+| Concern | Required contract |
+| --- | --- |
+| Snapshot and authority | Pin the admitted source/index identity and establish complete authorized candidates at the attempt snapshot. |
+| Pending visibility | Merge local inserts, edits, deletes, soft-delete/restore and predicate transitions; remove old matches and add new ones within the same attempt. |
+| OCC evidence | Protect empty results, new/disappearing matches and changes to returned values; preserve the relevant order, page, count and constraint decisions. Row IDs alone are insufficient. |
+| Build and lifecycle | Define concurrent build/activation behavior, stale-definition refusal, coverage, retention expiry and retirement while attempts or recovery still reference an index. |
+| Semantics and bounds | Preserve admitted matching, ordering, null, projection, count and pagination meaning. Overflow refuses rather than returning a partial result as complete. |
+| Maintenance and cost | Maintain entries atomically with rows and publication under the shared writer protocol; account for reads, writes, bytes, history and coverage contention. |
+
+Add connected witnesses for a pending text/JSON match appearing and disappearing,
+concurrent insert/update/delete/restore changing membership, and a change between
+attempt creation and its first search. Include conditional-index membership,
+empty-result conflicts, scoped isolation, activation changes, rollback, replay
+and retention expiry for the selected contract. Exercise standalone framework
+writers against mixed attempts; separate source families do not remove that
+interoperability obligation. Use private bindings and existing framework calls.
+
+Short/common patterns, large matching sets and planner selectivity retain their
+explicit limits. GIN availability and a returned-row limit do not prove bounded
+database work. Current search maintenance rewrites affected entries and advances
+coverage; measure its amplification and revision ties before deciding whether
+unchanged searchable values can avoid index rewrites. Physical layout, caching,
+batching and selectivity tuning follow the performance sequence below. Snapshot
+and conflict correctness cannot be deferred as performance work. Developer search
+APIs and additional search semantics remain separately scoped.
 
 ## Payload Hooks, Events And External Effects
 
@@ -509,6 +597,9 @@ unbounded tuning or an unproved universal performance claim a completion gate.
    conflicts, absence/range changes, write skew, unique/FK races, opposing lock
    orders, standalone-writer overlap, activation changes, snapshot expiry and
    lost commit acknowledgements. Retries cannot reuse abandoned workflow state.
+   For admitted text/JSON search, prove historical candidate correctness or its
+   explicit retry/refusal protocol, pending membership and concurrent membership
+   changes through the shared index/search contract above.
 4. **Prove Payload lifecycle and finite workflow participation.** Use real Local
    API access/validation and nested hooks, plus a native workflow with child work,
    pending graph reads and both event families. Unsupported effects, waits,
@@ -539,6 +630,9 @@ follow-on work.
   one pending view without introducing another overlay or policy dispatcher?
 - Which framework query forms have sufficient history and dependency evidence,
   and which must remain unavailable until that evidence exists?
+- Which text/JSON access paths use historical candidate selection, and which
+  need a conservative change-detection/retry contract? How are index readiness,
+  retention and all participating writers covered without duplicate authorities?
 - What hook execution locations and effect capabilities are permitted? Which
   failures remain catchable before any work is staged?
 - How do time, generated IDs, workflow outputs and framework bindings behave
