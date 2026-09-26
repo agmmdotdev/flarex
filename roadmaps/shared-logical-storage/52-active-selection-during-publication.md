@@ -1,9 +1,9 @@
 # Application active selection during logical publication
 
-Status: the read-only selection correction and logical Currency commit-hold
-witness are implemented. Binding-change and revocation witnesses still retain
-their physical host consumer. This is part of shared-storage consumer cutover,
-not advanced schema evolution.
+Status: the read-only selection correction and logical Currency commit-hold,
+binding-change and revocation witnesses are implemented. Physical
+installation/profile binding cases retain their host consumer. This is part of
+shared-storage consumer cutover, not advanced schema evolution.
 
 ## Reproducible boundary
 
@@ -58,11 +58,16 @@ key-share.
 
 The logical Currency commit-hold witness now proves a fresh older-snapshot
 read completes before COMMIT, a competing write gets the bounded publication
-lock refusal, and only one write publishes with replay. The corresponding two
-physical commerce tests are retired. Keep the remaining physical binding and
-revocation cases until logical or shared-core witnesses replace them. Validate
+lock refusal, and only one write publishes with replay. The physical commerce
+snapshot fixture is retired. Logical Currency also covers binding removal and
+authorization revocation after snapshot formation and before native work.
+Binding removal reports `bindingChanged`; scope revocation reports
+`invalidAuthority`. A rejected read leaves logical rows, history, indexes,
+facts, events and outcomes untouched. Other physical installation/profile
+binding cases retain their separate consumer until logical or shared-core
+witnesses replace them. Validate
 legacy and relation selection, failure/recovery and source readiness on PGlite
-where applicable and ordinary-role PostgreSQL. Remove the physical fixture
+where applicable and ordinary-role PostgreSQL. Remove the remaining physical fixture
 only after those claims and its remaining consumers have replacement evidence.
 The ordinary-role PostgreSQL readiness witness also holds a clock and enabled
 index-build coverage update through COMMIT, checks selection before release,

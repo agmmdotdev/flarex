@@ -311,8 +311,11 @@ remain distinct from logical schema evolution.
   mutable coverage beside the clock in one nonblocking statement snapshot,
   with a held indexed-publication PostgreSQL witness. Unique-set readiness
   observes concurrent coverage under compatible key-share locks, with its own
-  held-publication witness. Physical binding and revocation cases retain their
-  named host consumer until their logical or shared-core proofs move.
+  held-publication witness. Logical Currency also replaces the physical
+  snapshot binding/removal and authorization-revocation races, including the
+  pre-callback refusal and restored-binding read. Other physical
+  installation/profile binding cases retain their named host consumer until
+  their logical or shared-core proofs move.
 - Framework installation and Application evolution remain distinct. Generated
   commerce and Payload preference storage still consume framework evidence;
   their migration and recovery obligations must move before table removal.

@@ -10,6 +10,13 @@ import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { issueRelationalSession, runRelationalSession, type RelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
 import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
+import { runDrizzleStatementEffect } from "../../persistence-postgres/src/drizzleStatementEffect";
+import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
+import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
+import { advanceScopeAuthorizationRevocationEpochInTransactionEffect } from "../../persistence-postgres/src/scopeClock";
+import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
+import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";
+import { fxSystemDataBindingHeads } from "../../persistence-postgres/src/frameworkSchema/binding/schema";
 import type { Json, JsonObject } from "flarex-protocol/json";
 import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
 
@@ -274,4 +281,92 @@ describe.skipIf(postgresUrl === null)("logical commerce snapshots and publicatio
       }
     }, 120_000);
   }
+
+  it.each(["binding", "revocation"] as const)(
+    "rejects a %s change before a logical Currency read reaches native work", async transition => {
+      const entered = await Effect.runPromise(Deferred.make<void>());
+      const release = await Effect.runPromise(Deferred.make<void>());
+      const bindingBase = { database: fixture.persistence.drizzle, deploymentId: fixture.deploymentId,
+        target: fixture.bindingTarget, authority: fixture.application.authorityPorts,
+        application: fixture.application.activation };
+      const bindingInput = { ...bindingBase,
+        logicalStorage: { controlDb: fixture.control.drizzle, schemaVersionId: fixture.schemaVersionId,
+          unique: fixture.application.uniqueConstraintEligibility } };
+      const configured = await Effect.runPromise(makeDataBindingHost(bindingInput));
+      const originalBinding = await Effect.runPromise(configured.withCurrent(readAdmittedDataBinding));
+      const unconfigured = await Effect.runPromise(makeDataBindingHost(bindingBase));
+      let bindingRemoved = false;
+      let bindingRestored = false;
+      const restoreBinding = async () => {
+        const current = await Effect.runPromise(unconfigured.withCurrent(readAdmittedDataBinding));
+        const original = await Effect.runPromise(configured.prepare(originalBinding.frame));
+        await Effect.runPromise(configured.activate(dataBindingActivationRequest(current.frame.application.scopeId,
+          current.frame.application.storageGeneration, "logical-snapshot-restore", original.sha256, current.head)));
+        bindingRestored = true;
+      };
+      const session = issueRelationalSession(fixture.persistence.drizzle, (profile, work, commandMs) =>
+        runRelationalSession(fixture.session, profile, tx => Effect.gen(function* () {
+          if (profile === "snapshotRead") {
+            yield* runDrizzleStatementEffect(tx.select().from(fxSystemDataBindingHeads).limit(1), cause =>
+              new RelationalSessionError({ reason: "resourceFailure", cause }));
+            yield* Deferred.succeed(entered, undefined);
+            yield* Deferred.await(release);
+          }
+          return yield* work(tx);
+        }), commandMs).pipe(Effect.catchTag("RelationalTransactionError", cause =>
+          Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause })))));
+      let nativeReads = 0;
+      const read = defineCommerceCommand("snapshotLogicalBindingRead", "read", Effect.fn(function* (ctx) {
+        nativeReads++;
+        return yield* ctx.nested(currencyCommands.list,
+          { filters: { code: "baseline" }, config: { select: ["code", "name"] } });
+      }));
+      const reader = await local([read, currencyCommands.list], session);
+      try {
+        const before = await logicalCurrencyInventory(fixture);
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const reading = yield* reader.read(read, null).pipe(Effect.result, Effect.forkScoped);
+          yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
+          if (transition === "binding") {
+            const candidate = yield* unconfigured.prepare({ ...originalBinding.frame, logicalSchema: null });
+            yield* unconfigured.activate(dataBindingActivationRequest(originalBinding.frame.application.scopeId,
+              originalBinding.frame.application.storageGeneration, "logical-snapshot-unbind", candidate.sha256, originalBinding.head));
+            bindingRemoved = true;
+          } else {
+            yield* runEffectTransaction(work => fixture.persistence.drizzle.transaction(work),
+              "Advance logical Currency authorization epoch", (tx: FlarexMetadataTransaction) =>
+                advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx,
+                  fixture.application.authority.scopeId),
+              cause => new Error("Advance logical Currency authorization epoch", { cause }));
+          }
+          yield* Deferred.succeed(release, undefined);
+          expect(yield* Fiber.join(reading)).toMatchObject({ _tag: "Failure",
+            failure: { reason: "invalidAuthority", cause: { cause: { cause: { code: "40001" } } } } });
+          expect(nativeReads).toBe(0);
+        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
+        const after = await logicalCurrencyInventory(fixture);
+        const { clocks: beforeClocks, ...beforeData } = before;
+        const { clocks: afterClocks, ...afterData } = after;
+        expect(afterData).toEqual(beforeData);
+        expect(afterClocks[0]?.lastCommitSeq).toBe(beforeClocks[0]?.lastCommitSeq);
+        expect(afterClocks[0]?.authorizationRevocationEpoch).toBe(
+          (beforeClocks[0]?.authorizationRevocationEpoch ?? 0n) + (transition === "revocation" ? 1n : 0n));
+        const fresh = await local([read, currencyCommands.list]);
+        try {
+          await expect(Effect.runPromise(fresh.read(read, null))).rejects.toMatchObject({
+            reason: transition === "binding" ? "bindingChanged" : "invalidAuthority",
+          });
+          expect(nativeReads).toBe(0);
+          if (transition === "binding") {
+            await restoreBinding();
+            expect(await Effect.runPromise(fresh.read(read, null))).toEqual([{ code: "baseline", name: baselineName }]);
+            expect(nativeReads).toBe(1);
+          }
+        } finally { await Effect.runPromise(fresh.close); }
+      } finally {
+        await Effect.runPromise(Deferred.succeed(release, undefined));
+        await Effect.runPromise(reader.close);
+        if (bindingRemoved && !bindingRestored) await restoreBinding();
+      }
+    }, 90_000);
 });

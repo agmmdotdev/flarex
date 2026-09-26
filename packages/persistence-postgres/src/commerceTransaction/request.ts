@@ -6,6 +6,7 @@ import { Effect, Result } from "effect";
 import { PreparedHostRuntimeError } from "../preparedHostRuntime";
 import { LogicalDocumentMaterializationError } from "../logicalDocuments/materialization";
 import { LogicalRelationalAdmissionError } from "../logicalDocuments/relationalAdmission";
+import { DataBindingError } from "../frameworkSchema/binding/errors";
 import { canonicalizeJsonOutcome, captureJsonOutcomeValue, JsonOutcomeError } from "../jsonOutcome";
 import { sql } from "drizzle-orm";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -47,6 +48,8 @@ export const commerceRequestHash = makeLivePrivateSha256V1({
 /** Expected errors only. Effect.mapError preserves interruption and defects. */
 export const projectCommerceRequestFailure = (cause: unknown): CommerceTransactionError => {
   if (cause instanceof CommerceTransactionError) return cause;
+  if (cause instanceof DataBindingError && cause.reason === "logicalSchemaMismatch")
+    return commerceError("bindingChanged", cause);
   if (cause instanceof LogicalRelationalAdmissionError && cause.reason === "unsupportedProfile")
     return commerceError("unsupportedProfile", cause);
   if (cause instanceof LogicalDocumentMaterializationError) return commerceError(

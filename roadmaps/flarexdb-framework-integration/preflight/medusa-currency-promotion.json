@@ -4351,12 +4351,12 @@
     {
       "target": "packages/medusa-adapter/test/logical-commerce-snapshot.postgres.test.ts",
       "classification": "authored",
-      "targetSha256": "1f6abc960b0314ab0c29ccd57316fbaa0a28b0a4fee1bdfc2db64126d19eb0e0"
+      "targetSha256": "f00460f6de1e73a1323d5580d51a3cfa7cb822f279b95902932e644afd00e8cf"
     },
     {
       "target": "packages/medusa-adapter/test/logical-currency-fixture.test.ts",
       "classification": "authored",
-      "targetSha256": "430d0cddcde54e234a3f555680643704f977f59fa76d82b2537fd9b60206be73"
+      "targetSha256": "c10d9ed3adc189616e3e68b185bc3ed8246a6b38d46978cc9269868f4cb507b3"
     },
     {
       "target": "packages/medusa-adapter/test/logical-currency-joint.test.ts",

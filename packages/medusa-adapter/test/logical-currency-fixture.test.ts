@@ -12,6 +12,8 @@ import { cmsError, cmsLimits } from "../../persistence-postgres/src/cmsTransacti
 import { makeBoundedRequestLifetime } from "../../persistence-postgres/src/boundedRequestLifetime";
 import { defineCmsCommand, makeCmsHost } from "../../persistence-postgres/src/cmsTransaction/host";
 import { DataBindingError } from "../../persistence-postgres/src/frameworkSchema/binding/errors";
+import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
+import { readAdmittedDataBinding } from "../../persistence-postgres/src/frameworkSchema/binding/selection";
 import { preparedHostTestRuntime } from "../../persistence-postgres/test/preparedHostRuntimeTestSupport";
 import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
@@ -22,7 +24,7 @@ import { lockScopeClockForUpdateInTransactionEffect } from "../../persistence-po
 import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
 import { runDrizzleStatementEffect } from "../../persistence-postgres/src/drizzleStatementEffect";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
-import { currencyAnnouncementWrite } from "../src/currency-service";
+import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
 import { withCurrencyService } from "../src/currency-service";
 import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
@@ -31,6 +33,43 @@ import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 
 describe("native Currency on the selected shared logical schema", () => {
+  it("refuses an unbound logical Currency source and resumes after rebinding on PGlite", async () => {
+    const cleanup: Array<() => Promise<void>> = [];
+    try {
+      const fixture = await logicalCurrencyFixture("pglite", close => cleanup.push(close));
+      const bindingBase = { database: fixture.persistence.drizzle, deploymentId: fixture.deploymentId,
+        target: fixture.bindingTarget, authority: fixture.application.authorityPorts,
+        application: fixture.application.activation };
+      const input = { ...bindingBase,
+        logicalStorage: { controlDb: fixture.control.drizzle, schemaVersionId: fixture.schemaVersionId,
+          unique: fixture.application.uniqueConstraintEligibility } };
+      const configured = await Effect.runPromise(makeDataBindingHost(input));
+      const unconfigured = await Effect.runPromise(makeDataBindingHost(bindingBase));
+      const original = await Effect.runPromise(configured.withCurrent(readAdmittedDataBinding));
+      const query = { filters: { code: "usd" }, config: { select: ["code", "name"] } };
+      const before = await Effect.runPromise(fixture.host.read(currencyCommands.list, query));
+      const durableBefore = await logicalCurrencyInventory(fixture);
+      let unbound = false;
+      try {
+        const candidate = await Effect.runPromise(unconfigured.prepare({ ...original.frame, logicalSchema: null }));
+        await Effect.runPromise(unconfigured.activate(dataBindingActivationRequest(original.frame.application.scopeId,
+          original.frame.application.storageGeneration, "pglite-logical-unbind", candidate.sha256, original.head)));
+        unbound = true;
+        await expect(Effect.runPromise(fixture.host.read(currencyCommands.list, query)))
+          .rejects.toMatchObject({ reason: "bindingChanged" });
+        expect(await logicalCurrencyInventory(fixture)).toEqual(durableBefore);
+      } finally {
+        if (unbound) {
+          const current = await Effect.runPromise(unconfigured.withCurrent(readAdmittedDataBinding));
+          const candidate = await Effect.runPromise(configured.prepare(original.frame));
+          await Effect.runPromise(configured.activate(dataBindingActivationRequest(original.frame.application.scopeId,
+            original.frame.application.storageGeneration, "pglite-logical-rebind", candidate.sha256, current.head)));
+        }
+      }
+      expect(await Effect.runPromise(fixture.host.read(currencyCommands.list, query))).toEqual(before);
+    } finally { for (const close of cleanup.reverse()) await close(); }
+  }, 180_000);
+
   for (const driver of ["pglite", "postgres"] as const) {
     it.skipIf(driver === "postgres" && postgresUrl === null)(`admits independently compiled Payload in the same candidate on ${driver}`, async () => {
       const cleanup: Array<() => Promise<void>> = [];
