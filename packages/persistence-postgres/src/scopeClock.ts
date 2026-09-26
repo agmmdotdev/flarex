@@ -291,8 +291,9 @@ export const lockScopeClockForShareInTransactionEffect = Effect.fn(
   return yield* Effect.fromResult(decodeScopeClockRecordResult(row));
 });
 
-/** KEY SHARE lifecycle protection; callers own snapshot isolation or validated
- * command reads. Strong lifecycle writers retain FOR UPDATE. */
+/** KEY SHARE lifecycle protection; callers own snapshot isolation, validated
+ * command reads, or provisional selection revalidated in the accepting transaction.
+ * Strong lifecycle writers retain FOR UPDATE. */
 export const lockScopeClockForSnapshotReadInTransactionEffect = Effect.fn(
   "ScopeClock.lockForSnapshotRead",
 )((db: ScopeClockTransaction, scopeId: ScopeId) => lockScopeClockForDataAccess(db, scopeId, "snapshotRead"));

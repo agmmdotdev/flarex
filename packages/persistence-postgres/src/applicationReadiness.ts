@@ -113,7 +113,10 @@ import {
 } from "./scopeAuthorityResolution";
 import {
   lockScopeClockForShareInTransactionEffect,
+  lockScopeClockForSnapshotReadInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
+  decodeScopeClockRecordResult,
+  ScopeAuthorizationRevocationEpochPersistenceError,
   type LockScopeClockForShareError,
   type LockScopeClockForUpdateError,
   type ScopeClockRecord,
@@ -715,7 +718,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       const stored = yield* runLocatedTransaction(
         located.target,
         tx => Effect.gen(function* () {
-          const clock = yield* lockScopeClockForShareInTransactionEffect(
+          const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(
             tx,
             reserved.authority.scopeId,
           );
@@ -738,6 +741,9 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
             physicalDefinitionLifecycle,
             physical.physicalReadinessSha256,
             capturedContext.cold,
+            // Reuse this provisional read's clock. Reacquiring FOR SHARE would
+            // serialize fresh selection behind an ordinary data publication.
+            clock,
           );
           return storedAuthority === null
             ? yield* readinessFailure("storedState")
@@ -970,7 +976,9 @@ function* (
   readonly status: "not_ready";
 }>, ApplicationReadinessError | ApplicationTaskCatalogSnapshotError |
   LockScopeClockForShareError> {
-    const clock = lockedClock ?? (yield* lockScopeClockForShareInTransactionEffect(tx, authority.scopeId));
+    const clock = lockedClock ?? (yield* (rowLock === "share"
+      ? lockScopeClockForSnapshotReadInTransactionEffect(tx, authority.scopeId)
+      : lockScopeClockForShareInTransactionEffect(tx, authority.scopeId)));
     yield* requireExactAuthority(authority, clock);
     const revisionRows = yield* query(
       tx.select().from(fxSystemApplicationRevisionsV2).where(and(
@@ -1894,10 +1902,12 @@ type PhysicalBuildRowsResult =
       readonly status: "not_ready";
       readonly reason: "physicalBuildMissing" | "physicalBuildNotEnabled" | "physicalBuildNotCovered";
       readonly detail: string;
+      readonly clock: ScopeClockRecord;
     }>
   | Readonly<{
       readonly status: "ready";
       readonly rows: ReadonlyArray<IndexBuildStateRecord>;
+      readonly clock: ScopeClockRecord;
     }>;
 
 export type ApplicationPhysicalReadinessResult =
@@ -1929,20 +1939,43 @@ const loadPhysicalReadiness = Effect.fn(
   ApplicationReadinessError |
     ValidatePhysicalDefinitionLifecycleReadinessError
 > {
-  const physicalBuilds = yield* loadPhysicalBuildRows(
-    tx,
-    authority,
-    requirements,
-    clock,
-  );
-  if (physicalBuilds.status === "not_ready") return physicalBuilds;
+  let observedClock = clock;
+  let physicalBuilds: Extract<PhysicalBuildRowsResult, { readonly status: "ready" }> | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const candidate = yield* loadPhysicalBuildRows(
+      tx, authority, requirements, observedClock,
+    );
+    if (candidate.status === "ready") {
+      physicalBuilds = candidate;
+      break;
+    }
+    const after = yield* lockScopeClockForSnapshotReadInTransactionEffect(
+      tx, authority.scopeId,
+    ).pipe(Effect.mapError(cause => cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
+      ? readinessFailureValue("resourceFailure", retryableCause(cause.cause), cause)
+      : readinessFailureValue("storedState", false, cause)));
+    yield* requireExactAuthority(authority, after);
+    if (after.lastCommitSeq === candidate.clock.lastCommitSeq) {
+      return Object.freeze({
+        status: candidate.status,
+        reason: candidate.reason,
+        detail: candidate.detail,
+      });
+    }
+    observedClock = after;
+  }
+  if (physicalBuilds === undefined) {
+    return yield* readinessFailure("resourceFailure", true,
+      new Error("Physical readiness clock advanced during bounded inspection."));
+  }
+  const snapshotClock = physicalBuilds.clock;
   const lifecycle = yield*
     validatePhysicalDefinitionLifecycleReadinessInTransactionEffect(
       lifecyclePort,
       lifecycleReadiness,
       tx,
       authority,
-      clock,
+      snapshotClock,
     );
   if (lifecycle.status === "not_ready") {
     return Object.freeze({
@@ -1956,9 +1989,9 @@ const loadPhysicalReadiness = Effect.fn(
     format: "flarex.application-physical-readiness",
     version: 1,
     scopeId: authority.scopeId,
-    storageGeneration: clock.storageGeneration,
-    storageGenerationFence: clock.storageGenerationFence.toString(),
-    epoch: clock.epoch,
+    storageGeneration: snapshotClock.storageGeneration,
+    storageGenerationFence: snapshotClock.storageGenerationFence.toString(),
+    epoch: snapshotClock.epoch,
     schemaVersionId: requirements.schemaVersionId,
     schemaManifestSha256:
       encodeBytesToLowercaseHex(requirements.manifestSha256),
@@ -2010,16 +2043,28 @@ const loadPhysicalBuildRows = Effect.fn(
     const definitionIds = requirements.definitions.map(
       definition => definition.indexDefinitionId,
     );
+    // The clock and mutable index coverage must come from one MVCC statement.
+    // A provisional read must not wait on the index row a point commit holds.
     const unordered = definitionIds.length === 0 ? [] : yield* query(
-      tx.select().from(fxSystemIndexBuildStates).where(and(
+      tx.select({ build: fxSystemIndexBuildStates, scopeClock: fxSystemScopeClocks })
+        .from(fxSystemIndexBuildStates)
+        .innerJoin(fxSystemScopeClocks, eq(
+          fxSystemScopeClocks.scopeId,
+          fxSystemIndexBuildStates.scopeId,
+        )).where(and(
         eq(fxSystemIndexBuildStates.scopeId, authority.scopeId),
         inArray(fxSystemIndexBuildStates.indexDefinitionId, definitionIds),
-      )).for("share"),
+      )),
     );
+    const snapshotClock = unordered[0] === undefined ? clock : yield* Effect.fromResult(
+      decodeScopeClockRecordResult(unordered[0].scopeClock).pipe(Result.mapError(cause =>
+        readinessFailureValue("storedState", false, cause))),
+    );
+    yield* requireExactAuthority(authority, snapshotClock);
     const rowsById = new Map(
-      unordered.map(row => [row.indexDefinitionId, row] as const),
+      unordered.map(row => [row.build.indexDefinitionId, row.build] as const),
     );
-    const context = yield* readIndexCoverageContextInTransactionEffect(tx, clock).pipe(Effect.mapError(cause =>
+    const context = yield* readIndexCoverageContextInTransactionEffect(tx, snapshotClock).pipe(Effect.mapError(cause =>
       readinessFailureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", cause.reason === "resourceFailure" && (cause.retryable ?? retryableCause(cause.cause)), cause)));
     const rows: IndexBuildStateRecord[] = [];
     for (let index = 0; index < definitionIds.length; index += 1) {
@@ -2032,6 +2077,7 @@ const loadPhysicalBuildRows = Effect.fn(
           status: "not_ready" as const,
           reason: "physicalBuildMissing" as const,
           detail: String(definitionId),
+          clock: snapshotClock,
         });
       }
       const decoded = yield* Effect.fromResult(
@@ -2048,22 +2094,22 @@ const loadPhysicalBuildRows = Effect.fn(
       yield* Effect.fromResult(
         validateIndexBuildStateFrontierResult(
           decoded,
-          clock.lastCommitSeq,
+          snapshotClock.lastCommitSeq,
         ).pipe(Result.mapError(cause => readinessFailureValue(
           "storedState",
           false,
           cause,
         ))),
       );
-      if (decoded.storageGeneration !== clock.storageGeneration ||
-        decoded.storageGenerationFence !== clock.storageGenerationFence ||
-        decoded.epoch !== clock.epoch) {
+      if (decoded.storageGeneration !== snapshotClock.storageGeneration ||
+        decoded.storageGenerationFence !== snapshotClock.storageGenerationFence ||
+        decoded.epoch !== snapshotClock.epoch) {
         return yield* readinessFailure("authorityChanged");
       }
       const requirement = requirements.definitions[index];
       if (requirement === undefined) return yield* readinessFailure("storedState");
       const covered = yield* isIndexBuildSnapshotCoveredInTransactionEffect(
-        tx, decoded, requirement, clock.lastCommitSeq, context,
+        tx, decoded, requirement, snapshotClock.lastCommitSeq, context,
       ).pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError || (cause instanceof IndexMaintenanceError && cause.reason === "resourceFailure")
         ? readinessFailureValue("resourceFailure", cause instanceof IndexMaintenanceError ? (cause.retryable ?? retryableCause(cause.cause)) : retryableCause(cause.cause), cause.cause)
         : readinessFailureValue("storedState", false, cause)));
@@ -2072,11 +2118,12 @@ const loadPhysicalBuildRows = Effect.fn(
           status: "not_ready" as const,
           reason: decoded.lifecycle === "enabled" ? "physicalBuildNotCovered" as const : "physicalBuildNotEnabled" as const,
           detail: `${definitionId}:${decoded.lifecycle}`,
+          clock: snapshotClock,
         });
       }
       rows.push(decoded);
     }
-    return Object.freeze({ status: "ready" as const, rows: Object.freeze(rows) });
+    return Object.freeze({ status: "ready" as const, rows: Object.freeze(rows), clock: snapshotClock });
   },
 );
 

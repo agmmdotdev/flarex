@@ -119,7 +119,6 @@ import {
   ScopeAuthorizationRevocationEpochPersistenceError,
   lockScopeClockForShareInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
-  type LockScopeClockForShareError,
   type LockScopeClockForUpdateError,
   type ScopeClockRecord,
 } from "./scopeClock";
@@ -512,7 +511,7 @@ export const loadAppUniqueConstraintSetEligibilityForReadinessV1Effect =
       AppUniqueConstraintSetEligibilityResultV1,
       LoadAppUniqueConstraintSetEligibilityV1Error
     > {
-      return yield* loadEligibilityWithClockLock(port, input, "share");
+      return yield* loadEligibilityWithClockLock(port, input, "snapshotRead");
     },
   );
 
@@ -521,7 +520,7 @@ const loadEligibilityWithClockLock = Effect.fn(
 )(function* (
   port: AppUniqueConstraintSetEligibilityPortV1,
   input: AppUniqueConstraintSetEligibilityInputV1,
-  clockLock: "share" | "update",
+  clockLock: "snapshotRead" | "update",
 ): Effect.fn.Return<
   AppUniqueConstraintSetEligibilityResultV1,
   LoadAppUniqueConstraintSetEligibilityV1Error
@@ -1172,14 +1171,13 @@ const runEligibilityTransaction = Effect.fn(
   authority: TrustedScopeAuthority,
   snapshot: BuildSnapshot,
   tableIds: ReadonlyArray<CatalogTableId>,
-  clockLock: "share" | "update",
+  clockLock: "snapshotRead" | "update",
 ): Effect.fn.Return<
   AppUniqueConstraintSetEligibilityResultV1,
   | AppUniqueConstraintSetEligibilityV1Error
   | AppUniqueConstraintSetBuildStaleAuthorityV1Error
   | AppUniqueConstraintSetBuildIntegrationV1Error
   | AppUniqueConstraintSetBuildStateV1Error
-  | LockScopeClockForShareError
   | LockScopeClockForUpdateError
 > {
   const started = startLocatedEffectTransaction(
@@ -1244,27 +1242,41 @@ const inspectEligibilityInTransaction = Effect.fn(
   authority: TrustedScopeAuthority,
   snapshot: BuildSnapshot,
   tableIds: ReadonlyArray<CatalogTableId>,
-  clockLock: "share" | "update",
+  clockLock: "snapshotRead" | "update",
 ): Effect.fn.Return<
   AppUniqueConstraintSetEligibilityResultV1,
   | AppUniqueConstraintSetBuildStaleAuthorityV1Error
   | AppUniqueConstraintSetBuildIntegrationV1Error
   | AppUniqueConstraintSetBuildStateV1Error
-  | LockScopeClockForShareError
   | LockScopeClockForUpdateError
 > {
-  const clock = yield* clockLock === "share"
-    ? lockScopeClockForShareInTransactionEffect(tx, authority.scopeId)
+  const clock = yield* clockLock === "snapshotRead"
+    ? lockScopeClockForSnapshotReadInTransactionEffect(tx, authority.scopeId)
     : lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId);
   yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
-  return yield* inspectEligibilityWithLockedClock(
-    tx,
-    authority,
-    snapshot,
-    tableIds,
-    clock,
-    port,
-  );
+  if (clockLock !== "snapshotRead") {
+    return yield* inspectEligibilityWithLockedClock(
+      tx, authority, snapshot, tableIds, clock, port,
+    );
+  }
+  let observed = clock;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const inspection = yield* inspectEligibilityWithLockedClock(
+      tx, authority, snapshot, tableIds, observed, port, undefined,
+      "concurrentProgress",
+    );
+    const after = yield* lockScopeClockForSnapshotReadInTransactionEffect(
+      tx, authority.scopeId,
+    );
+    yield* Effect.fromResult(requireExactAuthorityResult(authority, after));
+    if (after.lastCommitSeq === observed.lastCommitSeq) return inspection;
+    observed = after;
+  }
+  return yield* Effect.fail(new AppUniqueConstraintSetBuildIntegrationV1Error({
+    phase: "targetTransaction",
+    retryable: true,
+    cause: new Error("Unique readiness clock advanced during bounded inspection."),
+  }));
 });
 
 /**
@@ -1337,9 +1349,11 @@ const inspectEligibilityWithLockedClock = Effect.fn(
   expectedEvidence?: AppUniqueConstraintSetEligibilityEvidenceV1,
   progressObservation: "fixed" | "concurrentProgress" = "fixed",
 ) {
-  const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock, progressObservation);
+  const selected = yield* loadSelectedBuildStates(tx, authority, snapshot, clock, progressObservation);
+  const states = selected.states;
+  const observedClock = selected.clock;
   const coverageContext = states.some(state => state.maintenance !== null)
-    ? yield* readUniqueCoverageContext(tx, clock, snapshot) : undefined;
+    ? yield* readUniqueCoverageContext(tx, observedClock, snapshot) : undefined;
   const identities: AppUniqueConstraintBuildIdentity[] = [];
   for (const member of snapshot.members) {
     const state = states.find(
@@ -1350,7 +1364,7 @@ const inspectEligibilityWithLockedClock = Effect.fn(
     const reason =
       state === undefined
         ? "buildMissing"
-        : !buildAuthorityIsCurrent(state, clock)
+        : !buildAuthorityIsCurrent(state, observedClock)
           ? "buildStale"
           : state.lifecycle !== "enabled"
             ? "buildNotEnabled"
@@ -1360,7 +1374,7 @@ const inspectEligibilityWithLockedClock = Effect.fn(
                   snapshot,
                   state,
                   member.tableId,
-                  clock,
+                  observedClock,
                   coverageContext,
                 ))
               ? "buildStale"
@@ -1412,7 +1426,7 @@ const inspectEligibilityWithLockedClock = Effect.fn(
     definitionSetSha256Hex: snapshot.definitionSetSha256Hex,
     tableIds,
     storageGeneration: authority.storageGeneration,
-    storageGenerationFence: clock.storageGenerationFence,
+    storageGenerationFence: observedClock.storageGenerationFence,
     epoch: authority.epoch,
     definitionBuilds: Object.freeze(identities),
     [eligibilityEvidenceBrand]: true as const,
@@ -1431,7 +1445,7 @@ const loadSelectedBuildStates = Effect.fn(
   clock: ScopeClockRecord,
   progressObservation: "fixed" | "concurrentProgress" = "fixed",
 ) {
-  if (snapshot.members.length === 0) return Object.freeze([]);
+  if (snapshot.members.length === 0) return Object.freeze({ states: [] as const, clock });
   const rows = yield* queryEffect(
     tx
       .select()
@@ -1475,7 +1489,7 @@ const loadSelectedBuildStates = Effect.fn(
         observedClock.lastCommitSeq,
       ),
     );
-  return Object.freeze(states);
+  return Object.freeze({ states: Object.freeze(states), clock: observedClock });
 });
 
 const readUniqueCoverageContext = Effect.fn("AppUniqueConstraintBuild.readCoverageContext")(
@@ -1951,7 +1965,7 @@ const attemptWorkspaceDeletionInTransaction = Effect.fn(
   clock: ScopeClockRecord,
   options: AppUniqueConstraintSetBuildOptionsV1,
 ) {
-  const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock);
+  const states = (yield* loadSelectedBuildStates(tx, authority, snapshot, clock)).states;
   const deletedDefinitionIds: CatalogUniqueConstraintDefinitionId[] = [];
   const retainedDefinitionIds: CatalogUniqueConstraintDefinitionId[] = [];
   for (const state of states) {
@@ -2321,7 +2335,7 @@ const observeWorkspaceAbsenceInTransaction = Effect.fn(
   );
   yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
   yield* requireProtectionHeads(tx, authority, snapshot);
-  const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock);
+  const states = (yield* loadSelectedBuildStates(tx, authority, snapshot, clock)).states;
   return states.every(
     (state) =>
       state.lifecycle === "enabled" ||
@@ -2435,7 +2449,7 @@ const advanceBackfillInTransaction = Effect.fn(
     authority.scopeId,
   );
   yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
-  const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock);
+  const states = (yield* loadSelectedBuildStates(tx, authority, snapshot, clock)).states;
   let selected:
     | { state: BuildState; definition: LocatedAppUniqueConstraintDefinitionV1 }
     | undefined;
@@ -3346,7 +3360,7 @@ const reconcileInTransaction = Effect.fn(
     authority.scopeId,
   );
   yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
-  const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock);
+  const states = (yield* loadSelectedBuildStates(tx, authority, snapshot, clock)).states;
   const identities: AppUniqueConstraintBuildIdentity[] = [];
   let created = 0;
   let redeclared = 0;
@@ -3552,7 +3566,7 @@ const observeInTransaction = Effect.fn(
     authority.scopeId,
   );
   yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
-  const states = yield* loadSelectedBuildStates(tx, authority, snapshot, clock);
+  const states = (yield* loadSelectedBuildStates(tx, authority, snapshot, clock)).states;
   const identities: AppUniqueConstraintBuildIdentity[] = [];
   for (const member of snapshot.members) {
     const state = states.find(

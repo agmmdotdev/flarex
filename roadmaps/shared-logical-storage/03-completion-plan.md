@@ -304,10 +304,15 @@ remain distinct from logical schema evolution.
   scope-clock lock, one publication/replay, and old/new snapshot visibility.
   The duplicate physical-only version of that witness is retired. Other
   protected-execution admission and duplicate-request witnesses now also use
-  logical Currency under both roots. The physical commit-hold, binding and
-  revocation cases retain their named physical host consumer. The
-  [active-selection correction](./52-active-selection-during-publication.md)
-  owns the observed commit-hold read serialization before that witness moves.
+  logical Currency under both roots. The [active-selection correction](./52-active-selection-during-publication.md)
+  now lets fresh logical Currency reads complete during a held publication;
+  standalone and atomic commit-hold witnesses have moved and their physical
+  duplicates are retired. Application physical-index readiness also reads its
+  mutable coverage beside the clock in one nonblocking statement snapshot,
+  with a held indexed-publication PostgreSQL witness. Unique-set readiness
+  observes concurrent coverage under compatible key-share locks, with its own
+  held-publication witness. Physical binding and revocation cases retain their
+  named host consumer until their logical or shared-core proofs move.
 - Framework installation and Application evolution remain distinct. Generated
   commerce and Payload preference storage still consume framework evidence;
   their migration and recovery obligations must move before table removal.

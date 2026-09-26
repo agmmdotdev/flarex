@@ -191,7 +191,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
 
   }, 120_000);
 
-  it("uses a share lock for readiness while retaining the planner update lock", async () => {
+  it("uses key-share locks for readiness while retaining the planner update lock", async () => {
     const fixture = await closedFixture("eligibility_lock_modes");
     await reconcile(fixture);
     await advanceBackfill(fixture, 16);
@@ -227,7 +227,8 @@ describe("C08-B1 closed unique-set build foundation", () => {
         eligibilityInput(fixture),
       ),
     )).resolves.toMatchObject({ status: "eligible" });
-    expect(lockModes).toContain("share");
+    expect(lockModes).toContain("key share");
+    expect(lockModes).not.toContain("share");
     expect(lockModes).not.toContain("update");
 
     lockModes.length = 0;

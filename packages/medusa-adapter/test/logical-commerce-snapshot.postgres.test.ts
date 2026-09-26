@@ -8,6 +8,8 @@ import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 import { postgresUrl } from "../../persistence-postgres/test/postgresHelpers";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import { issueRelationalSession, runRelationalSession, type RelationalSession } from "../../persistence-postgres/src/relationalTransaction/session";
+import { RelationalSessionError } from "../../persistence-postgres/src/relationalTransaction/model";
 import type { Json, JsonObject } from "flarex-protocol/json";
 import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
 
@@ -32,14 +34,14 @@ describe.skipIf(postgresUrl === null)("logical commerce snapshots and publicatio
     const second = yield* ctx.nested(currencyCommands.list, options(id));
     return { first, second };
   }));
-  const local = (commands: Parameters<typeof makeCommerceHost>[0]["commands"]) =>
-    Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, commands }));
-  const writer = async (kind: "standalone" | "atomic") => {
+  const local = (commands: Parameters<typeof makeCommerceHost>[0]["commands"], session: RelationalSession = fixture.session) =>
+    Effect.runPromise(makeCommerceHost({ ...fixture.hostInput, commands, session }));
+  const writer = async (kind: "standalone" | "atomic", session: RelationalSession = fixture.session) => {
     if (kind === "standalone") {
-      const host = await local([insert, currencyAnnouncementWrite]);
+      const host = await local([insert, currencyAnnouncementWrite], session);
       return { host, key: host.newRequestKey(), run: (key: string, id: string) => host.run(key, insert, id) };
     }
-    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput, commands: [atomic],
+    const host = await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput, session, commands: [atomic],
       participants: [{ participant, logicalStorage: fixture.hostInput.logicalStorage,
         commands: [insert, currencyAnnouncementWrite] }] }));
     return { host, key: host.newRequestKey(), run: (key: string, id: string) => host.run(key, atomic, id) };
@@ -117,6 +119,57 @@ describe.skipIf(postgresUrl === null)("logical commerce snapshots and publicatio
       } finally {
         await Effect.runPromise(reader.close);
         await Effect.runPromise(write.host.close);
+      }
+    }, 90_000);
+  }
+
+  for (const kind of ["standalone", "atomic"] as const) {
+    it(`fresh logical Currency read completes while ${kind} publication awaits COMMIT`, async () => {
+      const entered = await Effect.runPromise(Deferred.make<void>());
+      const release = await Effect.runPromise(Deferred.make<void>());
+      const heldSession = issueRelationalSession(fixture.persistence.drizzle, (profile, work, commandMs) =>
+        runRelationalSession(fixture.session, profile, tx => work(tx).pipe(Effect.tap(() =>
+          Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))))), commandMs).pipe(
+          Effect.catchTag("RelationalTransactionError", cause =>
+            Effect.fail(new RelationalSessionError({ reason: "resourceFailure", cause })))));
+      const closeHosts: Array<() => Promise<void>> = [];
+      try {
+        const write = await writer(kind, heldSession);
+        closeHosts.push(() => Effect.runPromise(write.host.close));
+        const competing = await writer(kind);
+        closeHosts.push(() => Effect.runPromise(competing.host.close));
+        const read = readCommand(Effect.void);
+        const reader = await local([read, currencyCommands.list]);
+        closeHosts.push(() => Effect.runPromise(reader.close));
+        const id = `${kind}-held-publication`;
+        const before = await logicalCurrencyInventory(fixture);
+        const count = executions;
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const writing = yield* write.run(write.key, id).pipe(Effect.forkScoped);
+          yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
+          expect(yield* reader.read(read, id).pipe(Effect.timeout("3 seconds"))).toEqual({
+            first: [{ code: "baseline", name: baselineName }], second: [],
+          });
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(before);
+          const refused = yield* competing.run(competing.key, `${id}-competing`).pipe(Effect.result);
+          expect(refused).toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure",
+            cause: { operation: "lockForOrdinaryWrite", cause: { cause: { code: "55P03" } } } } });
+          expect(executions).toBe(count + 2);
+          yield* Deferred.succeed(release, undefined);
+          const result = yield* Fiber.join(writing);
+          expect(result).toEqual([expect.objectContaining({ code: id, name: `Snapshot ${id}` })]);
+          expect(yield* competing.run(write.key, id)).toEqual(result);
+        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
+        const after = await logicalCurrencyInventory(fixture);
+        expect(after.rows.length - before.rows.length).toBe(1);
+        expect(after.commits.length - before.commits.length).toBe(1);
+        expect(after.outcomes.length - before.outcomes.length).toBe(1);
+        expect(after.rowChanges.length - before.rowChanges.length).toBe(1);
+        expect(executions).toBe(count + 2);
+        if (fixture.resource.kind === "postgres")
+          expect(fixture.resource.target.pool.idleCount).toBe(fixture.resource.target.pool.totalCount);
+      } finally {
+        for (const close of closeHosts.reverse()) await close();
       }
     }, 90_000);
   }

@@ -11,11 +11,6 @@ import {
 } from "../src/commerceTransaction/host";
 import { commerceError } from "../src/commerceTransaction/model";
 import {
-  defineAtomicCommerceCommand,
-  defineAtomicCommerceParticipant,
-} from "../src/atomicCommerce/commands";
-import { makeAtomicCommerceHost } from "../src/atomicCommerce/host";
-import {
   issueRelationalSession,
   makePostgresRelationalSession,
   runRelationalSession,
@@ -30,7 +25,6 @@ import {
   commerceHostFixture,
   type CommerceHostTestFixture,
 } from "./commerceHostFixture";
-import { commerceInventory } from "./commerceInventory";
 import { prepareNeutralCommerceProfile } from "./neutralCommerceProfile";
 import {
   createFileScopedPostgresFixture,
@@ -44,7 +38,6 @@ describe.skipIf(postgresUrl === null)(
     const cleanup: Array<() => Promise<void>> = [];
     let persistence: PostgresFlarexPersistence;
     let fixture: CommerceHostTestFixture;
-    let executions = 0;
     let reads = 0;
     const events: LocalCommerceEventPolicy = {
       capture: () => Effect.fail(commerceError("unadmittedEvent")),
@@ -60,18 +53,12 @@ describe.skipIf(postgresUrl === null)(
       Effect.fn(function* (ctx, id) {
         if (typeof id !== "string")
           return yield* ctx.refuse(commerceError("invalidInput"));
-        executions++;
         return [
           ...(yield* ctx.store.write(ctx.manager, "insert", [
             { id, value: 1 },
           ])),
         ];
       }),
-    );
-    const participant = defineAtomicCommerceParticipant("items");
-    const atomic = defineAtomicCommerceCommand(
-      "snapshotAtomicInsert",
-      (ctx, id) => ctx.call(participant, insert, id),
     );
     async function local(
       commands: readonly CommerceCommand[],
@@ -85,38 +72,6 @@ describe.skipIf(postgresUrl === null)(
           ),
         )
       ).host;
-    }
-    async function writer(
-      kind: "standalone" | "atomic",
-      session = fixture.session,
-    ) {
-      if (kind === "standalone") {
-        const host = await local([insert], session);
-        return {
-          key: host.newRequestKey(),
-          run: (key: string, id: string) => host.run(key, insert, id),
-        };
-      }
-      const host = await runEffect(
-        makeAtomicCommerceHost({
-          ...fixture.hostInput,
-          session,
-          commands: [atomic],
-          participants: [
-            {
-              participant,
-              profile: fixture.prepared.profile,
-              installation: fixture.installation,
-              commands: [insert],
-              validate: events.validate,
-            },
-          ],
-        }),
-      );
-      return {
-        key: host.newRequestKey(),
-        run: (key: string, id: string) => host.run(key, atomic, id),
-      };
     }
     const readCommand = (between: Effect.Effect<void>) =>
       defineCommerceCommand(
@@ -167,86 +122,6 @@ describe.skipIf(postgresUrl === null)(
     afterAll(async () => {
       for (const close of cleanup.reverse()) await close();
     }, 120_000);
-
-    for (const kind of ["standalone", "atomic"] as const) {
-      it(`commerce snapshot completes while ${kind} publication awaits physical COMMIT`, async () => {
-        const entered = await runEffect(Deferred.make<void>());
-        const release = await runEffect(Deferred.make<void>());
-        const held = issueRelationalSession(
-          persistence.drizzle,
-          (profile, work) =>
-            runRelationalSession(fixture.session, profile, (tx) =>
-              work(tx).pipe(
-                Effect.tap(() =>
-                  Deferred.succeed(entered, undefined).pipe(
-                    Effect.andThen(Deferred.await(release)),
-                  ),
-                ),
-              ),
-            ).pipe(
-              Effect.catchTag("RelationalTransactionError", (cause) =>
-                Effect.fail(
-                  new RelationalSessionError({
-                    reason: "resourceFailure",
-                    cause,
-                  }),
-                ),
-              ),
-            ),
-        );
-        const write = await writer(kind, held);
-        const competing = await writer(kind);
-        const read = readCommand(Effect.void);
-        const host = await local([read]);
-        const id = `${kind}-publisher-first`;
-        const before = await commerceInventory(fixture);
-        const count = executions;
-        await runEffect(
-          Effect.scoped(
-            Effect.gen(function* () {
-              const writing = yield* write
-                .run(write.key, id)
-                .pipe(Effect.forkScoped);
-              yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
-              expect(yield* host.read(read, id)).toEqual({
-                first: [{ id: "baseline", value: 1 }],
-                second: [],
-              });
-              expect(
-                yield* Effect.promise(() => commerceInventory(fixture)),
-              ).toEqual(before);
-              const refusal = yield* competing
-                .run(competing.key, `${id}-competing`)
-                .pipe(Effect.result);
-              expect(refusal).toMatchObject({
-                _tag: "Failure",
-                failure: {
-                  cause: {
-                    operation: "lockForOrdinaryWrite",
-                    cause: { cause: { code: "55P03" } },
-                  },
-                },
-              });
-              expect(executions).toBe(count + 1);
-              yield* Deferred.succeed(release, undefined);
-              expect(yield* Fiber.join(writing)).toEqual([{ id, value: 1 }]);
-            }).pipe(
-              Effect.ensuring(Deferred.succeed(release, undefined)),
-              Effect.timeout("20 seconds"),
-            ),
-          ),
-        );
-        const after = await commerceInventory(fixture);
-        expect(after.commits.length).toBe(before.commits.length + 1);
-        expect(after.facts.length).toBe(before.facts.length + 1);
-        expect(await runEffect(competing.run(write.key, id))).toEqual([
-          { id, value: 1 },
-        ]);
-        expect(executions).toBe(count + 1);
-        expect(await commerceInventory(fixture)).toEqual(after);
-        expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
-      }, 60_000);
-    }
 
     it.each(["binding", "revocation"] as const)(
       "rejects a %s change after snapshot formation before admission",

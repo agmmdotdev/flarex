@@ -138,6 +138,7 @@ import {
 } from "./scopeAuthorityResolution";
 import {
   lockScopeClockForShareInTransactionEffect,
+  lockScopeClockForSnapshotReadInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
   type LockScopeClockForShareError,
   type LockScopeClockForUpdateError,
@@ -958,7 +959,7 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
       candidate = yield* runLocatedTransaction(
         inputs.target,
         tx => Effect.gen(function* () {
-          const clock = yield* lockScopeClockForShareInTransactionEffect(tx, bundle.authority.scopeId);
+          const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, bundle.authority.scopeId);
           return yield* loadStoredActiveCandidateValidationReceiptInTransaction(
             tx, bundle.authority, bundle.revision.revisionId, clock,
           );
@@ -1076,7 +1077,9 @@ const loadBundle = Effect.fn("ApplicationRelationReadinessFold.loadBundle")(
     // Planning has no authority. The accepting transaction reconstructs this
     // exact bundle under its clock and revision locks before executing work.
     if (rowLock !== "planning") {
-      const clock = lockedClock ?? (yield* lockScopeClockForShareInTransactionEffect(tx, authority.scopeId));
+      const clock = lockedClock ?? (yield* (rowLock === "share"
+        ? lockScopeClockForSnapshotReadInTransactionEffect(tx, authority.scopeId)
+        : lockScopeClockForShareInTransactionEffect(tx, authority.scopeId)));
       yield* requireExactAuthority(authority, clock);
     }
     const revisions = tx.select().from(fxSystemApplicationRevisionsV2).where(and(
@@ -1714,7 +1717,7 @@ const readActiveReadyInTransaction = Effect.fn(
   ApplicationRelationReadinessFoldResult,
   | InternalApplicationRelationReadinessFoldError
 > {
-  const clock = yield* lockScopeClockForShareInTransactionEffect(
+  const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(
     tx,
     prepared.bundle.authority.scopeId,
   );

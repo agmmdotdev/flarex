@@ -84,6 +84,7 @@ import {
 } from "./scopeAuthorityResolution";
 import {
   lockScopeClockForShareInTransactionEffect,
+  lockScopeClockForSnapshotReadInTransactionEffect,
   lockScopeClockForUpdateInTransactionEffect,
   type LockScopeClockForShareError,
   type LockScopeClockForUpdateError,
@@ -1655,7 +1656,7 @@ function* (
   readinessRepository: unknown,
   readiness: ApplicationReadinessResult,
 ) {
-  const clock = yield* lockScopeClockForShareInTransactionEffect(
+  const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(
     tx,
     authority.scopeId,
   );
@@ -1694,7 +1695,7 @@ const readActiveRelationInTransaction = Effect.fn(
     { readonly status: "ready" }
   >,
 ) {
-  const clock = yield* lockScopeClockForShareInTransactionEffect(
+  const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(
     tx,
     authority.scopeId,
   );

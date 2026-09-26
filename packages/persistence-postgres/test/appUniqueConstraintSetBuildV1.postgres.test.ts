@@ -35,6 +35,7 @@ import {
   createAppUniqueConstraintSetEligibilityPortV1,
   createLocatedAppUniqueConstraintSetBuildTargetV1,
   loadAppUniqueConstraintSetEligibilityV1Effect,
+  loadAppUniqueConstraintSetEligibilityForReadinessV1Effect,
   reclaimSupersededAppUniqueConstraintSetBuildEffect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
   type ReclaimSupersededAppUniqueConstraintSetBuildResult,
@@ -290,6 +291,74 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
         { row_id_hex: "73000000000040008000000000000001" },
         { row_id_hex: "73000000000040008000000000000002" },
       ]);
+    });
+  }, 120_000);
+
+  it("reads unique readiness while an ordinary coverage publication is held", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const fixture = await fixtureFor(persistence);
+      await closeFixtureSet(fixture);
+      await appendLiveRow(fixture, "73000000000040008000000000000001", "a@example.com");
+      await persistence.query(
+        "update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1",
+        [fixture.scopeId],
+      );
+      await reconcile(fixture);
+      await advanceUntilEnabled(fixture);
+      const eligibility = createAppUniqueConstraintSetEligibilityPortV1(
+        fixture.ports,
+        createAppUniqueConstraintDefinitionPortV1(persistence.drizzle),
+      );
+      const input = { ...fixture.input, scopeId: fixture.scopeId };
+      expect(await runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+        eligibility,
+        input,
+      ))).toMatchObject({ status: "eligible" });
+      const current = await persistence.getScopeClock(fixture.scopeId);
+      if (current === null) throw new Error("Expected scope clock.");
+      const blocker = await persistence.pool.connect();
+      let released = false;
+      try {
+        await blocker.query("begin");
+        await blocker.query(
+          `update fx_system_scope_clock
+              set last_commit_seq = last_commit_seq + 1
+            where scope_id = $1`,
+          [fixture.scopeId],
+        );
+        await blocker.query(
+          `update fx_system_unique_constraint_build
+              set covered_through_commit_seq = $1
+            where scope_id = $2 and lifecycle = 'enabled'`,
+          [current.lastCommitSeq + 1n, fixture.scopeId],
+        );
+        const selection = runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+          eligibility,
+          input,
+        ));
+        const outcome = await Promise.race([
+          selection.then(value => ({ kind: "read" as const, value })),
+          new Promise<{ readonly kind: "timeout" }>(resolve => {
+            setTimeout(() => resolve({ kind: "timeout" }), 5_000);
+          }),
+        ]);
+        if (outcome.kind === "timeout") {
+          await blocker.query("rollback");
+          released = true;
+          await selection;
+          throw new Error("Unique readiness waited for an ordinary publication.");
+        }
+        expect(outcome.value).toMatchObject({ status: "eligible" });
+        await blocker.query("commit");
+        released = true;
+        expect(await runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+          eligibility,
+          input,
+        ))).toMatchObject({ status: "eligible" });
+      } finally {
+        if (!released) await blocker.query("rollback").catch(() => undefined);
+        blocker.release();
+      }
     });
   }, 120_000);
 

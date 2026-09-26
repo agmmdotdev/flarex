@@ -51,6 +51,7 @@ import { makeApplicationPublicationRepository } from
   "../src/applicationPublication";
 import {
   makeApplicationReadinessRepository,
+  validateApplicationPhysicalReadinessInTransactionEffect,
   type ApplicationReadinessResult,
 } from "../src/applicationReadiness";
 import { makeApplicationActivationRepository } from
@@ -79,10 +80,13 @@ import {
   beginPhysicalDefinitionDrainingEffect,
   cancelPhysicalDefinitionDrainingEffect,
   createPhysicalDefinitionLifecyclePort,
+  preparePhysicalDefinitionLifecycleReadinessEffect,
   preparePhysicalDefinitionLifecycleSubjectEffect,
 } from "../src/physicalDefinitionLifecycle";
 import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
+import { resolveLocatedTrustedScopeAuthorityEffect } from
+  "../src/scopeAuthorityResolution";
 import type { SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import { runEffect } from "./effectTestRuntime";
@@ -369,6 +373,92 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
         expect(readOutcome.value.basis.revisionId).toBe(
           fixture.input.revisionId,
         );
+      } finally {
+        if (!released) await blocker.query("rollback").catch(() => undefined);
+        blocker.release();
+      }
+    });
+  }, 240_000);
+
+  it("reads indexed Application readiness while an ordinary publication is held", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await readinessFixture(control, target);
+      const schemaVersionId = await prepareReadinessAuthorities(fixture);
+      await enablePhysicalBuilds(fixture, schemaVersionId);
+      expect(await runEffect(fixture.repository.settle(fixture.input)))
+        .toMatchObject({ status: "ready" });
+      const clock = await target.getScopeClock(fixture.authority.scopeId);
+      if (clock === null) throw new Error("Expected PostgreSQL readiness clock.");
+      const blocker = await target.pool.connect();
+      let released = false;
+      try {
+        await blocker.query("begin");
+        await blocker.query(
+          `update fx_system_scope_clock
+              set last_commit_seq = last_commit_seq + 1
+            where scope_id = $1`,
+          [fixture.authority.scopeId],
+        );
+        await blocker.query(
+          `update fx_system_index_build_state
+              set covered_through_commit_seq = $1
+            where scope_id = $2 and lifecycle = 'enabled'`,
+          [clock.lastCommitSeq + 1n, fixture.authority.scopeId],
+        );
+        const selection = runEffect(fixture.repository.readReady(fixture.input));
+        const outcome = await Promise.race([
+          selection.then(value => ({ kind: "read" as const, value })),
+          new Promise<{ readonly kind: "timeout" }>(resolve => {
+            setTimeout(() => resolve({ kind: "timeout" }), 5_000);
+          }),
+        ]);
+        if (outcome.kind === "timeout") {
+          await blocker.query("rollback");
+          released = true;
+          await selection;
+          throw new Error("Application readiness waited for an ordinary publication.");
+        }
+        expect(outcome.value).toMatchObject({ status: "ready" });
+        await blocker.query("commit");
+        released = true;
+        expect(await runEffect(fixture.repository.readReady(fixture.input)))
+          .toMatchObject({ status: "ready" });
+        const requirements = await runEffect(
+          loadPublishedPhysicalRequirementSnapshotV1(control.drizzle, {
+            deploymentId: fixture.input.deploymentId,
+            schemaVersionId,
+          }),
+        );
+        if (requirements === null) throw new Error("Expected physical requirements.");
+        const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+          fixture.input.deploymentId,
+          fixture.authorityPorts,
+        ));
+        if (located.authority.storageGeneration !== "flarexdb_v1") {
+          throw new Error("Expected FlarexDB Application authority.");
+        }
+        const storageGeneration = located.authority.storageGeneration;
+        const lifecycle = await runEffect(
+          preparePhysicalDefinitionLifecycleReadinessEffect(
+            fixture.physicalDefinitionLifecycle,
+            fixture.authority.scopeId,
+            requirements,
+          ),
+        );
+        // Model a READ COMMITTED selection that locked clock N immediately
+        // before the writer published N+1. The build read must pair its row
+        // with the clock from that same statement, not reject valid coverage.
+        const advanced = await target.drizzle.transaction(tx => runEffect(
+          validateApplicationPhysicalReadinessInTransactionEffect(
+            tx,
+            { ...located.authority, storageGeneration },
+            requirements,
+            fixture.physicalDefinitionLifecycle,
+            lifecycle,
+            clock,
+          ),
+        ));
+        expect(advanced).toMatchObject({ status: "ready" });
       } finally {
         if (!released) await blocker.query("rollback").catch(() => undefined);
         blocker.release();

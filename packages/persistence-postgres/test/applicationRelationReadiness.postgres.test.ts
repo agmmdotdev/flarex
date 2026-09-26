@@ -75,6 +75,7 @@ import {
   type ApplicationActiveSelection,
   claimApplicationRelationActiveSelection,
   makeApplicationActivationRepository,
+  prepareApplicationBindingSelection,
   type ApplicationRelationActivationContext,
 } from "../src/applicationActivation";
 import {
@@ -449,6 +450,26 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       expect(await physicalStateSnapshot(fixture)).toEqual(before);
     });
   }, 240_000);
+
+  it("reads a relation active selection while an ordinary scope publication holds its clock update", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const ready = await preparePostgresRelationActivationFixture(await fixtureFor(control, target), 35_000);
+      const activation = ready.makeActivation();
+      const activated = await runEffect(activation.activate({ revisionId: ready.readiness.revisionId, expectedActiveHead: null }));
+      const client = await target.pool.connect();
+      try {
+        await client.query("begin");
+        await client.query("update fx_system_scope_clock set updated_at=updated_at where scope_id=$1", [ready.fixture.scopeId]);
+        const active = await runEffect(activation.readActive().pipe(Effect.timeout("5 seconds")));
+        expect(active.expectedActiveHead).toEqual(activated.expectedActiveHead);
+        expect(Result.isSuccess(claimApplicationRelationActiveSelection(active.selection))).toBe(true);
+        await runEffect(prepareApplicationBindingSelection(activation).pipe(Effect.timeout("5 seconds")));
+      } finally {
+        await client.query("rollback");
+        client.release();
+      }
+    });
+  }, 180_000);
 
   it("keeps stored-active authority while relation A1 moves through Legacy B2 to relation C3", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
