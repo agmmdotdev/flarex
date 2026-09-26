@@ -68,7 +68,8 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
             },
           ]),
       ...table.indexes
-        .filter((index) => index.unique && index.where === undefined)
+        .filter((index) => index.unique && index.where === undefined &&
+          (index.type === undefined || index.type === "btree"))
         .map((index) => ({
           keyId: index.name,
           kind: "unique",
@@ -77,10 +78,14 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
         })),
     ];
     const indexes = table.indexes
-      .filter((index) => !index.unique || index.where !== undefined)
+      .filter((index) => !index.unique || index.where !== undefined ||
+        (index.type !== undefined && index.type !== "btree"))
       .map((index) => ({
         indexId: index.name,
-        kind: index.unique ? "uniqueBtree" : "btree",
+        // Preserve unsupported native access methods for validation to refuse.
+        // Treating a GIN declaration as B-tree would admit a false query contract.
+        kind: index.type === undefined || index.type === "btree"
+          ? index.unique ? "uniqueBtree" : "btree" : index.type,
         columns: index.columns,
         predicate:
           index.where === undefined

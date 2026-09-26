@@ -23,7 +23,7 @@ export type SchemaColumn = ColumnBase & (
 
 export type SchemaTable = Readonly<Pick<DatabaseTable, "name">> & {
   readonly columns: readonly SchemaColumn[];
-  readonly indexes: readonly (Readonly<Pick<DatabaseIndex, "name" | "unique">> & {
+  readonly indexes: readonly (Readonly<Pick<DatabaseIndex, "name" | "unique" | "type">> & {
     readonly columns: readonly string[];
     readonly where?: "deleted_at IS NULL" | "deleted_at IS NULL AND status = 'active'";
   })[];

@@ -21,6 +21,7 @@ export interface DatabaseIndex {
   columns: string[]
   unique: boolean
   where?: string
+  type?: string
 }
 
 export interface DatabaseCheck {
@@ -140,6 +141,7 @@ function compileEntity(entity: PortableEntity): {
       columns: entry.on,
       unique: entry.unique ?? false,
       where: typeof entry.where === "string" ? entry.where : undefined,
+      ...(entry.type === undefined ? {} : { type: entry.type }),
     }))
   )
 

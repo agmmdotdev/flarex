@@ -127,6 +127,18 @@ describe("shared checked DML lowering", () => {
     expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema([missingRaw], "ledger")))).toBe(true);
   });
 
+  it("refuses an unsupported native index method instead of admitting it as B-tree", () => {
+    for (const unique of [false, true]) {
+      const withGin = { ...ledger, indexes: [...ledger.indexes,
+        { name: "ledger_amount_data_gin", columns: ["amount_data"], unique, type: "gin" }] };
+      const lowered = lowerDmlSchema([withGin], "ledger");
+      expect(lowered.tables[0]?.indexes.find(index => index.indexId === "ledger_amount_data_gin"))
+        .toMatchObject({ kind: "gin", columns: ["amount_data"] });
+      expect(lowered.tables[0]?.keys.some(key => key.keyId === "ledger_amount_data_gin")).toBe(false);
+      expect(Result.isFailure(normalizeRelationalSchema(lowered))).toBe(true);
+    }
+  });
+
   it("keeps provenance instance-local and canonical output independent of enumeration order", () => {
     const normal = lowerDmlSchema([ledger, labels, pivot], "ledger");
     const overridden = lowerDmlSchema([ledger], "ledger", {

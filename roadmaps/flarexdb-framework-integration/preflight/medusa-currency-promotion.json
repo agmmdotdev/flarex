@@ -442,7 +442,7 @@
     {
       "target": "packages/medusa-adapter/src/schema/compiled.ts",
       "classification": "authored",
-      "targetSha256": "f7d835f2ea3583d0a6fd314e1fb9102b978c38d92a5b71d8716bfc485e799dae"
+      "targetSha256": "b24bee2940e09667f5220ddccb5951bc422753ea69d928f87a28298f64212726"
     },
     {
       "target": "packages/medusa-adapter/test/support/sales-channel-runner.ts",
@@ -842,12 +842,12 @@
     {
       "target": "packages/medusa-adapter/src/schema/lower.ts",
       "classification": "authored",
-      "targetSha256": "47219b12f148d7f6e93f2e23c54a9e7d58ea59dee49df044d150111c17a0345b"
+      "targetSha256": "063bb46d0c571455020955ea80b98ba6e3a3e82829ccdd5099e090d83e3b2108"
     },
     {
       "target": "packages/medusa-adapter/src/schema/model.ts",
       "classification": "authored",
-      "targetSha256": "89444bee99407eeebebec1fc50bf9cfaf01bba7e5f9a9dc40c7ddc0a10d3956d"
+      "targetSha256": "52fb8f53854a5d6f4e8d4c2ff2c6efa6408bcc0b1f65b07cd7a593e195c5890c"
     },
     {
       "target": "packages/medusa-adapter/src/workflow-runtime.ts",
@@ -1072,7 +1072,7 @@
     {
       "target": "packages/medusa-adapter/test/shared-schema.test.ts",
       "classification": "authored",
-      "targetSha256": "605fda8bdd81e4763261bd8db622af77e42dcd45aedcca65630b5380e8f228d6"
+      "targetSha256": "ce1ff4782aeba1b57025a1a44f7126c651d8287c06eef088180947e4ce57ca12"
     },
     {
       "target": "packages/medusa-adapter/test/shared-write.test.ts",
@@ -1573,8 +1573,9 @@
       "target": "packages/medusa-drizzle/src/dml-types.ts",
       "source": "third_party/medusa/upstream/packages/core/dml/src/types.ts",
       "sourceSha256": "62f418b8bcc56999989bd2477a24c7442e69d4d9a06e0842cde06c438fe7e08d",
-      "classification": "unchanged",
-      "targetSha256": "62f418b8bcc56999989bd2477a24c7442e69d4d9a06e0842cde06c438fe7e08d"
+      "classification": "schemaCompilerFork",
+      "targetSha256": "ded35964c11af86919f170cf7bac0cb2b894841e268d30dfa1944ba5601d2e4e",
+      "transformation": "Carry the native entity index type in the portable compiler input contract."
     },
     {
       "source": "third_party/medusa/upstream/packages/database/drizzle/src/mutation-events.ts",
@@ -1603,8 +1604,9 @@
       "target": "packages/medusa-drizzle/src/schema.ts",
       "source": "third_party/medusa/upstream/packages/database/drizzle/src/schema.ts",
       "sourceSha256": "5585c929dc7fcb764ce87e201da996c77c749e28f9a29454e1b26274b1865f26",
-      "classification": "importRelocation",
-      "targetSha256": "0b68c62ef00beee7f06bb57acbeecaf85aa35e3ddcf464aefcb45e4b922d060e"
+      "classification": "schemaCompilerFork",
+      "targetSha256": "2300b7245fd10ea675cb4efe714da618989be8d7245fe507a1d92aa94e633b3e",
+      "transformation": "Preserve the native entity index method during checked DML compilation so unsupported GIN access cannot be admitted as a B-tree index."
     },
     {
       "target": "packages/medusa-drizzle/test/schema.test.ts",
@@ -4349,7 +4351,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-pricing-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "8845db73b7e5cca72a98860e12ed9ff9698db7aed32ea38f83a0f67009db4dec"
+      "targetSha256": "3c67f946f621cb7db4128e1953bba59b9f0ddca2e99c74ac4747fccf8491c0a3"
     },
     {
       "target": "packages/medusa-adapter/test/logical-variant-pricing-link.test.ts",
@@ -5689,12 +5691,12 @@
     },
     {
       "target": "packages/medusa-drizzle/dist/dml-types.d.ts",
-      "targetSha256": "48d9c9c09f3bfe0f288d608308db3c73ee8d39f1c257062c9060a57a7dfa5cd6",
+      "targetSha256": "f6d15abce3997dab0a138b25a568edd11684495d9cbcfd903599b81376c45a8e",
       "input": "packages/medusa-drizzle/src/dml-types.ts"
     },
     {
       "target": "packages/medusa-drizzle/dist/dml-types.d.ts.map",
-      "targetSha256": "6e7ae3fe9f0d1da3d376ccabad4ca25e4411472ed93e68e1740e65627b6084c0",
+      "targetSha256": "9a8ee4199a09432feb4653ff4b67b2238417e9affa2ca56a67ecdac4d3671def",
       "input": "packages/medusa-drizzle/src/dml-types.ts"
     },
     {
@@ -5769,22 +5771,22 @@
     },
     {
       "target": "packages/medusa-drizzle/dist/schema.d.ts",
-      "targetSha256": "21c09964c4101560f0c088b77f6a9cd12a3a8d4e21996f9df0de35deea5d981e",
+      "targetSha256": "d757f3cca7273a155fa1d6ceab030f9ab61fda74e0de982277f9edba19fdadcc",
       "input": "packages/medusa-drizzle/src/schema.ts"
     },
     {
       "target": "packages/medusa-drizzle/dist/schema.d.ts.map",
-      "targetSha256": "47fc2032ec4f385e067b4ed6d2f498986d1489222ed1e029ac53f1048667d8d5",
+      "targetSha256": "ee8833fe8ae4d1a414c827ba3fa0f32c62960dbf9c6f89083e2da7550960e11e",
       "input": "packages/medusa-drizzle/src/schema.ts"
     },
     {
       "target": "packages/medusa-drizzle/dist/schema.js",
-      "targetSha256": "e512a5c6e1658ed30fa8908d0e59e5693bfb9de3cb5241e4f5585b40c1096629",
+      "targetSha256": "0330ba5d6a5baee681708f4556d72d3521a969e9ecf3f572b61a281eef425098",
       "input": "packages/medusa-drizzle/src/schema.ts"
     },
     {
       "target": "packages/medusa-drizzle/dist/schema.js.map",
-      "targetSha256": "37f1c57a2556a84328a6fe8bf719bbf1a21055cc1e240cbfab4ae238b43e139e",
+      "targetSha256": "73afa63fadc057c5b81acdb1e4e415d92af0d472a0a5b7cc27359dc6d310f65c",
       "input": "packages/medusa-drizzle/src/schema.ts"
     },
     {

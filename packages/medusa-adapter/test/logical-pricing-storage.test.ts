@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Result, Schema } from "effect";
+import { compileDmlSchema } from "@medusajs/drizzle/schema";
+import { pricingModuleModels } from "@medusajs/pricing/static-manifest";
+import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { AppCreationTimeV1Schema, canonicalizeAppDocumentV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import { createPriceSetsStep } from "@medusajs/core-flows/pricing/create-price-sets-step";
 import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
 import { PriceSetsInput } from "../src/pricing-input";
+import { decodeCompiledDml } from "../src/schema/compiled";
+import { lowerDmlSchema } from "../src/schema/lower";
 
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
@@ -36,6 +41,14 @@ describe("native Pricing on shared logical storage", () => {
   }, 150_000);
   afterAll(async () => {
     for (const close of cleanup.reverse()) await close();
+  });
+
+  it("preserves PriceListRule's native GIN method and refuses its unsupported logical source", async () => {
+    const compiled = await Effect.runPromise(decodeCompiledDml(JSON.parse(JSON.stringify(compileDmlSchema(pricingModuleModels)))));
+    const rule = compiled.tables.find(table => table.name === "price_list_rule");
+    expect(rule?.indexes.find(index => index.columns.length === 1 && index.columns[0] === "value"))
+      .toMatchObject({ type: "gin", where: "deleted_at IS NULL" });
+    expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema(compiled.tables, "commerce.pricing")))).toBe(true);
   });
 
   it("admits the base-price dependency set without module table DDL", async () => {

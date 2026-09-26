@@ -37,6 +37,7 @@ const Index = Schema.Struct({
   columns: strings,
   unique: Schema.Boolean,
   where: Schema.optionalKey(Schema.Literals(["deleted_at IS NULL", "deleted_at IS NULL AND status = 'active'"])),
+  type: Schema.optionalKey(Schema.String),
 });
 const ForeignKey = Schema.Struct({
   name: Schema.String,
