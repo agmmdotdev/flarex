@@ -1,7 +1,8 @@
 # Variant–PriceSet Link Lifecycle Logical Cutover
 
 Status: selected Link lifecycle implemented under the approved shared-storage
-completion goal; other physical Link consumers remain.
+completion goal. The generalized singular Link boundary now uses shared logical
+storage; other named Link consumers follow their owning cutovers.
 
 ## Contract And Owner
 
@@ -43,9 +44,21 @@ Move the focused physical cardinality/dismiss/restore witness to the logical
 source, including explicit-ID replacement, rollback on conflicting restore,
 replay, two-shop isolation and ordinary-role concurrent restore where applicable.
 Remove the displaced physical fixture and its manifest entry in this slice.
-The generalized physical Link fixture stays only for its other named Link
-consumers; physical profiles and tables remain until all callers and durable
-data obligations have moved. No named durable environment is reset or converted.
+The generalized Link boundary has since moved to a logical source with native
+create, direct upsert, dismiss, restore, event, uniqueness, replay, rollback,
+two-shop and PostgreSQL contention witnesses. Its generated-table test profile
+and physical event policy are retired. Other physical profiles and tables remain
+only for separately named callers and durable-data obligations. No named durable
+environment is reset or converted.
+
+The generalized cutover exposed an operation-specific timestamp mismatch:
+the physical native upsert kept managed `updated_at` on an existing pair, while
+logical normalization advanced it. Shared logical row normalization now
+preserves that timestamp for upsert conflict and still advances it for ordinary
+updates and lifecycle writes. The replacement checks exact timestamp retention
+and one logical row-change fact. A test-owned PostgreSQL claim witness observes
+the generic unique-claim lock for both winner commit and rollback; the separate
+native-host race checks one successful same-endpoint attach.
 
 ## Validation And Completion Gates
 

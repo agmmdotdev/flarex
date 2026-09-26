@@ -500,6 +500,26 @@ describe("private relational schema values", () => {
     expect(policy.validate({ ...negative, decimal_digits: -0 }, "storedCorruption")).toMatchObject({ _tag: "Failure" });
   });
 
+  it("preserves managed update time on native upsert conflict while advancing ordinary updates", () => {
+    const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
+    const table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing Currency table");
+    const policy = Result.getOrThrow(prepareLogicalRelationalRows(table, schema.capabilities,
+      () => new Error("Invalid relational row")));
+    const firstTime = "2026-09-23T00:00:00.000Z";
+    const nextTime = "2026-09-24T00:00:00.000Z";
+    const first = Result.getOrThrow(policy.normalize({ code: "USD", symbol: "$",
+      symbol_native: "$", name: "US Dollar", decimal_digits: 2 }, null, firstTime));
+    const upserted = Result.getOrThrow(policy.normalize({ code: "USD", name: "Dollar" },
+      first, nextTime, "preserve"));
+    expect(upserted).toMatchObject({ name: "Dollar", created_at: firstTime,
+      updated_at: firstTime });
+    const updated = Result.getOrThrow(policy.normalize({ name: "Updated Dollar" },
+      upserted, nextTime));
+    expect(updated).toMatchObject({ name: "Updated Dollar", created_at: firstTime,
+      updated_at: nextTime });
+  });
+
   it("enforces the aggregate decode budget at its exact boundary", () => {
     expect(MAX_RELATIONAL_SCHEMA_DECODE_UNITS).toBe(16_000);
     expect(Result.isSuccess(

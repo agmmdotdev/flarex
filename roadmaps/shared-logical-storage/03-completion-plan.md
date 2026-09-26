@@ -267,6 +267,12 @@ remain distinct from logical schema evolution.
   logical Product and Currency together, with a native atomic command and no
   generated Product tables. The physical Product local suite, profile and event
   policy and Product-only physical installation test are retired.
+  The generalized singular Link boundary now selects an authored native Link
+  definition through generic logical rows and indexes. Native attach, direct
+  upsert, dismiss, restore, event receipts, two-shop isolation, replay and
+  rollback run without a generated Link table. The displaced physical Link
+  event policy and generated-table fixture are retired; other named Link
+  consumers retain their separate cutover gates.
   Other relationship kinds still need their own
   coherent cutovers. General
   bounded population/overflow, broader Product commands and

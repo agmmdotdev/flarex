@@ -69,7 +69,8 @@ export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefi
           return yield* Result.fail(error("documentInvalid"));
       }
     });
-    const normalize = (input: JsonObject, previous: JsonObject | null, timestamp: string) => Result.gen(function* () {
+    const normalize = (input: JsonObject, previous: JsonObject | null, timestamp: string,
+      managedUpdate: "advance" | "preserve" = "advance") => Result.gen(function* () {
       yield* validateInput(input);
       const row = { ...previous, ...input };
       if (previous === null) for (const column of table.columns) {
@@ -83,7 +84,7 @@ export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefi
           case "booleanLiteral": case "textLiteral": case "integerLiteral": case "exactNumericLiteral": row[name] = value.value; break;
         }
       }
-      else for (const column of managed) row[column] = timestamp;
+      else if (managedUpdate === "advance") for (const column of managed) row[column] = timestamp;
       for (const column of table.columns) {
         if (column.type === "integer" && Object.is(row[column.identity.columnId], -0))
           row[column.identity.columnId] = 0;

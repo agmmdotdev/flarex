@@ -770,7 +770,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
             result.push(previous); continue;
           }
         }
-        const fields = yield* Effect.fromResult(policy.normalize(supplied, previous, yield* transactionTime));
+        // A native upsert conflict writes supplied fields and reactivates the
+        // row without advancing a managed update timestamp. Ordinary updates
+        // and lifecycle transitions still advance it.
+        const fields = yield* Effect.fromResult(policy.normalize(supplied, previous,
+          yield* transactionTime, operation === "upsert" ? "preserve" : "advance"));
         const written = pending === undefined ? yield* insertRecord(tableName, fields) : yield* write(pending, fields, "patch");
         const { _id: _internalId, _creationTime: _internalTime, ...native } = written;
         if ((operation === "softDelete" || operation === "restore") && previous !== null)
