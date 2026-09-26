@@ -1,8 +1,10 @@
 # Mixed Application, Payload And Medusa Mutations
 
-Status: proposed design for discussion. The requested developer experience is
-explicit; the execution contract, compatibility changes and implementation
-sequence below remain proposals. Creating this note does not approve runtime
+Status: proposed core execution design for discussion. The owner has chosen to
+wait for the ongoing shared-storage migration goal to finish before starting
+implementation here. Core implementation is the intended next phase; developer
+APIs remain deferred. The execution contract and compatibility changes below
+remain proposals. Recording these decisions does not approve runtime
 implementation, public exposure, a journal migration or changes to locking.
 
 ## Outcome And Authority
@@ -21,7 +23,8 @@ The [accepted database design](./flarex-db-accepted-design.md),
 remain authoritative until an approved design explicitly revises them. Existing
 framework command and native mutation profiles retain their current contracts.
 
-Illustrative syntax, not an existing API or a final naming decision:
+Illustrative future syntax, not an existing API, a final naming decision or a
+deliverable of the proposed core phase:
 
 ```ts
 export const publishProduct = mutation(async (ctx, args) => {
@@ -41,6 +44,44 @@ The same execution contract should admit selected `ctx.cms` operations and
 finite Medusa workflows once their full behavior passes the relevant gates.
 The guarantee covers one authorized scope and physical database placement.
 Cross-placement work requires committed steps and a durable coordination contract.
+
+## Sequencing And Core Scope
+
+The owner chose to let the other session, **Review Medusa integration design (2)**,
+finish the [shared-storage completion goal](../roadmaps/shared-logical-storage/03-completion-plan.md)
+before implementation of this proposal begins. Both efforts may change the
+working set, query dependencies, materialization, admission and schema readiness.
+Starting a second implementation against those moving contracts would risk
+conflicting edits and duplicated redesign. Discussion and this design note may
+continue while runtime changes remain deferred.
+
+After that goal reaches a validated, committed completion baseline:
+
+1. Inspect its final code, tests, supported operations and remaining limitations.
+2. Refresh this note's owner inventory and identify which gaps still exist.
+3. Trace the selected service/workflow dependencies and resolve the execution,
+   authority, snapshot, retry and compatibility decisions in a focused preflight.
+4. Agree on that core implementation scope before changing runtime owners.
+
+Completion of the migration goal alone does not authorize this proposal or
+trigger its implementation. This sequencing decision also does not require
+integration of every Medusa module or every upstream workflow: the prerequisite
+is completion of the other session's recorded goal, followed by exact dependency
+selection for this work.
+
+The proposed core phase covers attempt participation, snapshot and pending reads,
+journal evidence, OCC validation, settlement, recovery, framework lifecycle
+integration and connected private proofs. It may change necessary internal
+contracts and migrate their consumers. Use existing private host/sandbox test
+entry points or narrowly scoped internal test bindings to exercise the real
+execution path without exposing a new application authoring surface. Tests must
+preserve the production trust boundary and reuse the real owners.
+
+Public `ctx.commerce`/`ctx.cms` surfaces, SDK methods and generated types,
+developer-facing registration/configuration APIs, API naming and hosted
+activation are deferred to separately scoped work. The examples in this note
+express the eventual behavior that core must support; implementing those example
+APIs is not a completion gate for the core phase.
 
 ## Why The Earlier Design Kept Separate Profiles
 
@@ -85,6 +126,35 @@ or allow ordinary mutations to call independently committing framework hosts.
 The working set now supplies more shared mechanics than the original direct-SQL
 commerce baseline. Its reuse should be assessed against each required contract;
 neither a blanket rewrite nor a thin adapter is assumed sufficient.
+
+### Expected Redesign Depth
+
+This is a substantial execution redesign across connected owners. A small
+Application/Product example is the first behavioral proof, not an estimate of
+the underlying change size. Reassess the following against the completed
+migration baseline before fixing the implementation scope:
+
+| Area | Expected change and reusable foundation |
+| --- | --- |
+| Working set | Major refactor of its physical-transaction-bound construction and pending evaluation into the admitted snapshot/attempt contract. Reuse query, index, constraint and resource mechanics where they preserve that contract. |
+| Logical journal | Significant extension for authenticated framework participation, operation/result evidence, dependencies and pending effects. Reuse attempt identity, sequencing, sealing and recovery. This is the logical attempt journal, not PostgreSQL WAL. |
+| OCC | Extend evidence collection and validation for every admitted framework decision, including absence, ranges, query membership, relations and constraints. Preserve the principle of validating the observations that informed the mutation. |
+| Transaction orchestration | Refactor framework calls and child workflows to borrow one logical attempt. The root owns budgets, cancellation, whole-attempt conflict retry and settlement. |
+| Physical commit/publication | Reuse the existing authoritative settlement, materialization, event and retained-outcome owners; extend combined validation and contributions where required. One logical transaction does not mean one SQL transaction held throughout user execution. |
+| Framework integration | Adapt manager/request propagation and finite workflow execution while preserving native validation, hooks, events and failure behavior. |
+
+The two largest design questions are coherent snapshot-plus-pending evaluation
+and complete dependency evidence for framework queries. Existing row history
+does not alone prove historical index or relational-query behavior. An indexed
+query can become stale when a concurrent insert changes its membership even if
+none of its previously returned rows changed. Existing framework writes must
+also preserve the evidence needed by mixed attempts.
+
+Logical tables, indexes, constraints, native services and the shared settlement
+foundation remain useful. The migration's completion does not itself establish
+one snapshot, pending view or retry contract across the three execution profiles.
+Exact journal/protocol changes and data obligations require an inventory; this
+note does not prescribe new tables, a universal interpreter or a second ledger.
 
 ## Proposed Execution Model
 
@@ -324,16 +394,57 @@ Framework service/workflow participation is a Flarex extension. Explicit method
 admission, Postgres settlement and Cloudflare capability transport require their
 own compatibility and failure proofs.
 
-## Connected Implementation Gates
+## Representative Private Core Proof
 
-1. **Approve the execution contract.** Resolve the open decisions below and
+Select one concrete business operation to exercise the complete core path through
+private bindings. A proposed example is publishing a product launch for an
+existing Product:
+
+1. Create an Application `productLaunch` record.
+2. Run an admitted finite Medusa workflow that creates variants, base prices and
+   their stored Links, using the actual native service/workflow definitions.
+3. Update a Payload product page through its real Local API, access checks,
+   validation and an admitted database-only nested hook.
+4. Read the authorized pending framework results and use them in a subsequent
+   Application update within the same attempt.
+5. Settle Application, Payload and Medusa changes, the root result and checked
+   event intents in one outcome.
+
+The exact workflow, inputs and field set must be selected from the final migration
+baseline. This example is not admission of a complete upstream Product workflow.
+If the use case needs price calculation immediately after writes, pending
+calculation must have its own connected proof; creation of PriceSets and Links
+does not establish it. External effects, waits and unsupported resource locks
+remain subject to their separate contracts.
+
+The connected proof starts with Application write, Product service update,
+pending read and dependent Application write. Add real Payload CRUD and its
+nested lifecycle, then finite workflow/child composition, and exercise the
+combined scenario. These are progressive witnesses within a connected core
+effort, not three independently committing demonstrations or permission to
+deliver only helper changes. Direct writes to framework-owned tables cannot
+substitute for real framework calls.
+
+Besides success, require late Payload failure after Medusa work to leave no
+committed rows or event intents, consistent pending visibility, complete conflict
+detection and whole-attempt retry, cancellation, transport replay and lost-COMMIT
+recovery without repeated committed workflow execution. Test unsupported effects
+and domain-authority refusal. Domain-neutral core contracts must support the
+selected operations without product-launch-specific branches. This first proof
+does not establish arbitrary Payload hooks or Medusa workflow compatibility.
+
+## Connected Core Implementation Gates
+
+1. **Refresh the baseline and approve the execution contract.** After the other
+   session finishes its migration goal, resolve the open decisions below and
    trace one real Product service method through validation, queries, events and
    every transitive call. Select fields and behavior explicitly rather than
-   treating the entire Product API as proven.
-2. **Prove Application plus Medusa in a real mutation.** Run Application write,
-   Product update, pending Product read and a dependent Application write through
-   the genuine sandbox/host boundary. Require one outcome and publication, late
-   failure with no committed rows/events, correct ownership and cancellation.
+   treating the entire Product API as proven. Keep developer APIs out of this scope.
+2. **Prove Application plus Medusa through private core entry points.** Run an
+   Application write, Product update, pending Product read and dependent
+   Application write through the genuine sandbox/host boundary using internal
+   bindings. Require one outcome and publication, late failure with no committed
+   rows/events, correct ownership and cancellation.
 3. **Prove concurrency and recovery with the connected consumer.** Force same-row
    conflicts, absence/range changes, write skew, unique/FK races, opposing lock
    orders, standalone-writer overlap, activation changes, snapshot expiry and
@@ -341,8 +452,8 @@ own compatibility and failure proofs.
 4. **Prove Payload lifecycle and finite workflow participation.** Use real Local
    API access/validation and nested hooks, plus a native workflow with child work,
    pending graph reads and both event families. Unsupported effects, waits,
-   locks and parallel constructs must refuse. Neither profile is advertised
-   until its own connected proof passes.
+   locks and parallel constructs must refuse. Run the combined private scenario;
+   no public authoring API is required or granted by these proofs.
 5. **Cut over and remove displaced mechanics.** Update callers, formats and
    documentation coherently; retain only named supported profiles or migration
    obligations. Check shared-root resource limits and contention against agreed
@@ -351,7 +462,9 @@ own compatibility and failure proofs.
 Each implementation slice includes meaningful owner/consumer tests, PGlite and
 ordinary-role PostgreSQL lanes, applicable Worker execution, required type/build/
 lint/source guards, both standing reviewers and cleanup. No implementation or
-performance result is claimed by this note.
+performance result is claimed by this note. Core completion means the agreed
+private execution contracts, real consumer proofs and cleanup gates pass;
+developer API design and exposure remain separate follow-on work.
 
 ## Open Decisions For Discussion
 
@@ -373,5 +486,7 @@ performance result is claimed by this note.
   acceptable first mixed profile? No broad throughput benefit is assumed.
 
 These decisions should produce a focused implementation preflight. The user
-request currently authorizes recording and discussing this design, not enabling
-the proposed execution or public APIs.
+request currently authorizes recording and discussing this design. Runtime
+implementation waits for the other session's goal to finish and the subsequent
+scope agreement. The intended next phase is core implementation; developer APIs
+remain explicitly deferred.
