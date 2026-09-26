@@ -433,6 +433,66 @@ and domain-authority refusal. Domain-neutral core contracts must support the
 selected operations without product-launch-specific branches. This first proof
 does not establish arbitrary Payload hooks or Medusa workflow compatibility.
 
+## Performance Evidence And Optimization Sequence
+
+The owner wants representative workflows to approach native Medusa performance
+where practical. This is an engineering target, not a measured result or a
+promise of parity. Mixed execution adds snapshot, journal, recovery and
+publication obligations; OCC alone does not reduce SQL work and can add retry
+cost. Existing working-set reuse and batching must not be lost during refactoring.
+
+The agreed sequence is:
+
+1. Integrate enough real Application, Payload and Medusa behavior to execute a
+   representative connected operation through the private core path.
+2. Prove pending visibility, atomicity, authority, constraints, conflicts,
+   retries, events, cancellation and recovery for that operation.
+3. Measure the working path, attribute its costs and choose explicit performance
+   acceptance targets from the baseline evidence.
+4. Optimize the demonstrated bottlenecks at their actual core or framework owner.
+   Rerun the same correctness witnesses and performance workloads after changes.
+
+Do not require integration of every module before measuring, or make speculative
+optimization a prerequisite for the first connected correctness proof. Preserve
+bounded resource use and avoid structural choices that inherently amplify work,
+such as requiring a separate remote transaction for every internal row operation.
+Detailed batching, caching and query tuning follow measured need. Do not build
+speculative optimizers or additional execution engines in anticipation of it.
+
+Record SQL statements separately from sequential database round trips. Attribute
+admission, framework execution, base/index/constraint reads, journal persistence,
+OCC validation, materialization and publication. Measure end-to-end and phase
+latency, p50/p95/p99, throughput, journal bytes, row/index/history/event writes,
+connection occupancy, lock waits and hold time, and total work per successful
+mutation including retries. Keep small and larger graphs, cold and warm paths,
+independent scopes and conflicting same-scope workloads distinct. Earlier reports
+of more than 100 SQL calls motivate this investigation; they do not establish a
+current baseline without the exact workload, executing revision and measurement
+boundary, including separation of installation/setup from request execution.
+
+Use ordinary-role real PostgreSQL for latency, concurrency and query-plan
+evidence; PGlite remains the fast semantic lane. Hosted transport has a separate
+measurement gate. Compare the same runnable workflow, inputs, data and results
+with pinned native Medusa to show the user-visible difference, and use a
+correctness-equivalent reference to distinguish required guarantees from
+avoidable implementation overhead. Native Medusa alone cannot benchmark the
+whole Application/Payload/Medusa composition; label the compared portion and
+extra obligations. Declare unavailable comparisons instead of inventing results.
+
+Candidate improvements include shared pending reads, batched identity and
+dependency checks, batched journal evidence, coalesced final row changes and
+batched index/event persistence. These are options to evaluate, not prescribed
+implementation tasks. Preserve native intermediate results, validation order,
+event evidence, ownership, replay and durable acknowledgement boundaries. Do
+not obtain lower counts by dropping required evidence, deferring acknowledged
+durability or splitting one atomic operation into independent commits.
+
+Efficient execution is part of core acceptance before broader admission and
+developer APIs. The focused implementation preflight must define representative
+workloads and the cost-attribution plan; numerical targets are agreed from the
+resulting baseline. Optimize enough to meet those agreed targets, without making
+unbounded tuning or an unproved universal performance claim a completion gate.
+
 ## Connected Core Implementation Gates
 
 1. **Refresh the baseline and approve the execution contract.** After the other
@@ -454,7 +514,11 @@ does not establish arbitrary Payload hooks or Medusa workflow compatibility.
    pending graph reads and both event families. Unsupported effects, waits,
    locks and parallel constructs must refuse. Run the combined private scenario;
    no public authoring API is required or granted by these proofs.
-5. **Cut over and remove displaced mechanics.** Update callers, formats and
+5. **Measure and optimize the proved paths.** Apply the performance sequence
+   above once representative integration and correctness evidence exist. Compare
+   the agreed workloads, resolve demonstrated bottlenecks and rerun their
+   correctness and performance checks against the agreed acceptance targets.
+6. **Cut over and remove displaced mechanics.** Update callers, formats and
    documentation coherently; retain only named supported profiles or migration
    obligations. Check shared-root resource limits and contention against agreed
    acceptance questions before broader admission.
@@ -463,8 +527,9 @@ Each implementation slice includes meaningful owner/consumer tests, PGlite and
 ordinary-role PostgreSQL lanes, applicable Worker execution, required type/build/
 lint/source guards, both standing reviewers and cleanup. No implementation or
 performance result is claimed by this note. Core completion means the agreed
-private execution contracts, real consumer proofs and cleanup gates pass;
-developer API design and exposure remain separate follow-on work.
+private execution contracts, real consumer proofs, measured performance targets
+and cleanup gates pass; developer API design and exposure remain separate
+follow-on work.
 
 ## Open Decisions For Discussion
 
@@ -483,7 +548,9 @@ developer API design and exposure remain separate follow-on work.
 - Which resource locks genuinely need exclusion beyond one atomic mutation,
   and which database invariants can use a proved OCC adaptation?
 - What retry, latency, memory, query and lock-contention budgets establish an
-  acceptable first mixed profile? No broad throughput benefit is assumed.
+  acceptable first mixed profile after representative integration is measured?
+  Which native/reference comparisons are runnable with matching obligations?
+  No broad throughput benefit or numerical parity target is assumed upfront.
 
 These decisions should produce a focused implementation preflight. The user
 request currently authorizes recording and discussing this design. Runtime
