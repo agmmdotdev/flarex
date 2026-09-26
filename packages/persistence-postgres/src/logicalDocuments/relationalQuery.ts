@@ -7,6 +7,7 @@ import { encodeOrderedIndexComponentsV1, orderedIndexKeyHexV1ToBytes,
 import type { JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure } from "./model";
 import { prepareLogicalRelationalRowValues, relationalTextIdentity } from "./relationalRows";
+import { hasMandatorySearchTrigram, type LogicalSearchPattern } from "./searchReads";
 
 /** The admitted indexed text relational profile. Other predicate families require
  * their own indexed execution contract before they can be enabled here. */
@@ -43,6 +44,7 @@ interface Filter<Failure> {
   readonly select: (requiredNulls: ReadonlySet<string>) => Result.Result<SelectionPlan, Failure>;
   /** Every matching row has these null fields, including across OR branches. */
   readonly requiredNulls: ReadonlySet<string>;
+  readonly search: readonly LogicalSearchPattern[] | null;
   readonly matches: (row: JsonObject) => boolean;
 }
 
@@ -81,6 +83,14 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
       return yield* Result.fail(error("invalidInput"));
     const take = query.take ?? pageRows;
     if (take > pageRows) return yield* Result.fail(error("limitExceeded"));
+    const isBoundedUniquePoints = (selections: readonly Selection[] | null) => selections !== null &&
+      selections.length > 0 && selections.length <= 16 && selections.every(selection => {
+        if (typeof selection.value === "object") return false;
+        if (table.keys.some(tableKey => tableKey.columns.length === 1 && tableKey.columns[0]?.columnId === selection.column)) return true;
+        return table.indexes.some(index => index.kind === "uniqueBtree" && index.columns.length === 1 &&
+          index.columns[0]?.columnId === selection.column && (index.predicate === null ||
+            index.predicate.kind === "isNull" && index.predicate.column.columnId === selection.nullColumn));
+      });
     let nodes = 0;
     let operands = 0;
     const visit = (inputNode: unknown, depth: number): Result.Result<Filter<Failure>, Failure> => Result.gen(function* () {
@@ -104,7 +114,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           const nullColumn = conditional?.predicate?.kind === "isNull" ? conditional.predicate.column.columnId : undefined;
           return Result.succeed({ selections: [...keys].map(value => ({ column: node.column, value,
             ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
-        }, requiredNulls: new Set<string>(),
+        }, requiredNulls: new Set<string>(), search: null,
           matches: row => { const value = row[node.column]; return (typeof value === "string" || typeof value === "boolean") && keys.has(value); } };
       }
       if (node.kind === "isNull") {
@@ -112,13 +122,14 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         if (column === undefined) return yield* Result.fail(error("invalidInput"));
         return { select: () => Result.succeed({ selections: column.nullable ? null : [], unindexedText: false }),
           requiredNulls: column.nullable ? new Set([node.column]) : new Set<string>(),
+          search: null,
           matches: row => row[node.column] === null };
       }
       if (node.kind === "textNotEqual") {
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
         if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.value))
           return yield* Result.fail(error("invalidInput"));
-        return { select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(),
+        return { select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(), search: null,
           matches: row => typeof row[node.column] === "string" && row[node.column] !== node.value };
       }
       if (node.kind === "greaterThan") {
@@ -132,6 +143,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         return { select: () => Result.succeed({ selections: indexed
           ? [{ column: node.column, value: { gt: node.value } }] : null, unindexedText: !indexed }),
           requiredNulls: new Set<string>(),
+          search: null,
           matches: row => { const value = row[node.column]; return typeof value === "string" &&
             compareBytesLexicographically(new TextEncoder().encode(value), bound) > 0; } };
       }
@@ -141,7 +153,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           return yield* Result.fail(error("invalidInput"));
         if ([...node.pattern].length > 256) return yield* Result.fail(error("limitExceeded"));
         return { select: () => Result.succeed({ selections: null, unindexedText: true }),
-          requiredNulls: new Set<string>(),
+          requiredNulls: new Set<string>(), search: [{ column: node.column, pattern: node.pattern }],
           matches: row => { const value = row[node.column]; return typeof value === "string" &&
             matchesTextLikeAscii(value, node.pattern); } };
       }
@@ -162,21 +174,36 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           const candidate = yield* child.select(available);
           unindexedText ||= candidate.unindexedText;
           if (node.kind === "and") {
-            if (candidate.selections !== null && (selections === null || candidate.selections.length < selections.length)) selections = candidate.selections;
+            if (candidate.selections !== null && (selections === null ||
+              candidate.selections.length === 0 ||
+              selections.length !== 0 && isBoundedUniquePoints(candidate.selections) && !isBoundedUniquePoints(selections) ||
+              selections.length !== 0 && !isBoundedUniquePoints(selections) && candidate.selections.length < selections.length))
+              selections = candidate.selections;
           } else selections = selections === null || candidate.selections === null ? null : [...selections, ...candidate.selections];
         }
         return { selections, unindexedText };
       }), requiredNulls,
+        search: node.kind === "and"
+          ? children.find(child => child.search !== null && child.search.every(pattern => hasMandatorySearchTrigram(pattern.pattern)))?.search
+            ?? children.find(child => child.search !== null)?.search ?? null
+          : children.length > 0 && children.every(child => child.search !== null)
+            ? children.flatMap(child => child.search ?? []) : null,
         matches: row => node.kind === "and" ? children.every(child => child.matches(row)) : children.some(child => child.matches(row)) };
     });
     const filter = yield* visit(query.predicate ?? { kind: "and", children: [] }, 0);
     const planned = yield* filter.select(new Set());
-    if (planned.selections === null && planned.unindexedText && filter.requiredNulls.size === 0)
+    const searchCandidate = planned.selections?.length === 0 ? null : filter.search;
+    const uniquePoint = isBoundedUniquePoints(planned.selections);
+    const search = !uniquePoint && searchCandidate !== null && searchCandidate.every(pattern => hasMandatorySearchTrigram(pattern.pattern))
+      ? searchCandidate : null;
+    if (planned.selections === null && searchCandidate !== null && search === null && filter.requiredNulls.size === 0)
+      return yield* Result.fail(error("limitExceeded"));
+    if (planned.selections === null && planned.unindexedText && filter.requiredNulls.size === 0 && search === null)
       return yield* Result.fail(error("invalidInput"));
-    const selections = planned.selections === null ? null : Object.freeze([...new Map(planned.selections.map(selection =>
+    const selections = search !== null || planned.selections === null ? null : Object.freeze([...new Map(planned.selections.map(selection =>
       [JSON.stringify([selection.column, selection.value, selection.nullColumn ?? null]), selection] as const)).values()]);
-    return Object.freeze({ key, selections,
-      requiresIndexedNullAnchor: selections === null && planned.unindexedText,
+    return Object.freeze({ key, selections, search,
+      requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null,
       requiredNulls: Object.freeze([...filter.requiredNulls]),
       offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: query.order.column, fields: Object.freeze([...fields]),
       inspect: (row: JsonObject) => Result.gen(function* () {

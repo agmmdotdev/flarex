@@ -4,7 +4,7 @@ import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransac
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxAppSearchEntryCurrent } from "../../persistence-postgres/src/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 
@@ -73,6 +73,150 @@ describe("native internal Product service on shared logical storage", () => {
       expect(await Effect.runPromise(host.read(runtime.commands.internalProductList,
         { filters: { id: input.id }, config: { select: ["id", "title"] } })))
         .toEqual([{ id: input.id, title: "Updated Product" }]);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("finds deleted Products through the shared indexed text search", async () => {
+    const { runtime, hostInput, host: base } = await prepareLogicalProductHost(fixture);
+    await Effect.runPromise(base.close);
+    const host = await Effect.runPromise(makeCommerceHost({ ...hostInput,
+      commands: [...hostInput.commands, runtime.commands.list, runtime.commands.count] }));
+    try {
+      await Effect.runPromise(host.initialize([]));
+      for (const input of [
+        { id: "search_active", title: "Needle", handle: "search-active" },
+        { id: "search_deleted", title: "NEEDLE", handle: "search-deleted" },
+        { id: "search_backslash", title: "Back\\slash", handle: "search-backslash" },
+      ]) await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductCreate, input));
+      await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductSoftDelete, "search_deleted"));
+      const search = (q: string, withDeleted = true) => host.read(runtime.commands.internalProductList,
+        { filters: { q }, config: { select: ["id"], withDeleted } });
+      expect(await Effect.runPromise(search("needle"))).toEqual([{ id: "search_active" }, { id: "search_deleted" }]);
+      expect(await Effect.runPromise(host.read(runtime.commands.count,
+        { filters: { q: "needle" }, config: { select: ["id"], withDeleted: true } })))
+        .toMatchObject([[{ id: "search_active" }, { id: "search_deleted" }], 2]);
+      expect(await Effect.runPromise(search("needle", false))).toEqual([{ id: "search_active" }]);
+      expect(await Effect.runPromise(search("nee%le"))).toEqual([{ id: "search_active" }, { id: "search_deleted" }]);
+      expect(await Effect.runPromise(search("nee_le"))).toEqual([{ id: "search_active" }, { id: "search_deleted" }]);
+      expect(await Effect.runPromise(search("back\\sl"))).toEqual([{ id: "search_backslash" }]);
+      await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductUpdate,
+        { id: "search_active", title: "Haystack" }));
+      expect(await Effect.runPromise(search("needle"))).toEqual([{ id: "search_deleted" }]);
+      await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductRestore, "search_deleted"));
+      expect(await Effect.runPromise(search("needle", false))).toEqual([{ id: "search_deleted" }]);
+      expect(await Effect.runPromise(search("n", false))).toEqual([{ id: "search_deleted" }]);
+      await expect(Effect.runPromise(search("n"))).rejects.toMatchObject({ reason: "rollbackOnly" });
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("includes a same-command Product in indexed search before publication", async () => {
+    const { runtime, hostInput, host: base } = await prepareLogicalProductHost(fixture);
+    await Effect.runPromise(base.close);
+    const createAndSearch = defineCommerceCommand("logicalProductCreateAndSearch", "write", Effect.fn(function* (ctx) {
+      yield* ctx.nested(runtime.commands.internalProductCreate,
+        { id: "search_pending", title: "Pendingneedle", handle: "search-pending" });
+      const table = yield* ctx.table("product");
+      return yield* table.find(ctx.manager, { fields: ["id"], take: 10,
+        order: { column: "id", direction: "asc" },
+        predicate: { kind: "textLikeAscii", column: "title", pattern: "%pendingneedle%" } });
+    }));
+    const host = await Effect.runPromise(makeCommerceHost({ ...hostInput,
+      commands: [...hostInput.commands, createAndSearch] }));
+    try {
+      await Effect.runPromise(host.initialize([]));
+      expect(await Effect.runPromise(host.run(host.newRequestKey(), createAndSearch, {})))
+        .toEqual([{ id: "search_pending" }]);
+      expect(await Effect.runPromise(host.read(runtime.commands.internalProductList,
+        { filters: { q: "pendingneedle" }, config: { select: ["id"], withDeleted: true } })))
+        .toEqual([{ id: "search_pending" }]);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("rolls back the Product revision when search maintenance fails late", async () => {
+    const { runtime, host } = await prepareLogicalProductHost(fixture);
+    try {
+      await Effect.runPromise(host.initialize([]));
+      await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductCreate,
+        { id: "search_rollback", title: "Before", handle: "search-rollback" }));
+      const beforeRows = await fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+      const beforeSearch = await fixture.persistence.drizzle.select().from(fxAppSearchEntryCurrent);
+      await fixture.persistence.exec(`create function fx_search_rollback_fail() returns trigger language plpgsql as $$
+        begin raise exception 'injected search maintenance failure'; end $$`);
+      await fixture.persistence.exec(`create trigger fx_search_rollback_fail after insert on fx_app_search_entry_current
+        for each row execute function fx_search_rollback_fail()`);
+      try {
+        await expect(Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductUpdate,
+          { id: "search_rollback", title: "After" }))).rejects.toThrow();
+        expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeRows);
+        expect(await fixture.persistence.drizzle.select().from(fxAppSearchEntryCurrent)).toEqual(beforeSearch);
+      } finally {
+        await fixture.persistence.exec("drop trigger fx_search_rollback_fail on fx_app_search_entry_current");
+        await fixture.persistence.exec("drop function fx_search_rollback_fail()");
+      }
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("selects beyond unrelated rows and refuses an incomplete matching set", async () => {
+    const { runtime, host } = await prepareLogicalProductHost(fixture);
+    try {
+      await Effect.runPromise(host.initialize([]));
+      const create = async (prefix: string, count: number, title: (index: number) => string) => {
+        for (let start = 0; start < count; start += 32) {
+          const rows = Array.from({ length: Math.min(32, count - start) }, (_, offset) => {
+            const index = start + offset;
+            return { id: `${prefix}_${index}`, title: title(index), handle: `${prefix}-${index}` };
+          });
+          await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductCreate, rows));
+        }
+      };
+      await create("search_unrelated", 129, index => `Unrelated ${index}`);
+      await create("search_target", 1, () => "Findable needle");
+      const input = (q: string) => ({ filters: { q }, config: { select: ["id"], withDeleted: true } });
+      expect(await Effect.runPromise(host.read(runtime.commands.internalProductList, input("findable"))))
+        .toEqual([{ id: "search_target_0" }]);
+      expect(await Effect.runPromise(host.read(runtime.commands.internalProductList,
+        { filters: { q: "findable" }, config: { select: ["id"] } })))
+        .toEqual([{ id: "search_target_0" }]);
+      await create("search_overflow", 129, () => "Overflowtoken");
+      await expect(Effect.runPromise(host.read(runtime.commands.internalProductList, input("overflowtoken"))))
+        .rejects.toMatchObject({ reason: "rollbackOnly" });
+    } finally { await Effect.runPromise(host.close); }
+  }, 240_000);
+
+  it("refuses search serving when the shared physical GIN path is absent", async () => {
+    const { runtime, host } = await prepareLogicalProductHost(fixture);
+    try {
+      await Effect.runPromise(host.initialize([]));
+      await fixture.persistence.exec("drop index fx_app_search_entry_current_lookup_gin");
+      try {
+        await expect(Effect.runPromise(host.read(runtime.commands.internalProductList,
+          { filters: { q: "needle" }, config: { select: ["id"], withDeleted: true } })))
+          .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+      } finally {
+        await fixture.persistence.exec(`create index fx_app_search_entry_current_lookup_gin
+          on fx_app_search_entry_current using gin (scope_uuid public.uuid_ops,
+            logical_index_id public.int4_ops, folded_text public.gin_trgm_ops)`);
+      }
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("refuses a same-name GIN index without the scope and definition keys", async () => {
+    const { runtime, host } = await prepareLogicalProductHost(fixture);
+    try {
+      await Effect.runPromise(host.initialize([]));
+      await fixture.persistence.exec("drop index fx_app_search_entry_current_lookup_gin");
+      await fixture.persistence.exec(`create index fx_app_search_entry_current_lookup_gin
+        on fx_app_search_entry_current using gin (folded_text public.gin_trgm_ops)`);
+      try {
+        await expect(Effect.runPromise(host.read(runtime.commands.internalProductList,
+          { filters: { q: "needle" }, config: { select: ["id"] } })))
+          .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+      } finally {
+        await fixture.persistence.exec("drop index fx_app_search_entry_current_lookup_gin");
+        await fixture.persistence.exec(`create index fx_app_search_entry_current_lookup_gin
+          on fx_app_search_entry_current using gin (scope_uuid public.uuid_ops,
+            logical_index_id public.int4_ops, folded_text public.gin_trgm_ops)`);
+      }
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 

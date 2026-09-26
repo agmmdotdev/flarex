@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -45,7 +45,7 @@ describe("S09-B commit-wake outbox schema", () => {
 
   it("preserves all delivery states, rolls back 0092 failure, and replays", async () => {
     const fixture = await makeDrizzleCopyFixture("flarex-commit-wake", "pglite", "0092_commit-wake.sql");
-    const db = new PGlite();
+    const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db, migrationsFolder: fixture.migrationsFolder });
     try {
       await verifyCommitWakeMigration(persistence, fixture, "drizzle");

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -178,7 +178,7 @@ it("backfills both retained and expired Application rows without changing eviden
       try { await prove(db); } finally { await db.close(); }
     });
     else {
-      const client = new PGlite();
+      const client = newTestPGlite();
       try { await prove(await createPGlitePersistence({ db: client, migrationsFolder: fixture.migrationsFolder })); } finally { await client.close(); }
     }
   } finally { await fixture.cleanup(); }

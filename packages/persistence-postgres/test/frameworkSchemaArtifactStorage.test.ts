@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -60,7 +61,7 @@ describe("framework schema artifact storage - PGlite", () => {
       "flarex-framework-artifact-storage-",
     ));
     const dataDirectory = resolve(testRoot, "database");
-    let db: PGlite | undefined = new PGlite(dataDirectory);
+    let db: PGlite | undefined = newTestPGlite(dataDirectory);
 
     try {
       let persistence = await createPGlitePersistence({ db });
@@ -250,7 +251,7 @@ describe("framework schema artifact storage - PGlite", () => {
 
       await db.close();
       db = undefined;
-      db = new PGlite(dataDirectory);
+      db = newTestPGlite(dataDirectory);
       persistence = await createPGlitePersistence({ db });
       await expect(persistence.migrate()).resolves.toBeUndefined();
       expect(await storedArtifactCounts(persistence)).toEqual(beforeClose);

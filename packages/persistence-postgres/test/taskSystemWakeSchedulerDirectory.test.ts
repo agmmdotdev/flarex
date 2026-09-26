@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
   decodeTaskRetryJitterV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -326,7 +326,7 @@ async function withFixture(
     readonly persistence: PGliteFlarexPersistence;
   }>) => Promise<void>,
 ): Promise<void> {
-  const raw = new PGlite();
+  const raw = newTestPGlite();
   try {
     const persistence = await createPGlitePersistence({ db: raw });
     await persistence.migrate();

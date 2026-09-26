@@ -4,7 +4,7 @@ import { runEffect } from "./effectTestRuntime";
 import { captureFrameworkMigrationAttemptStart, captureFrameworkMigrationStepReceipt } from "../src/migrationCoordination/canonical";
 import { ensureFrameworkMigrationAttemptStartInTransactionEffect } from "../src/migrationCoordination/migrationAttemptRepository";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { sql, eq } from "drizzle-orm";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -101,7 +101,7 @@ describe("framework installation metadata protection", () => {
   }, 180_000);
 
   it("rolls back the guard migration atomically and preserves pre-existing application rows", async () => {
-    const database = new PGlite();
+    const database = newTestPGlite();
     onTestFinished(() => database.close());
     const migrations = readMigrationFiles({
       migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),

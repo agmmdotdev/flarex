@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { expect, it } from "vitest";
 import type { FlarexPersistence } from "../src";
 import { createPGlitePersistence } from "../src/pglite";
@@ -32,7 +32,7 @@ async function verify(persistence: Pick<FlarexPersistence, "query" | "migrate">,
 
 it("preserves existing unique builds without granting maintenance through migration rollback and replay (PGlite)", async () => {
   const fixture = await makeDrizzleCopyFixture("flarex-unique-maintenance", "pglite", "0104_unique_maintenance.sql");
-  const db = new PGlite();
+  const db = newTestPGlite();
   try { await verify(await createPGlitePersistence({ db, migrationsFolder: fixture.migrationsFolder }), fixture); }
   finally { await db.close(); await fixture.cleanup(); }
 }, 30_000);

@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite, createTestPGlite } from "./pgliteSearchExtensions";
 import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { onTestFinished } from "vitest";
 
@@ -9,7 +9,7 @@ type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 let migratedDataDirPromise: Promise<Blob | File> | undefined;
 
 async function buildMigratedDataDir(): Promise<Blob | File> {
-  const db = new PGlite();
+  const db = newTestPGlite();
 
   try {
     const persistence = await createPGlitePersistence({ db });
@@ -31,7 +31,7 @@ function migratedDataDir(): Promise<Blob | File> {
  * automatically when the current test finishes.
  */
 export async function createMigratedPGlitePersistence(registerCleanup: (cleanup: () => Promise<void>) => void = onTestFinished): Promise<PGlitePersistence> {
-  const db = await PGlite.create({ loadDataDir: await migratedDataDir() });
+  const db = await createTestPGlite({ loadDataDir: await migratedDataDir() });
 
   try {
     const persistence = await createPGlitePersistence({ db });

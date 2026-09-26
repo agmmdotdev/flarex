@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { MAX_PERSISTED_SIGNED_INT64_V1 } from
   "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
@@ -103,7 +103,7 @@ describe("B2b1 exact-attempt execution-claim schema", () => {
 
   it("upgrades 0031 without fabricating authority and recovers an injected failure", async () => {
     const fixture = await migrationFixture();
-    const db = new PGlite();
+    const db = newTestPGlite();
     const sessionId = transactionSessionIdAt(321);
     try {
       const previous = await createPGlitePersistence({

@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { lockScopeClockForShareInTransactionEffect } from "../src/scopeClock";
 import { AppIndexPhysicalSpecSha256HexV1Schema } from "flarex-protocol/index-definition";
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -206,7 +206,7 @@ describe("physical index coverage storage", () => {
       "pglite",
       "0096_index-coverage.sql",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({
         db,

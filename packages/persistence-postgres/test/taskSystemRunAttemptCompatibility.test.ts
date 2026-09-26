@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
@@ -62,7 +62,7 @@ const suite = decodeCompatibilityVectorSuiteV1(suiteJson);
 
 describe("DTE04-B canonical compatibility lane - PGlite adapter", () => {
   it("executes every store-addressable vector through the adapter", async () => {
-    const raw = new PGlite();
+    const raw = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({ db: raw });
       await persistence.migrate();

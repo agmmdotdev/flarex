@@ -3765,6 +3765,73 @@ export const fxAppRowCurrent = pgTable(
   ],
 );
 
+/** Current values of explicitly declared logical searchable text fields.
+ * This is a derived, scope-confined access family, not an authoritative row
+ * body. The revision link lets readers reject stale or corrupted entries. */
+export const fxAppSearchEntryCurrent = pgTable(
+  "fx_app_search_entry_current",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    logicalIndexId: integer("logical_index_id").$type<CatalogIndexId>().notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    fieldId: text("field_id").notNull(),
+    rowId: bytea("row_id").notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" }).$type<CommitSeq>().notNull(),
+    foldedText: text("folded_text").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "fx_app_search_entry_current_pk", columns: [
+      table.scopeUuid, table.tableId, table.logicalIndexId, table.fieldId, table.rowId,
+    ] }),
+    index("fx_app_search_entry_current_row_idx").on(table.scopeUuid, table.tableId, table.rowId),
+    index("fx_app_search_entry_current_lookup_gin").using("gin", table.scopeUuid,
+      table.logicalIndexId, sql`${table.foldedText} gin_trgm_ops`),
+    foreignKey({
+      name: "fx_app_search_entry_current_revision_fk",
+      columns: [table.scopeUuid, table.tableId, table.rowId, table.commitSeq],
+      foreignColumns: [fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId,
+        fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq],
+    }).onUpdate("restrict").onDelete("restrict"),
+    check("fx_app_search_entry_current_table_id_check", sql`${table.tableId} between 1 and 2147483647`),
+    check("fx_app_search_entry_current_index_id_check", sql`${table.logicalIndexId} between 1 and 2147483647`),
+    check("fx_app_search_entry_current_source_check", sql`${table.sourceSha256} ~ '^[0-9a-f]{64}$'`),
+    check("fx_app_search_entry_current_field_check", sql`length(${table.fieldId}) between 1 and 512`),
+    check("fx_app_search_entry_current_row_id_check", sql`octet_length(${table.rowId}) = 16`),
+    check("fx_app_search_entry_current_commit_seq_check", sql`${table.commitSeq} >= 1`),
+    check("fx_app_search_entry_current_ascii_fold_check", sql`${table.foldedText} = translate(${table.foldedText},
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`),
+  ],
+);
+
+/** Search coverage is scoped to an exact logical source generation. Absence or
+ * a stale digest cannot authorize serving; the shared binding owner may mark
+ * an empty table ready under the publication lock. */
+export const fxSystemSearchBuildStates = pgTable(
+  "fx_system_search_build_state",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    logicalIndexId: integer("logical_index_id").$type<CatalogIndexId>().notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    lifecycle: text("lifecycle").$type<"building" | "ready">().notNull(),
+    coveredThroughCommitSeq: bigint("covered_through_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>().notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "fx_system_search_build_state_pk", columns: [
+      table.scopeUuid, table.tableId, table.logicalIndexId,
+    ] }),
+    foreignKey({ name: "fx_system_search_build_state_scope_fk", columns: [table.scopeUuid],
+      foreignColumns: [fxSystemScopeClocks.scopeUuid] }).onUpdate("restrict").onDelete("restrict"),
+    check("fx_system_search_build_state_table_check", sql`${table.tableId} between 1 and 2147483647`),
+    check("fx_system_search_build_state_index_check", sql`${table.logicalIndexId} between 1 and 2147483647`),
+    check("fx_system_search_build_state_source_check", sql`${table.sourceSha256} ~ '^[0-9a-f]{64}$'`),
+    check("fx_system_search_build_state_lifecycle_check", sql`${table.lifecycle} in ('building', 'ready')`),
+    check("fx_system_search_build_state_coverage_check", sql`${table.coveredThroughCommitSeq} >= 0`),
+  ],
+);
+
 /**
  * Immutable target-local history for one physical ordered-index position.
  *

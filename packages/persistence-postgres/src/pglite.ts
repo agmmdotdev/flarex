@@ -1,4 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
+import { btree_gin } from "@electric-sql/pglite/contrib/btree_gin";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
 import { Result } from "effect";
@@ -305,7 +307,9 @@ export {
 export async function createPGlitePersistence(
   options: PGlitePersistenceOptions = {},
 ): Promise<PGliteFlarexPersistence> {
-  const db: PGliteLike = options.db ?? new PGlite(options.dataDir);
+  const db: PGliteLike = options.db ?? (options.dataDir === undefined
+    ? new PGlite({ extensions: { pg_trgm, btree_gin } })
+    : new PGlite(options.dataDir, { extensions: { pg_trgm, btree_gin } }));
   const migrationsFolder = options.migrationsFolder ?? defaultMigrationsFolder();
   const drizzleDb = drizzle({
     // SAFETY: Drizzle types its PGlite driver client as the concrete PGlite

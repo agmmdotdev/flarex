@@ -1,8 +1,8 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite, createTestPGlite } from "./pgliteSearchExtensions";
 import { expect, it } from "vitest";
 
 it("keeps PGlite username simulation separate from authenticated-login protection", async () => {
-  const admin = new PGlite();
+  const admin = newTestPGlite();
   const snapshot = await (async () => {
     try {
       await admin.exec(
@@ -13,7 +13,7 @@ it("keeps PGlite username simulation separate from authenticated-login protectio
       await admin.close();
     }
   })();
-  const functional = await PGlite.create({
+  const functional = await createTestPGlite({
     loadDataDir: snapshot,
     username: "functional_installer",
   });

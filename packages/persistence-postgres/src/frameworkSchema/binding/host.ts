@@ -75,6 +75,7 @@ export type DataBindingFailure<ApplicationFailure> =
     >
   | Effect.Error<ReturnType<typeof verifyBindingLanes>>
   | LogicalStoragePreparationFailure
+  | Effect.Error<ReturnType<PreparedLogicalStorage["advanceEmptySearch"]>>
   | Effect.Error<ReturnType<PreparedLogicalStorage["inspect"]>>;
 export interface DataBindingActivationReport<ApplicationFailure> {
   readonly receipt: StoredBindingValue<DataBindingActivationFrame>;
@@ -287,6 +288,11 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
           tx,
           clock,
         );
+        if (logicalStorage !== null) {
+          const searchBuild = yield* logicalStorage.advanceEmptySearch(tx, authority);
+          if (searchBuild.status !== "ready")
+            return yield* Effect.fail(bindingError("logicalSchemaNotReady", searchBuild));
+        }
         yield* verifyLogicalStorage(candidate.frame, evidence, tx, authority, clock, logicalStorage);
         const verified = yield* verifyBindingLanes(
           tx,

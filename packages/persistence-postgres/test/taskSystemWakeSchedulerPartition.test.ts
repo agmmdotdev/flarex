@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
   decodeTaskRetryJitterV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -173,7 +174,7 @@ function attemptUuidSequence(): () => string {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = new PGlite();
+  const raw = newTestPGlite();
   try {
     await run(await makeFixture(raw));
   } finally {

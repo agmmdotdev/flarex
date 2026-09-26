@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -589,7 +589,7 @@ function runPGliteProof<A, E>(
 ): Promise<A> {
   return Effect.runPromise(Effect.scoped(Effect.gen(function* () {
     const pglite = yield* Effect.acquireRelease(
-      Effect.sync(() => new PGlite()),
+      Effect.sync(() => newTestPGlite()),
       database => Effect.promise(() => database.close()),
     );
     const driver = {

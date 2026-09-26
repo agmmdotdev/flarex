@@ -23,6 +23,7 @@ import type { ApplicationDocumentObservation } from "../applicationDocumentMater
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
 import { readLogicalIndexRange, readLogicalIndexPage, type LogicalIndexRead, type LogicalIndexPageRead } from "./indexReads";
+import { readLogicalSearchRange, type LogicalSearchRead } from "./searchReads";
 import { MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeCursorV1 } from "../appIndexEntries";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, logicalQueryMatches, type LogicalWhere } from "./query";
 import { compileLogicalRelationalRead } from "./relationalQuery";
@@ -95,6 +96,7 @@ export interface LogicalDocumentChanges {
   readonly uniqueReads: readonly LogicalUniqueRead[];
   readonly indexReads: readonly LogicalIndexRead[];
   readonly pageReads: readonly LogicalIndexPageRead[];
+  readonly searchReads: readonly LogicalSearchRead[];
   readonly setNull: readonly LogicalSetNullIntent[];
   readonly referenceReplacements: readonly LogicalReferenceReplacementIntent[];
 }
@@ -188,6 +190,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const uniqueReads = new Map<string, LogicalUniqueRead>();
   const indexReads = new Map<string, LogicalIndexRead>();
   const pageReads: LogicalIndexPageRead[] = [];
+  const searchReads: LogicalSearchRead[] = [];
   const attempts: LogicalDocumentAttempt[] = [];
   const lifecycle: LogicalRelationalLifecycleObservation[] = [];
   let inserted = 0;
@@ -505,24 +508,46 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
     const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error));
-    if (complete && query.selections === null) return yield* Effect.fail(error("invalidInput"));
+    if (complete && query.selections === null && query.search === null) return yield* Effect.fail(error("invalidInput"));
     const selected = new Map<AppDocumentIdV1, PendingDocument>();
     // A null predicate required by every Boolean branch may use an admitted
     // active-row index. Otherwise the first text identity member's range is the
     // bounded complete-set path; a page limit never turns into a table scan.
     let completeSelection: LogicalWhere = { [query.key]: { gte: "" } };
     let indexedNullAnchor = false;
-    if (query.selections === null) for (const field of query.requiredNulls) {
+    if (query.selections === null && query.search === null) for (const field of query.requiredNulls) {
       const candidate: LogicalWhere = { [field]: null };
       const index = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, candidate, error));
       if (Option.isSome(index)) { completeSelection = candidate; indexedNullAnchor = true; break; }
     }
     if (query.requiresIndexedNullAnchor && !indexedNullAnchor) return yield* Effect.fail(error("invalidInput"));
-    const selections: LogicalWhere[] = query.selections === null ? [completeSelection] :
-      query.selections.map(selection => ({ [selection.column]: selection.value,
-        ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) }));
-    for (const where of selections) for (const row of yield* selectCandidates(tableName, where, true)) {
-      if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
+    if (query.search !== null && query.selections === null) {
+      const searchPatterns = query.search;
+      const definition = state.searchDefinitions?.find(candidate => candidate.tableId === table.tableId &&
+        searchPatterns.every(pattern => candidate.columns.includes(pattern.column)));
+      if (definition === undefined)
+        return yield* Effect.fail(error("invalidInput"));
+      if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
+      const entries = yield* readLogicalSearchRange(state.tx, state.scopeId, definition, searchPatterns, limits.identities, error);
+      yield* charge(128 + entries.length * 96);
+      searchReads.push(Object.freeze({ definition, patterns: searchPatterns, entries }));
+      const members = new Set(entries.map(entry => entry.rowId));
+      const missing = [...members].filter(rowId => !dependencies.has(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId })));
+      if (missing.length > 0) yield* readBase(table.tableId, undefined, missing);
+      for (const entry of entries) {
+        const { pending } = yield* locate(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId: entry.rowId }));
+        if (pending?.base?.kind !== "live" || pending.base.commitSeq !== entry.commitSeq)
+          return yield* Effect.fail(error("writeConflict"));
+      }
+      for (const row of rows.values()) if (row.tableId === table.tableId && row.current !== null &&
+        (members.has(row.rowId) || row.attempts.length > 0)) selected.set(row.documentId, row);
+    } else {
+      const selections: LogicalWhere[] = query.selections === null ? [completeSelection] :
+        query.selections.map(selection => ({ [selection.column]: selection.value,
+          ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) }));
+      for (const where of selections) for (const row of yield* selectCandidates(tableName, where, true)) {
+        if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
+      }
     }
     const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1 }[] = [];
     for (const row of selected.values()) {
@@ -559,7 +584,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
     const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error));
-    if (query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
+    if (query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
       return yield* Effect.fail(error("invalidInput"));
     if (query.offset >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
     if (query.selections?.length === 0) return Object.freeze({ rows: Object.freeze([]), hasMore: false });
@@ -941,7 +966,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       noFinalRows: Object.freeze(noFinalRows),
       dependencies: Object.freeze([...dependencies.values()].toSorted((a, b) => a.tableId - b.tableId || a.rowId.localeCompare(b.rowId))),
       scans: Object.freeze([...scans].map(([tableId, frontier]) => Object.freeze({ tableId, frontier }))),
-      uniqueReads: Object.freeze([...uniqueReads.values()]), indexReads: Object.freeze([...indexReads.values()]), pageReads: Object.freeze([...pageReads]) });
+      uniqueReads: Object.freeze([...uniqueReads.values()]), indexReads: Object.freeze([...indexReads.values()]),
+      pageReads: Object.freeze([...pageReads]), searchReads: Object.freeze([...searchReads]) });
   });
   const documents = Object.freeze({ get, getMany, find, insert, delete: remove,
     patch: (context, id, documentId, fields, tableName) => edit(context, id, documentId, fields, "patch", tableName),

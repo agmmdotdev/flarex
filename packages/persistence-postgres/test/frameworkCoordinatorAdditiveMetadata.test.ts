@@ -1,7 +1,7 @@
 import { administrativelyRepairFrameworkMetadata } from "./frameworkMetadataRepairTestSupport";
 import { sql } from "drizzle-orm";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { createAdditiveFixture } from "./frameworkCoordinatorAdditiveTestSupport";
@@ -19,7 +19,7 @@ describe("additive metadata migration", () => {
     expect((await fixture.persistence.query("select * from fx_system_framework_schema_installation")).rows).toHaveLength(1);
   }, 180_000);
   it("upgrades the previous head atomically and restores its schema on rollback", async () => {
-    const db = new PGlite();
+    const db = newTestPGlite();
     onTestFinished(() => db.close());
     const migrations = readMigrationFiles({ migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)) });
     const additiveIndex = migrations.findIndex(migration => migration.sql.some(statement =>

@@ -37,7 +37,7 @@ const captureChanges = (value: LogicalDocumentChanges): LogicalDocumentChanges =
   noFinalRows: Object.freeze([...value.noFinalRows]), dependencies: Object.freeze([...value.dependencies]),
   scans: Object.freeze([...value.scans]), uniqueReads: Object.freeze([...value.uniqueReads]),
   indexReads: Object.freeze([...value.indexReads]), setNull: Object.freeze([...value.setNull]),
-  pageReads: Object.freeze([...value.pageReads]),
+  pageReads: Object.freeze([...value.pageReads]), searchReads: Object.freeze([...value.searchReads]),
   referenceReplacements: Object.freeze([...value.referenceReplacements]),
 });
 
@@ -140,6 +140,7 @@ export const prepareJointLogicalMaterialization = Effect.fn("CurrencyAnnouncemen
     intrinsic: indexes.filter(index => index.access.kind === "by_creation_time"),
     developer: indexes.filter(index => index.access.kind === "developer"),
     unique: [...application.unique, ...payload.unique, ...currency.unique],
+    search: currency.search,
     relations: null, options, requireAdmission,
     validateWrites: (_commitSeq: CommitSeq, rows) => Effect.forEach(rows, validateRow, { discard: true }),
   };

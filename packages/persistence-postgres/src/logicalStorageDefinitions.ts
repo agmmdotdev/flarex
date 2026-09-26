@@ -1,7 +1,8 @@
 import { Data, Effect } from "effect";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
-import { compileLogicalSourceUniqueConstraints, compileLogicalSourceIndexes,
-  type LogicalSourceIndexRequirement, type LogicalSourceUniqueRequirement } from "flarex-protocol/internal/logical-storage-requirements";
+import { compileLogicalSourceUniqueConstraints, compileLogicalSourceIndexes, compileLogicalSourceSearches,
+  type LogicalSourceIndexRequirement, type LogicalSourceSearchRequirement,
+  type LogicalSourceUniqueRequirement } from "flarex-protocol/internal/logical-storage-requirements";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { canonicalizeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
@@ -23,6 +24,9 @@ export class LogicalStorageDefinitionError extends Data.TaggedError("LogicalStor
   readonly cause?: unknown;
 }> {}
 type BoundIndex = LogicalSourceIndexRequirement & Readonly<{ tableId: CatalogTableId }>;
+type BoundSearch = LogicalSourceSearchRequirement & Readonly<{
+  tableId: CatalogTableId; sourceKey: string; sourceSha256: string;
+}>;
 type BoundConstraint = LogicalSourceUniqueRequirement & Readonly<{ tableId: CatalogTableId }>;
 
 /** Index and unique requirements for the complete configured source set,
@@ -35,9 +39,10 @@ export const readLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitio
   if (artifact === null) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "missingSchema" }));
   const evidence = yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, deploymentId);
   const ordered: BoundIndex[] = [];
+  const search: BoundSearch[] = [];
   const unique: BoundConstraint[] = [];
   for (const source of evidence.candidate.sources) {
-    const bind = <Requirement extends LogicalSourceIndexRequirement | LogicalSourceUniqueRequirement>(requirement: Requirement) => {
+    const bind = <Requirement extends LogicalSourceIndexRequirement | LogicalSourceSearchRequirement | LogicalSourceUniqueRequirement>(requirement: Requirement) => {
       const binding = source.bindings.find(candidate => candidate.localName === requirement.localName && candidate.kind === "definition");
       const table = binding === undefined ? undefined : evidence.tableBindings.find(candidate =>
         logicalTableKey(candidate.table) === logicalTableKey(binding.table));
@@ -45,6 +50,8 @@ export const readLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitio
         : Effect.succeed({ ...requirement, tableId: table.tableId });
     };
     for (const requirement of yield* Effect.fromResult(compileLogicalSourceIndexes(source))) ordered.push(yield* bind(requirement));
+    for (const requirement of yield* Effect.fromResult(compileLogicalSourceSearches(source)))
+      search.push({ ...yield* bind(requirement), sourceKey: source.key, sourceSha256: source.sourceSha256 });
     for (const requirement of yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source))) unique.push(yield* bind(requirement));
   }
   for (const binding of evidence.tableBindings) {
@@ -53,7 +60,8 @@ export const readLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitio
       return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "tableBindingChanged" }));
     }
   }
-  return Object.freeze({ artifact, evidence, ordered: Object.freeze(ordered), unique: Object.freeze(unique) });
+  return Object.freeze({ artifact, evidence, ordered: Object.freeze(ordered),
+    search: Object.freeze(search), unique: Object.freeze(unique) });
 });
 
 /** Closure is source-complete, not merely a digest of whichever bindings exist.
@@ -95,11 +103,19 @@ export const ensureLogicalStorageDefinitions = Effect.fn("LogicalStorageDefiniti
       tableId: declaration.tableId, logicalIndexId: identity.index.logicalIndexId, physicalSpec: declaration.physicalSpec });
     ordered.push(yield* ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared));
   }
+  const search = [];
+  for (const declaration of requirements.search) {
+    const identity = yield* ensureStableLogicalIndexIdentityInTransaction(tx, {
+      deploymentId, tableId: declaration.tableId, descriptor: declaration.descriptor,
+    });
+    search.push(Object.freeze({ ...declaration, logicalIndexId: identity.index.logicalIndexId }));
+  }
   const unique = [];
   for (const declaration of requirements.unique) {
     const prepared = yield* prepareAppUniqueConstraintDefinitionBindingV1Effect(tx, { deploymentId, schemaVersionId,
       tableId: declaration.tableId, descriptor: declaration.descriptor, physicalSpec: declaration.physicalSpec });
     unique.push(yield* ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared));
   }
-  return Object.freeze({ requirements, ordered: Object.freeze(ordered), unique: Object.freeze(unique) });
+  return Object.freeze({ requirements, ordered: Object.freeze(ordered), search: Object.freeze(search),
+    unique: Object.freeze(unique) });
 });

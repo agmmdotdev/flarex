@@ -1,10 +1,10 @@
 import { it } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { createPGlitePersistence } from "../src/pglite";
 import { scopePublicationBatchScenario } from "./scopePublicationBatchScenario";
 
 it("batches publication with exact returned facts and atomic rollback (PGlite)", async () => {
-  const db = new PGlite();
+  const db = newTestPGlite();
   try {
     const persistence = await createPGlitePersistence({ db });
     await persistence.migrate();

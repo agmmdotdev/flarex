@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -15,7 +15,7 @@ import {
 
 describe("Application Analysis retirement migration", () => {
   it("fresh-migrates without the displaced analyzer graph", async () => {
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({ db });
       await expect(persistence.migrate()).resolves.toBeUndefined();
@@ -33,7 +33,7 @@ describe("Application Analysis retirement migration", () => {
 
   it("refuses nonempty displaced state atomically, then retires it", async () => {
     const fixture = await makeMigration0064Fixture("pglite");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const previous = await createPGlitePersistence({
         db,

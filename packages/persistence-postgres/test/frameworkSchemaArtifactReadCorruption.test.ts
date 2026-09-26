@@ -1,5 +1,6 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -445,7 +446,7 @@ describe("private framework schema artifact point-read corruption - PGlite", () 
 async function withPGlitePersistence(
   run: (persistence: PGliteFlarexPersistence) => Promise<void>,
 ): Promise<void> {
-  const database = new PGlite();
+  const database = newTestPGlite();
   try {
     const persistence = await createPGlitePersistence({ db: database });
     await persistence.migrate();

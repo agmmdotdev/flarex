@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import * as persistencePackage from "../src";
@@ -80,7 +80,7 @@ describe("S09-A committed-success idempotency schema", () => {
     const currentMigrationsFolder = resolve(packageRoot, "drizzle");
     const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -143,7 +143,7 @@ describe("S09-A committed-success idempotency schema", () => {
     const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
     const copiedMigration = resolve(migrationsFolder, MIGRATION_NAME);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });

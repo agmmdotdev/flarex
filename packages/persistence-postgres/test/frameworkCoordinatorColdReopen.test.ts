@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { Brand, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -69,7 +70,7 @@ describe("framework coordinator checkpoint-2 cold reopen", () => {
       "flarex-framework-coordinator-cold-",
     ));
     const dataDirectory = resolve(testRoot, "database");
-    let database: PGlite | undefined = new PGlite(dataDirectory);
+    let database: PGlite | undefined = newTestPGlite(dataDirectory);
 
     try {
       let persistence = await createPGlitePersistence({ db: database });
@@ -165,7 +166,7 @@ describe("framework coordinator checkpoint-2 cold reopen", () => {
       await database.close();
       database = undefined;
 
-      database = new PGlite(dataDirectory);
+      database = newTestPGlite(dataDirectory);
       persistence = await createPGlitePersistence({ db: database });
       await persistence.migrate();
       const freshValues = await createSuccessfulTerminalPlanValues();

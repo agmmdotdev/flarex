@@ -1,6 +1,6 @@
 import { defaultCommerceResources } from "../src/commerceTransaction/resources";
 import { randomUUID } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
+import { createTestPGlite } from "./pgliteSearchExtensions";
 import { Client } from "pg";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { sql, type SQL } from "drizzle-orm";
@@ -25,7 +25,7 @@ beforeAll(async () => {
     execute = async query => { const compiled = dialect.sqlToQuery(query); return (await client.query(compiled.sql, compiled.params)).rows; };
     close = () => client.end();
   } else {
-    const client = await PGlite.create();
+    const client = await createTestPGlite();
     execute = async query => { const compiled = dialect.sqlToQuery(query); return (await client.query(compiled.sql, compiled.params)).rows; };
     close = () => client.close();
   }

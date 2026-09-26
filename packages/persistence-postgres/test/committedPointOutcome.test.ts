@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { Effect, Exit } from "effect";
 import { MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 } from "flarex-protocol/commit-protocol";
 import { isJsonObject } from "flarex-protocol/json";
@@ -503,7 +503,7 @@ describe("O07-A committed point outcome resolver", () => {
   }, 180_000);
 
   it("maps a foreign SQL rejection once while preserving post-SQL defects", async () => {
-    const raw = new PGlite();
+    const raw = newTestPGlite();
     const persistence = await createPGlitePersistence({ db: raw });
     await persistence.migrate();
     const sqlResolver = createCommittedPointOutcomeResolverV1(

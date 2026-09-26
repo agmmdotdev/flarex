@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { describe, expect, it } from "vitest";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
@@ -64,6 +64,7 @@ describe("createPGlitePersistence", () => {
       "fx_app_index_entry_rev",
       "fx_app_row_current",
       "fx_app_row_rev",
+      "fx_app_search_entry_current",
       "fx_app_unique_key",
       "fx_control_application_manifest_schema_binding",
       "fx_control_application_schema_authority_v1",
@@ -160,6 +161,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_relational_physical_name_assignment",
       "fx_system_retained_history_scheduler",
       "fx_system_scope_clock",
+      "fx_system_search_build_state",
       "fx_system_snapshot_lease",
       "fx_system_tx_execution_claim",
       "fx_system_tx_journal",
@@ -374,7 +376,7 @@ describe("createPGlitePersistence", () => {
       migrationsFolder,
       "0079_bright_puppet_master.sql",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -520,7 +522,7 @@ describe("createPGlitePersistence", () => {
       migrationsFolder,
       "0080_nosy_marvel_zombies.sql",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -636,7 +638,7 @@ describe("createPGlitePersistence", () => {
     );
     const copiedJournal = resolve(migrationsFolder, "meta/_journal.json");
     const migrationPath = resolve(migrationsFolder, "0076_pink_toxin.sql");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -783,7 +785,7 @@ describe("createPGlitePersistence", () => {
     const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
     const currentMigrationsFolder = resolve(packageRoot, "drizzle");
     const journalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
       const currentJournalText = await readFile(journalPath, "utf8");
@@ -904,7 +906,7 @@ describe("createPGlitePersistence", () => {
     const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
     const currentMigrationsFolder = resolve(packageRoot, "drizzle");
     const journalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
       const currentJournalText = await readFile(journalPath, "utf8");
@@ -1034,7 +1036,7 @@ describe("createPGlitePersistence", () => {
       "meta/_journal.json",
     );
     const copiedJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -1120,7 +1122,7 @@ describe("createPGlitePersistence", () => {
       "meta/_journal.json",
     );
     const copiedJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
     const scopeId = "scope_00000000-0000-4000-8000-000000000062";
 
     try {
@@ -1233,7 +1235,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0016-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1289,7 +1291,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0017-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1360,7 +1362,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0018-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1433,7 +1435,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0019-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1493,7 +1495,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0020-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1571,7 +1573,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0021-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1668,7 +1670,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0022-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1776,7 +1778,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0023-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1847,7 +1849,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0024-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -1937,7 +1939,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0025-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -2037,7 +2039,7 @@ describe("createPGlitePersistence", () => {
     );
     const migrationName = "0026_wooden_white_queen.sql";
     const copiedMigration = resolve(migrationsFolder, migrationName);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -2121,7 +2123,7 @@ describe("createPGlitePersistence", () => {
       packageRoot,
       "test/fixtures/drizzle-through-0026-journal.json",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, previousMigrationsFolder, {
@@ -2210,7 +2212,7 @@ describe("createPGlitePersistence", () => {
     );
     const migrationName = "0027_graceful_silver_fox.sql";
     const copiedMigration = resolve(migrationsFolder, migrationName);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -2308,7 +2310,7 @@ describe("createPGlitePersistence", () => {
       "meta/_journal.json",
     );
     const previousJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -2422,7 +2424,7 @@ describe("createPGlitePersistence", () => {
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
     const migrationName = "0028_glossy_galactus.sql";
     const copiedMigration = resolve(migrationsFolder, migrationName);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -2520,7 +2522,7 @@ describe("createPGlitePersistence", () => {
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
     const migrationName = "0034_point_mutation_redelivery_scheduler.sql";
     const copiedMigrationPath = resolve(migrationsFolder, migrationName);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -2636,7 +2638,7 @@ describe("createPGlitePersistence", () => {
       "meta/_journal.json",
     );
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -2740,7 +2742,7 @@ describe("createPGlitePersistence", () => {
       "meta/_journal.json",
     );
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -3105,7 +3107,7 @@ describe("createPGlitePersistence", () => {
       "meta/_journal.json",
     );
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -3208,7 +3210,7 @@ describe("createPGlitePersistence", () => {
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
     const migrationName = "0040_lush_tenebrous.sql";
     const copiedMigrationPath = resolve(migrationsFolder, migrationName);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -3312,7 +3314,7 @@ describe("createPGlitePersistence", () => {
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
     const migrationName = "0041_hard_spyke.sql";
     const copiedMigrationPath = resolve(migrationsFolder, migrationName);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -3416,7 +3418,7 @@ describe("createPGlitePersistence", () => {
       "meta/_journal.json",
     );
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -3541,7 +3543,7 @@ describe("createPGlitePersistence", () => {
       migrationsFolder,
       "0043_clever_grim_reaper.sql",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
       const journalText = await readFile(currentJournalPath, "utf8");
@@ -3647,7 +3649,7 @@ describe("createPGlitePersistence", () => {
       "meta/_journal.json",
     );
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
       const journalText = await readFile(currentJournalPath, "utf8");
@@ -3739,7 +3741,7 @@ describe("createPGlitePersistence", () => {
       migrationsFolder,
       "0049_friendly_runaways.sql",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
       const journalText = await readFile(currentJournalPath, "utf8");
@@ -3854,7 +3856,7 @@ describe("createPGlitePersistence", () => {
       migrationsFolder,
       "0065_omniscient_prism.sql",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
       const journalText = await readFile(currentJournalPath, "utf8");

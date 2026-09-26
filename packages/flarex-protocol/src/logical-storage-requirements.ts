@@ -24,6 +24,11 @@ export interface LogicalSourceUniqueRequirement {
   readonly descriptor: CatalogDefinitionName;
   readonly physicalSpec: AppUniqueConstraintPhysicalSpecV1;
 }
+export interface LogicalSourceSearchRequirement {
+  readonly localName: string;
+  readonly descriptor: CatalogDefinitionName;
+  readonly columns: readonly string[];
+}
 const decodeName = Schema.decodeUnknownResult(CatalogDefinitionNameSchema);
 const decodeIndex = Schema.decodeUnknownResult(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema, { onExcessProperty: "error" });
 const failure = (source: LogicalSchemaSource, cause?: unknown) => new LogicalStorageRequirementError({
@@ -93,6 +98,32 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
         const descriptor = yield* decodeName(declaration.name).pipe(Result.mapError(cause => failure(source, cause)));
         requirements.push({ localName: table.identity.tableId, descriptor, physicalSpec });
       }
+    }
+    return Object.freeze(requirements);
+  });
+}
+
+/** A searchableText capability is already part of the verified relational
+ * source. Keep its field order and stable capability identity when deriving
+ * a physical search requirement; the search index is not an ordered index. */
+export function compileLogicalSourceSearches(source: LogicalSchemaSource) {
+  return Result.gen(function* () {
+    const requirements: LogicalSourceSearchRequirement[] = [];
+    if (source.definition.kind === "documents") return Object.freeze(requirements);
+    for (const capability of source.definition.schema.capabilities) {
+      if (capability.kind !== "searchableText") continue;
+      const first = capability.columns[0];
+      if (first === undefined || capability.columns.some(column => column.tableId !== first.tableId) ||
+        new Set(capability.columns.map(column => column.columnId)).size !== capability.columns.length)
+        return yield* Result.fail(failure(source));
+      const table = source.definition.schema.tables.find(candidate => candidate.identity.tableId === first.tableId);
+      if (table === undefined || capability.columns.some(reference =>
+        table.columns.find(column => column.identity.columnId === reference.columnId)?.type !== "text"))
+        return yield* Result.fail(failure(source));
+      const descriptor = yield* decodeName(`search/${capability.identity.capabilityId}`)
+        .pipe(Result.mapError(cause => failure(source, cause)));
+      requirements.push({ localName: first.tableId, descriptor,
+        columns: Object.freeze(capability.columns.map(column => column.columnId)) });
     }
     return Object.freeze(requirements);
   });

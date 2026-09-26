@@ -13,6 +13,7 @@ import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { lockScopeClockForSnapshotReadInTransactionEffect, type ScopeClockRecord } from "./scopeClock";
 import type { AppRowTransaction } from "./appRows";
 import { chargeHostPreparation } from "./preparedHostRuntime";
+import { prepareLogicalSearchBuild } from "./logicalSearchBuild";
 
 export class LogicalStorageReadinessError extends Data.TaggedError("LogicalStorageReadinessError")<{
   readonly reason: "invalidComposition" | "notLogicalCandidate" | "scopeMismatch";
@@ -38,6 +39,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
   const constraints = yield* prepareAppUniqueConstraintSet(unique, captured);
   if (constraints.status === "not_ready") return Object.freeze({ status: "not_ready" as const, reason: "uniqueSetNotClosed" as const });
+  const search = yield* prepareLogicalSearchBuild(ports.controlDb, captured.deploymentId, captured.schemaVersionId);
   yield* chargeUniqueConstraintPreparation(constraints.preparation);
   const definitionIds = Object.freeze(requirements.definitions.map(definition => definition.indexDefinitionId));
   const manifestSha256Hex = encodeBytesToLowercaseHex(requirements.manifestSha256);
@@ -90,10 +92,13 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     }
     const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, clock, "concurrentProgress");
     if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
+    const searchReadiness = yield* search.inspect(tx, authority, clock);
+    if (searchReadiness.status === "not_ready")
+      return Object.freeze({ ...searchReadiness, kind: "search" as const });
     return Object.freeze({ status: "ready" as const, schemaVersionId: captured.schemaVersionId, manifestSha256Hex,
       snapshotCommitSeq: clock.lastCommitSeq, indexDefinitionIds: definitionIds, unique: eligibility });
   });
-  return Object.freeze({ status: "prepared" as const, inspect,
+  return Object.freeze({ status: "prepared" as const, inspect, advanceEmptySearch: search.advanceEmpty,
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
     applicationAnalysis: requirements.manifest.applicationAnalysis });
 });

@@ -3,6 +3,7 @@ import { Result } from "effect";
 import {
   normalizeRelationalSchema,
 } from "flarex-protocol/internal/relational-schema";
+import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-storage-requirements";
 import { dmlSchemaOrigins, lowerDmlSchema } from "../src/schema/lower";
 import type { SchemaColumn, SchemaTable } from "../src/schema/model";
 
@@ -88,6 +89,10 @@ describe("shared checked DML lowering", () => {
     expect(lowered.capabilities.find(capability => capability.kind === "searchableText")).toMatchObject({
       columns: [{ tableId: "ledger", columnId: "lookup_key" }],
     });
+    expect(Result.getOrThrow(compileLogicalSourceSearches({
+      key: "ledger", owner: "medusa", evidence: null, sourceSha256: "0".repeat(64), writeProfile: "ledger",
+      definition: { kind: "relational", schema }, bindings: [],
+    }))).toMatchObject([{ localName: "ledger", descriptor: "search/ledger.searchable", columns: ["lookup_key"] }]);
     expect(input).toEqual(before);
   });
 

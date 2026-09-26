@@ -1,7 +1,8 @@
 import { fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppRowCurrent,
   fxAppRowRevisions, fxAppUniqueKeys, fxSystemCommitAppRowChanges, fxSystemCommits,
   fxSystemCommitWakes, fxSystemIdempotency, fxSystemIndexBuildStates,
-  fxSystemScopeClocks, fxSystemUniqueConstraintBuilds } from "../../../persistence-postgres/src/schema";
+  fxSystemScopeClocks, fxSystemUniqueConstraintBuilds, fxAppSearchEntryCurrent,
+  fxSystemSearchBuildStates } from "../../../persistence-postgres/src/schema";
 import { fxSystemCommitRelationalChanges } from
   "../../../persistence-postgres/src/commitPublication/relationalFactsSchema";
 import { fxSystemCommitEvents } from "../../../persistence-postgres/src/commitEvents/schema";
@@ -18,6 +19,11 @@ export async function logicalCurrencyInventory(fixture: LogicalCurrencyFixture) 
       fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq),
     indexEntries: await db.select().from(fxAppIndexEntryCurrent).orderBy(fxAppIndexEntryCurrent.indexDefinitionId,
       fxAppIndexEntryCurrent.encodedKey, fxAppIndexEntryCurrent.rowId),
+    searchEntries: await db.select().from(fxAppSearchEntryCurrent).orderBy(fxAppSearchEntryCurrent.scopeUuid,
+      fxAppSearchEntryCurrent.tableId, fxAppSearchEntryCurrent.logicalIndexId,
+      fxAppSearchEntryCurrent.rowId, fxAppSearchEntryCurrent.fieldId),
+    searchBuilds: await db.select().from(fxSystemSearchBuildStates).orderBy(fxSystemSearchBuildStates.scopeUuid,
+      fxSystemSearchBuildStates.tableId, fxSystemSearchBuildStates.logicalIndexId),
     indexRevisions: await db.select().from(fxAppIndexEntryRevisions).orderBy(fxAppIndexEntryRevisions.indexDefinitionId,
       fxAppIndexEntryRevisions.encodedKey, fxAppIndexEntryRevisions.rowId, fxAppIndexEntryRevisions.commitSeq),
     uniqueKeys: await db.select().from(fxAppUniqueKeys).orderBy(fxAppUniqueKeys.constraintId, fxAppUniqueKeys.encodedKey),

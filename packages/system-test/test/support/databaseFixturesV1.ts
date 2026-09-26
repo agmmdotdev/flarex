@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 
 import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
+import { btree_gin } from "@electric-sql/pglite/contrib/btree_gin";
 import {
   createPGlitePersistence,
   type PGliteFlarexPersistence,
@@ -19,6 +21,7 @@ import {
 } from "./historicalApplicationAnalysisMigrations";
 
 let migratedDataDirPromise: Promise<Blob | File> | undefined;
+const pgliteExtensions = { pg_trgm, btree_gin };
 
 export const postgresUrl = trimToNonBlankOrNull(
   process.env.FLAREX_POSTGRES_DATABASE_URL,
@@ -59,7 +62,7 @@ export async function createMigratedPGlitePersistence(): Promise<
   PGliteFlarexPersistence
 > {
   migratedDataDirPromise ??= buildMigratedDataDirV1();
-  const db = await PGlite.create({ loadDataDir: await migratedDataDirPromise });
+  const db = await PGlite.create({ loadDataDir: await migratedDataDirPromise, extensions: pgliteExtensions });
   try {
     const persistence = await createPGlitePersistence({ db });
     onTestFinished(() => db.close());
@@ -86,7 +89,7 @@ export async function createMigratedSplitPGlitePersistence(): Promise<
 export async function createHistoricalApplicationAnalysisPGlitePersistence(): Promise<
   PGliteFlarexPersistence
 > {
-  const db = new PGlite();
+  const db = new PGlite({ extensions: pgliteExtensions });
   try {
     const persistence = await withHistoricalApplicationAnalysisMigrations(
       async migrationsFolder => {
@@ -281,7 +284,7 @@ export async function withTemporaryPostgresSchema(
 }
 
 async function buildMigratedDataDirV1(): Promise<Blob | File> {
-  const db = new PGlite();
+  const db = new PGlite({ extensions: pgliteExtensions });
   try {
     const persistence = await createPGlitePersistence({ db });
     await persistence.migrate();

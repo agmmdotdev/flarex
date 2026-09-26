@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -12,7 +12,7 @@ import {
 describe("AAV-A1 migration - PGlite", () => {
   it("upgrades 0044 atomically, refuses partial installation, and replays", async () => {
     const fixture = await makeApplicationActionMigrationFixtureV1("pglite");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await writeApplicationActionJournalThroughV1(
         fixture.currentJournal,

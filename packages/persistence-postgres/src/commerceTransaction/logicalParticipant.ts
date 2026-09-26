@@ -76,6 +76,7 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
     tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })),
     relationalCapabilities: state.schema.capabilities,
+    searchDefinitions: state.search,
     requireAdmission: requireLogicalRelationalAdmission(admission, tx).pipe(Effect.asVoid, Effect.mapError(projectCommerceRequestFailure)),
     validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
       .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), error: logicalCommerceError,
@@ -279,6 +280,7 @@ export const prepareLogicalCommerceContribution = Effect.fn("LogicalCommerce.pre
       scopeId: scope.scopeId, schemaVersionId: state.schemaVersionId }, rowIntents: state.tables.map(table => ({ tableId: table.tableId })) },
     intrinsic: state.indexes.filter(index => index.access.kind === "by_creation_time"),
     developer: state.indexes.filter(index => index.access.kind === "developer"), unique: state.unique,
+    search: state.search,
     relations: null, options: {}, requireAdmission,
     validateWrites: (_, changes) => Effect.forEach(changes, change => change.kind === "deleted" ? Effect.void :
       Effect.fromResult(state.values.validate(change.tableId, change.document)).pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), { discard: true }),

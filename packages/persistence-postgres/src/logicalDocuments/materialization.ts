@@ -18,6 +18,7 @@ import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { IndexPublicationProfile } from "../indexBuildStates";
+import { maintainLogicalSearchEntries, type LogicalSearchDefinition } from "./searchEntries";
 
 export class LogicalDocumentMaterializationError extends Data.TaggedError("LogicalDocumentMaterializationError")<{
   readonly reason: "invalidAuthority" | "storedCorruption" | "limitExceeded" | "statementFailure" | "uniqueConflict" | "writeConflict" | "relationInvalid" | "relationTargetMissing" | "relationDeleteRestricted";
@@ -41,6 +42,7 @@ export interface LogicalDocumentMaterializationInput<Failure> {
   readonly intrinsic: readonly LocatedAppIndexDefinitionV1[];
   readonly developer: readonly LocatedAppIndexDefinitionV1[];
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
+  readonly search?: readonly LogicalSearchDefinition[];
   readonly relations: PreparedPointCommitApplicationRelations | null;
   readonly options: Pick<ApplicationDocumentMaterializationOptions, "afterTransactionStep" | "observeQuery">;
   /** Trusted settlement only: retain build coverage until all pages share one sequence. */
@@ -251,6 +253,9 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
         if (prepared.batch === true && completeCoverage === undefined)
           return yield* Effect.fail(logicalMaterializationError("storedCorruption"));
         if (completeCoverage !== undefined) coverageSteps.push(completeCoverage);
+        if (prepared.search !== undefined && prepared.search.length > 0)
+          yield* maintainLogicalSearchEntries(tx, scope.scopeUuid, commitSeq, prepared.search, changes)
+            .pipe(Effect.mapError(cause => logicalMaterializationError(cause.reason, cause)));
         if (relationPlan !== null)
           yield* maintainPointCommitApplicationRelationsEffect(
             tx,

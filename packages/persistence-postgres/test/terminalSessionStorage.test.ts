@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, it } from "vitest";
 import { createPGlitePersistence } from "../src/pglite";
 import { createPostgresPersistence } from "../src/postgres";
@@ -8,7 +8,7 @@ import { postgresUrl, withTemporaryPostgresPersistence, withTemporaryPostgresSch
 
 describe("terminal session storage", () => {
   it("enforces complete active bodies and absent terminal bodies on PGlite", async () => {
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({ db });
       await persistence.migrate();
@@ -22,7 +22,7 @@ describe("terminal session storage", () => {
   }, 30_000);
   it("scrubs only terminal bodies and preserves exact identities across migration rollback/replay on PGlite", async () => {
     const fixture = await makeDrizzleCopyFixture("flarex-terminal-payload", "pglite", "0094_terminal-session-payload.sql");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({ db, migrationsFolder: fixture.migrationsFolder });
       await verifyTerminalSessionMigration(persistence, fixture, "drizzle");

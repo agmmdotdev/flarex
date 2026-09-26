@@ -2,7 +2,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { describe, expect, it } from "vitest";
 
@@ -21,7 +21,7 @@ describe("DTE06-C3 compute pending migration", () => {
       "meta/_journal.json",
     );
     const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });

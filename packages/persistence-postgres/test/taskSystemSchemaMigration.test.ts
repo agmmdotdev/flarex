@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +15,7 @@ import {
 describe("DTE04-A3 Task System migration - PGlite", () => {
   it("upgrades 0045 atomically, refuses partial installation, and replays", async () => {
     const fixture = await makeTaskSystemSchemaMigrationFixtureV1("pglite");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       expect(await readFile(fixture.migrationPath, "utf8"))
         .not.toContain('REFERENCES "public".');

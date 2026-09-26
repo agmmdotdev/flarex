@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { createPGlitePersistence } from "../src/pglite";
 import { verifyAppRowBatches, verifyAppRowBatchBindings } from "./appRowBatchScenario";
 import {
@@ -19,7 +19,7 @@ import {
 import { runEffectFailure } from "./effectTestRuntime";
 
 it("applies bounded prepared row batches with exact identities and atomic rollback", async () => {
-  const db = new PGlite();
+  const db = newTestPGlite();
   const persistence = await createPGlitePersistence({ db });
   try {
     await persistence.migrate();

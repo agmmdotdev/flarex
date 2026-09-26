@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import type { FlarexPersistence } from "../src";
@@ -73,7 +73,7 @@ describe("S08 commit/change-feed schema", () => {
     const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
     const currentMigrationsFolder = resolve(packageRoot, "drizzle");
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -147,7 +147,7 @@ describe("S08 commit/change-feed schema", () => {
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
     const migrationName = "0029_mysterious_namora.sql";
     const copiedMigration = resolve(migrationsFolder, migrationName);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
@@ -230,7 +230,7 @@ describe("S08 commit/change-feed schema", () => {
     const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
     const migrationName = "0077_lame_human_torch.sql";
     const copiedMigration = resolve(migrationsFolder, migrationName);
-    const db = new PGlite();
+    const db = newTestPGlite();
 
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });

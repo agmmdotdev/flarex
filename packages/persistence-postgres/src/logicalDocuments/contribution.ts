@@ -15,6 +15,7 @@ import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { isJsonObject } from "flarex-protocol/json";
 import { readLogicalIndexRange, readLogicalIndexPage, sameLogicalIndexMembership } from "./indexReads";
+import { readLogicalSearchRange, sameLogicalSearchMembership } from "./searchReads";
 
 /** Validate the complete command, including decisions that did not produce writes. */
 export const validateLogicalDocumentChanges = Effect.fn(
@@ -126,6 +127,13 @@ export const validateLogicalDocumentChanges = Effect.fn(
     }
     const current = yield* readLogicalIndexRange(tx, scopeId, read, maximumIndexEntries, error);
     if (!sameLogicalIndexMembership(read.entries, current)) return yield* Effect.fail(error("writeConflict"));
+  }
+  for (const read of closed.searchReads) {
+    if (!allowed.has(read.definition.tableId) || read.entries.length > 4096)
+      return yield* Effect.fail(error("invalidAuthority"));
+    const current = yield* readLogicalSearchRange(tx, scopeId, read.definition, read.patterns,
+      maximumIndexEntries, error);
+    if (!sameLogicalSearchMembership(read.entries, current)) return yield* Effect.fail(error("writeConflict"));
   }
   for (const read of closed.pageReads) {
     if (read.definition.access.kind !== "developer" || !allowed.has(read.definition.access.tableId) ||

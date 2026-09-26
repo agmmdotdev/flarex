@@ -41,8 +41,7 @@ canonical Product test path.
 Named physical consumers include Product local, fixture-reset,
 installation and exact-numeric tests; and the remaining mixed physical binding,
 link, population and persistence-core fixtures found by the reference inventory.
-The explicit legacy runner configurations are `product-fixture` and
-`product-internal-deleted-search`. The failure and scale boundary suites
+The only explicit legacy runner configuration is `product-fixture`. The failure and scale boundary suites
 now select the logical runner: SQLSTATE cancellation targets generic row or
 outcome storage, while graph pages, ordered facts, native events, replay,
 late-page rollback, cancellation and capacity refusal use the same logical
@@ -80,15 +79,15 @@ change per affected Category in the batch rank case; the former physical DML
 fixture counted intermediate rank writes separately. Native final ranks and
 three admitted events remain intact.
 
-The one retained physical internal-Product search witness covers `q` together
-with `withDeleted: true`. The shared logical query planner currently refuses
-that unanchored text search: active queries have an admitted null-index anchor,
-but including deleted rows removes it. Preserve the physical witness until a
-generic, scope-confined indexed text-search contract supports the pinned
-case, including its wildcard/case-folding semantics, bounded reads, readiness,
-update/restore maintenance and two-driver proof. Do not allow a whole-catalog
-scan or an adapter-local search map to make the test pass. Remove this named
-legacy configuration when the logical replacement passes.
+The internal-Product `q` plus `withDeleted: true` witness now runs through
+generic current-search entries on the logical Product source. Its former
+physical-only configuration is removed. The shared planner selects declared
+fields by a scoped trigram path and refuses short unanchored patterns; the
+transactional writer maintains search entries with row revisions. Source-complete
+empty-table readiness and populated-table refusal are exercised on both drivers.
+The remaining search recovery, pending-write and resource gates are in
+[indexed text search](./45-core-indexed-text-search.md); this selected witness
+does not claim arbitrary search scale.
 For each, either migrate the same behavioral claim to generic storage or
 identify the framework-neutral core claim that already replaces it. A physical
 fixture is not retained merely to repeat a migrated claim. The physical

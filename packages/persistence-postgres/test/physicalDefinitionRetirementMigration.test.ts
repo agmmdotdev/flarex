@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -15,8 +15,8 @@ describe("M05-B3 physical-definition retirement migration - PGlite", () => {
     const fixture = await makePhysicalDefinitionRetirementMigrationFixture(
       "pglite",
     );
-    const validDb = new PGlite();
-    const invalidDb = new PGlite();
+    const validDb = newTestPGlite();
+    const invalidDb = newTestPGlite();
     try {
       await writePhysicalDefinitionRetirementJournalThrough(
         fixture.currentJournal,

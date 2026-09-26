@@ -1,11 +1,11 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
 
 describe("DTE05-E2A Task repair scheduler schema", () => {
   it("migrates idempotently to exactly one inert idle row", async () => {
-    const db = new PGlite();
+    const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });
     try {
       await persistence.migrate();
@@ -55,7 +55,7 @@ describe("DTE05-E2A Task repair scheduler schema", () => {
   });
 
   it("accepts one complete claimed checkpoint shape", async () => {
-    const db = new PGlite();
+    const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });
     try {
       await persistence.migrate();
@@ -121,7 +121,7 @@ describe("DTE05-E2A Task repair scheduler schema", () => {
     ];
 
     for (const statement of invalidStatements) {
-      const db = new PGlite();
+      const db = newTestPGlite();
       const persistence = await createPGlitePersistence({ db });
       try {
         await persistence.migrate();

@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -65,7 +65,7 @@ describe("Application readiness migration - PGlite", () => {
     const fixture = await makeApplicationReadinessMigrationFixture(
       "pglite-non-public",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await db.exec(
         `create schema fx_application_readiness; ` +

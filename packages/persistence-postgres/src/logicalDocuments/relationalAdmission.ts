@@ -2,6 +2,7 @@ import { Data, Effect, Result, Schema } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
 import type { RelationalSchema, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-storage-requirements";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import type { ApplicationBindingInput } from "../applicationActivation";
@@ -12,9 +13,11 @@ import type { DataBindingHeadToken } from "../frameworkSchema/binding/model";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { ScopeClockRecord } from "../scopeClock";
+import { getStableLogicalIndexIdentityByNameEffect } from "../stableLogicalIndexCatalog";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError } from "./sourceAdmission";
 import { prepareLogicalRelationalValueValidation, LogicalRelationalValueError } from "./relationalValues";
+import type { LogicalSearchDefinition } from "./searchEntries";
 
 export class LogicalRelationalAdmissionError extends Data.TaggedError("LogicalRelationalAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" | "unsupportedProfile";
@@ -43,6 +46,7 @@ export interface LogicalRelationalAdmissionState {
   readonly values: Effect.Success<ReturnType<typeof prepareLogicalRelationalValueValidation>>;
   readonly indexes: readonly LocatedAppIndexDefinitionV1[];
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
+  readonly search: readonly LogicalSearchDefinition[];
 }
 const admissions = new WeakMap<object, LogicalRelationalAdmissionState>();
 
@@ -75,6 +79,19 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
   }
   const selectedTables = Object.freeze(tables);
   const tableIds = new Set(selectedTables.map(table => table.tableId));
+  const search: LogicalSearchDefinition[] = [];
+  const requirements = yield* Effect.fromResult(compileLogicalSourceSearches(selected.source)).pipe(
+    Effect.mapError(cause => new LogicalRelationalAdmissionError({ reason: "unsupportedProfile", cause })));
+  for (const requirement of requirements) {
+    const table = selectedTables.find(member => member.localName === requirement.localName);
+    if (table === undefined) return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "sourceMismatch" }));
+    const identity = yield* getStableLogicalIndexIdentityByNameEffect(capturedPorts.controlDb, {
+      deploymentId: capturedInput.deploymentId, tableId: table.tableId, descriptor: requirement.descriptor,
+    }).pipe(Effect.mapError(cause => new LogicalRelationalAdmissionError({ reason: "notReady", cause })));
+    if (identity === null) return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "notReady" }));
+    search.push(Object.freeze({ tableId: table.tableId, logicalIndexId: identity.logicalIndexId,
+      sourceSha256: selected.source.sourceSha256, columns: requirement.columns }));
+  }
   const values = yield* prepareLogicalRelationalValueValidation(capturedPorts.controlDb,
     capturedInput.deploymentId, capturedInput.schemaVersionId);
   const confinedValues = Object.freeze({ validate: (tableId: CatalogTableId, document: Parameters<typeof values.validate>[1]) =>
@@ -90,6 +107,7 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       admissions.set(admission, Object.freeze({ tx, authority, clock, schemaVersionId: binding.schemaVersionId,
         sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, schema,
         tables: selectedTables, values: confinedValues, indexes: selected.indexes, unique: selected.unique,
+        search: Object.freeze(search),
         head: binding.head }));
       return Effect.suspend(() => work(admission)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
     });

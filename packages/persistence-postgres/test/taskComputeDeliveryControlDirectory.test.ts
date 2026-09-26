@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { Result } from "effect";
 import {
   replacementScopeIdV1FromUuid,
@@ -62,7 +62,7 @@ describe("DTE06-C3 deadline-owned control directory - PGlite", () => {
   });
 
   it("preserves one finite scope snapshot across exact continuation", async () => {
-    const raw = new PGlite();
+    const raw = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({ db: raw });
       await persistence.migrate();

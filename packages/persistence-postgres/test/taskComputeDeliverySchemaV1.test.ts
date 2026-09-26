@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -19,7 +19,7 @@ import {
 
 describe("DTE06-C1 compute delivery schema", () => {
   it("migrates idempotently and enforces operation-specific evidence shapes", async () => {
-    const db = new PGlite();
+    const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });
     try {
       await persistence.migrate();

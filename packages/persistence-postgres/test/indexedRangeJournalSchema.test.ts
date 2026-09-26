@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -12,7 +12,7 @@ import {
 describe("O10-A indexed-range journal migration - PGlite", () => {
   it("upgrades 0050 atomically, rejects partial installation, and replays", async () => {
     const fixture = await makeIndexedRangeJournalMigrationFixtureV1("pglite");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       await writeIndexedRangeJournalThroughV1(
         fixture.currentJournal,

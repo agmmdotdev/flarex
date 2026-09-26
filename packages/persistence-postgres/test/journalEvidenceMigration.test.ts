@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, it } from "vitest";
 import { createPGlitePersistence } from "../src/pglite";
 import { createPostgresPersistence } from "../src/postgres";
@@ -9,7 +9,7 @@ import { postgresUrl, withTemporaryPostgresSchema } from "./postgresHelpers";
 describe("journal evidence migration", () => {
   it("preserves all journal states and canonical bytes across failure and replay on PGlite", async () => {
     const fixture = await makeDrizzleCopyFixture("flarex-journal-evidence", "pglite", "0093_journal-evidence.sql");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({ db, migrationsFolder: fixture.migrationsFolder });
       await verifyJournalEvidenceMigration(persistence, fixture, "drizzle");

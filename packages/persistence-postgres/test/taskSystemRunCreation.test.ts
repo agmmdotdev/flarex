@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
@@ -362,7 +363,7 @@ describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
 async function withFixture(
   run: (fixture: Awaited<ReturnType<typeof makeFixture>>) => Promise<void>,
 ): Promise<void> {
-  const raw = new PGlite();
+  const raw = newTestPGlite();
   try {
     await run(await makeFixture(raw));
   } finally {

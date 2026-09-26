@@ -11,8 +11,12 @@ import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCom
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { logicalCommerceBatchResources } from "../../persistence-postgres/src/commerceTransaction/resources";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxAppSearchEntryCurrent, fxSystemSearchBuildStates } from "../../persistence-postgres/src/schema";
+import { prepareLogicalSearchBuild } from "../../persistence-postgres/src/logicalSearchBuild";
+import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
+import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
@@ -59,7 +63,8 @@ describe("native Product Type on shared logical Product storage", () => {
             ? Effect.fail(commerceError("receiptMismatch"))
             : afterValidation === undefined ? Effect.void : Effect.promise(afterValidation)))
           : policy.validateLogicalCall,
-        ...(operation === "delete" ? { allowSetNull: true as const } : {}),
+        ...(operation === "delete" ? { allowSetNull: true as const,
+          logicalResources: logicalCommerceBatchResources } : {}),
         events: { contracts: [contract], select: () => Effect.succeed(contract) } }],
       commands: [root], events: { producerRevision: revision, contracts: [contract],
         subscribers: [{ id: `logical-product-type-${operation}`, revision: "a".repeat(64) }],
@@ -171,16 +176,26 @@ describe("native Product Type on shared logical Product storage", () => {
         .toMatchObject({ id: "ptype_red", value: "Green" });
       await Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root,
         { id: "prod_type_blue", title: "Typed", handle: "typed", type_id: "ptype_blue" }));
+      const titleEntry = (await fixture.persistence.drizzle.select().from(fxAppSearchEntryCurrent))
+        .find(entry => entry.fieldId === "title" && entry.foldedText === "typed");
+      expect(titleEntry).toBeDefined();
       const beforeMissing = await fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+      const searchBeforeMissing = await fixture.persistence.drizzle.select().from(fxAppSearchEntryCurrent);
       await expect(Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root,
         { id: "prod_type_missing", title: "Missing", handle: "missing", type_id: "ptype_missing" })))
         .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
       expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(beforeMissing);
+      expect(await fixture.persistence.drizzle.select().from(fxAppSearchEntryCurrent)).toEqual(searchBeforeMissing);
       await Effect.runPromise(deleted.host.run(deleted.host.newRequestKey(), deleted.root, ["ptype_blue"]));
       expect(await Effect.runPromise(reads.read(product.runtime.commands.countTypes,
         { filters: { id: "ptype_blue" } }))).toEqual([[], 0]);
       expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
         { id: "prod_type_blue" }))).toMatchObject({ id: "prod_type_blue", type_id: null });
+      const detachedTitle = (await fixture.persistence.drizzle.select().from(fxAppSearchEntryCurrent))
+        .find(entry => entry.fieldId === "title" && entry.foldedText === "typed");
+      if (titleEntry === undefined || detachedTitle === undefined)
+        throw new Error("Product title search entry was not maintained");
+      expect(detachedTitle.commitSeq).toBeGreaterThan(titleEntry.commitSeq);
       const events = await fixture.persistence.drizzle.select().from(fxSystemCommitEvents);
       expect(events.map(event => event.envelope.contract)).toEqual(expect.arrayContaining([
         catalog.type.createdEvent, catalog.type.updatedEvent, catalog.type.deletedEvent,
@@ -191,6 +206,33 @@ describe("native Product Type on shared logical Product storage", () => {
       await Effect.runPromise(updated.host.close);
       await Effect.runPromise(deleted.host.close);
       await Effect.runPromise(productCreate.host.close);
+    }
+  }, 180_000);
+
+  it("refuses search readiness for a populated source without complete coverage", async () => {
+    const creation = await productCreation();
+    try {
+      await Effect.runPromise(creation.host.run(creation.host.newRequestKey(), creation.root,
+        { id: "prod_search_coverage", title: "Coverage", handle: "coverage" }));
+      const saved = await fixture.persistence.drizzle.select().from(fxSystemSearchBuildStates);
+      expect(saved.length).toBeGreaterThan(0);
+      await fixture.persistence.drizzle.delete(fxSystemSearchBuildStates);
+      try {
+        const build = await Effect.runPromise(prepareLogicalSearchBuild(
+          fixture.control.drizzle, fixture.deploymentId, fixture.schemaVersionId));
+        const result = await Effect.runPromise(runEffectTransaction(
+          work => fixture.persistence.drizzle.transaction(work), "Inspect populated search source",
+          (tx: FlarexMetadataTransaction) => build.advanceEmpty(tx, fixture.application.active.basis.authority),
+          cause => new Error("Search build inspection failed", { cause })));
+        expect(result).toEqual({ status: "not_ready", reason: "populated" });
+        expect(await fixture.persistence.drizzle.select().from(fxSystemSearchBuildStates)).toEqual([]);
+        await expect(Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
+          { id: "prod_search_coverage" }))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+      } finally {
+        await fixture.persistence.drizzle.insert(fxSystemSearchBuildStates).values(saved);
+      }
+    } finally {
+      await Effect.runPromise(creation.host.close);
     }
   }, 180_000);
 
@@ -232,14 +274,19 @@ describe("native Product Type on shared logical Product storage", () => {
       expect(await Effect.runPromise(secondReads.read(otherProduct.runtime.commands.countTypes,
         { filters: { value: "Same value" } }))).toMatchObject([[{ id: "ptype_shared" }], 1]);
       await Effect.runPromise(firstProductCreate.host.run(firstProductCreate.host.newRequestKey(),
-        firstProductCreate.root, { id: "prod_type_shared_first", title: "First shop", type_id: "ptype_shared" }));
+        firstProductCreate.root, { id: "prod_type_shared", title: "First shop", type_id: "ptype_shared" }));
       await Effect.runPromise(secondProductCreate.host.run(secondProductCreate.host.newRequestKey(),
-        secondProductCreate.root, { id: "prod_type_shared_second", title: "Second shop", type_id: "ptype_shared" }));
+        secondProductCreate.root, { id: "prod_type_shared", title: "Second shop", type_id: "ptype_shared" }));
+      const shopSearch = { filters: { q: "first" }, config: { select: ["id"], withDeleted: true } };
+      expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductList, shopSearch)))
+        .toEqual([{ id: "prod_type_shared" }]);
+      expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductList, shopSearch)))
+        .toEqual([]);
       await Effect.runPromise(firstDelete.host.run(firstDelete.host.newRequestKey(), firstDelete.root, ["ptype_shared"]));
       expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
-        { id: "prod_type_shared_first" }))).toMatchObject({ type_id: null });
+        { id: "prod_type_shared" }))).toMatchObject({ type_id: null });
       expect(await Effect.runPromise(otherProduct.host.read(otherProduct.runtime.commands.internalProductRetrieve,
-        { id: "prod_type_shared_second" }))).toMatchObject({ type_id: "ptype_shared" });
+        { id: "prod_type_shared" }))).toMatchObject({ type_id: "ptype_shared" });
       expect(await Effect.runPromise(secondReads.read(otherProduct.runtime.commands.countTypes,
         { filters: { id: "ptype_shared" } }))).toMatchObject([[{ id: "ptype_shared" }], 1]);
       expect((await fixture.persistence.query<{ name: string }>(

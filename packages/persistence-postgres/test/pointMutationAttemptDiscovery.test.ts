@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import type { LocatedScopeClockReader } from
@@ -406,7 +406,7 @@ describe("O08-B2b2b1 inert point-attempt discovery", () => {
     );
 
     const fixture = await migrationFixture();
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const previous = await createPGlitePersistence({
         db,

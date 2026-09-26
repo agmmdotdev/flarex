@@ -402,7 +402,7 @@ describe("private relational schema values", () => {
       { order, predicate: { ...predicate, value: "01-01-2022" } }, 10, reason => new Error(reason)))).toBe(true);
   });
 
-  it("requires an indexed null anchor for bounded ASCII LIKE search", () => {
+  it("selects a complete indexed ASCII LIKE anchor and retains conjunct residuals", () => {
     const schema = Result.getOrThrow(normalizeRelationalSchema(currencyInput()));
     const table = schema.tables[0];
     if (table === undefined) throw new Error("Missing Currency table");
@@ -410,12 +410,52 @@ describe("private relational schema values", () => {
     const search = { kind: "textLikeAscii", column: "name", pattern: "%test%" };
     const compile = (predicate: unknown) => compileLogicalRelationalRead(table, schema.capabilities,
       { order, predicate }, 10, reason => new Error(reason));
-    expect(Result.isFailure(compile(search))).toBe(true);
+    expect(Result.getOrThrow(compile(search)).search).toEqual([{ column: "name", pattern: "%test%" }]);
     const read = Result.getOrThrow(compile({ kind: "and", children: [
       { kind: "isNull", column: "deleted_at" }, search,
     ] }));
     expect(read.requiredNulls).toEqual(["deleted_at"]);
-    expect(read.requiresIndexedNullAnchor).toBe(true);
+    expect(read.requiresIndexedNullAnchor).toBe(false);
+    expect(read.search).toEqual([{ column: "name", pattern: "%test%" }]);
+    const short = { kind: "textLikeAscii", column: "name", pattern: "%t%" };
+    expect(Result.isFailure(compile(short))).toBe(true);
+    expect(Result.getOrThrow(compile({ kind: "and", children: [
+      { kind: "isNull", column: "deleted_at" }, short,
+    ] })).requiresIndexedNullAnchor).toBe(true);
+    for (const children of [[short, search], [search, short]]) {
+      const combined = Result.getOrThrow(compile({ kind: "and", children }));
+      expect(combined.search).toEqual([{ column: "name", pattern: "%test%" }]);
+    }
+    const selected = Result.getOrThrow(compile({ kind: "and", children: [
+      { kind: "in", column: "code", values: ["USD"] }, search,
+    ] }));
+    expect(selected.search).toBeNull();
+    expect(selected.selections).toEqual([{ column: "code", value: "USD" }]);
+    const empty = Result.getOrThrow(compile({ kind: "and", children: [
+      { kind: "in", column: "code", values: [] }, search,
+    ] }));
+    expect(empty.search).toBeNull();
+    expect(empty.selections).toEqual([]);
+    const points = Result.getOrThrow(compile({ kind: "and", children: [
+      { kind: "in", column: "code", values: ["USD", "EUR"] }, search,
+    ] }));
+    expect(points.search).toBeNull();
+    expect(points.selections).toEqual([{ column: "code", value: "USD" }, { column: "code", value: "EUR" }]);
+    const withBroadIndex = currencyInput();
+    withBroadIndex.tables[0]?.indexes.push({ indexId: "currency.symbol", kind: "btree", columns: ["symbol"],
+      predicate: { kind: "isNull", columnId: "deleted_at" }, origin: authored("currency.symbol.index") });
+    const broadSchema = Result.getOrThrow(normalizeRelationalSchema(withBroadIndex));
+    const broadTable = broadSchema.tables[0];
+    if (broadTable === undefined) throw new Error("Missing Currency table");
+    for (const columns of [["symbol", "code"], ["code", "symbol"]]) {
+      const point = Result.getOrThrow(compileLogicalRelationalRead(broadTable, broadSchema.capabilities,
+        { order, predicate: { kind: "and", children: [
+          { kind: "isNull", column: "deleted_at" },
+          ...columns.map(column => ({ kind: "in", column, values: [column === "code" ? "USD" : "$"] })), search,
+        ] } }, 10, reason => new Error(reason)));
+      expect(point.selections).toEqual([{ column: "code", value: "USD" }]);
+      expect(point.search).toBeNull();
+    }
     const rows = Result.getOrThrow(prepareLogicalRelationalRows(table, schema.capabilities,
       () => new Error("Invalid Currency row")));
     const row = (name: string) => Result.getOrThrow(rows.normalize({

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import * as persistenceRoot from "../src";
@@ -135,7 +136,7 @@ describe("framework coordinator metadata storage - PGlite", () => {
       tmpdir(),
       "flarex-framework-coordinator-tuples-",
     ));
-    const db = new PGlite(resolve(testRoot, "database"));
+    const db = newTestPGlite(resolve(testRoot, "database"));
 
     try {
       const persistence = await createPGlitePersistence({ db });
@@ -276,7 +277,7 @@ describe("framework coordinator metadata storage - PGlite", () => {
       "flarex-framework-coordinator-storage-",
     ));
     const dataDirectory = resolve(testRoot, "database");
-    let db: PGlite | undefined = new PGlite(dataDirectory);
+    let db: PGlite | undefined = newTestPGlite(dataDirectory);
 
     try {
       let persistence = await createPGlitePersistence({ db });
@@ -388,7 +389,7 @@ describe("framework coordinator metadata storage - PGlite", () => {
       await db.close();
       db = undefined;
 
-      db = new PGlite(dataDirectory);
+      db = newTestPGlite(dataDirectory);
       persistence = await createPGlitePersistence({ db });
       await expect(persistence.migrate()).resolves.toBeUndefined();
       expect(await storedRootCounts(persistence)).toEqual(beforeClose);

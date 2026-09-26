@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
@@ -16,7 +16,7 @@ import {
 
 describe("Declarative V2 verifier-progress V1 retirement migration", () => {
   it("fresh-migrates without the nine V1 tables and retains V2 progress", async () => {
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({ db });
       await expect(persistence.migrate()).resolves.toBeUndefined();
@@ -32,7 +32,7 @@ describe("Declarative V2 verifier-progress V1 retirement migration", () => {
 
   it("refuses every non-empty V1 table without a receipt or partial drop", async () => {
     const fixture = await makeMigration0044Fixture("pglite");
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const previous = await createPGlitePersistence({
         db,

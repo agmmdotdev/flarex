@@ -9,6 +9,7 @@ import type { JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { RelationalPersistenceCapability, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
+import type { LogicalSearchDefinition } from "./searchEntries";
 
 export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
   | "documentMissing" | "documentInvalid" | "uniqueConflict" | "writeConflict" | "storedCorruption"
@@ -48,6 +49,7 @@ export interface LogicalDocumentWorkingSetInput<Failure> {
   readonly clock: ScopeClockRecord;
   readonly tables: readonly Readonly<{ tableId: CatalogTableId; logicalName: string; relational?: RelationalTableDefinition }>[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
+  readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;
   readonly requireAdmission: Effect.Effect<void, Failure>;
   readonly validateDocument: (write: LogicalDocumentWrite) => Effect.Effect<void, Failure>;

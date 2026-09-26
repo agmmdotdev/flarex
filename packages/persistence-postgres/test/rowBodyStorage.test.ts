@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import { describe, it } from "vitest";
 import { createPGlitePersistence } from "../src/pglite";
 import { createPostgresPersistence } from "../src/postgres";
@@ -13,7 +13,7 @@ describe("canonical Application row body storage", () => {
       "pglite",
       "0095_app-row-body.sql",
     );
-    const db = new PGlite();
+    const db = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({
         db,

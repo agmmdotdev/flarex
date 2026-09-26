@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
   decideApplicationStartAttemptV1,
   decideStartAttemptV1,
@@ -58,7 +58,7 @@ import {
 
 describe("DTE06-E3 scope-bound lifecycle gateway", () => {
   it("resolves a Legacy attempt and reuses database-time heartbeat and completion semantics", async () => {
-    const raw = new PGlite();
+    const raw = newTestPGlite();
     try {
       const persistence = await createPGlitePersistence({ db: raw });
       await persistence.migrate();
