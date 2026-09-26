@@ -2377,6 +2377,7 @@ function mapExecutionClaimAcquisitionAuthorityError(
   const failure = error.failure;
   switch (failure.reason) {
     case "scopeMetadataMissing":
+    case "scopeMetadataAmbiguous":
     case "scopeDeploymentMismatch":
       return new PointMutationExecutionClaimAcquisitionStaleV1Error({
         reason: "deploymentChanged",

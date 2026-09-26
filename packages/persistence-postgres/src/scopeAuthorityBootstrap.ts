@@ -68,6 +68,7 @@ export type RunSharedScopeAuthorityBootstrapBatchResult =
 
 export interface SharedScopeAuthorityParityCounts {
   readonly deployments: bigint;
+  readonly multipleScopeDeployments: bigint;
   readonly completePairs: bigint;
   readonly missingScopes: bigint;
   readonly missingClocks: bigint;
@@ -247,8 +248,16 @@ async function verifyBootstrapFrontier(
       ? sql`false`
       : sql`d.deployment_id <= ${frontier.through.deploymentId}`;
   const rawResult: unknown = await db.execute(sql`
-    with deployment_inventory as (
+    with scope_cardinality as (
+      select s.deployment_id, count(*) as scope_count
+      from fx_control_scope s
+      join deployments d on d.deployment_id = s.deployment_id
+      where ${frontierPredicate}
+      group by s.deployment_id
+    ), deployment_inventory as (
       select
+        d.deployment_id,
+        coalesce(sc.scope_count, 0) as scope_count,
         case
           when s.id is null then 'missing_scope'
           when s.isolation_kind <> 'shared_database'
@@ -258,6 +267,8 @@ async function verifyBootstrapFrontier(
           else 'complete_pair'
         end as category
       from deployments d
+      left join scope_cardinality sc
+        on sc.deployment_id = d.deployment_id
       left join fx_control_scope s
         on s.deployment_id = d.deployment_id
       left join fx_system_scope_clock c
@@ -265,7 +276,9 @@ async function verifyBootstrapFrontier(
       where ${frontierPredicate}
     )
     select
-      count(*)::text as deployments,
+      count(distinct deployment_id)::text as deployments,
+      count(distinct deployment_id) filter (where scope_count > 1)::text
+        as multiple_scope_deployments,
       count(*) filter (where category = 'complete_pair')::text as complete_pairs,
       count(*) filter (where category = 'missing_scope')::text as missing_scopes,
       count(*) filter (where category = 'missing_clock')::text as missing_clocks,
@@ -282,6 +295,9 @@ async function verifyBootstrapFrontier(
   const row = parityResultRows(rawResult)[0];
   const counts = {
     deployments: parityBigIntField(row, "deployments"),
+    multipleScopeDeployments: parityBigIntField(
+      row, "multipleScopeDeployments", "multiple_scope_deployments",
+    ),
     completePairs: parityBigIntField(row, "completePairs", "complete_pairs"),
     missingScopes: parityBigIntField(row, "missingScopes", "missing_scopes"),
     missingClocks: parityBigIntField(row, "missingClocks", "missing_clocks"),
@@ -294,7 +310,7 @@ async function verifyBootstrapFrontier(
   } satisfies SharedScopeAuthorityParityCounts;
   const base = { frontier, counts } satisfies SharedScopeAuthorityParityReportBase;
 
-  if (counts.locatorConflicts > 0n || counts.orphanClocks > 0n) {
+  if (counts.multipleScopeDeployments > 0n || counts.locatorConflicts > 0n || counts.orphanClocks > 0n) {
     return { status: "blocked", ...base };
   }
   if (

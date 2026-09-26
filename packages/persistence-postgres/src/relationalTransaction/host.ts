@@ -4,10 +4,11 @@ import { captureRelationalData } from "./data";
 import type { PublicationTestHooks } from "../commitPublication/model";
 import type { FlarexMetadataDatabase } from "../deployments";
 import {
-  captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
 } from "../scopeAuthorityResolution";
-import type { TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import type { ExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 import {
   hasFrameworkSchemaTargetDatabase,
   frameworkSchemaTargetSnapshot,
@@ -78,12 +79,13 @@ export interface RelationalHostInput {
   readonly session: RelationalSession;
   readonly target: FrameworkSchemaTarget;
   readonly deploymentId: string;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+  readonly scopeId: ScopeId;
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly commands: readonly object[];
 }
 type AdmissionFailure =
   | Effect.Error<ReturnType<typeof admitSyntheticBindingInTransaction>>
-  | Effect.Error<ReturnType<typeof resolveLocatedTrustedScopeAuthorityEffect>>
+  | Effect.Error<ReturnType<typeof resolveLocatedTrustedScopeAuthorityByIdEffect>>
   | Effect.Error<ReturnType<typeof captureSyntheticBindingReference>>
   | RelationalSessionError;
 export interface RelationalHost {
@@ -212,7 +214,8 @@ export const makeRelationalHost = Effect.fn("RelationalHost.make")(function* (
   )
     return yield* Effect.fail(relationalError("invalidAuthority"));
   const allowed = new Set(input.commands);
-  const authority = captureTrustedScopeAuthorityResolutionPorts(
+  const scopeId = input.scopeId;
+  const authority = captureExactTrustedScopeAuthorityResolutionPorts(
     input.authority,
   );
   const run: RelationalHost["run"] = Effect.fn("RelationalHost.run")(
@@ -221,8 +224,8 @@ export const makeRelationalHost = Effect.fn("RelationalHost.make")(function* (
         return yield* Effect.fail(relationalError("invalidAuthority"));
       const capturedInput = yield* captureCommandInput(commandInput);
       const reference = yield* captureSyntheticBindingReference(referenceInput);
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        { deploymentId, scopeId },
         authority,
       );
       if (

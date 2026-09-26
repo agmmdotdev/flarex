@@ -20,6 +20,8 @@ import {
   type SplitScopeAuthorityProvisioningReceipt,
 } from "../src/scopeAuthorityProvisioningReceiptTypes";
 import {
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   resolveTrustedScopeAuthorityEffect,
   TrustedScopeAuthorityPortError,
   TrustedScopeAuthorityResolutionError,
@@ -84,6 +86,77 @@ const initialEpoch = ScopeEpochSchema.make(
 );
 
 describe("trusted scope authority resolution", () => {
+  it("selects exact scopes in one deployment and refuses a foreign deployment", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    await persistence.insertDeploymentMetadata({
+      deploymentId: "deployment_shared",
+      projectId: "project_shared",
+    });
+    for (const currentScopeId of [scopeId, otherScopeId]) {
+      await persistence.insertScopeMetadata({
+        scopeId: currentScopeId,
+        deploymentId: "deployment_shared",
+        physicalLocator: sharedLocator,
+      });
+    }
+    const ports = {
+      scopeMetadata: persistence,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => null,
+      },
+      scopeClockTargets: {
+        resolve: async () => ({
+          physicalLocator: sharedLocator,
+          getCurrentClock: async (currentScopeId: ScopeId) => scopeClock(currentScopeId),
+        }),
+      },
+    };
+    for (const currentScopeId of [scopeId, otherScopeId]) {
+      const located = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
+        deploymentId: "deployment_shared", scopeId: currentScopeId,
+      }, ports));
+      expect(located.authority.scopeId).toBe(currentScopeId);
+    }
+    await expect(expectFailure(runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
+      deploymentId: "foreign_deployment", scopeId,
+    }, ports)))).resolves.toMatchObject({
+      reason: "scopeDeploymentMismatch",
+      scopeId,
+      actualDeploymentId: "deployment_shared",
+    });
+    await expect(persistence.getScopeMetadataByDeploymentId("deployment_shared"))
+      .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
+    await expect(expectFailure(runEffect(resolveTrustedScopeAuthorityEffect(
+      "deployment_shared", ports,
+    )))).resolves.toMatchObject({
+      reason: "scopeMetadataAmbiguous", deploymentId: "deployment_shared",
+    });
+  });
+
+  it("captures exact authority methods before a host can use them", async () => {
+    const metadata: { getScopeMetadata: (id: ScopeId) => Promise<ScopeMetadataRecord | null> } = {
+      getScopeMetadata: async (_scopeId: ScopeId) => sharedScopeMetadata(),
+    };
+    const targets = {
+      resolve: async (_locator: ScopePhysicalLocator) => ({
+        physicalLocator: sharedLocator,
+        getCurrentClock: async (id: ScopeId) => scopeClock(id),
+      }),
+    };
+    const captured = captureExactTrustedScopeAuthorityResolutionPorts({
+      scopeMetadata: metadata,
+      provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => null },
+      scopeClockTargets: targets,
+    });
+    metadata.getScopeMetadata = async () => null;
+    targets.resolve = async () => { throw new Error("Mutable target method was used"); };
+    const located = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect({
+      deploymentId: "deployment_shared", scopeId,
+    }, captured));
+    expect(located.authority.scopeId).toBe(scopeId);
+  });
+
   it("resolves a provisioned shared scope from PGlite authority rows", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

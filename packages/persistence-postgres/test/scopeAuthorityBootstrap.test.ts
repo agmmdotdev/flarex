@@ -74,6 +74,25 @@ type OrdinaryDrizzleCanRunBootstrapTransaction =
     : false;
 
 describe("shared scope authority bootstrap", () => {
+  it("blocks deployment-only repair when one deployment contains multiple scopes", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_multiple_scopes";
+    await persistence.insertDeploymentMetadata({ deploymentId, projectId: "project_multiple_scopes" });
+    for (const id of ["scope_multi_a", "scope_multi_b"]) {
+      await persistence.insertScopeMetadata({
+        scopeId: ScopeIdSchema.make(id), deploymentId, physicalLocator: sharedLocator,
+      });
+    }
+    const bootstrapper = createPGliteSharedScopeAuthorityBootstrapper(persistence, {
+      physicalLocator: sharedLocator,
+    });
+    const frontier = await bootstrapper.captureFrontier();
+    await expect(bootstrapper.verifyFrontier(frontier)).resolves.toMatchObject({
+      status: "blocked",
+      counts: { deployments: 1n, multipleScopeDeployments: 1n, missingClocks: 2n },
+    });
+  });
+
   it("keeps bootstrap repair authority out of per-call and root persistence APIs", () => {
     expectTypeOf<ForbiddenBatchAuthorityField>().toEqualTypeOf<never>();
     expectTypeOf<ForbiddenRootBootstrapMethod>().toEqualTypeOf<never>();
@@ -101,6 +120,7 @@ describe("shared scope authority bootstrap", () => {
       frontier,
       counts: {
         deployments: 0n,
+        multipleScopeDeployments: 0n,
         completePairs: 0n,
         missingScopes: 0n,
         missingClocks: 0n,
@@ -675,6 +695,7 @@ describe("shared scope authority bootstrap", () => {
       frontier,
       counts: {
         deployments: 1n,
+        multipleScopeDeployments: 0n,
         completePairs: 0n,
         missingScopes: 0n,
         missingClocks: 1n,

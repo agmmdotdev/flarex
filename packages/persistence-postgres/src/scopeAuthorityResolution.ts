@@ -7,7 +7,7 @@ import type {
   SplitScopeAuthorityProvisioningReceipt,
 } from "./scopeAuthorityProvisioningReceiptTypes";
 import type { ScopeClockRecord } from "./scopeClock";
-import type { ScopeMetadataRecord } from "./scopeMetadata";
+import { ScopeDeploymentAmbiguousError, type ScopeMetadataRecord } from "./scopeMetadata";
 import type {
   ScopePhysicalLocator,
   SplitScopePhysicalLocator,
@@ -21,6 +21,10 @@ export interface ScopeMetadataReader {
   getScopeMetadataByDeploymentId(
     deploymentId: string,
   ): Promise<ScopeMetadataRecord | null>;
+}
+
+export interface ExactScopeMetadataReader {
+  getScopeMetadata(scopeId: ScopeId): Promise<ScopeMetadataRecord | null>;
 }
 
 export interface ScopeProvisioningReceiptReader {
@@ -51,6 +55,17 @@ export interface TrustedScopeAuthorityResolutionPorts<
   readonly scopeMetadata: ScopeMetadataReader;
   readonly provisioningReceipts: ScopeProvisioningReceiptReader;
   readonly scopeClockTargets: ScopeClockTargetReaderResolver<Target>;
+}
+
+export interface ExactTrustedScopeAuthorityResolutionPorts<
+  Target extends LocatedScopeClockReader = LocatedScopeClockReader,
+> extends Omit<TrustedScopeAuthorityResolutionPorts<Target>, "scopeMetadata"> {
+  readonly scopeMetadata: ExactScopeMetadataReader;
+}
+
+export interface TrustedScopeSelection {
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
 }
 
 /**
@@ -87,6 +102,29 @@ export function captureTrustedScopeAuthorityResolutionPorts<
   });
 }
 
+export function captureExactTrustedScopeAuthorityResolutionPorts<
+  Target extends LocatedScopeClockReader,
+>(ports: ExactTrustedScopeAuthorityResolutionPorts<Target>): ExactTrustedScopeAuthorityResolutionPorts<Target> {
+  const metadata = ports.scopeMetadata;
+  const getScopeMetadata = metadata.getScopeMetadata;
+  const receipts = ports.provisioningReceipts;
+  const getReceipt = receipts.getScopeAuthorityProvisioningReceipt;
+  const targets = ports.scopeClockTargets;
+  const resolveTarget = targets.resolve;
+  return Object.freeze({
+    scopeMetadata: Object.freeze({
+      getScopeMetadata: (scopeId: ScopeId) => getScopeMetadata.call(metadata, scopeId),
+    }),
+    provisioningReceipts: Object.freeze({
+      getScopeAuthorityProvisioningReceipt: (scopeId: ScopeId) =>
+        getReceipt.call(receipts, scopeId),
+    }),
+    scopeClockTargets: Object.freeze({
+      resolve: (locator: ScopePhysicalLocator) => resolveTarget.call(targets, locator),
+    }),
+  });
+}
+
 export interface TrustedScopeAuthority {
   readonly deploymentId: ScopeMetadataRecord["deploymentId"];
   readonly scopeId: ScopeMetadataRecord["scopeId"];
@@ -117,6 +155,10 @@ export type InvalidScopeClockTargetReason =
 export type TrustedScopeAuthorityResolutionFailure =
   | {
       readonly reason: "scopeMetadataMissing";
+      readonly deploymentId: string;
+    }
+  | {
+      readonly reason: "scopeMetadataAmbiguous";
       readonly deploymentId: string;
     }
   | {
@@ -247,16 +289,49 @@ export const resolveLocatedTrustedScopeAuthorityEffect = Effect.fn(
   const scope = yield* Effect.tryPromise({
     try: () =>
       ports.scopeMetadata.getScopeMetadataByDeploymentId(deploymentId),
-    catch: (cause) => new TrustedScopeAuthorityPortError({
-      operation: "scopeMetadataRead",
-      cause,
-    }),
+    catch: (cause) => cause instanceof ScopeDeploymentAmbiguousError &&
+        cause.deploymentId === deploymentId
+      ? resolutionError({ reason: "scopeMetadataAmbiguous", deploymentId })
+      : new TrustedScopeAuthorityPortError({ operation: "scopeMetadataRead", cause }),
   });
   if (scope === null) {
     return yield* Effect.fail(
       resolutionError({ reason: "scopeMetadataMissing", deploymentId }),
     );
   }
+  return yield* resolveLocatedScopeMetadataEffect(scope, deploymentId, ports);
+});
+
+/** The selection must be minted by trusted session or grant composition. */
+export const resolveLocatedTrustedScopeAuthorityByIdEffect = Effect.fn(
+  "ScopeAuthority.resolveLocatedTrustedById",
+)(function* <Target extends LocatedScopeClockReader>(
+  selection: TrustedScopeSelection,
+  ports: ExactTrustedScopeAuthorityResolutionPorts<Target>,
+): Effect.fn.Return<LocatedTrustedScopeAuthority<Target>, TrustedScopeAuthorityError> {
+  const scope = yield* Effect.tryPromise({
+    try: () => ports.scopeMetadata.getScopeMetadata(selection.scopeId),
+    catch: (cause) => new TrustedScopeAuthorityPortError({
+      operation: "scopeMetadataRead",
+      cause,
+    }),
+  });
+  if (scope === null || scope.scopeId !== selection.scopeId) {
+    return yield* Effect.fail(resolutionError({
+      reason: "scopeMetadataMissing",
+      deploymentId: selection.deploymentId,
+    }));
+  }
+  return yield* resolveLocatedScopeMetadataEffect(scope, selection.deploymentId, ports);
+});
+
+const resolveLocatedScopeMetadataEffect = Effect.fn(
+  "ScopeAuthority.resolveLocatedMetadata",
+)(function* <Target extends LocatedScopeClockReader>(
+  scope: ScopeMetadataRecord,
+  deploymentId: string,
+  ports: Pick<TrustedScopeAuthorityResolutionPorts<Target>, "provisioningReceipts" | "scopeClockTargets">,
+): Effect.fn.Return<LocatedTrustedScopeAuthority<Target>, TrustedScopeAuthorityError> {
   const intent = captureScopeAuthorityIntent(scope);
   if (intent.deploymentId !== deploymentId) {
     return yield* Effect.fail(resolutionError({
@@ -289,7 +364,7 @@ const resolveSplitScopeAuthority = Effect.fn(
 )(function* <Target extends LocatedScopeClockReader>(
   intent: ScopeAuthorityIntent,
   expectedLocator: SplitScopePhysicalLocator,
-  ports: TrustedScopeAuthorityResolutionPorts<Target>,
+  ports: Pick<TrustedScopeAuthorityResolutionPorts<Target>, "provisioningReceipts" | "scopeClockTargets">,
 ): Effect.fn.Return<
   LocatedTrustedScopeAuthority<Target>,
   TrustedScopeAuthorityError
@@ -345,7 +420,7 @@ const resolveScopeAuthorityAtTarget = Effect.fn(
 )(function* <Target extends LocatedScopeClockReader>(
   intent: ScopeAuthorityIntent,
   expectedLocator: ScopePhysicalLocator,
-  ports: TrustedScopeAuthorityResolutionPorts<Target>,
+  ports: Pick<TrustedScopeAuthorityResolutionPorts<Target>, "provisioningReceipts" | "scopeClockTargets">,
 ): Effect.fn.Return<
   LocatedTrustedScopeAuthority<Target>,
   TrustedScopeAuthorityError
@@ -534,6 +609,8 @@ function trustedScopeAuthorityResolutionFailureMessage(
   switch (failure.reason) {
     case "scopeMetadataMissing":
       return `Trusted scope authority is missing for deployment ${failure.deploymentId}`;
+    case "scopeMetadataAmbiguous":
+      return `Trusted scope authority for deployment ${failure.deploymentId} needs an exact scope ID`;
     case "scopeDeploymentMismatch":
       return `Trusted scope ${failure.scopeId} belongs to deployment ${failure.actualDeploymentId}, not ${failure.deploymentId}`;
     case "splitProvisioningReceiptMissing":

@@ -127,7 +127,7 @@ describePostgres("createPostgresPersistence", () => {
             contype: "f",
           },
           {
-            conname: "fx_control_scope_deployment_id_unique",
+            conname: "fx_control_scope_id_deployment_id_unique",
             contype: "u",
           },
           {
@@ -140,6 +140,9 @@ describePostgres("createPostgresPersistence", () => {
           },
         ]),
       );
+      expect(constraints.rows).not.toEqual(expect.arrayContaining([
+        { conname: "fx_control_scope_deployment_id_unique", contype: "u" },
+      ]));
 
       const sharedLocator = JSON.stringify({
         kind: "shared_database",
@@ -163,7 +166,10 @@ describePostgres("createPostgresPersistence", () => {
             sharedLocator,
           ],
         ),
-      ).rejects.toMatchObject({ code: "23505" });
+      ).resolves.toBeDefined();
+      await expect(
+        persistence.getScopeMetadataByDeploymentId("deployment_real_pg_scope_a"),
+      ).rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
       await expect(
         persistence.query(
           `

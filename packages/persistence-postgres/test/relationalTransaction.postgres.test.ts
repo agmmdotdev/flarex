@@ -141,6 +141,7 @@ describe.skipIf(postgresUrl === null)(
                 session,
                 target: target.schema,
                 deploymentId: fixture.deploymentId,
+                scopeId: fixture.active.basis.authority.scopeId,
                 authority: fixture.authorityPorts,
                 commands: [hold],
               },
@@ -233,6 +234,7 @@ describe.skipIf(postgresUrl === null)(
               session: uncertainSession,
               target: target.schema,
               deploymentId: fixture.deploymentId,
+              scopeId: fixture.active.basis.authority.scopeId,
               authority: fixture.authorityPorts,
               commands: [tested.read],
             }),
@@ -253,6 +255,7 @@ describe.skipIf(postgresUrl === null)(
               database: persistence.drizzle,
               target: target.schema,
               deploymentId: fixture.deploymentId,
+              scopeId: fixture.active.basis.authority.scopeId,
               authority: fixture.authorityPorts,
               commands: [rejected],
               session: makePostgresRelationalSession(persistence, {

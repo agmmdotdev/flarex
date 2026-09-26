@@ -8,6 +8,7 @@ import {
   InvalidScopeMetadataInputError,
   InvalidScopeMetadataListLimitError,
   ScopeMetadataAlreadyExistsError,
+  ScopeDeploymentAmbiguousError,
   ScopeMetadataCorruptionError,
   type InsertScopeMetadataInput,
   type ScopeMetadataRecord,
@@ -224,13 +225,18 @@ describe("scope metadata", () => {
       physicalLocator: physicalLocators[0],
     });
 
+    const secondScopeId = ScopeIdSchema.make("scope_owner_second");
     await expect(
       persistence.insertScopeMetadata({
-        scopeId: ScopeIdSchema.make("scope_owner_duplicate"),
+        scopeId: secondScopeId,
         deploymentId: "deployment_owner_a",
         physicalLocator: physicalLocators[0],
       }),
-    ).rejects.toBeInstanceOf(ScopeMetadataAlreadyExistsError);
+    ).resolves.toMatchObject({ scopeId: secondScopeId, deploymentId: "deployment_owner_a" });
+    await expect(persistence.getScopeMetadataByDeploymentId("deployment_owner_a"))
+      .rejects.toBeInstanceOf(ScopeDeploymentAmbiguousError);
+    await expect(persistence.getScopeMetadata(secondScopeId))
+      .resolves.toMatchObject({ scopeId: secondScopeId, deploymentId: "deployment_owner_a" });
     await expect(
       persistence.insertScopeMetadata({
         scopeId,

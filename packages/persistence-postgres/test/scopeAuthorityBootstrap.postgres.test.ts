@@ -31,6 +31,24 @@ const uuids = {
 } as const;
 
 describePostgres("real Postgres shared scope authority bootstrap", () => {
+  it("reports multi-scope deployments as blocked rather than repairable", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_pg_multiple_scopes";
+      await persistence.insertDeploymentMetadata({ deploymentId, projectId: "project_pg_multiple_scopes" });
+      for (const id of ["scope_pg_multi_a", "scope_pg_multi_b"]) {
+        await persistence.insertScopeMetadata({
+          scopeId: ScopeIdSchema.make(id), deploymentId, physicalLocator: sharedLocator,
+        });
+      }
+      const verifier = bootstrapper(persistence, uuidSequence(uuids.epochA));
+      const frontier = await verifier.captureFrontier();
+      await expect(verifier.verifyFrontier(frontier)).resolves.toMatchObject({
+        status: "blocked",
+        counts: { deployments: 1n, multipleScopeDeployments: 1n, missingClocks: 2n },
+      });
+    });
+  });
+
   it("converges concurrent missing-clock repairs on one persisted epoch", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const scopeId = ScopeIdSchema.make(`scope_${uuids.scopeA}`);

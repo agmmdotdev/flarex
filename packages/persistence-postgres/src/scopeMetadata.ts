@@ -54,9 +54,16 @@ export class ScopeMetadataAlreadyExistsError extends Error {
     readonly deploymentId: string,
   ) {
     super(
-      `Scope metadata already exists for scope ${scopeId} or deployment ${deploymentId}`,
+      `Scope metadata already exists for scope ${scopeId} in deployment ${deploymentId}`,
     );
     this.name = "ScopeMetadataAlreadyExistsError";
+  }
+}
+
+export class ScopeDeploymentAmbiguousError extends Error {
+  constructor(readonly deploymentId: string) {
+    super(`Deployment ${deploymentId} has multiple scopes; an exact scope ID is required`);
+    this.name = "ScopeDeploymentAmbiguousError";
   }
 }
 
@@ -151,7 +158,11 @@ export async function getScopeMetadataByDeploymentId(
     .select()
     .from(fxControlScopes)
     .where(eq(fxControlScopes.deploymentId, deploymentId))
-    .limit(1);
+    .limit(2);
+
+  if (rows.length > 1) {
+    throw new ScopeDeploymentAmbiguousError(deploymentId);
+  }
 
   const scope = rows[0];
   return scope === undefined ? null : decodeScopeMetadataRecord(scope);

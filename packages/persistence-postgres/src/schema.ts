@@ -1468,7 +1468,7 @@ export const fxControlScopes = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique("fx_control_scope_deployment_id_unique").on(table.deploymentId),
+    index("fx_control_scope_deployment_id_idx").on(table.deploymentId),
     unique("fx_control_scope_id_deployment_id_unique").on(
       table.scopeId,
       table.deploymentId,

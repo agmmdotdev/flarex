@@ -6495,6 +6495,7 @@ function routeAuthorityResolutionFailure(
       case "scopeClockScopeMismatch":
         return Effect.fail(corruption("scopeClockInvalid"));
       case "scopeMetadataMissing":
+      case "scopeMetadataAmbiguous":
       case "scopeDeploymentMismatch":
       case "splitProvisioningReceiptMissing":
       case "splitProvisioningReceiptScopeMismatch":

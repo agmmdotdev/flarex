@@ -547,6 +547,7 @@ export async function exerciseRelationalStore<
         session,
         target,
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.active.basis.authority.scopeId,
         authority: fixture.authorityPorts,
         commands: [
           read,
@@ -586,6 +587,19 @@ export async function exerciseRelationalStore<
       },
     ),
   );
+  const wrongScopeHost = await runEffect(makeRelationalHost({
+    database: fixture.target.drizzle,
+    session,
+    target,
+    deploymentId: fixture.deploymentId,
+    scopeId: ScopeIdSchema.make("scope_not_provisioned_for_relational_host"),
+    authority: fixture.authorityPorts,
+    commands: [read],
+  }));
+  expect(await runEffectFailure(wrongScopeHost.run(reference, read, null)))
+    .toMatchObject({ name: "TrustedScopeAuthorityResolutionError", failure: {
+      reason: "scopeMetadataMissing", deploymentId: fixture.deploymentId,
+    } });
   await runEffect(host.run(reference, read, null));
   expect(
     await runEffectFailure(host.run(reference, openChild, null)),

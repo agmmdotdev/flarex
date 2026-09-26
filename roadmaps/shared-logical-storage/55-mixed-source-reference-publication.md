@@ -1,8 +1,9 @@
 # Mixed-source reference publication
 
 Status: implemented under the shared-storage standing approval. Joint
-parent/child creation, same-deployment multi-scope isolation and uncertain-COMMIT
-recovery remain separate gates.
+parent/child creation, full same-deployment multi-scope isolation and uncertain-COMMIT
+recovery remain separate gates. The [scope-authority correction](./56-same-deployment-scope-authority.md)
+establishes exact core selection but does not migrate all framework entry points.
 
 The private Currency announcement admits one Application insert, one Payload
 document insert and one native Currency write into a single logical delta and
