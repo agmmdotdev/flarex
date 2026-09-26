@@ -241,9 +241,10 @@ remain distinct from logical schema evolution.
   The selected native Type delete now uses the core-owned indexed,
   resource-accounted atomic `set null` transition specified in the
   [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions).
-  Its current witness reaches 896 Product references under the explicit
-  30-second logical-command profile; the 2,016-row arithmetic ceiling is not
-  a measured success or a general scale claim.
+  Its opt-in small-row witness reaches the 2,016-reference arithmetic ceiling
+  under the explicit 30-second logical-command profile on local PGlite and
+  ordinary-role PostgreSQL. PGlite's measured delete time is close to that
+  deadline; larger rows, concurrent hot shops and general scale are unproved.
   The selected native Collection delete uses the same owner for
   `Product.collection_id`. Both remain bounded by total transition resources;
   native scalar Collection create, update and mixed upsert now use one logical

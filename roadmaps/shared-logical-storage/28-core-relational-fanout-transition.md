@@ -6,7 +6,8 @@ logical-commerce fact publication are implemented in the shared core. The
 selected all-logical ProductType and ProductCollection deletion use that path
 without adapter-side Product enumeration. The operation supports up to the
 declared affected-row, byte and time budgets; broader relationship transitions,
-larger measured fan-out and pending reads after a plan remain separate gates.
+large-document and hot-shop capacity, and pending reads after a plan remain
+separate gates.
 
 ## Trigger and ownership
 
@@ -101,8 +102,8 @@ pages for the root operation. Adding an index can therefore reduce the safe
 synchronous fan-out without making an in-budget page fail halfway through.
 With the current Product index set, the effective page is 32 rows and the
 row-only ceiling is 2,016 references; bytes, time or another materialization
-limit can refuse earlier. The 2,016-row arithmetic ceiling is not a measured
-successful delete at that size; the native witness currently reaches 896.
+limit can refuse earlier. The native small-row Type witness has now reached
+that ceiling on both local drivers under the 30-second command profile.
 The current-index range scan selects its bounded
 keyset page before joining revision metadata, so late pages do not join the
 whole current range first.
@@ -188,7 +189,7 @@ Payload one-shot commits still use this publisher with their known fact count,
 without an extra header update. The 128-row point materializer and 256-entry
 per-page index-action limits remain unchanged.
 
-The selected native Type path has a 896-Product deletion witness beyond the
+The selected native Type path has a 2,016-Product deletion witness beyond the
 former 882-row index-cost ceiling and retains
 rollback after several staged fact pages, one event and replayed outcome.
 It also refuses a native Type deletion when large referencing Product documents
@@ -201,6 +202,18 @@ operational safety budgets, not general parity or production performance
 claims. The effective reference ceiling also depends on the admitted source
 index and unique-key cost per page. A shop can legitimately exceed it; a
 refusal must remain atomic.
+
+An opt-in native Type capacity run with 2,016 small Products completed on local
+PGlite in 25.8 seconds and ordinary-role PostgreSQL in 12.2 seconds for the
+delete command. Each produced 2,017 row revisions, 8,068 index revisions,
+2,017 fact rows and about 1.25 MiB of final document bytes at one commit
+sequence; replay retained that outcome. These are single local runs, not a
+latency guarantee. PGlite is close to the 30-second profile, and the existing
+large-document witness refuses atomically below the row ceiling. The opt-in
+count is `FLAREX_FANOUT_CAPACITY_COUNT=2016` for the native Type suite, so
+ordinary suites keep their shorter boundary cases. Hot-shop contention,
+many-scope fairness, WAL/recovery cost and a supported larger-operation
+visibility policy remain open acceptance work.
 The materializer's 2,048-row/64-page and 4 MiB final-document budgets, and the
 atomic host's fact allowance, are separate guards. A root with many own changes
 may reach those guards before the reference limit.

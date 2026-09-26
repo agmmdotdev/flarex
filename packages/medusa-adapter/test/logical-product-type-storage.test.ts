@@ -25,6 +25,12 @@ import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product Type test driver");
+const capacityCount = process.env.FLAREX_FANOUT_CAPACITY_COUNT === undefined
+  ? undefined : Number(process.env.FLAREX_FANOUT_CAPACITY_COUNT);
+if (capacityCount !== undefined && (!Number.isInteger(capacityCount) || capacityCount < 32
+  || capacityCount > 2016 || capacityCount % 32 !== 0))
+  throw new Error("Invalid Type fan-out capacity count");
+const fanoutCounts = capacityCount === undefined ? [128, 512, 896] : [capacityCount];
 const cleanup: Array<() => Promise<void>> = [];
 
 describe("native Product Type on shared logical Product storage", () => {
@@ -308,10 +314,10 @@ describe("native Product Type on shared logical Product storage", () => {
     }
   }, 180_000);
 
-  it.each([128, 512, 896])("detaches %i Products in one Type delete publication and replays its outcome", async (productCount) => {
+  it.each(fanoutCounts)("detaches %i Products in one Type delete publication and replays its outcome", async (productCount) => {
     const created = await typeCommand("create");
     const deleted = await typeCommand("delete", fixture, product, false, undefined,
-      productCount === 896 ? 30_000 : undefined);
+      productCount >= 896 ? 30_000 : undefined);
     const rejected = await typeCommand("delete", fixture, product, true);
     const productCreate = await productCreation();
     const typeId = `ptype_fanout_boundary_${productCount}`;
@@ -347,7 +353,9 @@ describe("native Product Type on shared logical Product storage", () => {
         expect(stagedFactPages).toBe(4);
         expect(await logicalCurrencyInventory(fixture)).toEqual(before);
       }
+      const deleteStarted = performance.now();
       const outcome = await Effect.runPromise(deleted.host.run(key, deleted.root, [typeId]));
+      const deleteMs = Math.round(performance.now() - deleteStarted);
       const after = await logicalCurrencyInventory(fixture);
       expect(after.rows).toHaveLength(before.rows.length);
       expect(after.revisions).toHaveLength(before.revisions.length + productCount + 1);
@@ -355,6 +363,22 @@ describe("native Product Type on shared logical Product storage", () => {
       expect(after.rowChanges).toHaveLength(before.rowChanges.length + productCount + 1);
       expect(after.commits).toHaveLength(before.commits.length + 1);
       expect(after.events).toHaveLength(before.events.length + 1);
+      if (capacityCount !== undefined) {
+        const scopeUuid = projectScopeIdUuidV1(fixture.application.authority.scopeId).scopeUuid;
+        const committed = after.commits.find(commit => commit.scopeUuid === scopeUuid &&
+          !before.commits.some(previous => previous.scopeUuid === scopeUuid && previous.commitSeq === commit.commitSeq));
+        expect(committed).toBeDefined();
+        const revisions = after.revisions.filter(revision => revision.scopeUuid === scopeUuid &&
+          revision.commitSeq === committed?.commitSeq);
+        process.stdout.write(`Type delete capacity ${JSON.stringify({ driver, productCount, deleteMs,
+          rowRevisions: revisions.length,
+          indexRevisions: after.indexRevisions.filter(revision => revision.scopeUuid === scopeUuid &&
+            revision.commitSeq === committed?.commitSeq).length,
+          factRows: after.rowChanges.filter(change => change.scopeUuid === scopeUuid &&
+            change.commitSeq === committed?.commitSeq).length,
+          finalDocumentBytes: revisions.reduce((total, revision) => total + (revision.valueBytes?.byteLength ?? 0), 0),
+        })}\n`);
+      }
       const published = after.rowChanges.slice(before.rowChanges.length);
       expect(new Set(published.map(change => change.commitSeq)).size).toBe(1);
       expect(published.map(change => change.changeOrdinal)).toEqual(Array.from({ length: productCount + 1 }, (_, index) => index));
