@@ -370,7 +370,8 @@ changes remain traceable, with all required Flarex guarantees preserved.
 
 | Current owner | Planned disposition |
 | --- | --- |
-| `packages/durable-task/src/runAttempt/Layers/RunAttemptLifecycleLive.ts` and task policy decisions | Replace with retained Trigger lifecycle and retry implementations; remove displaced decisions after consumer cutover. |
+| `packages/durable-task/src/runAttempt/Layers/RunAttemptLifecycleLive.ts` | Replace the handwritten start, heartbeat, completion, cancellation and lease-expiry decisions with retained Trigger implementations; delete displaced decisions in the consumer cutover slice. |
+| `packages/durable-task/src/runAttempt/Policy.ts` | Replace duplicate retry-delay and failure-policy algorithms with retained Trigger behavior; keep any required Flarex boundary validation with its actual owner. |
 | Custom aggregate models, codecs, initial state and persistence projections | Adapt or replace around the retained engine; do not preserve them solely because they exist. |
 | Pure-decider Task store contract and concrete persistence | Replace with the scoped store/transaction operations required by retained methods over logical storage. |
 | Task run reads, history, results and cancellation APIs | Migrate to the new authoritative representation; keep intended supported behavior and scope checks. |
@@ -392,6 +393,65 @@ Use an explicit migration or owner-approved reset. Temporary retention requires
 a named consumer and removal gate. Do not introduce production dual execution,
 dual writes or fallback to the old engine. Differential execution belongs in
 isolated tests. Completion means one lifecycle authority and accounted-for data.
+
+### Cleanup Is Part Of Each Cutover
+
+Removing the current reimplementation is a completion requirement. Do not
+postpone it until every Trigger capability has been adopted. Each connected
+replacement includes the following work:
+
+1. **Identify the full affected path.** Inventory the old decision functions,
+   store contracts, lifecycle gateways, creation code, readers, scheduler and
+   supervisor callers, exports, dependencies and tests. Assign each item a
+   replace, adapt, retain or delete disposition based on its responsibility.
+2. **Prove the replacement.** Execute the retained Trigger methods through real
+   Flarex storage and runtime boundaries, including the relevant race, rollback,
+   stale-fence and uncertain-outcome witnesses.
+3. **Migrate callers and durable state.** Switch the affected producers,
+   execution callbacks, reads, history, results and cancellation paths together.
+   Apply the recorded data migration or approved reset, including pending work
+   and recovery identities. A new engine beside unchanged callers is incomplete.
+4. **Move behavioral coverage.** Preserve meaningful existing regression
+   assertions against the replacement, alongside retained upstream tests.
+   Remove tests and fixtures specific to the obsolete implementation only after
+   their required behavior is covered or an explicit contract change replaces it.
+5. **Delete displaced code and storage paths.** Remove the old algorithms,
+   unused aggregate models/codecs/projections, obsolete adapters, exports,
+   dependencies, fixtures and source maps. Retire old tables and migration
+   machinery only after their consumers and durable-data obligations are
+   resolved. Update the affected design and roadmap owners in the same slice.
+6. **Verify removal and commit the coherent result.** Check the owned source,
+   import/export graph and runtime composition for remaining old-engine calls,
+   alternate registrations and fallback behavior. Complete affected validation
+   and required reviews before the scoped commit.
+
+The lifecycle gateway and persistence adapter currently invoke our custom
+decision functions. Migrate those contracts to the retained engine and its
+Flarex-backed store; a compatibility wrapper that continues executing the old
+decisions does not complete the replacement.
+
+Evaluate `@flarex/durable-task` and neighboring modules by responsibility rather
+than deleting whole packages by name. Scope authorization, transaction
+settlement, database time, fencing, idempotency, recovery, immutable artifacts,
+execution principals and Worker Loader integration remain necessary. Reuse
+their correct owners and adapt contracts where required; remove duplicate task
+policy from those owners when the retained engine takes over.
+
+### Cleanup Acceptance
+
+A migrated capability is complete only when:
+
+- its active callers execute one retained Trigger lifecycle implementation;
+- no old-engine fallback, dual write or wrapper keeps displaced decisions alive;
+- the old runtime exports, dependencies and executable paths are removed;
+- required behavior has regression coverage on the replacement;
+- durable records, pending effects and recovery references have a recorded
+  disposition; and
+- any temporary retention names its remaining consumer, owner and concrete
+  removal gate in the owning roadmap.
+
+Final retirement audits these incremental removals. It does not defer them or
+justify preserving an old engine for hypothetical compatibility.
 
 ## Recommended Implementation Sequence
 
