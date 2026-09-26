@@ -7,9 +7,9 @@ completion goal; native calculated-price acceptance remains open.
 
 The pinned `PriceListRule.value` model declares a nullable JSONB field with an
 active-row GIN index. The portable DML compiler retains `type: "gin"`; logical
-normalization currently refuses it. The selected four-table Pricing source
-therefore cannot admit native PriceListRule writes or the representative
-calculated-price query. This is a shared index-contract gap, not a Pricing
+normalization originally refused it. The earlier four-table Pricing source
+therefore could not admit native PriceListRule writes or the representative
+calculated-price query. This was a shared index-contract gap, not a Pricing
 adapter permission to scan rules or mislabel GIN as an ordered index.
 
 Admit one-column JSON containment declarations in the relational schema and

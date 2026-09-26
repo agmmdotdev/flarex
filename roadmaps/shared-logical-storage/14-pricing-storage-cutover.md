@@ -5,27 +5,26 @@
 This is the focused Pricing implementation preflight under the accepted shared
 logical storage design and the standing completion goal. The pinned Pricing
 static manifest has six models: PriceSet, Price, PriceRule, PriceList,
-PriceListRule and PricePreference. The current adapter admits native base
-PriceSet creation, ID reads and their nested Price/Rule rows; calculated
-Pricing, PriceList writes and the Product Variant/Pricing/Link workflow remain
-outside this first runtime selection.
+PriceListRule and PricePreference. The selected composer and host now admit the
+complete pinned source. The current adapter admits native PriceSet creation,
+ID reads and their nested Price/Rule rows; calculated Pricing and PriceList
+writes remain outside the selected service methods.
 
-The selected base-price source is implemented and exercised through the native
+The selected PriceSet service is exercised through the native
 `createPriceSetsStep`, pending query graph, event publication and committed
-PriceSet read. Its four logical tables and indexes are admitted without module
+PriceSet read. All six logical tables and their indexes are admitted without module
 table DDL. The shared ordered-index contract now preserves PriceList's
 `deleted_at IS NULL AND status = 'active'` predicate through catalog storage,
 index membership and query selection. This is functional acceptance for the
-selected source, not a claim that all Pricing operations or scale are proven.
+selected service methods, not a claim that all Pricing operations or scale are proven.
 
-## Connected Base-Price Slice
+## Original PriceSet Service Cutover
 
-Compile the fixed four-table dependency set of the admitted base-price service
-(PriceSet, Price, PriceRule and structural PriceList) into one authenticated
-logical source, with their native indexes, exact-number companions and foreign
-keys. This is an explicit capability boundary from the pinned six-model
-manifest, not an arbitrary caller-supplied subset. Do not derive the source
-from deployment-specific physical table names. Select that source for the
+The original service cutover compiled PriceSet, Price, PriceRule and structural
+PriceList. The selected source now uses all six pinned models under the
+[full-source cutover](./47-full-pricing-source-cutover.md), while retaining its
+native indexes, exact-number companions and foreign keys. Do not derive the
+source from deployment-specific physical table names. Select that source for the
 existing native `createPriceSets`, `listPriceSets` and
 `retrievePriceSet` path. Admit only the PriceSet/Price/PriceRule mutations and
 their exact native created messages; unexpected table changes, lifecycle
@@ -34,7 +33,7 @@ own scoped row/index/unique maintenance, transaction settlement, publication
 and recovery. A module operation not yet selected must fail closed.
 
 This replaces the private Pricing profile/installation input for the selected
-base-price host. The native Pricing fixture and selected Variant/Pricing/Link
+PriceSet host. The native Pricing fixture and selected Variant/Pricing/Link
 workflow now use logical sources; the former combined physical profile builder
 is retired under [Pricing fixture retirement](./37-pricing-physical-fixture-retirement.md).
 No dual write, adapter SQL fallback or compatibility wrapper is justified by
@@ -54,10 +53,10 @@ logical containment requirement. The shared core has a scope-confined current
 JSON entry family, physical GIN readiness, transactional maintenance and
 bounded `@>` candidate reads. A six-model Pricing-shaped source can be admitted
 and can write/query PriceListRule through the private core contract. This is
-not yet a native calculated-Pricing service cutover: the selected runtime
-source remains the four-table base-price source. Eventual ownership transfer
-must retain stable table identities and follow the structural migration gate
-rather than silently expanding a populated live source.
+not yet a native calculated-Pricing service cutover. The composer and runtime
+now select the full six-model source. A populated former four-table source
+must follow the structural migration gate rather than being silently
+reinterpreted; no named data is reset by this code cutover.
 
 The representative calculated-price query in
 [query and constraint acceptance](./02-query-and-constraint-acceptance.md)

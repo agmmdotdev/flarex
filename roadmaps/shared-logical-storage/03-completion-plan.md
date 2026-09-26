@@ -117,11 +117,12 @@ remain distinct from logical schema evolution.
   graph read on that source, with call/mutation/event correlation. Independent child
   commands and other Product workflows remain outside this selected admission.
   The selected Variant–PriceSet stored Link now compiles from pinned native
-  metadata into a shared logical source beside Product and base Pricing. Its
-  native attach step creates the rich Link row, reads it pending and committed,
+  metadata into a shared logical source beside Product and the complete six-model
+  Pricing source. Pricing service methods remain limited to the selected PriceSet
+  path. The Link's native attach step creates the rich row, reads it pending and committed,
   authenticates its attached event and preserves active endpoint cardinality,
   rollback, replay and two-shop isolation. The existing native
-  Product–Variant–Pricing workflow now selects Product, base Pricing and Link
+  Product–Variant–Pricing workflow now selects Product, complete Pricing and Link
   logical sources in one atomic root. Its Variant/option-value pivot receipt,
   maximum 32-row graph, exact prices, missing-root/option refusal, late rollback,
   replay, two-shop isolation and uncertain settlement have two-driver proofs.

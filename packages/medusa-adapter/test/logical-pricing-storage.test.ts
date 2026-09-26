@@ -63,9 +63,9 @@ describe("native Pricing on shared logical storage", () => {
         nullPredicateField: "deleted_at" });
   });
 
-  it("admits the base-price dependency set without module table DDL", async () => {
+  it("admits the full pinned Pricing definition without module table DDL", async () => {
     expect(fixture.pricing.definition.schema.tables.map(table => table.identity.tableId).sort())
-      .toEqual(["price", "price_list", "price_rule", "price_set"]);
+      .toEqual(["price", "price_list", "price_list_rule", "price_preference", "price_rule", "price_set"]);
     expect((await fixture.currency.persistence.query<{ name: string }>(
       "select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)
       .toEqual(fixture.currency.physicalTablesBeforeCandidate);

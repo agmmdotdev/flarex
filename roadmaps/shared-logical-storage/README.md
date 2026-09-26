@@ -17,9 +17,10 @@ full migration/ownership transitions prerequisites for core completion.
 Status: accepted development-phase architecture replacement; the first
 [candidate-admission slice](./02-candidate-admission.md) is implemented as private metadata admission.
 Selective CMS/Payload ID, unique-key and ordinary-index reads are implemented; selected Medusa
-Currency, Product, base Pricing, SalesChannel, ShippingProfile, Variant–PriceSet
+Currency, Product, the complete six-model Pricing source, SalesChannel, ShippingProfile, Variant–PriceSet
 and Product Links workflows execute through generic rows while other consumers
-remain physical. SalesChannel name and ShippingProfile type use shared exact-text
+remain physical. Pricing service admission still covers only the selected PriceSet
+methods; calculated Pricing remains gated. SalesChannel name and ShippingProfile type use shared exact-text
 equality access; SalesChannel `is_disabled` uses a declared Boolean index under
 [its connected selection cutover](./24-sales-channel-boolean-selection.md).
 Selected scalar and Product-tag commands now validate at the shared outer-call

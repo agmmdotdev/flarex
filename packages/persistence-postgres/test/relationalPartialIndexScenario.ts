@@ -32,6 +32,8 @@ import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSe
 import { validateLogicalDocumentChanges } from "../src/logicalDocuments/contribution";
 import { prepareLogicalRelationalValueValidation } from "../src/logicalDocuments/relationalValues";
 import { prepareLogicalStorageReadiness } from "../src/logicalStorageReadiness";
+import { prepareLogicalSearchBuild } from "../src/logicalSearchBuild";
+import { maintainLogicalSearchEntries } from "../src/logicalDocuments/searchEntries";
 
 /** Actual complete-candidate reconciliation plus a native partial-index build.
  * Row revisions are fixture data; this is not serving or native initialization. */
@@ -45,6 +47,16 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
   const transact = <Value, Failure>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>) =>
     runEffectTransaction(callback => db.transaction(callback), "Partial index fixture rollback", work,
       cause => new Error("Partial index transaction failed", { cause }));
+  const target = createLocatedIndexBuildReconciliationTargetV1(db, { kind: "shared_database", databaseKey: "test", schemaName: "public" });
+  const ports = { controlDb: db, authority: {
+    scopeMetadata: { getScopeMetadataByDeploymentId: (id: string) => getScopeMetadataByDeploymentId(db, id) },
+    provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => null },
+    scopeClockTargets: { resolve: async () => target },
+  } };
+  const resolved = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, ports.authority);
+  const search = (yield* transact(tx => ensureLogicalStorageDefinitions(tx, deploymentId, schemaVersionId))).search;
+  const searchBuild = yield* prepareLogicalSearchBuild(db, deploymentId, schemaVersionId);
+  expect(yield* transact(tx => searchBuild.advanceEmpty(tx, resolved.authority))).toMatchObject({ status: "ready" });
   const rowIds: AppRowIdHexV1[] = [];
   const writeNative = Effect.fn("RelationalPartialIndex.writeFixtureRevision")(function* (
     position: number, seq: bigint, deletedAt: string | null, previous: bigint | null,
@@ -68,17 +80,13 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
       }), catch: cause => new Error("Insert native fixture row", { cause }) });
       yield* runDrizzleStatementEffect(tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(eq(fxSystemScopeClocks.scopeId, scopeId)),
         cause => new Error("Advance fixture clock", { cause }));
+      yield* maintainLogicalSearchEntries(tx, scope.scopeUuid, commitSeq, search,
+        [{ kind: "live", tableId: definition.access.tableId, rowId, document: { valueJson: document.valueJson } }]);
     }));
     return rowId;
   });
   rowIds.push(yield* writeNative(0, 1n, null, null));
   rowIds.push(yield* writeNative(1, 2n, "2026-09-20T00:00:00.000Z", null));
-  const target = createLocatedIndexBuildReconciliationTargetV1(db, { kind: "shared_database", databaseKey: "test", schemaName: "public" });
-  const ports = { controlDb: db, authority: {
-    scopeMetadata: { getScopeMetadataByDeploymentId: (id: string) => getScopeMetadataByDeploymentId(db, id) },
-    provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => null },
-    scopeClockTargets: { resolve: async () => target },
-  } };
   // An incomplete catalog must not declare even the otherwise valid Currency
   // build. Restore through the real preparation owner before replaying.
   yield* transact(tx => runDrizzleStatementEffect(tx.delete(fxControlSchemaVersionIndexBindings).where(and(
@@ -163,7 +171,6 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
   if (located === null) throw new Error("Missing located native definition");
   const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
   const values = yield* prepareLogicalRelationalValueValidation(db, deploymentId, schemaVersionId);
-  const resolved = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, ports.authority);
   expect(yield* Effect.result(prepareLogicalStorageReadiness({ ...uniquePorts, authority: { ...uniquePorts.authority } }, uniqueEligibility,
     { deploymentId, scopeId, schemaVersionId }))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
   expect(yield* Effect.result(prepareLogicalStorageReadiness(uniquePorts, { ...uniqueEligibility },
@@ -245,7 +252,7 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
       command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(deploymentId), scopeId: scope.scopeId, schemaVersionId },
         rowIntents: [{ tableId: definition.access.tableId }] },
       intrinsic: currencyIndexes.filter(index => index.access.kind === "by_creation_time"),
-      developer: currencyIndexes.filter(index => index.access.kind === "developer"), unique: currencyConstraints,
+      developer: currencyIndexes.filter(index => index.access.kind === "developer"), unique: currencyConstraints, search,
       relations: null, options: {}, requireAdmission: Effect.suspend(() => admitted ? Effect.void : Effect.fail(rejected)),
       validateWrites: (_, changes) => fault === "validation" ? Effect.fail(rejected) :
         Effect.forEach(changes, change => change.kind === "live" ? Effect.fromResult(values.validate(change.tableId, change.document)) : Effect.void, { discard: true }),
@@ -307,7 +314,7 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
       command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(deploymentId), scopeId: scope.scopeId, schemaVersionId },
         rowIntents: [{ tableId: definition.access.tableId }] },
       intrinsic: currencyIndexes.filter(index => index.access.kind === "by_creation_time"),
-      developer: currencyIndexes.filter(index => index.access.kind === "developer"), unique: currencyConstraints,
+      developer: currencyIndexes.filter(index => index.access.kind === "developer"), unique: currencyConstraints, search,
       relations: null, options: {}, requireAdmission: Effect.void,
       validateWrites: (_, changes) => Effect.forEach(changes, change => change.kind === "live"
         ? Effect.fromResult(values.validate(change.tableId, change.document)) : Effect.void, { discard: true }),

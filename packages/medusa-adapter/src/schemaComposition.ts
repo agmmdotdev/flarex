@@ -151,7 +151,7 @@ export function makeSchemaComposer(configuration: {
     if (modules.includes("pricing")) {
       const pricing = yield* compilePricingDefinition();
       medusaSources.push(yield* captureLogicalSchemaSource({
-        key: "medusa.pricing.base", owner: "medusa", writeProfile: "medusa.pricing.base",
+        key: "medusa.pricing", owner: "medusa", writeProfile: "medusa.pricing",
         evidence: pricing.provenance,
         definition: { kind: "relational", schema: pricing.schema },
         bindings: pricing.schema.tables.map(table => ({ kind: "definition", localName: table.identity.tableId,

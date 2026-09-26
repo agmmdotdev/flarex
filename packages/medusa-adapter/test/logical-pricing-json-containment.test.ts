@@ -7,7 +7,7 @@ import { commerceError } from "../../persistence-postgres/src/commerceTransactio
 import { defaultCommerceResources } from "../../persistence-postgres/src/commerceTransaction/resources";
 import { fxAppJsonEntryCurrent, fxAppRowCurrent } from "../../persistence-postgres/src/schema";
 import { selectLogicalJsonSearchDefinition } from "../../persistence-postgres/src/logicalDocuments/searchEntries";
-import { compileFullPricingDefinition } from "../src/pricing-schema";
+import { compilePricingDefinition } from "../src/pricing-schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
@@ -18,9 +18,9 @@ describe("native Pricing JSON containment on shared logical storage", () => {
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); }, 120_000);
 
   it("maintains and queries the pinned PriceListRule value index in one shared row family", async () => {
-    const full = await Effect.runPromise(compileFullPricingDefinition());
+    const full = await Effect.runPromise(compilePricingDefinition());
     const source = await Effect.runPromise(captureLogicalSchemaSource({
-      key: "medusa.pricing.full", owner: "medusa", writeProfile: "medusa.pricing.full",
+      key: "medusa.pricing", owner: "medusa", writeProfile: "medusa.pricing",
       evidence: full.provenance, definition: { kind: "relational", schema: full.schema },
       bindings: full.schema.tables.map(table => ({ kind: "definition" as const,
         localName: table.identity.tableId,

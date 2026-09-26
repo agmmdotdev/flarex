@@ -12,7 +12,7 @@ export interface LogicalPricingHostFixture {
   readonly host: CommerceHost;
 }
 
-/** Select the admitted base-price source beside an initialized Currency
+/** Select the complete Pricing source beside an initialized Currency
  * source. The caller owns Pricing initialization and host release. */
 export async function prepareLogicalPricingHost(currency: LogicalCurrencyFixture): Promise<LogicalPricingHostFixture> {
   const definition = currency.pricingDefinition;
@@ -24,7 +24,7 @@ export async function prepareLogicalPricingHost(currency: LogicalCurrencyFixture
   const hostInput = { ...currency.hostInput,
     identityAndAccessPolicy: { profile: "logical-pricing-internal-test" },
     logicalStorage: { ...currency.hostInput.logicalStorage,
-      source: { sourceKey: "medusa.pricing.base", writeProfile: "medusa.pricing.base",
+      source: { sourceKey: "medusa.pricing", writeProfile: "medusa.pricing",
         schema: definition.schema, evidence: definition.provenance },
       initialization: { stepId: "pricing-empty", datasetSha256: seed.sha256Hex, expectedRowCount: 0 },
     }, commands: runtime.commands,

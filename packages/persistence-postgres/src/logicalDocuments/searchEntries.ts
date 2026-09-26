@@ -1,10 +1,9 @@
 import { Data, Effect } from "effect";
 import { and, eq, inArray } from "drizzle-orm";
-import { isJsonObject } from "flarex-protocol/json";
-import { appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
+import { isJsonObject, type Json } from "flarex-protocol/json";
+import { appRowIdHexV1ToBytes, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq, ScopeUuidV1 } from "flarex-protocol/storage-authority";
-import type { PreparedPointCommitRowIntentV1 } from "../applicationDocumentMaterialization/model";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { fxAppJsonEntryCurrent, fxAppSearchEntryCurrent, fxSystemSearchBuildStates } from "../schema";
@@ -17,6 +16,12 @@ export interface LogicalSearchDefinition {
   readonly columns: readonly string[];
   readonly nullPredicateField: string | null;
 }
+
+/** Search maintenance needs the committed identity and current document only. */
+export type LogicalSearchChange =
+  | Readonly<{ kind: "live"; tableId: CatalogTableId; rowId: AppRowIdHexV1;
+      document: Readonly<{ valueJson: Json }> }>
+  | Readonly<{ kind: "deleted"; tableId: CatalogTableId; rowId: AppRowIdHexV1 }>;
 
 /** Only a predicate guaranteed by the query may narrow a JSON candidate set. */
 export function selectLogicalJsonSearchDefinition(definitions: readonly LogicalSearchDefinition[],
@@ -42,7 +47,7 @@ const searchWriteBudget = Object.freeze({ entries: 4096, textBytes: 4_194_304 })
  * source admission, settlement and rollback. */
 export const maintainLogicalSearchEntries = Effect.fn("LogicalSearchEntries.maintain")(function* (
   tx: FlarexMetadataTransaction, scopeUuid: ScopeUuidV1, commitSeq: CommitSeq,
-  definitions: readonly LogicalSearchDefinition[], changes: readonly PreparedPointCommitRowIntentV1[],
+  definitions: readonly LogicalSearchDefinition[], changes: readonly LogicalSearchChange[],
 ) {
   let entryCount = 0;
   let textBytes = 0;

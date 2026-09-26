@@ -12,10 +12,10 @@ beforeAll(async () => {
 });
 afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
 
-describe("native Pricing base-price admission", () => {
-  it("includes structural PriceList in the selected base-price source", () => {
+describe("native Pricing selected PriceSet admission", () => {
+  it("composes the full six-model Pricing source", () => {
     expect(fixture.pricing.definition.schema.tables.map(table => table.identity.tableId).sort())
-      .toEqual(["price", "price_list", "price_rule", "price_set"]);
+      .toEqual(["price", "price_list", "price_list_rule", "price_preference", "price_rule", "price_set"]);
   });
   it("creates scalar, array and empty inputs with exact pairs and native nested events", async () => {
     const beforeEvents = await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents)
