@@ -1,6 +1,8 @@
-import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { Deferred, Effect, Fiber, Result } from "effect";
+import { describe, expect, it } from "vitest";
 import { makeSchemaComposer } from "../src/schemaComposition";
+import { compileProductDefinition } from "../src/product-definition";
+import { makeCategoryCurrencyAtomicCommand } from "../src/category-currency-atomic-command";
 import { createMigratedPGlitePersistence } from "../../persistence-postgres/test/pgliteTestFixture";
 import { postgresUrl, withTemporaryPostgresPersistencePair } from "../../persistence-postgres/test/postgresHelpers";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence, createApplicationNativeMutationPostgresFixture,
@@ -8,18 +10,7 @@ import { createApplicationNativeMutationPGliteFixtureWithPersistence, createAppl
 import type { PGliteFlarexPersistence } from "../../persistence-postgres/src/pglite";
 import type { PostgresFlarexPersistence } from "../../persistence-postgres/src/postgres";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from "../../persistence-postgres/test/frameworkSchemaArtifactAdmissionTestSupport";
-import { prepareNeutralCommerceProfile } from "../../persistence-postgres/test/neutralCommerceProfile";
-import { makeFrameworkMigrationFixtureTarget } from "../../persistence-postgres/test/frameworkMigrationFixtureTarget";
-import { installationBindingReference } from "../../persistence-postgres/test/frameworkDataBindingPhysicalTestSupport";
-import { frameworkSchemaTargetSnapshot } from "../../persistence-postgres/src/frameworkSchema/target";
-import { prepareFrameworkSchemaArtifactAdmission, makeFrameworkSchemaArtifactRepository } from "../../persistence-postgres/src/frameworkSchema/artifact/repository";
-import { admitFrameworkSchemaArtifactEffect } from "../../persistence-postgres/src/frameworkSchema/artifact/admission";
-import { makeFrameworkInstaller } from "../../persistence-postgres/src/migrationCoordination/installer";
-import * as scopePublication from "../../persistence-postgres/src/commitPublication/publication";
-import { ScopePublicationSqlFailure } from "../../persistence-postgres/src/commitPublication/scopePublicationModel";
-import { requireCommerceProfile } from "../../persistence-postgres/src/commerceTransaction/profile";
-import { makeCommerceBinding } from "../../persistence-postgres/src/commerce";
-import { makeDataBindingHost, dataBindingActivationRequest } from "../../persistence-postgres/src/frameworkSchema/binding/host";
+import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
 import { makeCatalogControlSessionStarter, type CatalogControlSessionStarter } from "../../persistence-postgres/src/catalogControlSession";
 import { makePostgresCatalogControlSessionDriver } from "../../persistence-postgres/src/postgresCatalogControlSession";
 import { makeApplicationAnalysisRepository } from "../../persistence-postgres/src/applicationAnalysisRegistration";
@@ -30,7 +21,7 @@ import { currencyReadPlan } from "../../medusa-adapter/src/currency-repository";
 import { withCurrencyService } from "../../medusa-adapter/src/currency-service";
 import { currencyCommands, currencyAnnouncementWrite, makeCurrencyService } from "../../medusa-adapter/src/currency-service";
 import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
+import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant, getAtomicCommerceCommand } from "../../persistence-postgres/src/atomicCommerce/commands";
 import { makeAtomicCommerceHost, type AtomicCommerceHostInput } from "../../persistence-postgres/src/atomicCommerce/host";
 import { defineCommerceEventContract } from "../../persistence-postgres/src/atomicCommerce/events";
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../../persistence-postgres/src/commitEvents/schema";
@@ -72,13 +63,13 @@ describe("logical schema selection by the existing binding authority", () => {
       await Effect.runPromise(witness(fixture, session));
     });
   });
-  it("runs native Currency commands and initialization through the logical commerce host on PGlite", async () => {
+  it("runs native Product/Currency commands and initialization through logical commerce hosts on PGlite", async () => {
     const control = await createMigratedPGlitePersistence();
     const target = await createMigratedPGlitePersistence();
     const fixture = await createApplicationNativeMutationPGliteFixtureWithPersistence(options, { control, target });
     await Effect.runPromise(witness(fixture, makePGliteFrameworkSchemaArtifactAdmissionFixture(control).controlSessionStarter, "host"));
   });
-  it.skipIf(postgresUrl === null)("runs native Currency commands and initialization through the logical commerce host on ordinary-role PostgreSQL", async () => {
+  it.skipIf(postgresUrl === null)("runs native Product/Currency commands and initialization through logical commerce hosts on ordinary-role PostgreSQL", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const namespace = await target.query<{ schema: string }>("select current_schema() as schema");
       const schemaName = namespace.rows[0]?.schema;
@@ -113,7 +104,7 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
   waitForAdvisoryWaiter?: (key: string) => Effect.Effect<void, Error>,
 ) {
   const compose = makeSchemaComposer({ deploymentId: fixture.deploymentId, authority: fixture.authority,
-    applicationAnalyses: makeApplicationAnalysisRepository(fixture.target.drizzle), medusaModules: ["currency"] });
+    applicationAnalyses: makeApplicationAnalysisRepository(fixture.target.drizzle), medusaModules: ["currency", "product"] });
   const prepared = yield* compose({ applicationCandidateId: fixture.active.basis.candidateId,
     payloadCollections: [{ slug: "news", fields: [{ name: "title", type: "text", required: true, unique: true }] }],
     payloadViews: [], extensions: [] });
@@ -377,194 +368,79 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
           cause => new Error("Logical Currency recovery rows", { cause }))).toHaveLength(before.length + 1);
       }), recovered => recovered.close);
     }) } : {}),
-    ...(mode === "host" ? { mixedProof: (bindingTarget, schemaVersionId, frame, head) => Effect.gen(function* () {
-      const targetSnapshot = frameworkSchemaTargetSnapshot(bindingTarget);
-      if (targetSnapshot === undefined) throw new Error("Missing mixed Commerce target");
-      const preparedProduct = yield* prepareNeutralCommerceProfile(["product"], "mixed-currency-product")(
-        fixture.deploymentId, { physicalLocator: targetSnapshot.physicalLocator, targetNamespace: targetSnapshot.namespace });
-      const productDescriptor = yield* requireCommerceProfile(preparedProduct.profile);
-      const repository = "pool" in fixture.control
-        ? Result.getOrThrow(makeFrameworkSchemaArtifactRepository({ controlDb: fixture.control.drizzle,
-          controlSessionStarter: makeCatalogControlSessionStarter({ controlDb: fixture.control.drizzle,
-            driver: makePostgresCatalogControlSessionDriver(fixture.control.pool) }),
-          readTimeoutMilliseconds: 10000, attemptTimeoutMilliseconds: 10000, recoveryTimeoutMilliseconds: 10000,
-          lockTimeoutMilliseconds: 2000 }))
-        : makePGliteFrameworkSchemaArtifactAdmissionFixture(fixture.control).repository;
-      yield* admitFrameworkSchemaArtifactEffect(repository,
-        Result.getOrThrow(prepareFrameworkSchemaArtifactAdmission(productDescriptor.artifact)));
-      const migrationTarget = yield* Effect.tryPromise({ try: () => makeFrameworkMigrationFixtureTarget(fixture.target, bindingTarget),
-        catch: cause => new Error("Mixed Commerce fixture target", { cause }) });
-      const installer = Result.getOrThrow(makeFrameworkInstaller({ target: migrationTarget, artifactRepository: repository,
-        policy: { leaseDurationMilliseconds: 120000, lockTimeoutMilliseconds: 5000, statementTimeoutMilliseconds: 30000,
-          runTimeoutMilliseconds: 120000, maximumStepsPerCall: 128 } }));
-      const ready = yield* installer.installFresh({ artifactIdentity: productDescriptor.artifact.identity,
-        commerceProfile: preparedProduct.profile, attemptId: "mixed-product-install", leaseOwnerId: "mixed-proof" });
-      if (ready.kind !== "ready") throw new Error(`Product installation incomplete: ${ready.kind}`);
-      const productInstallation = installationBindingReference(ready.availability);
-      const productBinding = yield* makeCommerceBinding(ready.availability, [preparedProduct.profile]);
-      const bindings = yield* makeDataBindingHost({ database: fixture.target.drizzle, target: bindingTarget,
-        deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, application: fixture.activation,
-        logicalStorage: { controlDb: fixture.control.drizzle, schemaVersionId, unique: fixture.uniqueConstraintEligibility },
-        commerceProfiles: [preparedProduct.profile] });
-      const mixedFrame = { ...frame, commerce: [productBinding] };
-      const candidate = yield* bindings.prepare(mixedFrame);
-      yield* bindings.activate(dataBindingActivationRequest(fixture.authority.scopeId, fixture.authority.storageGeneration,
-        "mixed-logical-physical-activation", candidate.sha256, head));
-      const productParticipant = defineAtomicCommerceParticipant("product");
-      const currencyParticipant = defineAtomicCommerceParticipant("currency");
-      const writeProduct = defineCommerceCommand("mixedProductWrite", "write", (ctx, value) => Effect.gen(function* () {
-        const table = yield* ctx.table("product");
-        return yield* table.write(ctx.manager, "insert", [{ id: value, value: 1 }]);
-      }));
-      const refuseProduct = defineCommerceCommand("mixedProductRefuse", "write", ctx =>
-        ctx.refuse(commerceError("receiptMismatch")));
-      const defect = new Error("mixed Product defect");
-      const dieProduct = defineCommerceCommand("mixedProductDie", "write", () => Effect.die(defect));
-      const mixed = defineAtomicCommerceCommand("mixedCurrencyProduct", ctx => Effect.gen(function* () {
-        const currency = yield* ctx.call(currencyParticipant, currencyAnnouncementWrite,
-          { code: "mxp", name: "Mixed Currency", symbol: "M", symbol_native: "M" });
-        const product = yield* ctx.call(productParticipant, writeProduct, "mixed-product");
-        const reread = yield* ctx.call(currencyParticipant, currencyCommands.retrieve, { code: "mxp" });
-        return { currency, product, reread };
-      }));
-      const mixedFailure = defineAtomicCommerceCommand("mixedCurrencyProductFailure", ctx => Effect.gen(function* () {
-        yield* ctx.call(currencyParticipant, currencyAnnouncementWrite,
-          { code: "mxq", name: "Rolled back Currency", symbol: "Q", symbol_native: "Q" });
-        yield* ctx.call(productParticipant, writeProduct, "rolled-product");
+    ...(mode === "host" ? { jointNativeProof: (bindingTarget, schemaVersionId) => Effect.gen(function* () {
+      const product = yield* compileProductDefinition();
+      const proof = yield* makeCategoryCurrencyAtomicCommand();
+      const emptySeed = yield* capturePrivateCanonicalValue({ format: "flarex.initialization-dataset",
+        version: 1, rows: [] }, 1_048_576, { invalidInput: () => new Error("Invalid Product seed"),
+        hashFailure: cause => new Error("Product seed hash", { cause }) });
+      const session = suppliedDataSession ?? issueRelationalSession(fixture.target.drizzle, (_profile, work) =>
+        runEffectTransaction(callback => fixture.target.drizzle.transaction(callback),
+          "Joint logical commerce transaction", work,
+          cause => new RelationalSessionError({ reason: "resourceFailure", cause })));
+      const common = { hostRuntime: preparedHostTestRuntime(fixture.target.drizzle),
+        database: fixture.target.drizzle, session, target: bindingTarget, deploymentId: fixture.deploymentId,
+        authority: fixture.authorityPorts, application: fixture.activation };
+      const ports = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
+      const productStorage = { ports, unique: fixture.uniqueConstraintEligibility, schemaVersionId,
+        source: { sourceKey: "medusa.product", writeProfile: "medusa.product",
+          schema: product.schema, evidence: product.provenance },
+        initialization: { stepId: "product-empty", datasetSha256: emptySeed.sha256Hex, expectedRowCount: 0 } };
+      const currencyStorage = { ports, unique: fixture.uniqueConstraintEligibility, schemaVersionId,
+        source: { sourceKey: "medusa.currency", writeProfile: "medusa.currency",
+          schema: definition.schema, evidence: definition.provenance },
+        initialization: { stepId: initialization.stepId, datasetSha256: initialization.datasetSha256,
+          expectedRowCount: initialization.expectedRowCount } };
+      yield* Effect.acquireUseRelease(makeCommerceHost({ ...common,
+        identityAndAccessPolicy: { profile: "joint-logical-product-initialization" },
+        logicalStorage: productStorage, commands: proof.productCommands }),
+        host => host.initialize([]), host => host.close);
+      const original = getAtomicCommerceCommand(proof.command);
+      if (original === undefined) throw new Error("Missing joint native command");
+      const refused = defineAtomicCommerceCommand("jointLogicalRefusal", ctx => Effect.gen(function* () {
+        yield* original.run(ctx, { categoryPrefix: "joint-refused",
+          currency: { code: "jrf", name: "Refused", symbol: "R", symbol_native: "R",
+            decimal_digits: 2, rounding: 0 } });
         return yield* ctx.refuse(commerceError("invalidInput"));
       }));
-      const productOnly = defineAtomicCommerceCommand("mixedProductOnly", ctx =>
-        ctx.call(productParticipant, writeProduct, "product-only"));
-      const swallowedRefusal = defineAtomicCommerceCommand("mixedSwallowedRefusal", ctx =>
-        ctx.call(productParticipant, writeProduct, "swallowed-refusal").pipe(
-          Effect.andThen(ctx.call(productParticipant, refuseProduct, null)),
-          Effect.catchTag("CommerceTransactionError", () => Effect.succeed(null))));
-      const swallowedDefect = defineAtomicCommerceCommand("mixedSwallowedDefect", ctx =>
-        ctx.call(productParticipant, writeProduct, "swallowed-defect").pipe(
-          Effect.andThen(ctx.call(productParticipant, dieProduct, null)),
-          Effect.catchCause(() => Effect.succeed(null))));
-      const mixedLate = defineAtomicCommerceCommand("mixedAfterLoweringFailure", ctx => Effect.gen(function* () {
-        yield* ctx.call(currencyParticipant, currencyAnnouncementWrite,
-          { code: "mxr", name: "Late Currency", symbol: "R", symbol_native: "R" });
-        return yield* ctx.call(productParticipant, writeProduct, "late-product");
-      }));
-      const mixedEventContract = defineCommerceEventContract({ name: "mixed.event-only", revision: "a".repeat(64),
-        internal: false, decode: () => Effect.succeed({ kind: "event-only" }) });
-      const eventOnly = defineAtomicCommerceCommand("mixedEventOnly", ctx =>
-        ctx.emit(mixedEventContract, { kind: "event-only" }).pipe(Effect.as(null)));
-      const productTable = productDescriptor.layout.frame.tables[0];
-      const productId = productTable?.columns.find(column => column.identity.columnId === "id");
-      if (productTable === undefined || productId === undefined) throw new Error("Missing physical Product table");
-      const schemaName = productDescriptor.layout.targetNamespace.frame.schemaName;
-      const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
-      const readProduct = (id: string) => Effect.tryPromise({ try: () => fixture.target.query<{ id: string }>(
-        `select ${quote(productId.name)} as id from ${quote(schemaName)}.${quote(productTable.name)} where ${quote(productId.name)} = $1`, [id]),
-        catch: cause => new Error("Mixed Commerce physical Product inventory", { cause }) });
-      const session = suppliedDataSession ?? issueRelationalSession(fixture.target.drizzle, (_profile, work) => runEffectTransaction(
-        callback => fixture.target.drizzle.transaction(callback), "Mixed Commerce transaction", work,
-        cause => new RelationalSessionError({ reason: "resourceFailure", cause })));
-      const participants = [
-        { participant: currencyParticipant, logicalStorage: { ports: { controlDb: fixture.control.drizzle,
-          authority: fixture.authorityPorts }, unique: fixture.uniqueConstraintEligibility, schemaVersionId,
-          source: { sourceKey: "medusa.currency", writeProfile: "medusa.currency", schema: definition.schema,
-            evidence: definition.provenance }, initialization: { stepId: initialization.stepId,
-            datasetSha256: initialization.datasetSha256, expectedRowCount: initialization.expectedRowCount } },
-          commands: [currencyAnnouncementWrite, currencyCommands.retrieve] },
-        { participant: productParticipant, profile: preparedProduct.profile, installation: productInstallation,
-          commands: [writeProduct, refuseProduct, dieProduct], validate: () => Effect.void },
-      ] satisfies AtomicCommerceHostInput<unknown>["participants"];
-      const eventPolicy = { producerRevision: "a".repeat(64), contracts: [mixedEventContract],
-        subscribers: [{ id: "mixed-proof", revision: "a".repeat(64) }],
-        validate: (events: Parameters<NonNullable<AtomicCommerceHostInput<unknown>["events"]>["validate"]>[0]) =>
-          events.length <= 1 ? Effect.void : Effect.fail(commerceError("unadmittedEvent")) };
-      const mixedInput = { hostRuntime: preparedHostTestRuntime(fixture.target.drizzle),
-        database: fixture.target.drizzle, session, target: bindingTarget, deploymentId: fixture.deploymentId,
-        authority: fixture.authorityPorts, application: fixture.activation, identityAndAccessPolicy: { profile: "mixed-proof" },
-         participants, commands: [mixed, mixedFailure, productOnly, swallowedRefusal, swallowedDefect,
-           eventOnly, mixedLate], events: eventPolicy,
-      } satisfies AtomicCommerceHostInput<unknown>;
-      yield* Effect.acquireUseRelease(makeAtomicCommerceHost(mixedInput), host => Effect.gen(function* () {
-        const beforeRows = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
-          cause => new Error("Mixed Commerce before logical rows", { cause }));
-        const beforeOutcomes = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemIdempotency),
-          cause => new Error("Mixed Commerce before outcomes", { cause }));
+      const input = { ...common, identityAndAccessPolicy: { profile: "joint-logical-product-currency" },
+        participants: [
+          { participant: proof.productParticipant, logicalStorage: productStorage,
+            commands: proof.productCommands, validateLogicalCall: proof.productLogicalPolicy.validateLogicalCall },
+          { participant: proof.currencyParticipant, logicalStorage: currencyStorage,
+            commands: proof.currencyCommands },
+        ], commands: [proof.command, refused] } satisfies AtomicCommerceHostInput<unknown>;
+      yield* Effect.acquireUseRelease(makeAtomicCommerceHost(input), host => Effect.gen(function* () {
+        const rows = () => runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
+          cause => new Error("Joint logical rows", { cause }));
+        const commits = () => runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommits),
+          cause => new Error("Joint logical commits", { cause }));
+        const outcomes = () => runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemIdempotency),
+          cause => new Error("Joint logical outcomes", { cause }));
+        const before = { rows: yield* rows(), commits: yield* commits(), outcomes: yield* outcomes() };
         const key = host.newRequestKey();
-        const value = yield* host.run(key, mixed, null);
-        expect(value).toMatchObject({ currency: { code: "mxp" }, reread: { code: "mxp" },
-          product: [{ id: "mixed-product", value: 1 }] });
-        expect(yield* host.run(key, mixed, null)).toEqual(value);
-        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
-          cause => new Error("Mixed Commerce logical rows", { cause }))).toHaveLength(beforeRows.length + 1);
-        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemIdempotency),
-          cause => new Error("Mixed Commerce outcomes", { cause }))).toHaveLength(beforeOutcomes.length + 1);
-        expect((yield* readProduct("mixed-product")).rows).toEqual([{ id: "mixed-product" }]);
-        expect(yield* Effect.result(host.run(host.newRequestKey(), mixedFailure, null)))
+        const args = { categoryPrefix: "joint", currency: {
+          code: "jnt", name: "Joint Currency", symbol: "J", symbol_native: "J",
+          decimal_digits: 2, rounding: 0 } };
+        const result = yield* host.run(key, proof.command, args);
+        expect(result).toMatchObject({ currency: { code: "jnt" }, reread: { code: "jnt" },
+          parent: { payload: [{ id: "joint-parent" }] },
+          child: { payload: [{ id: "joint-child" }] } });
+        const after = { rows: yield* rows(), commits: yield* commits(), outcomes: yield* outcomes() };
+        expect(after.rows).toHaveLength(before.rows.length + 3);
+        expect(after.commits).toHaveLength(before.commits.length + 1);
+        expect(after.outcomes).toHaveLength(before.outcomes.length + 1);
+        expect(yield* host.run(key, proof.command, args)).toEqual(result);
+        expect({ rows: yield* rows(), commits: yield* commits(), outcomes: yield* outcomes() }).toEqual(after);
+        expect(yield* Effect.result(host.run(host.newRequestKey(), refused, null)))
           .toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
-        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
-          cause => new Error("Mixed Commerce rollback logical rows", { cause }))).toHaveLength(beforeRows.length + 1);
-        expect((yield* readProduct("rolled-product")).rows).toEqual([]);
-        const productOnlyKey = host.newRequestKey();
-        expect(yield* host.run(productOnlyKey, productOnly, null)).toMatchObject([{ id: "product-only" }]);
-        expect(yield* host.run(productOnlyKey, productOnly, null)).toMatchObject([{ id: "product-only" }]);
-        expect((yield* readProduct("product-only")).rows).toEqual([{ id: "product-only" }]);
-        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
-          cause => new Error("Mixed Commerce unused Currency rows", { cause }))).toHaveLength(beforeRows.length + 1);
-        const beforeSwallowedOutcomes = yield* runDrizzleStatementEffect(
-          fixture.target.drizzle.select().from(fxSystemIdempotency),
-          cause => new Error("Mixed Commerce before swallowed failures", { cause }));
-        const refused = yield* Effect.exit(host.run(host.newRequestKey(), swallowedRefusal, null));
-        expect(Exit.isFailure(refused)).toBe(true);
-        if (Exit.isFailure(refused)) expect(refused.cause.reasons.some(reason =>
-          Cause.isFailReason(reason) && reason.error.reason === "receiptMismatch")).toBe(true);
-        const died = yield* Effect.exit(host.run(host.newRequestKey(), swallowedDefect, null));
-        expect(Exit.isFailure(died)).toBe(true);
-        if (Exit.isFailure(died)) expect(died.cause.reasons.some(reason =>
-          Cause.isDieReason(reason) && reason.defect === defect)).toBe(true);
-        expect((yield* readProduct("swallowed-refusal")).rows).toEqual([]);
-        expect((yield* readProduct("swallowed-defect")).rows).toEqual([]);
-        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemIdempotency),
-          cause => new Error("Mixed Commerce swallowed outcomes", { cause }))).toHaveLength(beforeSwallowedOutcomes.length);
-        const beforeEvents = yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEvents),
-          cause => new Error("Mixed Commerce before events", { cause }));
-        const eventKey = host.newRequestKey();
-        expect(yield* host.run(eventKey, eventOnly, null)).toBeNull();
-        expect(yield* host.run(eventKey, eventOnly, null)).toBeNull();
-        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxSystemCommitEvents),
-          cause => new Error("Mixed Commerce event-only publication", { cause }))).toHaveLength(beforeEvents.length + 1);
-        let reachedLatePublication = false;
-        yield* Effect.acquireUseRelease(Effect.sync(() =>
-          vi.spyOn(scopePublication, "advanceScopePublicationClock").mockImplementationOnce(async () => {
-            reachedLatePublication = true;
-            throw new ScopePublicationSqlFailure({ operation: "advanceScopeClock",
-              cause: new Error("Injected after mixed row, fact and outcome publication") });
-          })), () => Effect.gen(function* () {
-          expect(yield* Effect.result(host.run(host.newRequestKey(), mixedLate, null)))
-            .toMatchObject({ _tag: "Failure", failure: { reason: "statementFailure" } });
-        }), advance => Effect.sync(() => advance.mockRestore()));
-        expect(reachedLatePublication).toBe(true);
-        expect(yield* runDrizzleStatementEffect(fixture.target.drizzle.select().from(fxAppRowCurrent),
-          cause => new Error("Mixed Commerce late logical rollback", { cause }))).toHaveLength(beforeRows.length + 1);
-        expect((yield* readProduct("late-product")).rows).toEqual([]);
+        expect({ rows: yield* rows(), commits: yield* commits(), outcomes: yield* outcomes() }).toEqual(after);
+        const physical = yield* Effect.tryPromise({ try: () => fixture.target.query<{ count: number }>(
+          "select count(*)::integer as count from information_schema.tables " +
+          "where table_schema = current_schema() and table_name like 'fxrt_%'"),
+          catch: cause => new Error("Joint physical table inventory", { cause }) });
+        expect(physical.rows).toEqual([{ count: 0 }]);
       }), host => host.close);
-      const mutableParticipants = [...participants];
-      const mutableContracts = [mixedEventContract];
-      const metadata = fixture.authorityPorts.scopeMetadata;
-      const original = metadata.getScopeMetadataByDeploymentId.bind(metadata);
-      yield* Effect.acquireUseRelease(Effect.sync(() =>
-        vi.spyOn(metadata, "getScopeMetadataByDeploymentId").mockImplementationOnce(async deploymentId => {
-          mutableParticipants.splice(0);
-          mutableContracts.splice(0);
-          return original(deploymentId);
-        })), () => Effect.acquireUseRelease(
-        makeAtomicCommerceHost({ ...mixedInput, participants: mutableParticipants,
-          commands: [eventOnly], events: { ...eventPolicy, contracts: mutableContracts } }),
-        retained => Effect.gen(function* () {
-          expect(mutableParticipants).toHaveLength(0);
-          expect(mutableContracts).toHaveLength(0);
-          const key = retained.newRequestKey();
-          expect(yield* retained.run(key, eventOnly, null)).toBeNull();
-          expect(yield* retained.run(key, eventOnly, null)).toBeNull();
-        }), retained => retained.close), lookup => Effect.sync(() => lookup.mockRestore()));
     }) } : {}),
     verify: ctx => Effect.gen(function* () {
       const activeByName = { order: { column: "code", direction: "asc" }, predicate: { kind: "and", children: [

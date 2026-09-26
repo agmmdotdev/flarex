@@ -261,8 +261,10 @@ remain distinct from logical schema evolution.
   The [shared event delivery batch](./35-core-event-delivery-batches.md)
   keeps the admitted larger event family from being reread for each claim;
   higher-fan-out delivery and hot-shop throughput remain unmeasured.
-  Remaining physical Product local, installation and mixed binding witnesses
-  retain their named consumers. Other relationship kinds still need their own
+  The joint Application/Payload/Product/Currency binding witness now selects
+  logical Product and Currency together, with a native atomic command and no
+  generated Product tables. Remaining physical Product local and installation
+  witnesses retain their named consumers. Other relationship kinds still need their own
   coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.

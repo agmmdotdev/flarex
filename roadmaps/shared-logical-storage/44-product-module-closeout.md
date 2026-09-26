@@ -38,8 +38,8 @@ fixture-reset runner configurations are removed. The logical runner clears
 bounded fixture rows through admitted native commands before each native case.
 
 Named physical consumers include Product local, installation and exact-numeric
-tests; and the remaining mixed physical binding, link, population and
-persistence-core fixtures found by the reference inventory. The physical
+tests; and the remaining link, population and persistence-core fixtures found
+by the reference inventory. The physical
 fixture-reset SQL, runner and configuration have no remaining consumer and are
 retired. Native logical Product deletion now proves original and tombstone
 revisions, retained idempotency outcomes, replay without additional events,
@@ -87,6 +87,14 @@ physical-only configuration is removed. The shared planner selects declared
 fields by a scoped trigram path and refuses short unanchored patterns; the
 transactional writer maintains search entries with row revisions. Source-complete
 empty-table readiness and populated-table refusal are exercised on both drivers.
+The joint schema-binding witness now admits Product and Currency in the same
+logical candidate. Its native Product-module Category/Currency command uses two
+logical participants with one commit, replay and atomic rollback, and the
+fixture verifies no generated physical `fxrt_` tables. The displaced test-only
+physical Product installation, extra binding activation and direct table writer
+are removed from that witness. The shared binding fixture advances unique-build
+work from its admitted definition count so a multi-module candidate reaches
+readiness; this does not alter the production build budget.
 The remaining search recovery, pending-write and resource gates are in
 [indexed text search](./45-core-indexed-text-search.md); this selected witness
 does not claim arbitrary search scale.

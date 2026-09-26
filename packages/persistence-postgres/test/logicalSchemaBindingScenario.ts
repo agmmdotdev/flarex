@@ -16,7 +16,7 @@ import { reconcileAppUniqueConstraintSetBuildV1Effect, advanceAppUniqueConstrain
 import { makeFrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import type { FrameworkSchemaTarget } from "../src/frameworkSchema/target";
 import { makeDataBindingHost, dataBindingActivationRequest } from "../src/frameworkSchema/binding/host";
-import type { DataBindingSetFrame, DataBindingHeadToken } from "../src/frameworkSchema/binding/model";
+import type { DataBindingSetFrame } from "../src/frameworkSchema/binding/model";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
 import { fxSystemDataBindingHeads, fxSystemDataBindingActivations, fxSystemDataBindingCandidates } from "../src/frameworkSchema/binding/schema";
 import { fxSystemIndexBuildStates, fxControlSchemaVersionUniqueConstraintSets } from "../src/schema";
@@ -33,8 +33,8 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
   fixture: ApplicationNativeMutationFixture<Persistence>, session: CatalogControlSessionStarter, prepared: PreparedLogicalSchemaCandidate,
   native: Readonly<{ source: Parameters<typeof logicalRelationalAdmissionScenario>[2]; rows: Parameters<typeof logicalRelationalAdmissionScenario>[3]; reads: Parameters<typeof logicalRelationalAdmissionScenario>[4]; execute: Parameters<typeof logicalRelationalAdmissionScenario>[5]; verify: Parameters<typeof logicalRelationalPublicationScenario>[4]; concurrentExecute: Parameters<typeof logicalRelationalPublicationScenario>[5];
     hostProof?: (target: FrameworkSchemaTarget, schemaVersionId: ReturnType<typeof decodeCatalogSchemaVersionId>) => Effect.Effect<void, unknown>;
-    mixedProof?: (target: FrameworkSchemaTarget, schemaVersionId: ReturnType<typeof decodeCatalogSchemaVersionId>,
-      frame: DataBindingSetFrame, head: DataBindingHeadToken) => Effect.Effect<void, unknown> }>,
+    jointNativeProof?: (target: FrameworkSchemaTarget,
+      schemaVersionId: ReturnType<typeof decodeCatalogSchemaVersionId>) => Effect.Effect<void, unknown> }>,
 ) {
   const { deploymentId, authority, authorityPorts, control, target } = fixture;
   const schemaVersionId = decodeCatalogSchemaVersionId("binding-joint-candidate");
@@ -76,9 +76,10 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
     }
     expect(enabled).toBe(true);
   }
-  (yield* reconcileAppUniqueConstraintSetBuildV1Effect(ports, { deploymentId, schemaVersionId }));
+  const uniqueSet = yield* reconcileAppUniqueConstraintSetBuildV1Effect(ports, { deploymentId, schemaVersionId });
+  if (uniqueSet.status !== "reconciled") throw new Error("Joint unique set was not declared");
   let uniqueEnabled = false;
-  for (let step = 0; step < 20; step++) {
+  for (let step = 0; step < (uniqueSet.definitionCount + 1) * 4; step++) {
     const result = (yield* advanceAppUniqueConstraintSetBackfillV1Effect(ports, { deploymentId, schemaVersionId, pageSize: 10 }));
     if (result.lifecycle === "enabled" && result.uniqueConstraintDefinitionId === null) { uniqueEnabled = true; break; }
   }
@@ -138,8 +139,7 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
     }),
     removed => query(control.drizzle.insert(fxControlSchemaVersionUniqueConstraintSets).values(removed)).pipe(Effect.orDie),
   ).pipe(Effect.flatMap(cold => cold.recover(request)), Effect.tap(recovered => Effect.sync(() => expect(recovered).toEqual(activated))));
-  if (native.mixedProof !== undefined) yield* native.mixedProof(bindingTarget, schemaVersionId, frame,
-    Result.getOrThrow(activated.current).head);
+  if (native.jointNativeProof !== undefined) yield* native.jointNativeProof(bindingTarget, schemaVersionId);
   const { logicalStorage, ...physicalInput } = input;
   const unconfigured = (yield* makeDataBindingHost(physicalInput));
   expect((yield* Effect.result(unconfigured.withCurrent(readAdmittedDataBinding)))).toMatchObject({ _tag: "Failure", failure: { reason: "logicalSchemaMismatch" } });
