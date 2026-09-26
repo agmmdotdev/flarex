@@ -1,7 +1,7 @@
 import { Clock, Effect, Option, Result, Schema } from "effect";
 import { and, eq, sql } from "drizzle-orm";
 import { isJsonObject } from "flarex-protocol/json";
-import { appRowIdHexV1ToBytes, decodeAppDocumentIdentityV1Result,
+import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes, decodeAppDocumentIdentityV1Result,
   type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import { AppIndexPhysicalSpecSha256HexV1Schema } from "flarex-protocol/index-definition";
@@ -58,6 +58,10 @@ const live = (row: AppRowRevisionV1 | null, policy: StrongReferenceActivationPro
 };
 const fieldValue = (row: AppRowRevisionV1, field: string): unknown =>
   row.kind === "live" && isJsonObject(row.document.valueJson) ? row.document.valueJson[field] : undefined;
+const targetValue = (reference: StrongReferenceActivationProjection, rowId: AppRowIdHexV1,
+  row: AppRowRevisionV1): unknown => reference.targetIdentity.kind === "documentId"
+  ? appDocumentIdV1FromRowIdentity({ tableId: reference.targetTableId, rowId })
+  : fieldValue(row, reference.targetField);
 
 /** Runs only after the entire row/index/unique publication prefix is lowered,
  * while the caller holds the ordinary scope-write lock. No adapter input is
@@ -135,7 +139,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       }));
       const target = (yield* finalRows(reference.targetTableId, [rowId], false))[0] ?? null;
       if (!live(target, reference.targetLiveness) || target === null ||
-        fieldValue(target, reference.targetField) !== value)
+        targetValue(reference, rowId, target) !== value)
         return yield* Effect.fail(new ScopePublicationReferenceConstraintError({
           reason: "targetNotLive", reference: reference.name, value,
         }));
@@ -310,11 +314,11 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
             if (excess !== null) return yield* Effect.fail(excess);
           }
           if (previous.kind !== "live" || !live(previous, reference.targetLiveness)) continue;
-          const oldValue = fieldValue(previous, reference.targetField);
+          const oldValue = targetValue(reference, rowId, previous);
           if (typeof oldValue !== "string") return yield* Effect.fail(corruption("reference target key is not text"));
           const next = current[index] ?? null;
           if (live(next, reference.targetLiveness) && next !== null &&
-            fieldValue(next, reference.targetField) === oldValue) continue;
+            targetValue(reference, rowId, next) === oldValue) continue;
           yield* requireNoSources(reference, oldValue);
         }
       }

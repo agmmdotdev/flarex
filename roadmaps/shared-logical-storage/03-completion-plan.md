@@ -331,19 +331,19 @@ remain distinct from logical schema evolution.
   explicit disposable-development reset or approved offline artifact conversion;
   in-place re-admission is not available while that history remains.
   The shared definition builder derives missing complete reverse
-  indexes through the existing index lifecycle. They remain candidate metadata,
-  not an executable relationship. The shared source-admission owner refuses every
-  affected Application, Payload or Medusa source before runtime token issue;
-  unrelated sources in the same candidate can serve. The connected
-  [admission correction](./25-cross-source-runtime-admission.md) closes the
-  previously permissive Medusa path. Indexed traversal, target liveness and
-  deletion/restore enforcement remain required for runtime support. The
+  indexes through the existing index lifecycle. The
   [identity/index preparation](./51-strong-reference-identity-and-index.md)
-  records the contract break. The [common publication gate](./53-strong-reference-settlement-preflight.md)
-  now authenticates a compact active-head endpoint projection and refuses
-  touched writes from every common row publisher, including standalone
-  Application point commits; unrelated Currency remains writable. This closes
-  an older-writer bypass but does not activate reference execution.
+  records the contract break. The [common publisher](./53-strong-reference-settlement-preflight.md)
+  now authenticates the active endpoint projection and checks final rows under
+  the ordinary scope lock for every writer. Application and Payload sources can
+  reference a live Product, and Product soft deletion is restricted until
+  sources detach. A native Medusa Product source can reference an Application
+  document ID through the [Medusa-origin correction](./54-medusa-origin-document-reference.md);
+  Application deletion is restricted while Product is live, Product soft
+  deletion releases the restriction, and restore requires a live target.
+  New policies cannot activate over nonempty source tables without a validated
+  backfill. Unrelated Currency remains writable. Other relationship profiles,
+  parent/child joint settlement, traversal and recovery gates remain explicit.
 
 ## Finite Delivery Packages
 

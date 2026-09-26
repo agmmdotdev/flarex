@@ -46,8 +46,14 @@ the full relationship projection.
 
 Connected PGlite and ordinary-role PostgreSQL witnesses cover standalone
 Application source insertion, Payload source insertion, Product soft deletion,
-source detachment, two-shop isolation, and a concurrent insert/delete race.
-They also show missing-target rollback and unrelated Currency publication.
+source detachment, cross-deployment scope refusal, and a concurrent
+insert/delete race. Same-deployment multi-scope identity remains a separate
+isolation gate.
+The [Medusa-origin witness](./54-medusa-origin-document-reference.md) adds a
+native Product source pointing to an Application document ID, Application
+target-delete restriction, soft-delete release and failed restore. These paths
+also show missing-target rollback, Product replay and unrelated Currency
+publication.
 
 For an executable touched endpoint, the implementation reads an authenticated
 reference projection from the target database under the same scope lock, checks
@@ -104,8 +110,8 @@ slice. The validator and supported-source admission form one connected behavior.
 
 ## Completion proof
 
-Further connected proof is needed for a Medusa-origin reference, an
-Application-backed CMS publication, parent and child in either order within one
+Further connected proof is needed for an Application-backed CMS publication,
+parent and child in either order within one
 settlement, target rekey, rollback after lowering, replay and uncertain COMMIT.
 The populated-source activation path needs a resumable validation certificate
 before its conservative empty-table gate can be removed. Each new source or

@@ -244,4 +244,66 @@ describe("cross-source relationship publication and source admission", () => {
       }
     } finally { await Effect.runPromise(productHost.host.close); }
   }, 180_000);
+
+  it("enforces a native Product source against an Application document identity", async () => {
+    const productUser = [{ name: "product_user", sourceKey: "medusa.product",
+      source: { table: product, field: "id" },
+      target: { table: { namespace: "app", logicalName: "users" }, field: "_id" },
+      policy: "strongReference",
+      liveness: { source: { kind: "softDeleteNull", field: "deleted_at" }, target: { kind: "current" } },
+      onTargetDelete: "restrict" }] as const;
+    const origin = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
+      resource: fixture.resource, includeProduct: true, payloadCollections, extensions: productUser,
+      fixtureIdentity: { deploymentId: "deployment_medusa_reference_source",
+        projectId: "project_medusa_reference_source", uuidOffset: 20_000 },
+    });
+    const productHost = await prepareLogicalProductHost(origin);
+    try {
+      await Effect.runPromise(productHost.host.initialize([]));
+      const target = await Effect.runPromise(prepareNativeApplicationJournalOnLogicalScope(
+        origin.application, "insert", "medusa-reference-target"));
+      if (target.insertedDocumentId === undefined) throw new Error("Missing Application target identity");
+      await Effect.runPromise(target.publish);
+      await Effect.runPromise(target.verifyScrubbed);
+      const productId = target.insertedDocumentId;
+      const input = { id: productId, title: "Application-owned target", handle: "medusa-reference-source" };
+      const createKey = productHost.host.newRequestKey();
+      const created = await Effect.runPromise(productHost.host.run(createKey,
+        productHost.runtime.commands.internalProductCreate, input));
+      expect(created).toMatchObject({ id: productId });
+      expect(await Effect.runPromise(productHost.host.run(createKey,
+        productHost.runtime.commands.internalProductCreate, input))).toEqual(created);
+      const foreign = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
+        resource: fixture.resource, includeProduct: true, payloadCollections, extensions: productUser,
+        fixtureIdentity: { deploymentId: "deployment_medusa_reference_foreign",
+          projectId: "project_medusa_reference_foreign", uuidOffset: 30_000 },
+      });
+      const foreignProduct = await prepareLogicalProductHost(foreign);
+      try {
+        await Effect.runPromise(foreignProduct.host.initialize([]));
+        expect(await Effect.runPromise(Effect.flip(foreignProduct.host.run(foreignProduct.host.newRequestKey(),
+          foreignProduct.runtime.commands.internalProductCreate, input))))
+          .toMatchObject({ reason: "invalidInput",
+            cause: { reason: "targetNotLive", reference: "product_user" } });
+      } finally { await Effect.runPromise(foreignProduct.host.close); }
+      const restricted = await Effect.runPromise(prepareNativeApplicationJournalOnLogicalScope(
+        origin.application, "delete", "medusa-reference-restricted", productId));
+      expect(await Effect.runPromise(Effect.flip(restricted.publish)))
+        .toMatchObject({ reason: "targetDeleteRestricted", reference: "product_user" });
+      await Effect.runPromise(restricted.verifyUnchanged);
+      await Effect.runPromise(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductSoftDelete, productId));
+      const released = await Effect.runPromise(prepareNativeApplicationJournalOnLogicalScope(
+        origin.application, "delete", "medusa-reference-released", productId));
+      await Effect.runPromise(released.publish);
+      await Effect.runPromise(released.verifyScrubbed);
+      expect(await Effect.runPromise(Effect.flip(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductRestore, productId))))
+        .toMatchObject({ reason: "invalidInput",
+          cause: { reason: "targetNotLive", reference: "product_user" } });
+      expect(await Effect.runPromise(productHost.host.read(productHost.runtime.commands.internalProductRetrieve,
+        { id: productId, config: { select: ["id", "deleted_at"], withDeleted: true } })))
+        .toMatchObject({ id: productId, deleted_at: expect.any(String) });
+    } finally { await Effect.runPromise(productHost.host.close); }
+  }, 180_000);
 });
