@@ -4351,7 +4351,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-commerce-snapshot.postgres.test.ts",
       "classification": "authored",
-      "targetSha256": "c2c61cd9e835df05a096004694309514187ac685105c464eb144b0a2fb17319f"
+      "targetSha256": "00ba78e83e0d3922682812bbb89505ebe6df41732e922dcd052b7557e1d24ed8"
     },
     {
       "target": "packages/medusa-adapter/test/logical-currency-fixture.test.ts",

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { Deferred, Effect, Fiber, Tracer } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   defineCommerceCommand,
@@ -167,80 +167,6 @@ describe.skipIf(postgresUrl === null)(
     afterAll(async () => {
       for (const close of cleanup.reverse()) await close();
     }, 120_000);
-
-    for (const kind of ["standalone", "atomic"] as const) {
-      it.each([false, true])(`${kind} admits metadata during protected execution (duplicate=%s)`, async duplicate => {
-        const held = await runEffect(Deferred.make<void>());
-        const attempted = await runEffect(Deferred.make<void>());
-        const admitted = await runEffect(Deferred.make<void>());
-        const release = await runEffect(Deferred.make<void>());
-        const firstId = `${kind}-admission-${duplicate}-first`;
-        const secondId = duplicate ? firstId : `${kind}-admission-second`;
-        let callbacks = 0;
-        const command = defineCommerceCommand("admissionOverlap", "write", Effect.fn(function* (ctx, id) {
-          if (typeof id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
-          callbacks++;
-          const rows = yield* ctx.store.write(ctx.manager, "insert", [{ id, value: 2 }]);
-          if (id === firstId) {
-            yield* Deferred.succeed(held, undefined);
-            yield* Deferred.await(release);
-          }
-          return [...rows];
-        }));
-        const localHost = await local([command]);
-        const atomicCommand = defineAtomicCommerceCommand("admissionOverlap", (ctx, id) => ctx.call(participant, command, id));
-        const atomicHost = kind === "atomic" ? await runEffect(makeAtomicCommerceHost({
-          ...fixture.hostInput, commands: [atomicCommand],
-          participants: [{ participant, profile: fixture.prepared.profile, installation: fixture.installation,
-            commands: [command], validate: events.validate }],
-        })) : undefined;
-        const firstKey = atomicHost?.newRequestKey() ?? localHost.newRequestKey();
-        const run = (key: string, id: string) => atomicHost === undefined
-          ? localHost.run(key, command, id) : atomicHost.run(key, atomicCommand, id);
-        const spans: string[] = [];
-        const tracer = Tracer.make({ span(options) {
-          spans.push(options.name);
-          if (options.name === "CommerceHost.attempt" || options.name === "AtomicCommerce.attempt")
-            Effect.runSync(Deferred.succeed(attempted, undefined));
-          if (options.name === "CommerceAdmission.enterPublication") Effect.runSync(Deferred.succeed(admitted, undefined));
-          return new Tracer.NativeSpan(options);
-        } });
-        const before = await commerceInventory(fixture);
-        await runEffect(Effect.scoped(Effect.gen(function* () {
-          const first = yield* run(firstKey, firstId).pipe(Effect.forkScoped);
-          yield* Deferred.await(held).pipe(Effect.timeout("5 seconds"));
-          const second = yield* run(duplicate ? firstKey : `${firstKey}/second`, secondId)
-            .pipe(Effect.provideService(Tracer.Tracer, tracer), Effect.forkScoped);
-          yield* Deferred.await(attempted).pipe(Effect.timeout("5 seconds"));
-          if (!duplicate) {
-            yield* Deferred.await(admitted).pipe(Effect.timeout("5 seconds"));
-            expect(spans).toContain("InstallationRuntime.accept");
-            expect(spans).toContain("CommerceBinding.verify");
-          } else {
-            // A duplicate cannot cross its request-key lock before the first outcome settles.
-            expect(yield* Deferred.isDone(admitted)).toBe(false);
-          }
-          expect(callbacks).toBe(1);
-          expect(yield* Deferred.isDone(release)).toBe(false);
-          yield* Deferred.succeed(release, undefined);
-          const firstResult = yield* Fiber.join(first);
-          const secondResult = yield* Fiber.join(second);
-          if (duplicate) {
-            expect(secondResult).toEqual(firstResult);
-            expect(spans).toContain("InstallationRuntime.accept");
-            expect(spans).toContain("CommerceBinding.verify");
-          }
-        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
-        const after = await commerceInventory(fixture);
-        const publications = duplicate ? 1 : 2;
-        expect(callbacks).toBe(publications);
-        expect(after.rows.length).toBe(before.rows.length + publications);
-        expect(after.commits.length).toBe(before.commits.length + publications);
-        expect(after.outcomes.length).toBe(before.outcomes.length + publications);
-        expect(after.facts.length).toBe(before.facts.length + publications);
-        expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
-      }, 120_000);
-    }
 
     for (const kind of ["standalone", "atomic"] as const) {
       it(`commerce snapshot completes while ${kind} publication awaits physical COMMIT`, async () => {

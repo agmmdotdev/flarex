@@ -1,4 +1,4 @@
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Effect, Fiber, Tracer } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant } from "../../persistence-postgres/src/atomicCommerce/commands";
@@ -119,5 +119,106 @@ describe.skipIf(postgresUrl === null)("logical commerce snapshots and publicatio
         await Effect.runPromise(write.host.close);
       }
     }, 90_000);
+  }
+
+  for (const kind of ["standalone", "atomic"] as const) {
+    it.each([false, true])(`${kind} admits logical metadata during protected execution (duplicate=%s)`, async duplicate => {
+      const held = await Effect.runPromise(Deferred.make<void>());
+      const attempted = await Effect.runPromise(Deferred.make<void>());
+      const secondEntered = await Effect.runPromise(Deferred.make<void>());
+      const release = await Effect.runPromise(Deferred.make<void>());
+      const firstId = `${kind}-logical-admission-${duplicate}-first`;
+      const secondId = duplicate ? firstId : `${kind}-logical-admission-second`;
+      let callbacks = 0;
+      const command = defineCommerceCommand("snapshotLogicalAdmission", "write", Effect.fn(function* (ctx, id) {
+        if (typeof id !== "string") return yield* ctx.refuse(commerceError("invalidInput"));
+        callbacks++;
+        if (!duplicate && id === secondId) yield* Deferred.succeed(secondEntered, undefined);
+        const row = yield* ctx.nested(currencyAnnouncementWrite, { ...template, code: id, name: `Snapshot ${id}` });
+        if (id === firstId) {
+          yield* Deferred.succeed(held, undefined);
+          yield* Deferred.await(release);
+        }
+        return row;
+      }));
+      const atomicCommand = defineAtomicCommerceCommand("snapshotLogicalAdmission", (ctx, id) => ctx.call(participant, command, id));
+      const selected = kind === "atomic"
+        ? await Effect.runPromise(makeAtomicCommerceHost({ ...fixture.hostInput,
+          commands: [atomicCommand], participants: [{ participant, logicalStorage: fixture.hostInput.logicalStorage,
+            commands: [command, currencyAnnouncementWrite] }] })).then(host => ({
+          key: host.newRequestKey(), run: (requestKey: string, id: string) => host.run(requestKey, atomicCommand, id),
+          close: host.close,
+        }))
+        : await local([command, currencyAnnouncementWrite]).then(host => ({
+          key: host.newRequestKey(), run: (requestKey: string, id: string) => host.run(requestKey, command, id),
+          close: host.close,
+        }));
+      try {
+        const { key, run } = selected;
+        const spans: string[] = [];
+        const tracer = Tracer.make({ span(options) {
+          spans.push(options.name);
+          if (options.name === "CommerceHost.attempt" || options.name === "AtomicCommerce.attempt")
+            Effect.runSync(Deferred.succeed(attempted, undefined));
+          return new Tracer.NativeSpan(options);
+        } });
+        const before = await logicalCurrencyInventory(fixture);
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const first = yield* run(key, firstId).pipe(Effect.forkScoped);
+          yield* Deferred.await(held).pipe(Effect.timeout("10 seconds"));
+          const second = yield* run(duplicate ? key : `${key}/second`, secondId)
+            .pipe(Effect.provideService(Tracer.Tracer, tracer), Effect.forkScoped);
+          yield* Deferred.await(attempted).pipe(Effect.timeout("10 seconds"));
+          if (!duplicate) {
+            yield* Deferred.await(secondEntered).pipe(Effect.timeout("10 seconds"));
+            expect(spans).toContain("LogicalSourceAdmission.withBinding");
+            expect(spans).toContain("LogicalRelationalAdmission.withTransaction");
+          } else {
+            const requestLockKey = JSON.stringify(["flarex.commerce.request", fixture.application.authority.scopeId, key]);
+            yield* Effect.promise(() => expect.poll(async () => {
+              const result = await fixture.persistence.query<{ waiting: boolean }>(`
+                select exists (
+                  select 1 from pg_locks pending
+                  join pg_locks holder using (locktype, database, classid, objid, objsubid)
+                  join pg_stat_activity activity on activity.pid = pending.pid
+                  where pending.locktype = 'advisory' and not pending.granted and holder.granted
+                    and pending.pid <> holder.pid and pending.database = (
+                      select oid from pg_database where datname = current_database())
+                    and pending.classid::bigint = (hashtextextended($1, 0) >> 32) & 4294967295::bigint
+                    and pending.objid::bigint = hashtextextended($1, 0) & 4294967295::bigint
+                    and pending.objsubid = 1
+                    and activity.usename = current_user
+                    and activity.query like '%pg_advisory_xact_lock%'
+                ) as waiting`, [requestLockKey]);
+              return result.rows[0]?.waiting ?? false;
+            }, { timeout: 10_000, interval: 25 }).toBe(true));
+            expect(spans).not.toContain("LogicalRelationalAdmission.withTransaction");
+            expect(spans).not.toContain("LogicalSourceAdmission.withBinding");
+          }
+          expect(callbacks).toBe(duplicate ? 1 : 2);
+          expect(yield* Deferred.isDone(release)).toBe(false);
+          yield* Deferred.succeed(release, undefined);
+          const firstResult = yield* Fiber.join(first);
+          const secondResult = yield* Fiber.join(second);
+          if (duplicate) {
+            expect(secondResult).toEqual(firstResult);
+            expect(spans).toContain("LogicalRelationalAdmission.withTransaction");
+            expect(spans).toContain("LogicalSourceAdmission.withBinding");
+            expect(spans).toContain("DataBinding.verifyLogicalSchema");
+          }
+        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("25 seconds"))));
+        const after = await logicalCurrencyInventory(fixture);
+        const publications = duplicate ? 1 : 2;
+        expect(callbacks).toBe(publications);
+        expect(after.rows.length - before.rows.length).toBe(publications);
+        expect(after.commits.length - before.commits.length).toBe(publications);
+        expect(after.outcomes.length - before.outcomes.length).toBe(publications);
+        expect(after.rowChanges.length - before.rowChanges.length).toBe(publications);
+        if (fixture.resource.kind === "postgres")
+          expect(fixture.resource.target.pool.idleCount).toBe(fixture.resource.target.pool.totalCount);
+      } finally {
+        await Effect.runPromise(selected.close);
+      }
+    }, 120_000);
   }
 });

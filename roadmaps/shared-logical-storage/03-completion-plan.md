@@ -303,8 +303,11 @@ remain distinct from logical schema evolution.
   Currency upsert/read through both standalone and atomic roots. It checks the
   scope-clock lock, one publication/replay, and old/new snapshot visibility.
   The duplicate physical-only version of that witness is retired. Other
-  physical commerce snapshot cases retain their named physical host consumer
-  until their binding, commit-hold and revocation claims move.
+  protected-execution admission and duplicate-request witnesses now also use
+  logical Currency under both roots. The physical commit-hold, binding and
+  revocation cases retain their named physical host consumer. The
+  [active-selection correction](./52-active-selection-during-publication.md)
+  owns the observed commit-hold read serialization before that witness moves.
 - Framework installation and Application evolution remain distinct. Generated
   commerce and Payload preference storage still consume framework evidence;
   their migration and recovery obligations must move before table removal.
