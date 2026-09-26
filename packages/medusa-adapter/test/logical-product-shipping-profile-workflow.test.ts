@@ -21,7 +21,7 @@ import { CommerceTransactionError, commerceError, isJsonObject, type Json } from
 
 
 
-import { productShippingProfileResources } from "../src/product-shipping-profile-contract";
+import { productShippingProfileResources } from "../src/workflow/policy";
 import { prepareProductShippingProfileWorkflow, productShippingProfileWorkflow,
   ProductShippingProfileInput, ProductShippingProfileOutput } from "../src/product-shipping-profile-workflow";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type AtomicWorkflowHostComposition } from "../src/workflow/host";

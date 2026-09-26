@@ -87,6 +87,15 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
     const host = yield* runtime.bind(hostInput);
     const key = host.newRequestKey();
     const firstInput = { collection: "news-items", data: { headline: "same-value" } };
+    const selected = { calls: 1, commandBytes: cmsLimits.commandBytes };
+    const bounded = yield* runtime.bind({ ...hostInput, requestBudget: selected });
+    selected.calls = cmsLimits.calls;
+    expect(bounded.requestBudget.calls).toBe(1);
+    const beforeBudgetRefusal = yield* Effect.promise(inventory);
+    expect(yield* Effect.flip(bounded.run(bounded.newRequestKey(), runtime.commands.create, firstInput)))
+      .toMatchObject({ reason: "limitExceeded" });
+    expect(yield* Effect.promise(inventory)).toEqual(beforeBudgetRefusal);
+    yield* bounded.close;
     const first = document(yield* host.run(key, runtime.commands.create, firstInput));
     expect(first).toMatchObject({ headline: "same-value", priority: 2, visible: false, goLive: "2026-09-11T00:00:00.000Z" });
     const second = document(yield* host.run(host.newRequestKey(), runtime.commands.create, { collection: "news", data: { sku: "same-value" } }));

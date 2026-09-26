@@ -26,6 +26,17 @@ export const cmsLimits = Object.freeze({
   ...frameworkTransactionTimeouts,
 });
 
+/** Trusted per-host reductions; document/page bounds remain storage contracts. */
+const CmsRequestBudget = Schema.Struct({
+  calls: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: cmsLimits.calls })),
+  commandBytes: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: cmsLimits.commandBytes })),
+});
+export type CmsRequestBudget = typeof CmsRequestBudget.Type;
+export const defaultCmsRequestBudget: CmsRequestBudget = Object.freeze({
+  calls: cmsLimits.calls, commandBytes: cmsLimits.commandBytes,
+});
+export const decodeCmsRequestBudget = Schema.decodeUnknownResult(CmsRequestBudget, { onExcessProperty: "error" });
+
 /** Shared predicate complexity, independently bounded from rows returned. */
 export const relationalReadLimits = Object.freeze({ filterNodes: 64, filterDepth: 8, filterOperands: 256 });
 

@@ -51,6 +51,7 @@ export const makePayloadComposition = Effect.fn("PayloadAdapter.compose")(functi
     }));
     if (!live) return yield* Effect.fail(cmsError("closed"));
     return {
+      requestBudget: host.requestBudget,
       close: host.close,
       newRequestKey: host.newRequestKey,
       run: (key, command, args) => Effect.suspend(() => live ? host.run(key, command, args) : Effect.fail(cmsError("closed"))),

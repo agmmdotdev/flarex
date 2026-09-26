@@ -1,6 +1,8 @@
 import { Result, Schema } from "effect";
 import { commerceError, commerceLimits } from "./model";
 import { CommerceCallLimit, CommerceCommandByteLimit, commerceResourceCeilings } from "../frameworkExecutionPolicy";
+import { logicalMaterializationBatchBudget } from "../logicalDocuments/policy";
+import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 
 const ceiling = (maximum: number) => Schema.Int.check(Schema.isBetween({ minimum: 1, maximum }));
 export { CommerceCallLimit } from "../frameworkExecutionPolicy";
@@ -19,12 +21,19 @@ export const defaultCommerceResources: CommerceResources = Object.freeze({
   calls: commerceLimits.calls, eventMessages: commerceLimits.calls, eventIds: commerceLimits.catalogRows,
   commandBytes: commerceLimits.commandBytes, valueNodes: 8192,
 });
+/** Ordinary logical working sets keep their smaller material-row admission. */
+export const logicalCommerceWorkingSetLimits = Object.freeze({
+  pageRows: defaultCommerceResources.queryRows,
+  identities: MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
+  documentBytes: commerceLimits.rowBytes,
+});
 /** Trusted logical-commerce profile for one bounded multi-page write. The
  * 2,048-row ceiling is shared with logical materialization, not request data. */
 export const logicalCommerceBatchResources: CommerceResources = Object.freeze({
   ...defaultCommerceResources,
-  catalogRows: 2048, queryRows: 2048, writeBatchRows: 2048, facts: 2048,
-  eventIds: 2048, commandBytes: 8_388_608, valueNodes: 32_768,
+  catalogRows: logicalMaterializationBatchBudget.rows, queryRows: logicalMaterializationBatchBudget.rows,
+  writeBatchRows: logicalMaterializationBatchBudget.rows, facts: logicalMaterializationBatchBudget.rows,
+  eventIds: logicalMaterializationBatchBudget.rows, commandBytes: 8_388_608, valueNodes: 32_768,
 });
 const decode = Schema.decodeUnknownResult(Resources, { onExcessProperty: "error" });
 

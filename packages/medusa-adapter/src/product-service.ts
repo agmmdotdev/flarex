@@ -8,6 +8,7 @@ import { productMutationCommands } from "./product-commands/mutations";
 import { commerceCommandIdentity, type LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { productCallReceipts } from "./product-local-events";
+import { productReferenceReplacementEventLimit } from "./workflow/policy";
 import { Modules, CommonEvents } from "@medusajs/framework/utils/portable";
 
 /** Private Product composition entry point. Callers receive the complete command,
@@ -64,7 +65,7 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
         ...logicalPolicy, commands: Object.values(commands), allowSetNull: true,
         referenceReplacement: { commands: [commands.updateCollections, commands.upsertCollections],
           eventName: metadata.product.updatedEvent,
-          metadata: { source: Modules.PRODUCT, object: metadata.product.eventObject, action: CommonEvents.UPDATED }, eventLimit: 256 },
+          metadata: { source: Modules.PRODUCT, object: metadata.product.eventObject, action: CommonEvents.UPDATED }, eventLimit: productReferenceReplacementEventLimit },
       }));
   return { commands, withService, graph, workflow, logicalPolicy };
 });

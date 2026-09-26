@@ -1,4 +1,6 @@
-import { Effect, Result, Schema } from "effect";
+import { Effect, Result } from "effect";
+import { decodeFrameworkInstallerPolicy, migrationCoordinatorLimits, type FrameworkInstallerPolicy } from "./policy";
+export type { FrameworkInstallerPolicy } from "./policy";
 import type { FrameworkSchemaArtifactRepository } from "../frameworkSchema/artifact/repository";
 import { withFrameworkMigrationPlanVerification } from "./canonical";
 import { coordinatorError, type FrameworkMigrationCoordinatorFailure,
@@ -12,17 +14,6 @@ import { captureFrameworkMigrationBaseReferenceEffect, loadFrameworkMigrationPla
 import { inspectFrameworkMigrationEffect } from "./inspect";
 import { verifyFrameworkMigrationEffect } from "./verify";
 import { withAdditiveMigrationGraphLimits } from "./graphLimits";
-
-const timeout = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 600_000 }));
-const FrameworkInstallerPolicySchema = Schema.Struct({
-  leaseDurationMilliseconds: timeout,
-  lockTimeoutMilliseconds: timeout,
-  statementTimeoutMilliseconds: timeout,
-  runTimeoutMilliseconds: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 300_000 })),
-  maximumStepsPerCall: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 128 })),
-});
-const decodePolicy = Schema.decodeUnknownResult(FrameworkInstallerPolicySchema);
-export type FrameworkInstallerPolicy = typeof FrameworkInstallerPolicySchema.Type;
 
 export type FrameworkFreshInstallationRequest = Pick<RunFreshFrameworkMigrationCoordinatorInput,
   "artifactIdentity" | "commerceProfile" | "attemptId" | "leaseOwnerId">;
@@ -42,7 +33,7 @@ export function makeFrameworkInstaller(input: Readonly<{
 }>) {
   const target = input.target;
   const artifactRepository = input.artifactRepository;
-  return decodePolicy(input.policy).pipe(
+  return decodeFrameworkInstallerPolicy(input.policy).pipe(
     Result.mapError(cause => coordinatorError("prepare", "invalidInput", "Invalid framework installer policy", cause)),
     Result.map(decoded => {
       const policy = Object.freeze(decoded);
@@ -60,7 +51,7 @@ export function makeFrameworkInstaller(input: Readonly<{
         const base = yield* captureFrameworkMigrationBaseReferenceEffect(selection.baseInstallation);
         return yield* withAdditiveMigrationGraphLimits(loadFrameworkMigrationPlanEffect(definitionInput(selection), base));
       });
-      const firstBatch = Math.min(16, policy.maximumStepsPerCall);
+      const firstBatch = Math.min(migrationCoordinatorLimits.stepsPerBatch, policy.maximumStepsPerCall);
       const coordinatorInput = (request: FrameworkFreshInstallationRequest): RunFreshFrameworkMigrationCoordinatorInput => ({
         artifactIdentity: request.artifactIdentity,
         ...(request.commerceProfile === undefined ? {} : { commerceProfile: request.commerceProfile }),
@@ -74,7 +65,7 @@ export function makeFrameworkInstaller(input: Readonly<{
           let result = yield* initial;
           let remaining = policy.maximumStepsPerCall - firstBatch;
           while (result.kind === "pending" && remaining > 0) {
-            const batchSize = Math.min(16, remaining);
+            const batchSize = Math.min(migrationCoordinatorLimits.stepsPerBatch, remaining);
             result = yield* advanceFrameworkMigrationClaimBatchEffect(result.claim, batchSize);
             remaining -= batchSize;
           }

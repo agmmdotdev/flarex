@@ -14,6 +14,7 @@ export {
   type CmsPresentedTransactionId,
 } from "./cmsTransaction/model";
 export { capturePrivateJsonData } from "./privateJsonData";
+export { defaultCmsRequestBudget, type CmsRequestBudget } from "./frameworkExecutionPolicy";
 export {
   registerPayloadContentProfiles,
   type PayloadContentProfiles,

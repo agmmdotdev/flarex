@@ -14,7 +14,7 @@ import type { prepareVariantPricingLink } from "./variant-pricing-link-service";
 import { captureWorkflowRecord } from "./workflow/configuration";
 import { prepareWorkflowResources } from "./workflow/resources";
 import { internalModuleWorkflowEvents } from "./workflow/events";
-import { productVariantPricingResources } from "./product-variant-pricing-schema";
+import { productVariantPricingResources } from "./workflow/policy";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "./workflow/host";
 
 export const ProductVariantPricingInput = Schema.Struct({ product_id: PricingId,

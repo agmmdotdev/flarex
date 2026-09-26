@@ -34,6 +34,44 @@ export async function ce0CmsRequestBudgetScenario(
     },
   };
   const coreHost = await runEffect(makeCmsHost(input));
+  // Trusted selections are captured, aggregate across operations, and bind replay.
+  const selected = { calls: 2, commandBytes: cmsLimits.commandBytes };
+  const selectedHost = await runEffect(makeCmsHost({ ...input, requestBudget: selected }));
+  selected.calls = 64;
+  expect(selectedHost.requestBudget.calls).toBe(2);
+  expect(Object.isFrozen(selectedHost.requestBudget)).toBe(true);
+  const selectionBefore = await tested.inventory();
+  const selectedKey = selectedHost.newRequestKey();
+  const selectedArgs = { count: 1, prefix: "selected-budget" };
+  expect(await runEffectFailure(selectedHost.run(selectedKey, tested.insert, { ...selectedArgs, count: 8 })))
+    .toMatchObject({ reason: "limitExceeded" });
+  expect(await tested.inventory()).toEqual(selectionBefore);
+  const selectedValue = await runEffect(selectedHost.run(selectedKey, tested.insert, selectedArgs));
+  await tested.verifyInsert(selectionBefore, selectedValue, 1, selectedArgs.prefix);
+  const callsAfterSelection = tested.executionCount();
+  expect(await runEffect(selectedHost.run(selectedKey, tested.insert, selectedArgs))).toEqual(selectedValue);
+  expect(await runEffectFailure(coreHost.run(selectedKey, tested.insert, selectedArgs)))
+    .toMatchObject({ reason: "requestConflict" });
+  const changedHost = await runEffect(makeCmsHost({ ...input, requestBudget: { calls: 3, commandBytes: cmsLimits.commandBytes } }));
+  expect(await runEffectFailure(changedHost.run(selectedKey, tested.insert, selectedArgs)))
+    .toMatchObject({ reason: "requestConflict" });
+  // Old arbitrary policy objects cannot impersonate the new selection domain.
+  const lookalike = await runEffect(makeCmsHost({ ...input, identityAndAccessPolicy: {
+    policy: input.identityAndAccessPolicy, requestBudget: selectedHost.requestBudget,
+  } }));
+  expect(await runEffectFailure(lookalike.run(selectedKey, tested.insert, selectedArgs)))
+    .toMatchObject({ reason: "requestConflict" });
+  expect(tested.executionCount()).toBe(callsAfterSelection);
+  const byteHost = await runEffect(makeCmsHost({ ...input, requestBudget: { calls: 64, commandBytes: 4096 } }));
+  const beforeBytes = await tested.inventory();
+  expect(await runEffectFailure(byteHost.run(byteHost.newRequestKey(), tested.insert,
+    { count: 8, prefix: "b".repeat(1500) }))).toMatchObject({ reason: "limitExceeded" });
+  expect(await tested.inventory()).toEqual(beforeBytes);
+  for (const invalid of [0, 1.5, Number.NaN, cmsLimits.calls + 1]) {
+    expect(await runEffectFailure(makeCmsHost({ ...input, requestBudget: { calls: invalid, commandBytes: cmsLimits.commandBytes } })))
+      .toMatchObject({ reason: "unsupportedProfile" });
+  }
+  for (const host of [selectedHost, changedHost, lookalike, byteHost]) await runEffect(host.close);
   const mutation = await runEffect(makeCe0CmsMutationReference(input));
   const core = (key: string, args: { count: number; prefix: string }) =>
     coreHost.run(key, tested.insert, args);

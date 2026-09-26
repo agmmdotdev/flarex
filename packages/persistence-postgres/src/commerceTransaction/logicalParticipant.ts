@@ -18,7 +18,7 @@ import { forEachLogicalSetNullPage, forEachLogicalReferenceReplacementPage,
   selectLogicalReferenceReplacement } from "../logicalDocuments/referencePages";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "./model";
 import { projectCommerceRequestFailure } from "./request";
-import { defaultCommerceResources, type CommerceResources } from "./resources";
+import { defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
 
 declare const closureBrand: unique symbol;
 export interface LogicalCommerceClosure { readonly [closureBrand]: true }
@@ -81,8 +81,8 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
       .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))), error: logicalCommerceError,
     uniqueConflict: () => commerceError("invalidInput"),
-    limits: { pageRows: selectedResources?.queryRows ?? 256,
-      identities: selectedResources?.catalogRows ?? 128, documentBytes: 65_536 },
+    limits: { ...logicalCommerceWorkingSetLimits, pageRows: selectedResources?.queryRows ?? logicalCommerceWorkingSetLimits.pageRows,
+      identities: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities },
   }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique, state.indexes.filter(index => index.access.kind === "developer"));
   const first = state.tables[0];
   if (first === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
@@ -92,7 +92,7 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     // SAFETY: only this registry authenticates a closed admission/lifetime pair.
     const closure = Object.freeze({}) as LogicalCommerceClosure;
     closures.set(closure, { admission, tx, lifetime, changes,
-      maximumIndexEntries: selectedResources?.catalogRows ?? 128,
+      maximumIndexEntries: selectedResources?.catalogRows ?? logicalCommerceWorkingSetLimits.identities,
       maximumFacts: resources.facts });
     return closure;
   });

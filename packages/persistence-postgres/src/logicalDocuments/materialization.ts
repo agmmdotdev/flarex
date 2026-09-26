@@ -1,3 +1,4 @@
+import { logicalMaterializationBatchBudget } from "./policy";
 import { Data, Effect } from "effect";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import { SnapshotTokenSchema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
@@ -28,11 +29,8 @@ export class LogicalDocumentMaterializationError extends Data.TaggedError("Logic
 export const logicalMaterializationError = (reason: LogicalDocumentMaterializationError["reason"], cause?: unknown) =>
   new LogicalDocumentMaterializationError({ reason, ...(cause === undefined ? {} : { cause }) });
 
-/** A bounded multi-page logical command still publishes one commit. The
- * publisher stages ordered facts in the owning transaction page by page;
- * this budget bounds the remaining duplicate-detection identities, coverage
- * callbacks and document work independently of the 128-row page limit. */
-export const logicalMaterializationBatchBudget = Object.freeze({ rows: 2048, pages: 64, documentBytes: 4_194_304 });
+export { logicalMaterializationBatchBudget } from "./policy";
+
 
 /** Source-private kernel inputs from the trusted semantic participant. These
  * are not authority tokens or an admission API. Both semantic gates are required;

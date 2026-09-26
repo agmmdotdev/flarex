@@ -1,4 +1,5 @@
 import { Cause, Clock, Effect, Exit } from "effect";
+import { capturePostgresMigrationPolicy, type PostgresMigrationPolicy } from "./policy";
 import type { Pool, PoolClient } from "pg";
 
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -12,11 +13,7 @@ import { FrameworkMigrationDecisionUncertainIssue, FrameworkMigrationSessionReso
   type FrameworkMigrationDriverTransactionRequest, type FrameworkMigrationSessionIdentity,
   type FrameworkMigrationSessionFailure, type RunFrameworkMigrationDriverTransaction } from "./targetSession";
 
-export interface PostgresFrameworkMigrationOptions {
-  readonly acquisitionTimeoutMilliseconds?: number;
-  readonly transactionTimeoutMilliseconds?: number;
-  readonly cleanupTimeoutMilliseconds?: number;
-  readonly maximumStatementsPerTransaction?: number;
+export interface PostgresFrameworkMigrationOptions extends Partial<PostgresMigrationPolicy> {
   readonly observe?: PostgresMigrationConnectionOptions["observe"];
 }
 export interface MakePostgresFrameworkMigrationTargetInput {
@@ -35,18 +32,14 @@ export const makePostgresFrameworkMigrationTargetEffect = Effect.fn(
   "FrameworkMigrationPostgresTarget.make",
 )(function* (input: MakePostgresFrameworkMigrationTargetInput) {
   const options = input.options ?? {};
-  const acquisition = options.acquisitionTimeoutMilliseconds ?? 5_000;
-  const transaction = options.transactionTimeoutMilliseconds ?? 60_000;
-  const cleanup = options.cleanupTimeoutMilliseconds ?? 5_000;
-  const statements = options.maximumStatementsPerTransaction ?? 8_192;
-  if (!validBudget(acquisition, 60_000) || !validBudget(transaction, 300_000) ||
-      !validBudget(cleanup, 60_000) || !validBudget(statements, 65_536)) {
-    return yield* Effect.fail(resource("beginOrConfigure", new Error("Invalid PostgreSQL migration lifecycle budget.")));
-  }
-  const normalized = { acquisition, transaction, cleanup,
-    maximumStatementsPerTransaction: statements,
-    ...(options.observe === undefined ? {} : { observe: options.observe }),
-  };
+  const observe = options.observe;
+  const policy = yield* Effect.fromResult(capturePostgresMigrationPolicy(options)).pipe(
+    Effect.mapError(cause => resource("beginOrConfigure", cause)));
+  const normalized = Object.freeze({ acquisition: policy.acquisitionTimeoutMilliseconds,
+    transaction: policy.transactionTimeoutMilliseconds, cleanup: policy.cleanupTimeoutMilliseconds,
+    maximumStatementsPerTransaction: policy.maximumStatementsPerTransaction,
+    ...(observe === undefined ? {} : { observe }),
+  });
   return yield* makeFrameworkMigrationTargetEffect({
     database: input.persistence.drizzle,
     driver: makeFrameworkMigrationSessionDriver(input.persistence.drizzle,
@@ -235,10 +228,6 @@ const acquire = Effect.fn("FrameworkMigrationPostgresTarget.acquire")(
 function resource(phase: FrameworkMigrationSessionResourceIssue["phase"], cause: unknown) {
   return new FrameworkMigrationSessionResourceIssue({ phase, cause });
 }
-function validBudget(value: number, maximum: number) {
-  return Number.isSafeInteger(value) && value > 0 && value <= maximum;
-}
-
 function discardLateClient(client: PoolClient): void {
   try { client.release(true); }
   catch {

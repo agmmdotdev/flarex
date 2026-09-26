@@ -15,7 +15,7 @@ import type { prepareLocalProductLinks } from "./product-link-service";
 import { captureWorkflowRecord } from "./workflow/configuration";
 import { prepareWorkflowResources } from "./workflow/resources";
 import { internalModuleWorkflowEvents } from "./workflow/events";
-import { productShippingProfileResources } from "./product-shipping-profile-contract";
+import { productShippingProfileResources } from "./workflow/policy";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "./workflow/host";
 
 export const ProductShippingProfileInput = Schema.Struct({

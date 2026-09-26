@@ -9,6 +9,7 @@ import { ProductRelationshipsInput, ProductRelationshipsOutput, collectionReplac
 import type { ProductWorkflowModule } from "./product-workflow-module";
 import { captureWorkflowRecord } from "./workflow/configuration";
 import { prepareWorkflowResources } from "./workflow/resources";
+import { productRelationshipsPolicy } from "./workflow/policy";
 import { internalModuleWorkflowEvents } from "./workflow/events";
 import { prepareAtomicWorkflowHost, type AtomicWorkflowExecution, type InstalledWorkflowModule } from "./workflow/host";
 
@@ -24,7 +25,7 @@ export const productRelationshipsWorkflow: WorkflowDefinition<typeof ProductRela
     ...(collection.add ?? []), ...(collection.remove ?? []), ...(category.add ?? []), ...(category.remove ?? []),
   ])]);
   const products = useQueryGraphStep({ entity: "product", fields: ["id", "categories.id"],
-    filters: { id: ids }, pagination: { take: 256 },
+    filters: { id: ids }, pagination: { take: productRelationshipsPolicy.queryRows },
   }).config({ name: "pending-product-relationships" });
   const updated = batchLinkProductsToCollectionWorkflow.runAsStep({ input: collectionInput });
   const collection = transform({ id: input.collection.id, updated }, value => collectionReplacementResult(value.id, value.updated));
@@ -45,7 +46,7 @@ export const prepareProductRelationshipsWorkflow = Effect.fn("MedusaWorkflow.pre
     methods: ["listProducts", "retrieveProductCollection", "upsertProducts", "updateProductCollections"], graph: true,
   } }, true));
   const prepared = yield* Effect.fromResult(productRelationshipsWorkflow.prepare()).pipe(Effect.mapError(cause => commerceError("unsupportedProfile", cause)));
-  return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: 128,
+  return yield* prepareAtomicWorkflowHost({ ...options, modules, requestCallLimit: productRelationshipsPolicy.calls,
     workflow: { name: "productRelationships", resources, prepared,
     input: ProductRelationshipsInput, output: ProductRelationshipsOutput, events: internalModuleWorkflowEvents,
   } });

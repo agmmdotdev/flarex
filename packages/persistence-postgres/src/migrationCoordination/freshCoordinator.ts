@@ -1,3 +1,4 @@
+import { isMigrationTimeout, isMigrationRunTimeout, isMigrationStepBatch, migrationCoordinatorLimits } from "./policy";
 /**
  * Existing coordinator entry point and bounded run orchestration. Lifecycle operations
  * remain source-private; no new package exports or execution profile are introduced.
@@ -62,8 +63,8 @@ export const runAdditiveFrameworkMigrationCoordinatorEffect = Effect.fn("Additiv
 const runCoordinatorEffect = Effect.fn("FrameworkMigrationCoordinator.run")((input: RunFreshFrameworkMigrationCoordinatorInput,
   base?: FrameworkMigrationBaseInstallation): Effect.Effect<FreshFrameworkMigrationCoordinatorResult,
     FrameworkMigrationCoordinatorFailure> => Effect.suspend(() => {
-  const timeout = input.runTimeoutMilliseconds ?? 120_000;
-  if (!Number.isSafeInteger(timeout) || timeout <= 0 || timeout > 300_000) {
+  const timeout = input.runTimeoutMilliseconds ?? migrationCoordinatorLimits.defaultRunTimeoutMilliseconds;
+  if (!isMigrationRunTimeout(timeout)) {
     return Effect.fail(coordinatorError("prepare", "invalidInput", "Invalid fresh coordinator run budget"));
   }
   // Interruption is not evidence of non-commit. The target owns settlement and
@@ -83,15 +84,15 @@ const runFreshCoordinatorWithinBudgetEffect = Effect.fn(
   FreshFrameworkMigrationCoordinatorResult,
   FrameworkMigrationCoordinatorFailure
 > {
-  const maximumSteps = input.maximumStepsPerRun ?? 16;
+  const maximumSteps = input.maximumStepsPerRun ?? migrationCoordinatorLimits.stepsPerBatch;
   if (base !== undefined && input.commerceProfile !== undefined) return yield* Effect.fail(coordinatorError("prepare", "invalidInput", "Commerce admits only fresh installation"));
   if (
     !isIdentityText(input.attemptId) ||
     !isIdentityText(input.leaseOwnerId) ||
-    !isPositiveBoundedInteger(input.leaseDurationMilliseconds) ||
-    !isPositiveBoundedInteger(input.lockTimeoutMilliseconds) ||
-    !isPositiveBoundedInteger(input.statementTimeoutMilliseconds) ||
-    !Number.isSafeInteger(maximumSteps) || maximumSteps < 0 || maximumSteps > 16
+    !isMigrationTimeout(input.leaseDurationMilliseconds) ||
+    !isMigrationTimeout(input.lockTimeoutMilliseconds) ||
+    !isMigrationTimeout(input.statementTimeoutMilliseconds) ||
+    !isMigrationStepBatch(maximumSteps)
   ) {
     return yield* Effect.fail(coordinatorError(
       "prepare",
@@ -127,7 +128,7 @@ export const advanceFrameworkMigrationClaimBatchEffect = Effect.fn("FrameworkMig
   function* (claim: FrameworkMigrationClaim, maximumSteps: number): Effect.fn.Return<
     FreshFrameworkMigrationCoordinatorResult, FrameworkMigrationCoordinatorFailure
   > {
-    if (!Number.isSafeInteger(maximumSteps) || maximumSteps < 0 || maximumSteps > 16) {
+    if (!isMigrationStepBatch(maximumSteps)) {
       return yield* Effect.fail(coordinatorError("step", "invalidInput", "Invalid coordinator batch size"));
     }
     let completed = 0;
@@ -160,10 +161,6 @@ export const advanceFrameworkMigrationClaimBatchEffect = Effect.fn("FrameworkMig
         ...status,
       });
 });
-
-function isPositiveBoundedInteger(value: number): boolean {
-  return Number.isSafeInteger(value) && value > 0 && value <= 600_000;
-}
 
 function isIdentityText(value: string): boolean {
   return typeof value === "string" && value.length > 0 && value.length <= 1_024 &&

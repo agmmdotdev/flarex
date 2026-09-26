@@ -1,4 +1,5 @@
 import { makeCmsCommandContext } from "./context";
+import { decodeCmsRequestBudget, defaultCmsRequestBudget, type CmsRequestBudget } from "../frameworkExecutionPolicy";
 import type { CmsMaterializationTestHooks } from "./testSupport";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
 import type { AppRelationEdgeQueryObservation } from "../appRelationEdges";
@@ -97,6 +98,8 @@ export interface CmsHostInput<Failure> {
   readonly commands: readonly CmsCommand[];
   /** Authenticated by the private composition root; never adapter command input. */
   readonly identityAndAccessPolicy: Json;
+  /** Trusted host-start selection; never read from a business request. */
+  readonly requestBudget?: CmsRequestBudget;
   readonly materialization: CmsMaterializationOptions;
   readonly relationReads?: ApplicationRelationReadPort;
   /** Exact preference binding required by the operation-specific cleanup port. */
@@ -112,6 +115,7 @@ export type SourceCmsHostInput<Failure> = Omit<CmsHostInput<Failure>, "pointComm
     schemaVersionId: CatalogSchemaVersionId; source: unknown;
   }> }>;
 export interface CmsHost {
+  readonly requestBudget: CmsRequestBudget;
   readonly close: Effect.Effect<void>;
   readonly newRequestKey: () => string;
   readonly run: (requestKey: string, command: CmsCommand, args: Json) => Effect.Effect<Json, CmsTransactionError>;
@@ -153,8 +157,12 @@ const projectFailure = (cause: unknown): CmsTransactionError => {
 export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
   input: CmsHostInput<Failure> | SourceCmsHostInput<Failure>, hooks?: CmsHostTestHooks,
 ): Effect.fn.Return<CmsHost, CmsTransactionError> {
-  const retained = yield* retainPreparedHost(input.hostRuntime, composeCmsHost(input, hooks)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
-  return Object.freeze({ close: retained.close, newRequestKey: () => `cms/${crypto.randomUUID()}`,
+  const selectedBudget = input.requestBudget;
+  const requestBudget = Object.freeze(yield* Effect.fromResult(decodeCmsRequestBudget(selectedBudget === undefined ? defaultCmsRequestBudget : selectedBudget))
+    .pipe(Effect.mapError(cause => cmsError("unsupportedProfile", cause))));
+  const retained = yield* retainPreparedHost(input.hostRuntime, composeCmsHost(input, requestBudget, selectedBudget !== undefined, hooks))
+    .pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure))));
+  return Object.freeze({ requestBudget, close: retained.close, newRequestKey: () => `cms/${crypto.randomUUID()}`,
     run: (key, command, args) => retained.use(host => host.run(key, command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
     read: (command, args) => retained.use(host => host.read(command, args)).pipe(Effect.catchCause(cause => Effect.failCause(Cause.map(cause, projectFailure)))),
   } satisfies CmsHost);
@@ -162,8 +170,9 @@ export const makeCmsHost = Effect.fn("CmsHost.make")(function* <Failure>(
 
 const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   input: CmsHostInput<Failure> | SourceCmsHostInput<Failure>,
+  requestBudget: CmsRequestBudget, explicitBudget: boolean,
   hooks?: CmsHostTestHooks,
-): Effect.fn.Return<Omit<CmsHost, "close">, CmsTransactionError> {
+): Effect.fn.Return<Omit<CmsHost, "close" | "requestBudget">, CmsTransactionError> {
   const { database, session, deploymentId, controlDatabase, application } = input;
   const pointCommitAuthority = "pointCommitAuthority" in input ? input.pointCommitAuthority : undefined;
   const logicalSelectionInput = input.logicalStorage;
@@ -203,9 +212,16 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     names.add(definition.name);
   }
   const identity = yield* Effect.fromResult(capturePrivateJsonData(input.identityAndAccessPolicy, cmsLimits.documentBytes, cmsError));
-  const canonicalIdentity = yield* canonicalizeSuccessfulResultV1Effect(identity.value).pipe(Effect.mapError(projectFailure));
-  const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha256(canonicalIdentity.canonicalBytes));
-  yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, expectedContentIdentity: expectedContentIdentity ?? null })
+  const canonicalIdentity = yield* canonicalizeSuccessfulResultV1Effect(!explicitBudget ? identity.value :
+    { policy: identity.value, requestBudget }).pipe(Effect.mapError(projectFailure));
+  // A byte prefix distinguishes selected budgets from every old arbitrary JSON
+  // policy, including an object with the same field names.
+  const prefix = explicitBudget ? new TextEncoder().encode("flarex.cms.request-budget\0") : new Uint8Array();
+  const identityBytes = new Uint8Array(prefix.byteLength + canonicalIdentity.canonicalBytes.byteLength);
+  identityBytes.set(prefix);
+  identityBytes.set(canonicalIdentity.canonicalBytes, prefix.byteLength);
+  const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha256(identityBytes));
+  yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, requestBudget, expectedContentIdentity: expectedContentIdentity ?? null })
     .pipe(Effect.mapError(projectFailure));
   const preparedPreferences = preferenceTarget === undefined ? undefined : yield* prepareCmsPreferences(database, session, authority,
     deploymentId, preferenceTarget).pipe(Effect.mapError(projectFailure));
@@ -225,7 +241,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   const execute = Effect.fn("CmsHost.execute")(function* (requestKey: string | null, token: CmsCommand, args: Json) {
     const root = commands.get(token);
     if (root === undefined || !allowed.has(token) || (requestKey === null && root.mode !== "read")) return yield* Effect.fail(cmsError("invalidAuthority"));
-    const captured = yield* Effect.fromResult(capturePrivateJsonData(args, cmsLimits.commandBytes, cmsError));
+    const captured = yield* Effect.fromResult(capturePrivateJsonData(args, requestBudget.commandBytes, cmsError));
     const key = requestKey === null ? null : yield* Effect.fromResult(decodeRequestKey(requestKey))
       .pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
     if (key !== null && !/^cms\/[0-9a-f-]{36}$/.test(key)) return yield* Effect.fail(cmsError("invalidInput"));
@@ -277,7 +293,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
             // Absence after COMMIT ambiguity is never permission to rerun callbacks.
             if (recoverOnly) return yield* Effect.fail(cmsError("decisionUncertain"));
           }
-          const lifetime = yield* makeCmsRequestLifetime(owner, requestIdentity, transactionId, key === null ? "read" : root.mode);
+          const lifetime = yield* makeCmsRequestLifetime(owner, requestIdentity, transactionId, key === null ? "read" : root.mode, requestBudget);
           return yield* Effect.gen(function* () {
             yield* Effect.fromResult(lifetime.charge(captured.bytes + evidence.canonicalBytes.byteLength));
             const creationTime = AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis);
@@ -343,5 +359,5 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     });
   });
   return Object.freeze({ newRequestKey: () => `cms/${crypto.randomUUID()}`,
-    run: (key, command, args) => execute(key, command, args), read: (command, args) => execute(null, command, args) } satisfies Omit<CmsHost, "close">);
+    run: (key, command, args) => execute(key, command, args), read: (command, args) => execute(null, command, args) } satisfies Omit<CmsHost, "close" | "requestBudget">);
 });

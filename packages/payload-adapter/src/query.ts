@@ -61,8 +61,10 @@ export function makePayloadQuery(collection: PayloadCollection) {
   }) };
 }
 
+/** Native paging defaults and this adapter's bounded page-number admission. */
+export const payloadPaginationPolicy = Object.freeze({ defaultLimit: 10, defaultPage: 1, maximumPage: 257 });
 export const PayloadLimit = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: cmsLimits.pageRows }));
-export const PayloadPage = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 257 }));
+export const PayloadPage = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: payloadPaginationPolicy.maximumPage }));
 export const PayloadPaging = Schema.Struct({
   page: Schema.optional(PayloadPage),
   limit: Schema.optional(PayloadLimit),

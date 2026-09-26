@@ -97,6 +97,9 @@ public APIs and production activation retain separate decisions and gates.
 CMS/Commerce request defaults, transaction timeouts and trusted resource ceilings.
 Adapter admission and database settings consume that policy; Application protocol
 ceilings and workflow-specific allowances retain their separate owners.
+[Execution policy configuration](./72-policy-configuration.md) indexes those
+owners and defines immutable host-start CMS/Payload budget selections and replay
+identity. Migration and installer policy share their owning validators.
 
 Native Application execution records exact reads and logical writes, validates
 OCC and enters its existing materialization/publication transaction. CMS and

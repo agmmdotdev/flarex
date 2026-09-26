@@ -18,7 +18,7 @@ import type { PayloadContentProfile } from "./contract";
 import { makePayloadPopulation, payloadPopulationIds } from "./population";
 import { payloadManyIds } from "./many";
 import { UnsupportedPayloadCapability } from "./errors";
-import { isPayloadLimit, isPayloadPage } from "./query";
+import { isPayloadLimit, isPayloadPage, payloadPaginationPolicy } from "./query";
 interface RequestBridge {
   readonly collection: PayloadCollectionRuntime;
   readonly context: CmsCommandContext;
@@ -205,7 +205,7 @@ export function makePayloadDatabaseAdapter(profile: PayloadContentProfile, colle
           hasPrevPage: false, hasNextPage: false, prevPage: null, nextPage: null };
       }
       admit(args);
-      const limit = args.limit ?? 10; const page = args.page ?? 1;
+      const limit = args.limit ?? payloadPaginationPolicy.defaultLimit; const page = args.page ?? payloadPaginationPolicy.defaultPage;
       if (!isPayloadLimit(limit) || !isPayloadPage(page) ||
         args.skip !== undefined || args.projection !== undefined || args.versions || (args.sort !== undefined && args.sort !== "id" && !(Array.isArray(args.sort) && args.sort.length === 1 && args.sort[0] === "id"))) {
         return unsupported("pagination or sort");

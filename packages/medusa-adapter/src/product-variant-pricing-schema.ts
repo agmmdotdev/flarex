@@ -1,11 +1,9 @@
 import { Effect } from "effect";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
 import { ProductVariantPriceSet } from "@medusajs/link-modules";
-import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureLinkMetadata, linkSchemaOrigins } from "./link-schema";
 import { lowerDmlSchema } from "./schema/lower";
 
-export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const captureVariantPricingLinkMetadata = () => captureLinkMetadata(ProductVariantPriceSet);
 
 export const variantPricingLinkSourceProvenance = Object.freeze({

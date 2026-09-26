@@ -732,7 +732,7 @@
     {
       "target": "packages/medusa-adapter/src/product-relationships-workflow.ts",
       "classification": "authored",
-      "targetSha256": "50628ff217e4894f4d77bb014b257586c8bd7930b8214e6f9d9112a973bde95b"
+      "targetSha256": "13bbf5398dfa07875c56cf7ded09b13a9bb39fe73e698fe122900c914107b5b8"
     },
     {
       "target": "packages/medusa-adapter/src/product-repository.ts",
@@ -757,7 +757,7 @@
     {
       "target": "packages/medusa-adapter/src/product-service.ts",
       "classification": "authored",
-      "targetSha256": "62cc94aa922e91a8e56a67d1ce4931cdcc8531925141bd5724629814083f6650"
+      "targetSha256": "bba029a322102575cdc22177cbc1718499dc5a3b1759b4ae30703fa778197741"
     },
     {
       "target": "packages/medusa-adapter/src/product-tag-composition.ts",
@@ -3334,9 +3334,9 @@
       "targetSha256": "66fba1f502ee00668f3d30fb32eb7f3ff73dccb64b49448e06b1a4b02bb95061"
     },
     {
-      "target": "packages/medusa-adapter/src/product-shipping-profile-contract.ts",
+      "target": "packages/medusa-adapter/src/workflow/policy.ts",
       "classification": "authored",
-      "targetSha256": "511923df6a13b23f8355786b56fb6a6de56ae72f8d3224e61260cbcf69413289"
+      "targetSha256": "3131af1a63d222947cbc9f32e947f24b7534447b415d8c612568e8ce7cfead93"
     },
     {
       "target": "packages/medusa-adapter/src/product-shipping-profile-link-schema.ts",
@@ -3346,7 +3346,7 @@
     {
       "target": "packages/medusa-adapter/src/product-shipping-profile-workflow.ts",
       "classification": "authored",
-      "targetSha256": "65b4f8f92845f38fa26fc2072968b9e507ff21140035c7e384565736a45cee0b"
+      "targetSha256": "263eaf77b2f376dcee1c6086ffbdc36cde06fc6dce0921c9b9f9a387eea16d2c"
     },
     {
       "target": "packages/medusa-adapter/src/scalar-events.ts",
@@ -4113,12 +4113,12 @@
     {
       "target": "packages/medusa-adapter/src/product-variant-pricing-schema.ts",
       "classification": "authored",
-      "targetSha256": "5c30622ade105d03903af5ec50160408838d61ecd85c6d71fcc21e303fd611bd"
+      "targetSha256": "fdcb3a1aa231aa6b663d1cadaedac0d73ecaa386089675bb6e5a5a893451e596"
     },
     {
       "target": "packages/medusa-adapter/src/product-variant-pricing-workflow.ts",
       "classification": "authored",
-      "targetSha256": "777d65d638b42a89a494f51762919882a693fdd7d722732e8dedadea1cc15e6a"
+      "targetSha256": "76c307af9e8cf5ae8e3feabb0de85a962c7152dab9ac539f75d5b806aff05cee"
     },
     {
       "target": "packages/medusa-adapter/src/variant-pricing-link-service.ts",
@@ -4509,7 +4509,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-shipping-profile-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "a5ee1de40bc659b85089aefe3accbd92cefef4ff43de085cd934a5c3b8070d90"
+      "targetSha256": "16bbb92035b18f1da8138da0c53cd3df74c83db6ca8504ea174a0e58e2d2b6a8"
     },
     {
       "target": "packages/medusa-adapter/test/product-category-collection-composition.test.ts",

@@ -1,3 +1,4 @@
+import { payloadPaginationPolicy } from "./query";
 import { Effect, type Result } from "effect";
 import type { BasePayload, PayloadRequest } from "payload";
 import { cmsError, defineCmsCommand, type CmsCommandContext, type CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
@@ -58,7 +59,7 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
       call(ctx, args.collection, false, args, common => payload.find({ ...common, where: args.where,
         ...(args.page === undefined ? {} : { page: args.page }),
         ...(args.pagination === undefined ? {} : { pagination: args.pagination }),
-        limit: args.limit ?? 10, sort: "id" }), payloadResults.page),
+        limit: args.limit ?? payloadPaginationPolicy.defaultLimit, sort: "id" }), payloadResults.page),
     count: (ctx: CmsCommandContext, args: PayloadCountInput) =>
       call(ctx, args.collection, false, noPopulation, common => payload.count({ ...common, where: args.where }), payloadResults.count),
   };

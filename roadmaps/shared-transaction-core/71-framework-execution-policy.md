@@ -1,7 +1,8 @@
 # Framework Execution Policy
 
-Status: implemented for source-controlled framework defaults and existing trusted
-host selections. Runtime configuration APIs remain deferred.
+Status: implemented for source-controlled framework defaults and trusted host
+selections. [Execution policy configuration](./72-policy-configuration.md) owns
+the follow-up, including CMS/Payload host-start request budgets.
 
 ## Outcome And Owners
 
