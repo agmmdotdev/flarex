@@ -33,11 +33,14 @@ export function pricingEventPolicy(descriptor: CommerceProfileState, deliver: Lo
   }) };
 }
 
-/** The selected native base-price command writes only PriceSet, Price and
- * PriceRule rows. Core owns FK/unique settlement; this receipt owns the exact
- * module messages corresponding to the ordered attempted inserts. */
+/** Core owns FK/unique settlement; this receipt authenticates the exact native
+ * create events for each admitted Pricing graph. */
 export function pricingLogicalCreateEventPolicy() {
-  const tables = new Set(["price_set", "price", "price_rule"]);
+  const profiles = new Map<string, ReadonlySet<string>>([
+    ["pricingCreate", new Set(["price_set", "price", "price_rule"])],
+    ["pricingCreateList", new Set(["price_list", "price", "price_list_rule"])],
+  ]);
+  const tables = new Set([...profiles.values()].flatMap(profile => [...profile]));
   const Id = Schema.String.check(Schema.isLengthBetween(1, 256));
   const decode = Schema.decodeUnknownEffect(Schema.Struct({ name: Schema.String,
     metadata: Schema.Struct({ source: Schema.Literal(Modules.PRICING), object: Schema.String,
@@ -63,17 +66,22 @@ export function pricingLogicalCreateEventPolicy() {
         if (mutations.length || call.events.length) return yield* Effect.fail(commerceError("receiptMismatch"));
         return;
       }
-      if (call.commandName !== "pricingCreate") return yield* Effect.fail(commerceError("receiptMismatch"));
+      const allowed = profiles.get(call.commandName);
+      if (allowed === undefined) return yield* Effect.fail(commerceError("receiptMismatch"));
       const emitted = call.events;
       const expected = new Set<string>();
+      let listRoots = 0;
       for (const mutation of mutations) {
         const id = mutation.after?.id;
         const identity = mutation.table + ":" + id;
-        if (!tables.has(mutation.table) || mutation.operation !== "insert" || mutation.before !== null ||
+        if (!allowed.has(mutation.table) || mutation.operation !== "insert" || mutation.before !== null ||
           typeof id !== "string" || mutation.after?.deleted_at !== null || expected.has(identity))
           return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (call.commandName === "pricingCreateList" && mutation.table === "price_list") listRoots++;
         expected.add(identity);
       }
+      if (call.commandName === "pricingCreateList" && listRoots !== 1)
+        return yield* Effect.fail(commerceError("receiptMismatch"));
       for (const event of emitted) {
         const message = yield* capture(event);
         for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {

@@ -33,10 +33,26 @@ const Price = Schema.Struct({ id: Schema.optionalKey(PricingId), title: Schema.o
   min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
   rules_count: Schema.optionalKey(Schema.Literals([0, 1])), price_rules: Schema.optionalKey(Schema.Array(Rule).check(Schema.isMaxLength(1))),
 });
+const ListPrice = Schema.Struct({ id: Schema.optionalKey(PricingId), title: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  price_set_id: PricingId, price_list_id: Schema.optionalKey(PricingId), currency_code: Schema.String, amount: Numeric,
+  min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
+  rules_count: Schema.optionalKey(Schema.Literals([0, 1])), price_rules: Schema.optionalKey(Schema.Array(Rule).check(Schema.isMaxLength(1))),
+});
+const ListRule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.Json });
+const List = Schema.Struct({ id: Schema.optionalKey(PricingId), title: Schema.String, description: Schema.String,
+  status: Schema.optionalKey(Schema.Literals(["draft", "active"])), type: Schema.optionalKey(Schema.Literals(["sale", "override"])),
+  starts_at: Schema.optionalKey(Schema.NullOr(Schema.String)), ends_at: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  rules_count: Schema.optionalKey(Schema.Number),
+  prices: Schema.optionalKey(Schema.Array(ListPrice).check(Schema.isMaxLength(2))),
+  price_list_rules: Schema.optionalKey(Schema.Array(ListRule).check(Schema.isMaxLength(2))),
+});
 const SetInput = Schema.Struct({ id: Schema.optionalKey(PricingId), prices: Schema.Array(Price).check(Schema.isMaxLength(2)) });
 const decodeSet = commerceDecoder(SetInput, "unsupportedProfile");
 const decodePrice = commerceDecoder(Price, "unsupportedProfile");
 const decodeRule = commerceDecoder(Rule, "unsupportedProfile");
+const decodeList = commerceDecoder(List, "unsupportedProfile");
+const decodeListPrice = commerceDecoder(ListPrice, "unsupportedProfile");
+const decodeListRule = commerceDecoder(ListRule, "unsupportedProfile");
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeStoredRows = commerceDecoder(Schema.Array(Schema.JsonObject), "storedCorruption");
 const decodeSerialized = commerceDecoder(Schema.Union([Schema.JsonObject, Schema.Array(Schema.JsonObject)]), "storedCorruption");
@@ -82,29 +98,39 @@ const projectionPolicy: ProjectionPolicy = { ...scalarProjection, allowedPaths: 
 export function preparePricingRepository(metadata: Effect.Success<ReturnType<typeof capturePricingMetadata>>["frame"]) {
   return Result.gen(function* () {
     const entities: GraphEntity[] = [];
-    for (const [name, model] of [["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"]] as const) {
+    for (const [name, model] of [["price_set", "PriceSet"], ["price", "Price"], ["price_rule", "PriceRule"],
+      ["price_list", "PriceList"], ["price_list_rule", "PriceListRule"]] as const) {
       const table = metadata.tables.find(item => item.name === name);
       const key = table?.columns.find(column => column.primaryKey);
       if (table === undefined || key?.type !== "id" || key.name !== "id") return yield* Result.fail(commerceError("unsupportedProfile"));
       entities.push({ table, model, keyColumn: key.name, prefix: key.options?.prefix });
     }
-    const [set, price, rule] = entities;
-    if (!set || !price || !rule) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const [set, price, rule, list, listRule] = entities;
+    if (!set || !price || !rule || !list || !listRule) return yield* Result.fail(commerceError("unsupportedProfile"));
     const setTable = metadata.tables.find(table => table.name === set.table.name);
     const priceTable = metadata.tables.find(table => table.name === price.table.name);
     if (!setTable || !priceTable) return yield* Result.fail(commerceError("unsupportedProfile"));
     const prices = describeToManyRelation(setTable, "prices", metadata.tables);
     const rules = describeToManyRelation(priceTable, "price_rules", metadata.tables);
+    const listTable = metadata.tables.find(table => table.name === list.table.name);
+    const listPrices = listTable && describeToManyRelation(listTable, "prices", metadata.tables);
+    const listRules = listTable && describeToManyRelation(listTable, "price_list_rules", metadata.tables);
     if (prices?.join.type !== "hasMany" || rules?.join.type !== "hasMany" || prices.join.foreignKeys.length !== 1 || rules.join.foreignKeys.length !== 1) return yield* Result.fail(commerceError("unsupportedProfile"));
     const priceForeignKey = prices.join.foreignKeys[0], ruleForeignKey = rules.join.foreignKeys[0];
     if (!priceForeignKey || !ruleForeignKey) return yield* Result.fail(commerceError("unsupportedProfile"));
+    if (listPrices?.join.type !== "hasMany" || listRules?.join.type !== "hasMany" ||
+      listPrices.join.foreignKeys.length !== 1 || listRules.join.foreignKeys.length !== 1)
+      return yield* Result.fail(commerceError("unsupportedProfile"));
+    const listPriceForeignKey = listPrices.join.foreignKeys[0], listRuleForeignKey = listRules.join.foreignKeys[0];
+    if (!listPriceForeignKey || !listRuleForeignKey) return yield* Result.fail(commerceError("unsupportedProfile"));
     const relations = new Map([[set.table.name, new Map([["prices", prices]])], [price.table.name, new Map([["price_rules", rules]])]]);
-    const readCatalog = yield* makeReadCatalog(entities.map(entity => ({ name: entity.table.name,
+    const readCatalog = yield* makeReadCatalog([set, price, rule].map(entity => ({ name: entity.table.name,
       columns: entity.table.columns.map(column => column.name), primaryKeys: [entity.keyColumn],
       foreignKeys: entity.table.foreignKeys.flatMap(key => key.columns),
       companions: Object.fromEntries(entity.table.columns.filter(column => column.type === "bigNumber").map(column => [column.name, "raw_" + column.name])),
     })), relations);
-    const catalog: GraphCatalog = { entities, tables: entities.map(entity => entity.table), writablePivots: [], queryRelations: relations,
+    const catalog: GraphCatalog = { entities: [set, price, rule], tables: [set.table, price.table, rule.table],
+      writablePivots: [], queryRelations: relations,
       decodeRow: (entity, input) => Result.gen(function* () {
         const supplied = entity === set ? yield* decodeSet(input) : entity === price ? yield* decodePrice(input) : yield* decodeRule(input);
         return { supplied, key: supplied.id };
@@ -116,6 +142,23 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         { kind: "children", name: "price_rules", foreignKey: ruleForeignKey, node: { entity: rule, omitRelations: [], steps: [] } },
       ] } },
     ] }, rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) };
+    const listCatalog: GraphCatalog = { entities: [list, price, listRule],
+      tables: [list.table, price.table, listRule.table], writablePivots: [], queryRelations: relations,
+      decodeRow: (entity, input) => Result.gen(function* () {
+        const supplied = entity === list ? yield* decodeList(input) : entity === price ? yield* decodeListPrice(input)
+          : yield* decodeListRule(input);
+        return { supplied, key: supplied.id };
+      }),
+      decodeReference: () => Result.fail(commerceError("unsupportedProfile")),
+      decodeAssociation: () => Result.fail(commerceError("unsupportedProfile")),
+    };
+    const listCreation: CreationProfile = { catalog: listCatalog, root: { entity: list,
+      omitRelations: ["prices", "price_list_rules"], steps: [
+        { kind: "children", name: "prices", foreignKey: listPriceForeignKey,
+          node: { entity: price, omitRelations: [], steps: [] } },
+        { kind: "children", name: "price_list_rules", foreignKey: listRuleForeignKey,
+          node: { entity: listRule, omitRelations: [], steps: [] } },
+      ] }, rowLimitDetail: (maximum, attempted, tables) => ({ maximum, attempted, tables }) };
     const query = (input: unknown) => Result.gen(function* () {
       const envelope = yield* decodeEnvelope(input);
       const options = yield* decodeOptions(envelope.options ?? {});
@@ -168,6 +211,30 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         }
         return { ...result, rows: output };
       });
+      const createGraph = Effect.fn("PricingRepository.createGraph")(function* (
+        ctx: CommerceCommandContext, profile: CreationProfile,
+        input: unknown, shared: Parameters<DAL.RepositoryService["create"]>[1],
+      ) {
+        const graph = yield* captureGraph(profile, input, ctx.resources);
+        const rows = new Map(graph.rows);
+        const values: JsonObject[] = [];
+        for (const inputRow of rows.get(price.table.name) ?? []) {
+          const row = { ...inputRow };
+          for (const column of price.table.columns) if (column.type === "bigNumber") {
+            const value = row[column.name];
+            if ((value === undefined || value === null) && column.nullable) { row[column.name] = null; row["raw_" + column.name] = null; }
+            else { const encoded = yield* encodeExactNumeric(value); row[column.name] = encoded.value;
+              row["raw_" + column.name] = yield* Effect.fromResult(captureCommerceInput(encoded.raw, ctx.resources)); }
+          }
+          values.push(row);
+        }
+        rows.set(price.table.name, values);
+        const inserted = yield* insertGraphRows(ctx, profile.catalog, rows);
+        if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
+        yield* events.created(profile.catalog.entities.flatMap(entity => (inserted.get(entity.table.name) ?? [])
+          .map(row => ({ modelName: entity.model, entity: { ...row } }))), shared);
+        return [...inserted.get(profile.root.entity.table.name) ?? []];
+      });
       const repository: DAL.RepositoryService = {
         getFreshManager: bridge.getFreshManager, getActiveManager: bridge.getActiveManager, transaction: bridge.transaction,
         serialize: <Output extends object | object[]>(input: unknown, options?: unknown): Promise<Output> => owner.run(bridge.checked(root, Effect.gen(function* () {
@@ -184,28 +251,13 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
           if (value.count === undefined) return yield* ctx.refuse(commerceError("storedCorruption"));
           return [value.rows, value.count] satisfies [JsonObject[], number];
         }))),
-        create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
-          const graph = yield* captureGraph(creation, input, ctx.resources);
-          const rows = new Map(graph.rows);
-          const values: JsonObject[] = [];
-          for (const inputRow of rows.get(price.table.name) ?? []) {
-            const row = { ...inputRow };
-            for (const column of price.table.columns) if (column.type === "bigNumber") {
-              const value = row[column.name];
-              if ((value === undefined || value === null) && column.nullable) { row[column.name] = null; row["raw_" + column.name] = null; }
-              else { const encoded = yield* encodeExactNumeric(value); row[column.name] = encoded.value; row["raw_" + column.name] = yield* Effect.fromResult(captureCommerceInput(encoded.raw, ctx.resources)); }
-            }
-            values.push(row);
-          }
-          rows.set(price.table.name, values);
-          const inserted = yield* insertGraphRows(ctx, catalog, rows);
-          if (shared === undefined || !events.isSubscribed(shared)) return yield* ctx.refuse(commerceError("unadmittedEvent"));
-          yield* events.created(entities.flatMap(entity => (inserted.get(entity.table.name) ?? []).map(row => ({ modelName: entity.model, entity: { ...row } }))), shared);
-          return [...inserted.get(set.table.name) ?? []];
-        }))),
+        create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, creation, input, shared))),
         update: refuse, delete: refuse, upsert: refuse, upsertWithReplace: refuse, softDelete: refuse, restore: refuse,
       };
       const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse };
+      const listRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
+        create: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, createGraph(ctx, listCreation, input, shared))),
+      };
       const ruleRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           const query = yield* Effect.fromResult(decodeRuleFind(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
@@ -237,7 +289,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         pricingContext: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[1],
         shared: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[2]) =>
         bridge.execute(shared, ctx => bridge.checked(ctx, calculateLogicalPrices(ctx, { filters, pricingContext })));
-      return { repository, denied, ruleRepository, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
+      return { repository, denied, listRepository, ruleRepository, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
     };
     return { bind, table: yield* readCatalog.table(set.table.name), paths: yield* relationPaths(readCatalog, set.table.name, paths) };
   });

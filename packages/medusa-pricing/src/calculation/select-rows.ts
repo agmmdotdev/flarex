@@ -78,7 +78,6 @@ export function selectCalculatedPriceRows(
   const lists = new Map(rows.lists.map(list => [list.id, list]))
   const presentContext = Object.fromEntries(Object.entries(context).filter(([, value]) =>
     Array.isArray(value) ? value.flat(1).length > 0 : isPresent(value)))
-  const hasContext = Object.keys(presentContext).length > 0
   const selected: Array<{ price: CalculatedPriceSetDTO; specificity: number }> = []
   for (const price of rows.prices) {
     if (!requested.has(price.price_set_id) || price.currency_code !== currencyCode || price.deleted_at !== null) continue
@@ -90,6 +89,7 @@ export function selectCalculatedPriceRows(
     const list = candidate?.status === "active" && candidate.deleted_at === null &&
       (candidate.starts_at === null || new Date(candidate.starts_at) <= now) &&
       (candidate.ends_at === null || new Date(candidate.ends_at) >= now) ? candidate : undefined
+    if (price.price_list_id !== null && list === undefined) continue
     const priceMatches = rows.priceRules.filter(rule => rule.price_id === price.id && rule.deleted_at === null &&
       matchesPriceRule(rule, presentContext)).length
     const listMatches = list === undefined ? 0 : rows.listRules.filter(rule => {
@@ -97,10 +97,8 @@ export function selectCalculatedPriceRows(
       return rule.price_list_id === list.id && rule.deleted_at === null && value !== undefined &&
         (Array.isArray(value) ? value.some(member => containsJson(rule.value, member)) : containsJson(rule.value, value))
     }).length
-    if (hasContext) {
-      if (price.rules_count !== 0 && priceMatches !== price.rules_count) continue
-      if (price.price_list_id !== null && list?.rules_count !== 0 && listMatches !== list?.rules_count) continue
-    } else if (price.rules_count !== 0 && !(price.price_list_id !== null && list?.rules_count === 0)) continue
+    if (priceMatches !== price.rules_count ||
+      (list !== undefined && listMatches !== list.rules_count)) continue
     selected.push({ price: { id: price.id, price_set_id: price.price_set_id, amount: price.amount,
       raw_amount: price.raw_amount, currency_code: price.currency_code, min_quantity: price.min_quantity,
       max_quantity: price.max_quantity, price_list_id: price.price_list_id,

@@ -1,8 +1,9 @@
 # Calculated Pricing query cutover
 
 Status: selected calculated-PriceSet path implemented under the standing
-shared-storage completion goal. Full PriceList mutation and calculated-query
-parity retain the gates below.
+shared-storage completion goal. Selected native PriceList creation and active
+override calculation are covered by [PriceList cutover](./49-native-price-list-create-cutover.md).
+Full PriceList mutation and calculated-query parity retain the gates below.
 
 ## Outcome and owners
 
@@ -91,9 +92,10 @@ four-table source until the separate structural conversion/reset decision.
 
 ## Remaining gates
 
-Native PriceList/PriceListRule/PricePreference mutation, persisted active,
-future and expired list calculation, JSON rule selection, and pending
-calculation during an admitted write still need connected dual-driver proofs.
+Native PriceList updates/deletes, PricePreference mutation, persisted sale,
+future and expired list calculation, and pending calculation during an admitted
+write still need connected dual-driver proofs. The selected PriceList create
+path now proves persisted active override and one JSON region rule.
 Range PriceRules need PostgreSQL-compatible numeric-cast validation and a
 connected rule mutation/read proof before admission.
 The selected path refuses unsupported input shapes and complete-set overflow;

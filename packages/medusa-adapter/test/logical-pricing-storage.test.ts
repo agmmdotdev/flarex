@@ -6,10 +6,12 @@ import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-s
 import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-storage-requirements";
 import { AppCreationTimeV1Schema, canonicalizeAppDocumentV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
-import { createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { createStep, createWorkflow, StepResponse, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
+import { Modules } from "@medusajs/framework/utils/portable";
+import type { IPricingModuleService } from "@medusajs/framework/types";
 import { createPriceSetsStep } from "@medusajs/core-flows/pricing/create-price-sets-step";
 import { useQueryGraphStep } from "@medusajs/core-flows/common/use-query-graph";
-import { PriceSetsInput } from "../src/pricing-input";
+import { PriceSetsInput, PriceListsInput } from "../src/pricing-input";
 import { decodeCompiledDml } from "../src/schema/compiled";
 import { lowerDmlSchema } from "../src/schema/lower";
 
@@ -258,6 +260,84 @@ describe("native Pricing on shared logical storage", () => {
           }))).toMatchObject([{ id: "exact", calculated_amount: 123.45678901234568 }]);
         } finally { await Effect.runPromise(firstReader.close); }
       } finally { await Effect.runPromise(otherHost.close); }
+    } finally { await Effect.runPromise(host.close); }
+  }, 60_000);
+
+  it("creates a native active PriceList graph and calculates its override from logical rows", async () => {
+    const createListsStep = createStep({ name: "create-price-lists", compensation: "transactionCovered" },
+      async (data: typeof PriceListsInput.Type, { container }) => {
+        const service = container.resolve<IPricingModuleService>(Modules.PRICING);
+        const normalized = data.map(list => {
+          const { prices, rules, ...rest } = list;
+          return { ...rest, prices: prices.map(price => ({ ...price })),
+            ...(rules === undefined ? {} : { rules: Object.fromEntries(Object.entries(rules)
+              .map(([key, values]) => [key, [...values]])) }) };
+        });
+        return new StepResponse(await service.createPriceLists(normalized));
+      });
+    const Input = Schema.Struct({ sets: PriceSetsInput, lists: PriceListsInput });
+    const flow = createWorkflow("create-logical-price-list", (input: WorkflowData<typeof Input.Type>) => {
+      const sets = createPriceSetsStep(transform(input.sets, data => data.map(set => {
+        const { prices, ...rest } = set;
+        return { ...rest, ...(prices === undefined ? {} : { prices: prices.map(price => ({ ...price,
+          ...(price.rules === undefined ? {} : { rules: { ...price.rules } }),
+        })) }) };
+      })));
+      const lists = createListsStep(transform({ sets, data: input.lists }, ({ data }) => data));
+      return new WorkflowResponse({ sets, lists });
+    });
+    const resources = Result.getOrThrow(prepareWorkflowResources({ pricing: {
+      module: fixture.pricing.runtime.workflow, methods: ["createPriceSets", "createPriceLists"], graph: true,
+    } }, true));
+    const host = await Effect.runPromise(prepareAtomicWorkflowHost({
+      execution: { identityAndAccessPolicy: fixture.pricing.hostInput.identityAndAccessPolicy,
+        prepare: composition => makeAtomicCommerceHost({ ...fixture.pricing.hostInput, ...composition }) },
+      modules: { pricing: { module: fixture.pricing.runtime.workflow,
+        logicalStorage: fixture.pricing.hostInput.logicalStorage } },
+      revision: "e".repeat(64), subscribers: [{ id: "pricing-logical-list", revision: "f".repeat(64) }],
+      workflow: { name: "logicalPriceList", resources, prepared: Result.getOrThrow(flow.prepare()),
+        input: Input, output: Schema.Json, events: internalModuleWorkflowEvents },
+    }));
+    try {
+      const before = await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents);
+      const input: typeof Input.Type = { sets: [{ id: "list-set", prices: [{ id: "list-base", currency_code: "USD", amount: "100" }] }],
+        lists: [{ id: "active-list", title: "Regional override", description: "Selected logical list",
+          status: "active", type: "override", rules: { region_id: ["region"] },
+          prices: [{ id: "list-price", price_set_id: "list-set", currency_code: "USD", amount: "10" }] }] };
+      const key = host.newRequestKey();
+      const result = await Effect.runPromise(host.run(key, input));
+      expect(result).toMatchObject({ lists: [{ id: "active-list", status: "active", type: "override" }] });
+      expect(await Effect.runPromise(host.run(key, input))).toEqual(result);
+      const events = (await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents)).slice(before.length);
+      expect(events.map(event => event.envelope.contract).sort()).toEqual([
+        "pricing.price-set.created", "pricing.price.created", "pricing.price-list.created",
+        "pricing.price.created", "pricing.price-list-rule.created",
+      ].sort());
+      await expect(Effect.runPromise(host.run(host.newRequestKey(), { ...input,
+        sets: [{ id: "failed-list-set", prices: [{ id: "failed-list-base", currency_code: "USD", amount: "50" }] }],
+      }))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
+      expect(await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents))
+        .toHaveLength(before.length + events.length);
+      const reader = await Effect.runPromise(makeCommerceHost(fixture.pricing.hostInput));
+      try {
+        const calculated = await Effect.runPromise(reader.read(fixture.pricing.runtime.calculate, {
+          filters: { id: ["list-set"] }, pricingContext: { context: { currency_code: "USD", region_id: "region" } },
+        }));
+        expect(calculated).toMatchObject([{ id: "list-set", calculated_amount: 10,
+          original_amount: 10, calculated_price: { id: "list-price" },
+          is_calculated_price_price_list: true }]);
+        expect(await Effect.runPromise(reader.read(fixture.pricing.runtime.calculate, {
+          filters: { id: ["list-set"] }, pricingContext: { context: { currency_code: "USD", region_id: "elsewhere" } },
+        }))).toMatchObject([{ id: "list-set", calculated_amount: 100,
+          original_amount: 100, calculated_price: { id: "list-base" } }]);
+        expect(await Effect.runPromise(reader.read(fixture.pricing.runtime.calculate, {
+          filters: { id: ["list-set"] }, pricingContext: { context: { currency_code: "USD" } },
+        }))).toMatchObject([{ id: "list-set", calculated_amount: 100,
+          original_amount: 100, calculated_price: { id: "list-base" } }]);
+        expect(await Effect.runPromise(reader.read(fixture.pricing.runtime.list, {
+          filters: { id: ["failed-list-set"] },
+        }))).toEqual([]);
+      } finally { await Effect.runPromise(reader.close); }
     } finally { await Effect.runPromise(host.close); }
   }, 60_000);
 });

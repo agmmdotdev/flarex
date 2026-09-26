@@ -56,6 +56,21 @@ describe("pinned Pricing row selection over complete indexed candidates", () => 
       .map(row => row.id)).toEqual(["base"]);
   });
 
+  it("excludes inactive lists and unmet list rules when context is absent", () => {
+    const rows: PricingSelectionRows = { prices: [price("base", "100"),
+      price("regional", "10", "regional-list"), price("draft", "5", "draft-list"),
+      { ...price("null-count", "1"), rules_count: null }],
+      lists: [{ ...list("regional-list", "override"), rules_count: 1 },
+        { ...list("draft-list", "override"), status: "draft" }],
+      priceRules: [], listRules: [{ price_list_id: "regional-list", attribute: "region_id",
+        value: ["region"], deleted_at: null }],
+    };
+    expect(selectCalculatedPriceRows(["set"], "usd", undefined, {}, now, rows).map(row => row.id))
+      .toEqual(["base"]);
+    expect(selectCalculatedPriceRows(["set"], "usd", undefined, { region_id: "region" }, now, rows)
+      .map(row => row.id)).toEqual(["regional", "base"]);
+  });
+
   it("uses pinned text equality for numeric rules and ignores empty context values", () => {
     const rows: PricingSelectionRows = { prices: [price("base", "100"), price("number", "90", null, 1)],
       lists: [], priceRules: [{ price_id: "number", attribute: "tier", operator: "eq",

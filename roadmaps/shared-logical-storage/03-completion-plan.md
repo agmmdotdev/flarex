@@ -56,8 +56,9 @@ remain distinct from logical schema evolution.
   evidence. Native Links and current workflow tests are replacement obligations,
   not generic query proofs. Exact numeric storage and scoped population boundary
   suites now use logical sources without generated module tables. A selected
-  native calculated-PriceSet read has dual-driver proof, while persisted
-  PriceList and full calculated-query acceptance remain separately gated.
+  native calculated-PriceSet read and selected persisted active-override
+  PriceList creation have dual-driver proofs; full calculated-query acceptance
+  remains gated.
   The connected [Currency cutover](./10-currency-storage-cutover.md) is in progress;
   its native and atomic consumers use shared storage. A selected-source private
   announcement now combines native Currency, Payload and Application writes in
@@ -121,8 +122,9 @@ remain distinct from logical schema evolution.
   commands and other Product workflows remain outside this selected admission.
   The selected Variant–PriceSet stored Link now compiles from pinned native
   metadata into a shared logical source beside Product and the complete six-model
-  Pricing source. Pricing service methods remain limited to the selected PriceSet
-  path. The Link's native attach step creates the rich row, reads it pending and committed,
+  Pricing source. Pricing service methods include selected PriceSet and
+  PriceList creation and PriceSet calculation paths. The Link's native attach
+  step creates the rich row, reads it pending and committed,
   authenticates its attached event and preserves active endpoint cardinality,
   rollback, replay and two-shop isolation. The existing native
   Product–Variant–Pricing workflow now selects Product, complete Pricing and Link
