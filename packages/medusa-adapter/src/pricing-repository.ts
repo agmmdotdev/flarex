@@ -21,6 +21,8 @@ import { QueryEnvelope, QueryLimit, QueryOffset } from "./query-decoder";
 import { PricingId } from "./pricing-input";
 import type { capturePricingMetadata } from "./pricing-schema";
 import { relationPaths } from "./local-graph/module";
+import { calculateLogicalPrices } from "./pricing-calculation";
+import { readCommerceRelationRows } from "./commerce-relations";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -38,6 +40,22 @@ const decodeRule = commerceDecoder(Rule, "unsupportedProfile");
 const decodeEnvelope = commerceDecoder(QueryEnvelope, "unsupportedProfile");
 const decodeStoredRows = commerceDecoder(Schema.Array(Schema.JsonObject), "storedCorruption");
 const decodeSerialized = commerceDecoder(Schema.Union([Schema.JsonObject, Schema.Array(Schema.JsonObject)]), "storedCorruption");
+const decodeRuleFind = commerceDecoder(Schema.Struct({
+  where: Schema.Struct({ price_id: Schema.Array(PricingId).check(Schema.isMaxLength(256)) }),
+  options: Schema.Unknown,
+}), "unsupportedProfile");
+const decodePreferenceFind = commerceDecoder(Schema.Struct({
+  where: Schema.Struct({ $or: Schema.Array(Schema.Struct({ attribute: Schema.String, value: Schema.String })).check(Schema.isMaxLength(2)) }),
+  options: Schema.Unknown,
+}), "unsupportedProfile");
+const decodeTaxRules = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({
+  id: PricingId, price_id: PricingId, attribute: Schema.String, value: Schema.String,
+  operator: Schema.String, deleted_at: Schema.NullOr(Schema.String),
+}), [Schema.Record(Schema.String, Schema.Json)])), "storedCorruption");
+const decodePreferences = commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({
+  id: PricingId, attribute: Schema.String, value: Schema.NullOr(Schema.String),
+  is_tax_inclusive: Schema.Boolean, deleted_at: Schema.NullOr(Schema.String),
+}), [Schema.Record(Schema.String, Schema.Json)])), "storedCorruption");
 const decodeOptions = commerceDecoder(Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
   populate: Schema.optionalKey(Schema.Array(Schema.Literals(["prices", "prices.price_rules"])).check(Schema.isMaxLength(2))),
@@ -188,7 +206,38 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         update: refuse, delete: refuse, upsert: refuse, upsertWithReplace: refuse, softDelete: refuse, restore: refuse,
       };
       const denied: DAL.RepositoryService = { ...repository, serialize: refuse, find: refuse, findAndCount: refuse, create: refuse };
-      return { repository, denied, mutationEvents, bridge, refuse };
+      const ruleRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
+        find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const query = yield* Effect.fromResult(decodeRuleFind(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
+          const ids = [...new Set(query.where.price_id)];
+          const rows: JsonObject[] = [];
+          for (let offset = 0; offset < ids.length; offset += 16) {
+            rows.push(...yield* readCommerceRelationRows(ctx, "price_rule", { kind: "and", children: [
+              { kind: "in", column: "price_id", values: ids.slice(offset, offset + 16) },
+              { kind: "isNull", column: "deleted_at" },
+            ] }));
+          }
+          return [...yield* Effect.fromResult(decodeTaxRules(rows))];
+        }))),
+      };
+      const preferenceRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
+        find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
+          const query = yield* Effect.fromResult(decodePreferenceFind(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
+          const pairs = [...new Map(query.where.$or.map(member =>
+            [JSON.stringify([member.attribute, member.value]), [member.attribute, member.value]])).values()];
+          if (pairs.length === 0) return [];
+          const rows = yield* readCommerceRelationRows(ctx, "price_preference", { kind: "and", children: [
+            { kind: "indexedPoints", columns: ["attribute", "value"], values: pairs },
+            { kind: "isNull", column: "deleted_at" },
+          ] });
+          return [...yield* Effect.fromResult(decodePreferences(rows))];
+        }))),
+      };
+      const calculatePrices = (filters: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[0],
+        pricingContext: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[1],
+        shared: Parameters<import("@medusajs/framework/types").PricingRepositoryService["calculatePrices"]>[2]) =>
+        bridge.execute(shared, ctx => bridge.checked(ctx, calculateLogicalPrices(ctx, { filters, pricingContext })));
+      return { repository, denied, ruleRepository, preferenceRepository, mutationEvents, bridge, refuse, calculatePrices };
     };
     return { bind, table: yield* readCatalog.table(set.table.name), paths: yield* relationPaths(readCatalog, set.table.name, paths) };
   });

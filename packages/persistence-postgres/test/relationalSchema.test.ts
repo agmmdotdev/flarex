@@ -371,6 +371,33 @@ describe("private relational schema values", () => {
       10, reason => new Error(reason)))).toBe(true);
   });
 
+  it("selects complete compound points only through an admitted unique index", () => {
+    const base = currencyInput();
+    const schema = Result.getOrThrow(normalizeRelationalSchema({ ...base, tables: base.tables.map(table => ({
+      ...table,
+      columns: [...table.columns,
+        scalarColumn("attribute", "text", authored("test.preference.attribute")),
+        scalarColumn("value", "text", authored("test.preference.value"))],
+      indexes: [...table.indexes, { indexId: "currency.preference-pair", kind: "uniqueBtree",
+        columns: ["attribute", "value"], predicate: { kind: "isNull", columnId: "deleted_at" },
+        origin: derived("test.preference-pair") }],
+    })) }));
+    const table = schema.tables[0];
+    if (table === undefined) throw new Error("Missing compound-index table");
+    const points = { kind: "indexedPoints", columns: ["attribute", "value"], values: [
+      ["region_id", "region"], ["currency_code", "USD"],
+    ] };
+    const compile = (predicate: unknown) => compileLogicalRelationalRead(table, schema.capabilities,
+      { order: { column: "code", direction: "asc" }, predicate }, 10, reason => new Error(reason));
+    expect(Result.getOrThrow(compile({ kind: "and", children: [points,
+      { kind: "isNull", column: "deleted_at" }] })).selections).toEqual([
+      { kind: "point", columns: ["attribute", "value"], values: ["region_id", "region"], nullColumn: "deleted_at" },
+      { kind: "point", columns: ["attribute", "value"], values: ["currency_code", "USD"], nullColumn: "deleted_at" },
+    ]);
+    expect(Result.isFailure(compile(points))).toBe(true);
+    expect(Result.isFailure(compile({ ...points, values: [["region_id"]] }))).toBe(true);
+  });
+
   it("selects canonical timestamp greater-than ranges only through an ordered index", () => {
     const base = currencyInput();
     const plain = Result.getOrThrow(normalizeRelationalSchema(base));

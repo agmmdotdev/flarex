@@ -62,12 +62,19 @@ export function selectLogicalPageIndex<Failure>(definitions: readonly LocatedApp
 
 /** Select a declared equality prefix and at most one following range. The shared
  * ordered codec owns bounds and value ordering; this does not grant authority. */
-export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppIndexDefinitionV1[], tableId: CatalogTableId, where: LogicalWhere, error: LogicalDocumentFailure<Failure>) {
+export function selectLogicalIndex<Failure>(definitions: readonly LocatedAppIndexDefinitionV1[], tableId: CatalogTableId, where: LogicalWhere,
+  error: LogicalDocumentFailure<Failure>, exactPoint?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) {
   return Result.try({ try: () => {
     let selected = Option.none<{ definition: LocatedAppIndexDefinitionV1; expressions: OrderedIndexRangeExpressionV1[]; fields: number }>();
     for (const definition of definitions) {
       if (definition.access.kind !== "developer" || definition.access.tableId !== tableId) continue;
       const membership = definition.physicalSpec.predicate;
+      if (exactPoint !== undefined && (definition.physicalSpec.orderedFields.length < exactPoint.columns.length ||
+        !exactPoint.columns.every((column, offset) => {
+          const field = definition.physicalSpec.orderedFields[offset];
+          return field?.kind === "documentPath" && field.path === column;
+        }) || (exactPoint.nullColumn === undefined ? membership !== undefined :
+          membership?.kind !== "fieldIsNull" || membership.field !== exactPoint.nullColumn))) continue;
       if (membership !== undefined && !(membership.kind === "fieldIsNull"
         ? where[membership.field] === null
         : where[membership.nullField] === null && where[membership.textField] === membership.value)) continue;

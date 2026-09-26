@@ -19,6 +19,7 @@ import { moduleAliases } from "./local-graph/module";
 import { decodeGraphCount } from "./local-graph/query";
 import type { GraphModuleDefinition } from "./local-graph/model";
 import { PriceSetsInput, PricingId, decodePriceSetCreate, decodePriceSetRead, decodePriceSetRetrieve } from "./pricing-input";
+import { decodePricingCalculation } from "./pricing-calculation";
 import { pricingEventPolicy, pricingLogicalCreateEventPolicy } from "./pricing-events";
 const decodeCreateArguments = commerceDecoder(Schema.Tuple([PriceSetsInput]), "invalidInput");
 
@@ -37,18 +38,20 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
         subscribe: () => owner.reject(commerceError("unsupportedProfile")), unsubscribe: () => owner.reject(commerceError("unsupportedProfile")), releaseGroupedEvents: bound.refuse, clearGroupedEvents: bound.refuse,
       };
       return { baseRepository: bound.repository, repository: (model: typeof Price | typeof PriceSet | typeof PriceRule | typeof PriceList | typeof PriceListRule | typeof PricePreference) =>
-        model === PriceSet ? bound.repository : bound.denied,
-      events: bound.mutationEvents, eventBus, refuse: bound.refuse };
+        model === PriceSet ? bound.repository : model === PriceRule ? bound.ruleRepository :
+          model === PricePreference ? bound.preferenceRepository : bound.denied,
+      events: bound.mutationEvents, eventBus, refuse: bound.refuse, calculatePrices: bound.calculatePrices };
     };
     const module = yield* defineCommerceModule({ name: "flarex-pricing-local",
       models: [PriceSet, Price, PriceRule, PriceList, PriceListRule, PricePreference],
       profile: { name: "pricing-base-prices", capabilities: [], bind },
-      extensions: { pricingRepository: { mode: "add", create: ({ binding }) => ({ calculatePrices: binding.refuse } satisfies PricingRepositoryService) } },
+      extensions: { pricingRepository: { mode: "add", create: ({ binding }) => ({ calculatePrices: binding.calculatePrices } satisfies PricingRepositoryService) } },
       service: ({ binding, dependencies, context }) => {
         const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
         const native = new PricingModuleService(container, { scope: "internal" });
         return { service: { createPriceSets: native.createPriceSets.bind(native), listPriceSets: native.listPriceSets.bind(native),
-          retrievePriceSet: native.retrievePriceSet.bind(native), listAndCountPriceSets: native.listAndCountPriceSets.bind(native) }, context };
+          retrievePriceSet: native.retrievePriceSet.bind(native), listAndCountPriceSets: native.listAndCountPriceSets.bind(native),
+          calculatePrices: native.calculatePrices.bind(native) }, context };
       },
     }).pipe(Result.mapError(error => commerceError("unsupportedProfile", error)));
     const commands = commerceServiceCommands(module.use);
@@ -62,6 +65,8 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     const list = commands.read("pricingList", prepare(decodePriceSetRead), ({ service, context }, args) => service.listPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
     const count = commands.read("pricingCount", prepare(decodePriceSetRead), ({ service, context }, args) => service.listAndCountPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
     const retrieve = commands.read("pricingRetrieve", prepare(decodePriceSetRetrieve), ({ service, context }, args) => service.retrievePriceSet(args.id, args.config as FindConfig<PriceSetDTO> | undefined, context));
+    const calculate = commands.read("pricingCalculate", prepare(decodePricingCalculation), ({ service, context }, args) =>
+      service.calculatePrices({ id: [...args.filters.id] }, args.pricingContext, context));
     const joiner = pricingStaticResources.joinerConfig;
     if (!joiner) return yield* Result.fail(commerceError("unsupportedProfile"));
     const graph: GraphModuleDefinition = { aliases: yield* moduleAliases({ ...joiner, alias: (Array.isArray(joiner.alias) ? joiner.alias : joiner.alias === undefined ? [] : [joiner.alias]).filter(alias => alias.entity === "PriceSet") }),
@@ -71,8 +76,8 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       output: commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: PricingId }), [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isMaxLength(4)), "storedCorruption"),
       moduleEvents: ["price_set", "price", "price_rule"].map(objectName => buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action: "created" })),
     });
-    const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description, methods: { createPriceSets }, graph, logical: { ...pricingLogicalCreateEventPolicy(), commands: [create, list, count, retrieve] },
+    const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description, methods: { createPriceSets }, graph, logical: { ...pricingLogicalCreateEventPolicy(), commands: [create, list, count, retrieve, calculate] },
     });
-    return { create, list, count, retrieve, commands: [create, list, count, retrieve], graph, workflow, withService: module.use, eventPolicy: pricingEventPolicy };
+    return { create, list, count, retrieve, calculate, commands: [create, list, count, retrieve, calculate], graph, workflow, withService: module.use, eventPolicy: pricingEventPolicy };
   }));
 });

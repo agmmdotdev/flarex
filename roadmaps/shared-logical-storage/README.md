@@ -19,8 +19,10 @@ Status: accepted development-phase architecture replacement; the first
 Selective CMS/Payload ID, unique-key and ordinary-index reads are implemented; selected Medusa
 Currency, Product, the complete six-model Pricing source, SalesChannel, ShippingProfile, Variant–PriceSet
 and Product Links workflows execute through generic rows while other consumers
-remain physical. Pricing service admission still covers only the selected PriceSet
-methods; calculated Pricing remains gated. SalesChannel name and ShippingProfile type use shared exact-text
+remain physical. A selected native calculated-PriceSet read now uses indexed logical
+Pricing rows, exact compound preference points and one transaction timestamp;
+PriceList and broader calculation parity retain their
+[separate gate](./48-calculated-pricing-query-cutover.md). SalesChannel name and ShippingProfile type use shared exact-text
 equality access; SalesChannel `is_disabled` uses a declared Boolean index under
 [its connected selection cutover](./24-sales-channel-boolean-selection.md).
 Selected scalar and Product-tag commands now validate at the shared outer-call

@@ -17,7 +17,8 @@ import { prepareAtomicWorkflowHost } from "../src/workflow/host";
 import { prepareWorkflowResources } from "../src/workflow/resources";
 import { internalModuleWorkflowEvents } from "../src/workflow/events";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
-import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { defaultCommerceResources } from "../../persistence-postgres/src/commerceTransaction/resources";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { fxControlTables } from "../../persistence-postgres/src/schema";
 import { locateAppDeveloperIndexDefinitionsForSchemaEffect } from "../../persistence-postgres/src/appIndexDefinitions";
@@ -101,6 +102,32 @@ describe("native Pricing on shared logical storage", () => {
       .not.toBe(active.indexDefinitionId);
   });
 
+  it("keeps compound preference points on their admitted partial index with a broader competitor", async () => {
+    const table = (await fixture.currency.control.drizzle.select().from(fxControlTables))
+      .find(value => value.logicalName === "commerce.pricing/price_preference");
+    if (table === undefined) throw new Error("Missing logical PricePreference table");
+    const definitions = await Effect.runPromise(locateAppDeveloperIndexDefinitionsForSchemaEffect(
+      fixture.currency.control.drizzle, fixture.currency.deploymentId,
+      fixture.currency.application.authority.scopeId, fixture.currency.schemaVersionId, [table.tableId], 20));
+    if (definitions === null) throw new Error("Missing logical PricePreference indexes");
+    const exact = definitions.find(definition => definition.physicalSpec.predicate?.kind === "fieldIsNull" &&
+      definition.physicalSpec.orderedFields[0]?.kind === "documentPath" &&
+      definition.physicalSpec.orderedFields[0].path === "attribute" &&
+      definition.physicalSpec.orderedFields[1]?.kind === "documentPath" &&
+      definition.physicalSpec.orderedFields[1].path === "value");
+    if (exact === undefined) throw new Error("Missing active preference pair index");
+    const { predicate: _predicate, ...broadSpec } = exact.physicalSpec;
+    const broad = { ...exact, physicalSpec: broadSpec };
+    const where = { attribute: "currency_code", value: "USD", deleted_at: null };
+    const choose = (point?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) =>
+      Result.getOrThrow(selectLogicalIndex([broad, ...definitions], table.tableId, where,
+        () => new Error("PricePreference index selection failed"), point));
+    expect(choose().pipe(value => value._tag === "Some" ? value.value.definition.physicalSpec.predicate : null)).toBeUndefined();
+    expect(choose({ columns: ["attribute", "value"], nullColumn: "deleted_at" })
+      .pipe(value => value._tag === "Some" ? value.value.definition.physicalSpec.predicate : null))
+      .toEqual({ kind: "fieldIsNull", field: "deleted_at" });
+  });
+
   it("runs native base-price creation with exact nested values, pending reads and one publication", async () => {
     const resources = Result.getOrThrow(prepareWorkflowResources({ pricing: {
       module: fixture.pricing.runtime.workflow, methods: ["createPriceSets"], graph: true,
@@ -149,7 +176,88 @@ describe("native Pricing on shared logical storage", () => {
         expect(await Effect.runPromise(reader.read(fixture.pricing.runtime.list, { filters: { id: "exact" },
           config: { select: ["id", "prices.amount", "prices.raw_amount"], relations: ["prices"], take: 1 } })))
           .toMatchObject([{ id: "exact", prices: [{ raw_amount: { value: "123.45678901234567890" } }] }]);
+        expect(await Effect.runPromise(reader.read(fixture.pricing.runtime.calculate, {
+          filters: { id: ["exact"] }, pricingContext: { context: { currency_code: "USD", region_id: "region" } },
+        }))).toMatchObject([{ id: "exact", calculated_amount: 123.45678901234568,
+          raw_calculated_amount: { value: "123.45678901234567890" },
+          is_calculated_price_tax_inclusive: false, calculated_price: { id: "exact-price" } }]);
       } finally { await Effect.runPromise(reader.close); }
+      await Effect.runPromise(host.run(host.newRequestKey(), [{ id: "other", prices: [{ id: "other-price",
+        currency_code: "USD", amount: "1" }] }]));
+      const bounded = await Effect.runPromise(makeCommerceHost({ ...fixture.pricing.hostInput,
+        logicalResources: { ...defaultCommerceResources, catalogRows: 2, queryRows: 2, writeBatchRows: 2 } }));
+      try {
+        const calculate = (ids: string[]) => bounded.read(fixture.pricing.runtime.calculate, {
+          filters: { id: ids }, pricingContext: { context: { currency_code: "USD", region_id: "region" } },
+        });
+        expect(await Effect.runPromise(calculate(["exact"]))).toMatchObject([
+          { id: "exact", calculated_price: { id: "exact-price" } },
+        ]);
+        const overflow = await Effect.runPromise(Effect.flip(calculate(["exact", "other"])));
+        expect(JSON.parse(JSON.stringify(overflow)))
+          .toMatchObject({ reason: "rollbackOnly", cause: { failures: [
+            { error: { reason: "limitExceeded" } },
+          ] } });
+      } finally { await Effect.runPromise(bounded.close); }
+      // Fixture-only logical rows exercise the selected read contract before
+      // native PricePreference mutation is admitted by a separate slice.
+      const seedPreferences = defineCommerceCommand("seed-pricing-preferences", "write", ctx => Effect.gen(function* () {
+        const table = yield* ctx.table("price_preference");
+        return yield* table.write(ctx.manager, "insert", [
+          { id: "preference-usd", attribute: "currency_code", value: "USD", is_tax_inclusive: true },
+          { id: "preference-eur", attribute: "currency_code", value: "EUR", is_tax_inclusive: false },
+          { id: "preference-gbp", attribute: "currency_code", value: "GBP", is_tax_inclusive: false },
+        ]);
+      }));
+      const fixtureWriter = await Effect.runPromise(makeCommerceHost({ ...fixture.pricing.hostInput,
+        commands: [...fixture.pricing.hostInput.commands, seedPreferences] }));
+      try { await Effect.runPromise(fixtureWriter.run(fixtureWriter.newRequestKey(), seedPreferences, null));
+      } finally { await Effect.runPromise(fixtureWriter.close); }
+      const selective = await Effect.runPromise(makeCommerceHost({ ...fixture.pricing.hostInput,
+        logicalResources: { ...defaultCommerceResources, catalogRows: 3, queryRows: 3, writeBatchRows: 3 } }));
+      try {
+        expect(await Effect.runPromise(selective.read(fixture.pricing.runtime.calculate, {
+          filters: { id: ["exact"] }, pricingContext: { context: { currency_code: "USD", region_id: "region" } },
+        }))).toMatchObject([{ id: "exact", is_calculated_price_tax_inclusive: true,
+          calculated_price: { id: "exact-price" } }]);
+      } finally { await Effect.runPromise(selective.close); }
+      const otherCurrency = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
+        resource: fixture.currency.resource, includePricing: true,
+        fixtureIdentity: { deploymentId: "deployment_pricing_calculation_shop_b",
+          projectId: "project_pricing_calculation_shop_b", uuidOffset: 20_000 },
+      });
+      const otherPricing = await prepareLogicalPricingHost(otherCurrency);
+      await Effect.runPromise(otherPricing.host.initialize([]));
+      await Effect.runPromise(otherPricing.host.close);
+      const otherResources = Result.getOrThrow(prepareWorkflowResources({ pricing: {
+        module: otherPricing.runtime.workflow, methods: ["createPriceSets"], graph: true,
+      } }, true));
+      const otherHost = await Effect.runPromise(prepareAtomicWorkflowHost({
+        execution: { identityAndAccessPolicy: otherPricing.hostInput.identityAndAccessPolicy,
+          prepare: composition => makeAtomicCommerceHost({ ...otherPricing.hostInput, ...composition }) },
+        modules: { pricing: { module: otherPricing.runtime.workflow,
+          logicalStorage: otherPricing.hostInput.logicalStorage } },
+        revision: "c".repeat(64), subscribers: [{ id: "pricing-logical-shop-b", revision: "d".repeat(64) }],
+        workflow: { name: "logicalBasePrices", resources: otherResources, prepared: Result.getOrThrow(flow.prepare()),
+          input: PriceSetsInput, output: Schema.Json, events: internalModuleWorkflowEvents },
+      }));
+      try {
+        await Effect.runPromise(otherHost.run(otherHost.newRequestKey(), [{ id: "exact", prices: [{
+          id: "exact-price", currency_code: "USD", amount: "5" }] }]));
+        const otherReader = await Effect.runPromise(makeCommerceHost(otherPricing.hostInput));
+        try {
+          expect(await Effect.runPromise(otherReader.read(otherPricing.runtime.calculate, {
+            filters: { id: ["exact"] }, pricingContext: { context: { currency_code: "USD" } },
+          }))).toMatchObject([{ id: "exact", calculated_amount: 5,
+            calculated_price: { id: "exact-price" } }]);
+        } finally { await Effect.runPromise(otherReader.close); }
+        const firstReader = await Effect.runPromise(makeCommerceHost(fixture.pricing.hostInput));
+        try {
+          expect(await Effect.runPromise(firstReader.read(fixture.pricing.runtime.calculate, {
+            filters: { id: ["exact"] }, pricingContext: { context: { currency_code: "USD", region_id: "region" } },
+          }))).toMatchObject([{ id: "exact", calculated_amount: 123.45678901234568 }]);
+        } finally { await Effect.runPromise(firstReader.close); }
+      } finally { await Effect.runPromise(otherHost.close); }
     } finally { await Effect.runPromise(host.close); }
   }, 60_000);
 });

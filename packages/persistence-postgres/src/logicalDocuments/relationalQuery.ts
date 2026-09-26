@@ -24,6 +24,9 @@ const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(["and", "or"]), children: Schema.Array(Schema.Unknown) }),
   Schema.Struct({ kind: Schema.Literal("in"), column: Schema.String,
     values: Schema.Array(Schema.Union([Schema.String, Schema.Boolean])) }),
+  Schema.Struct({ kind: Schema.Literal("indexedPoints"),
+    columns: Schema.Array(Schema.String).check(Schema.isMinLength(2), Schema.isMaxLength(4)),
+    values: Schema.Array(Schema.Array(Schema.Union([Schema.String, Schema.Boolean]))).check(Schema.isMaxLength(16)) }),
   Schema.Struct({ kind: Schema.Literal("isNull"), column: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("greaterThan"), column: Schema.String, value: Schema.String }),
@@ -32,11 +35,19 @@ const Node = Schema.Union([
 ]);
 const decodeEnvelope = Schema.decodeUnknownResult(Envelope, { onExcessProperty: "error" });
 const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" });
-interface Selection {
+interface ScalarSelection {
+  readonly kind?: never;
   readonly column: string;
   readonly value: string | boolean | Readonly<{ gt: string }>;
   readonly nullColumn?: string;
 }
+interface PointSelection {
+  readonly kind: "point";
+  readonly columns: readonly string[];
+  readonly values: readonly (string | boolean)[];
+  readonly nullColumn?: string;
+}
+type Selection = ScalarSelection | PointSelection;
 interface SelectionPlan {
   /** null needs another indexed conjunct, or an admitted bounded full-set read. */
   readonly selections: readonly Selection[] | null;
@@ -89,6 +100,10 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
     if (take > pageRows) return yield* Result.fail(error("limitExceeded"));
     const isBoundedUniquePoints = (selections: readonly Selection[] | null) => selections !== null &&
       selections.length > 0 && selections.length <= 16 && selections.every(selection => {
+        if (selection.kind === "point") return table.indexes.some(index => index.kind === "uniqueBtree" &&
+          index.columns.length === selection.columns.length && index.columns.every((column, offset) =>
+            column.columnId === selection.columns[offset]) && (index.predicate === null ||
+              index.predicate.kind === "isNull" && index.predicate.column.columnId === selection.nullColumn));
         if (typeof selection.value === "object") return false;
         if (table.keys.some(tableKey => tableKey.columns.length === 1 && tableKey.columns[0]?.columnId === selection.column)) return true;
         return table.indexes.some(index => index.kind === "uniqueBtree" && index.columns.length === 1 &&
@@ -120,6 +135,31 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
             ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
         }, requiredNulls: new Set<string>(), search: null,
           matches: row => { const value = row[node.column]; return (typeof value === "string" || typeof value === "boolean") && keys.has(value); } };
+      }
+      if (node.kind === "indexedPoints") {
+        operands += node.values.length * node.columns.length;
+        if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
+        if (new Set(node.columns).size !== node.columns.length || node.values.some(point => point.length !== node.columns.length))
+          return yield* Result.fail(error("invalidInput"));
+        for (const [offset, name] of node.columns.entries()) {
+          const column = table.columns.find(candidate => candidate.identity.columnId === name);
+          if (column === undefined || (column.type !== "text" && column.type !== "boolean") ||
+            node.values.some(point => { const value = point[offset];
+              return value === undefined || !isRelationalColumnValue(column.type, false, value); }))
+            return yield* Result.fail(error("invalidInput"));
+        }
+        const points = new Set(node.values.map(point => JSON.stringify(point)));
+        return { select: (requiredNulls: ReadonlySet<string>) => {
+          const index = table.indexes.find(candidate => candidate.kind === "uniqueBtree" &&
+            candidate.columns.length === node.columns.length && candidate.columns.every((column, offset) =>
+              column.columnId === node.columns[offset]) && (candidate.predicate === null ||
+                candidate.predicate.kind === "isNull" && requiredNulls.has(candidate.predicate.column.columnId)));
+          if (index === undefined) return Result.fail(error("invalidInput"));
+          const nullColumn = index.predicate?.kind === "isNull" ? index.predicate.column.columnId : undefined;
+          return Result.succeed({ selections: node.values.map(values => ({ kind: "point" as const,
+            columns: node.columns, values, ...(nullColumn === undefined ? {} : { nullColumn }) })), unindexedText: false });
+        }, requiredNulls: new Set<string>(), search: null,
+          matches: row => points.has(JSON.stringify(node.columns.map(column => row[column]))) };
       }
       if (node.kind === "isNull") {
         const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
@@ -223,7 +263,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
     if (planned.selections === null && planned.unindexedText && filter.requiredNulls.size === 0 && search === null && json === null)
       return yield* Result.fail(error("invalidInput"));
     const selections = search !== null && json === null || planned.selections === null ? null : Object.freeze([...new Map(planned.selections.map(selection =>
-      [JSON.stringify([selection.column, selection.value, selection.nullColumn ?? null]), selection] as const)).values()]);
+      [JSON.stringify(selection), selection] as const)).values()]);
     return Object.freeze({ key, selections, search: json !== null ? null : search, json,
       requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null && json === null,
       requiredNulls: Object.freeze([...filter.requiredNulls]),

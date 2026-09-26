@@ -422,7 +422,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       pending.deletedValue = pending.current;
       pending.current = null;
     })));
-  const selectCandidates = Effect.fn("LogicalDocuments.selectCandidates")(function* (tableName: string, where: LogicalWhere, indexedOnly = false) {
+  const selectCandidates = Effect.fn("LogicalDocuments.selectCandidates")(function* (tableName: string, where: LogicalWhere,
+    indexedOnly = false, exactPoint?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) {
     const table = yield* Effect.fromResult(tableForName(tableName));
     let candidates: Iterable<PendingDocument> = rows.values();
     if (where._id !== undefined) {
@@ -437,7 +438,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         !(candidate.physicalSpec.nullsDistinct === true && candidate.physicalSpec.orderedFields.some(field => where[field] === null)) &&
         candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field) && !isLogicalRange(where[field])));
       if (definition === undefined) {
-        const selected = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, where, error));
+        const selected = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, where, error, exactPoint));
         if (Option.isNone(selected)) {
             if (indexedOnly || Object.values(where).some(isLogicalRange)) return yield* Effect.fail(error("invalidInput"));
           if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
@@ -575,10 +576,15 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       }
     }
     if (!usedSearchCandidates) {
-      const selections: LogicalWhere[] = query.selections === null ? [completeSelection] :
-        query.selections.map(selection => ({ [selection.column]: selection.value,
-          ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) }));
-      for (const where of selections) for (const row of yield* selectCandidates(tableName, where, true)) {
+      const selections = query.selections === null ? [{ where: completeSelection }] :
+        query.selections.map(selection => selection.kind !== "point" ? { where: { [selection.column]: selection.value,
+          ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) } } : {
+          where: { ...Object.fromEntries(selection.columns.map((column, offset) => [column, selection.values[offset]!])),
+            ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) },
+          exactPoint: { columns: selection.columns, ...(selection.nullColumn === undefined ? {} : { nullColumn: selection.nullColumn }) },
+        });
+      for (const selection of selections) for (const row of yield* selectCandidates(tableName, selection.where, true,
+        "exactPoint" in selection ? selection.exactPoint : undefined)) {
         if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
       }
     }
@@ -622,7 +628,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     if (query.offset >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
     if (query.selections?.length === 0) return Object.freeze({ rows: Object.freeze([]), hasMore: false });
     const pageSelection = query.selections?.[0];
-    const pageEquality = pageSelection === undefined || typeof pageSelection.value === "object"
+    const pageEquality = pageSelection === undefined || pageSelection.kind === "point" || typeof pageSelection.value === "object"
       ? undefined : { column: pageSelection.column, value: pageSelection.value };
     if (pageSelection !== undefined && pageEquality === undefined)
       return yield* Effect.fail(error("invalidInput"));
@@ -1024,6 +1030,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       } satisfies LogicalRelationalStore<Failure>);
     })));
   return Object.freeze({ documents, relationalFind, relationalPage, relationalAggregate, relationalChange, relationalTable, planSetNull, planReferenceReplacement, close, requirePendingDeletion, activitySnapshot,
+    readTransactionTime: (context: BoundedRequestContext, id: PresentedTransactionId) =>
+      runOperation(context, id, "read", transactionTime),
     activityCursor: () => Object.freeze({ attempts: attempts.length, lifecycle: lifecycle.length,
       setNull: setNull.length, referenceReplacements: referenceReplacements.length }),
     attemptCount: () => attempts.length, lifecycleCount: () => lifecycle.length });

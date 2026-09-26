@@ -112,6 +112,7 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
     });
   });
   return Object.freeze({ store, resources, close,
+    transactionTime: (context: BoundedRequestContext) => working.readTransactionTime(context, id),
     activityCursor: working.activityCursor, callActivity,
     attemptCount: working.attemptCount, lifecycleCount: working.lifecycleCount,
     planSetNull: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.gen(function* () {

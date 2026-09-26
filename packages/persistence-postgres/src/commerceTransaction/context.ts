@@ -11,6 +11,7 @@ import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./c
 export function makeCommerceCommandContext(
   lifetime: BoundedRequestLifetime<CommerceTransactionError>, working: Readonly<{ store: CommerceStore; resources: CommerceResources;
     table: (context: BoundedRequestContext, tableId: string) => Effect.Effect<CommerceStore, CommerceTransactionError>;
+    transactionTime?: (context: BoundedRequestContext) => Effect.Effect<string, CommerceTransactionError>;
     planSetNull?: (context: BoundedRequestContext, selection: CommerceSetNullSelection) => Effect.Effect<void, CommerceTransactionError>;
     planReferenceReplacement?: (context: BoundedRequestContext, selection: CommerceReferenceReplacement) => Effect.Effect<void, CommerceTransactionError> }>,
   id: string, manager: BoundedRequestContext,
@@ -19,8 +20,10 @@ export function makeCommerceCommandContext(
 ): CommerceCommandContext {
   const planSetNull = working.planSetNull;
   const planReferenceReplacement = working.planReferenceReplacement;
+  const transactionTime = working.transactionTime;
   return Object.freeze({ manager, resources: working.resources, store: working.store,
     table: tableId => working.table(manager, tableId),
+    ...(transactionTime === undefined ? {} : { transactionTime: transactionTime(manager) }),
     ...(planSetNull === undefined ? {} : { planSetNull: (selection: CommerceSetNullSelection) => planSetNull(manager, selection) }),
     ...(planReferenceReplacement === undefined ? {} : { planReferenceReplacement: (selection: CommerceReferenceReplacement) => planReferenceReplacement(manager, selection) }),
     captureLocalEvent: event => captureEvent(manager, event),

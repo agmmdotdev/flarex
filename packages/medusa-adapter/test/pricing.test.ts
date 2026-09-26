@@ -54,7 +54,7 @@ describe("native Pricing selected PriceSet admission", () => {
       expect(await logicalCurrencyInventory(fixture.currency)).toEqual(before);
     }
   });
-  it("makes caught custom repository calculation refusal sticky", async () => {
+  it("makes a caught invalid calculation sticky", async () => {
     const original = PricingModuleService.prototype.createPriceSets;
     let refused: unknown;
     const spy = vi.spyOn(PricingModuleService.prototype, "createPriceSets").mockImplementation(async function (this: PricingModuleService, data, context) {
@@ -65,7 +65,7 @@ describe("native Pricing selected PriceSet admission", () => {
     const before = await logicalCurrencyInventory(fixture.currency);
     try {
       expect(await runEffectFailure(fixture.create({ id: "caught" }))).toMatchObject({ _tag: "CommerceTransactionError" });
-      expect(refused).toMatchObject({ reason: "unsupportedProfile" });
+      expect(refused).toMatchObject({ reason: "rollbackOnly" });
       expect(await logicalCurrencyInventory(fixture.currency)).toEqual(before);
     } finally { spy.mockRestore(); }
   });

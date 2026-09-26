@@ -32,7 +32,9 @@ remain distinct from logical schema evolution.
   Ordinary scalar and compound Payload declarations now execute equality prefixes
   and numeric ranges through shared indexes with pending membership and exact
   settlement validation. Complete page/count membership remains bounded. The
-  selective-query package continues with representative Pricing and exact constraints.
+  selective-query package includes the [selected calculated Pricing path](./48-calculated-pricing-query-cutover.md)
+  with core compound preference points and a transaction-owned effective time;
+  the remaining Pricing query matrix stays gated.
 - Multiple required-text and compound scalar Payload unique declarations now
   execute through shared constraint definitions, build/readiness and claims.
   [Compound uniqueness](./07-payload-compound-uniqueness.md) covers native error
@@ -49,12 +51,13 @@ remain distinct from logical schema evolution.
   through analysis, build, write maintenance and Application indexed pending reads.
   [The decimal contract](./06-exact-decimal-indexes.md) preserves source text and
   uses existing shared index bytes. This is an ordered-value prerequisite;
-  calculated Pricing and commerce cutover remain.
+  broader calculated Pricing and commerce cutover remain.
 - Remaining Medusa consumers still use physical relational artifacts and installation
   evidence. Native Links and current workflow tests are replacement obligations,
   not generic query proofs. Exact numeric storage and scoped population boundary
-  suites now use logical sources without generated module tables; native Pricing
-  still owns its separate calculated-query acceptance gate.
+  suites now use logical sources without generated module tables. A selected
+  native calculated-PriceSet read has dual-driver proof, while persisted
+  PriceList and full calculated-query acceptance remain separately gated.
   The connected [Currency cutover](./10-currency-storage-cutover.md) is in progress;
   its native and atomic consumers use shared storage. A selected-source private
   announcement now combines native Currency, Payload and Application writes in

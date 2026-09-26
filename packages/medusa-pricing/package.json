@@ -18,6 +18,11 @@
       "types": "./dist/static-manifest.d.ts",
       "source": "./src/static-manifest.ts",
       "default": "./dist/static-manifest.js"
+    },
+    "./calculation": {
+      "types": "./dist/calculation/select-rows.d.ts",
+      "source": "./src/calculation/select-rows.ts",
+      "default": "./dist/calculation/select-rows.js"
     }
   },
   "dependencies": {
