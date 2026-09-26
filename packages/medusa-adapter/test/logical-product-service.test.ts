@@ -4,7 +4,11 @@ import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransac
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
-import { fxAppRowCurrent, fxAppSearchEntryCurrent } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxAppSearchEntryCurrent, fxSystemSearchBuildStates } from "../../persistence-postgres/src/schema";
+import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
+import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
+import { lockScopeClockForSnapshotReadInTransactionEffect } from "../../persistence-postgres/src/scopeClock";
+import { prepareLogicalSearchBuild } from "../../persistence-postgres/src/logicalSearchBuild";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
 import { captureProductSchema } from "../src/product-schema";
@@ -44,6 +48,78 @@ describe("native internal Product service on shared logical storage", () => {
       expect(await Effect.runPromise(host.read(queryBudget, { length: 60 }))).toEqual([]);
       await expect(Effect.runPromise(host.read(queryBudget, { length: 61 })))
         .rejects.toMatchObject({ reason: "limitExceeded" });
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("applies Product defaults and refuses an invalid enum without a logical row", async () => {
+    const { runtime, host } = await prepareLogicalProductHost(fixture);
+    try {
+      await Effect.runPromise(host.initialize([]));
+      const created = await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductCreate,
+        { id: "logical-install-defaults", title: "Default Product", handle: "logical-install-defaults" }));
+      expect(created).toMatchObject({ id: "logical-install-defaults", status: "draft",
+        discountable: true, is_giftcard: false });
+      expect(await Effect.runPromise(host.read(runtime.commands.internalProductRetrieve,
+        { id: "logical-install-defaults", config: { select: ["id", "status", "discountable", "is_giftcard"] } })))
+        .toMatchObject({ id: "logical-install-defaults", status: "draft",
+          discountable: true, is_giftcard: false });
+      const before = await fixture.persistence.drizzle.select().from(fxAppRowCurrent);
+      await expect(Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductCreate,
+        { id: "logical-install-invalid-enum", title: "Invalid Product", handle: "logical-install-invalid-enum",
+          status: "invalid" })))
+        .rejects.toMatchObject({ reason: "rollbackOnly" });
+      expect(await fixture.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(before);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it.skipIf(driver !== "postgres")("settles concurrent Product creates without a second active handle", async () => {
+    const { runtime, host } = await prepareLogicalProductHost(fixture);
+    try {
+      await Effect.runPromise(host.initialize([]));
+      const results = await Promise.allSettled(["a", "b"].map(suffix => Effect.runPromise(
+        host.run(host.newRequestKey(), runtime.commands.internalProductCreate,
+          { id: `logical-install-race-${suffix}`, title: `Race ${suffix}`, handle: "logical-install-race" }))));
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      const rejected = results.filter(result => result.status === "rejected");
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0]?.reason).toMatchObject({ reason: "rollbackOnly" });
+      const rows = await Effect.runPromise(host.read(runtime.commands.internalProductList,
+        { filters: { handle: "logical-install-race" }, config: { select: ["id", "handle"] } }));
+      expect(rows).toHaveLength(1);
+    } finally { await Effect.runPromise(host.close); }
+  }, 120_000);
+
+  it("refreshes search readiness after a Product commit but refuses persistent gaps", async () => {
+    const { runtime, host } = await prepareLogicalProductHost(fixture);
+    try {
+      await Effect.runPromise(host.initialize([]));
+      const staleClock = await Effect.runPromise(runEffectTransaction(
+        work => fixture.persistence.drizzle.transaction(work), "Capture Product search clock",
+        (tx: FlarexMetadataTransaction) => lockScopeClockForSnapshotReadInTransactionEffect(
+          tx, fixture.application.active.basis.authority.scopeId),
+        cause => new Error("Product search clock failed", { cause })));
+      await Effect.runPromise(host.run(host.newRequestKey(), runtime.commands.internalProductCreate,
+        { id: "logical-search-clock", title: "Search clock", handle: "logical-search-clock" }));
+      const coverage = await fixture.persistence.drizzle.select().from(fxSystemSearchBuildStates);
+      const advanced = coverage.find(state => state.coveredThroughCommitSeq > staleClock.lastCommitSeq);
+      expect(advanced).toBeDefined();
+      if (advanced === undefined) throw new Error("Missing advanced Product search coverage");
+      const build = await Effect.runPromise(prepareLogicalSearchBuild(
+        fixture.control.drizzle, fixture.deploymentId, fixture.schemaVersionId));
+      expect(build.definitionCount).toBeGreaterThan(0);
+      const inspect = () => Effect.runPromise(runEffectTransaction(
+        work => fixture.persistence.drizzle.transaction(work), "Inspect Product search coverage after commit",
+        (tx: FlarexMetadataTransaction) => build.inspect(tx, fixture.application.active.basis.authority, staleClock),
+        cause => new Error("Product search coverage failed", { cause })));
+      expect(await inspect()).toMatchObject({ status: "ready" });
+      await fixture.persistence.drizzle.update(fxSystemSearchBuildStates)
+        .set({ coveredThroughCommitSeq: staleClock.lastCommitSeq });
+      try {
+        expect(await inspect()).toMatchObject({ status: "not_ready", reason: "uncovered" });
+      } finally {
+        await fixture.persistence.drizzle.delete(fxSystemSearchBuildStates);
+        await fixture.persistence.drizzle.insert(fxSystemSearchBuildStates).values(coverage);
+      }
     } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 

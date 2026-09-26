@@ -20,7 +20,6 @@ export default defineConfig({
     include: [
       "../medusa-drizzle/test/schema.test.ts",
       "test/product-schema.test.ts",
-      "test/product-installation.test.ts",
     ],
     maxWorkers: 1,
     fileParallelism: false,

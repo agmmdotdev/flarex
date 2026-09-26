@@ -161,9 +161,9 @@ isolation and concurrency remain at the gates below. There is no new durable
 format, second settlement path, old Product data migration or production
 switch in this slice.
 
-The historical physical Product profile and local suite have since been
-retired. `product-schema.ts` still contains the generated-layout construction
-used by the named Product installation test; other physical-only witnesses
+The historical physical Product profile, local suite and Product-only
+installation test have since been retired. `product-schema.ts` retains native
+schema capture but no generated-layout constructor; other physical-only witnesses
 retain their own removal gates in the
 [Product-module closeout](./44-product-module-closeout.md). The mixed
 Category/Currency fixture now uses two admitted logical sources under one

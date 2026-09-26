@@ -37,8 +37,8 @@ selected by outer host identity. The temporary logical probe and physical
 fixture-reset runner configurations are removed. The logical runner clears
 bounded fixture rows through admitted native commands before each native case.
 
-Named physical consumers include Product installation and exact-numeric tests;
-and the remaining link, population and persistence-core fixtures found by the
+Named physical consumers include exact-numeric tests and the remaining link,
+population and persistence-core fixtures found by the
 reference inventory. The physical
 fixture-reset SQL, runner and configuration have no remaining consumer and are
 retired. Native logical Product deletion now proves original and tombstone
@@ -106,14 +106,26 @@ logical workflow suites. The generated Product local profile and its physical
 fact/event validator had no consumer beyond that suite and are removed; the
 Product call receipt policy remains the logical owner. This cutover drops no
 durable table or installed Product data.
+The Product-only generated schema installation test and its private physical
+profile constructor are now retired. The shared logical binding witness proves
+Product/Currency candidate activation and recovery without generated tables;
+native logical Product tests retain defaults, enum refusal, active uniqueness,
+scoped references and pivot/lifecycle behavior. A PostgreSQL concurrent-create
+smoke test checks one committed row and a rolled-back request without forced
+transaction overlap. The
+old thirteen-table/85-step DDL plan and its timing
+mode described an abandoned physical layout. No installer or table-removal
+command was run against a named database; repository callers of the private
+constructor were limited to the disposable installation test.
 The remaining search recovery, pending-write and resource gates are in
 [indexed text search](./45-core-indexed-text-search.md); this selected witness
 does not claim arbitrary search scale.
 For each, either migrate the same behavioral claim to generic storage or
 identify the framework-neutral core claim that already replaces it. A physical
-fixture is not retained merely to repeat a migrated claim. The physical
-Product profile and DDL compiler are private development/test contracts; their
-exports and test aliases may break. Native public Product methods, DTOs and
+fixture is not retained merely to repeat a migrated claim. The Product-only
+physical profile constructor was a private development/test contract and has
+been removed. The generic DDL compiler remains for other named physical
+consumers. Native public Product methods, DTOs and
 event identities must keep their admitted semantics.
 
 The test fixtures create disposable installations, but that does not prove
@@ -224,5 +236,7 @@ integrity check for explicit repair users.
    these functional tests.
 
 The canonical native runner and exact admitted-case coverage gate have moved
-to logical storage. Gate 3 remains open for other physical-only witnesses, the
-Product profile/DDL compiler and the named durable-installation decision.
+to logical storage. Gate 3 remains open for other physical-only witnesses and
+any named durable-installation decision. The Product-only profile and
+installation test are retired; the generic DDL compiler still serves named
+physical consumers.

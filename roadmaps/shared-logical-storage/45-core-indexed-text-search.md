@@ -1,8 +1,9 @@
 # Core indexed text search for logical rows
 
 Status: the selected shared search path and native Product `q` cutover are
-implemented. Physical Product fixture retirement and broader search capacity
-measurements remain open in the Product and final-acceptance roadmaps. The accepted
+implemented. The physical Product local and installation fixtures are retired
+under Product closeout; broader search capacity measurements remain open in the
+final-acceptance roadmap. The accepted
 shared-storage design requires bounded indexed reads. This note owns that
 shared query contract, not a Medusa-specific search engine.
 
@@ -12,9 +13,9 @@ The pinned Product DAL lowers `q` to an OR of ASCII-folded SQL `LIKE` patterns
 over its DML-declared searchable text fields. `%` and `_` retain SQL wildcard
 meaning; backslashes are literal. With deleted rows included, the active-row
 null-index anchor is absent. The logical reader correctly refuses the current
-unanchored plan rather than scanning every Product in a shop. The legacy
-physical witness stays named in [Product closeout](./44-product-module-closeout.md)
-until this contract is served by the generic logical source.
+unanchored plan rather than scanning every Product in a shop. The former
+physical witness is retired under [Product closeout](./44-product-module-closeout.md)
+after this contract moved to the generic logical source.
 
 The normalized relational schema already carries an authored `searchableText`
 capability, and the pinned Medusa DML compiler already fills its field
@@ -108,8 +109,8 @@ measurement.
    backslash, short-pattern refusal or an independently selective anchor, and
    over-budget atomic refusal. Keep count and ordering exact.
 4. Remove the last legacy Product search runner configuration. The separate
-   physical fixture-reset witness remains the named Product legacy consumer;
-   complete its profile/installer retirement under [Product closeout](./44-product-module-closeout.md).
+   physical fixture-reset witness and Product-only profile/installer were
+   subsequently retired under [Product closeout](./44-product-module-closeout.md).
    Do not drop a named durable table without its recorded conversion or reset decision.
 
 This breaks private schema/index declarations and the logical relational read
@@ -121,3 +122,13 @@ replay, scope isolation, readiness refusal and bounded overflow. This is a
 bounded capability, not a claim that every term uses GIN or that a hot shop has
 measured throughput. Common-trigram selectivity and tenant-skew plans remain
 final capacity work.
+
+Search readiness now refreshes a stale admitted scope clock when a concurrent
+commit advances the search coverage row and current-row frontier between
+READ COMMITTED statements. The refresh is bounded and requires observed clock
+progress; missing, structurally invalid or persistently uncovered search state
+still refuses serving. A logical Product witness holds an earlier clock across
+a committed write and checks the fresh search readiness decision on PGlite and
+ordinary-role PostgreSQL. The concurrent Product-handle witness also exercises
+the host path that exposed this false refusal; it does not force transaction
+overlap or classify the nested cause of every rollback.

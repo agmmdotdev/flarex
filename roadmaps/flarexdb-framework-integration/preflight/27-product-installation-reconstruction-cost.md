@@ -3,9 +3,9 @@
 Status: shared-owner reconstruction correction implemented.
 This supports the fresh Product schema capability in [record 26](./26-medusa-product-schema-and-relationships.md). It does not admit Product services, change runtime mutation authority or introduce database metadata tables.
 
-The physical Product local test command recorded below is historical: that
-suite and its generated local profile were retired during the logical Product
-cutover. Current native and boundary evidence is indexed in
+The Product installation and physical local test commands recorded below are
+historical: both suites and their generated Product profile were retired during
+the logical Product cutover. Current native and boundary evidence is indexed in
 [Product-module closeout](../../shared-logical-storage/44-product-module-closeout.md).
 
 ## Problem And Owner
@@ -58,9 +58,13 @@ refusal, exact/reversed/duplicate replay and late-corruption rollback; real
 PostgreSQL additionally observes an overlapping inventory's unique-index wait.
 This shared correction introduces no Medusa branch, schema or cache lifetime.
 
-The complete Product harness uses one shared conformance body for PGlite and ordinary-role PostgreSQL. Installation and fresh-profile reopening must finish within its 90-second cancellable setup budget; incomplete setup skips dependent assertions. The original Vitest hook bound remains 120 seconds to permit settlement and cleanup.
-
-Run the Product installation through its dedicated Vitest configuration. Set FLAREX_TEST_DRIVER to postgres and provide FLAREX_POSTGRES_DATABASE_URL for native PostgreSQL; the default is PGlite. FLAREX_PRODUCT_MEASURE_STEPS=1 selects the repeatable two-step measurement, and FLAREX_PRODUCT_TIMINGS=1 reports full-run batch timings. The measurement mode is not database acceptance.
+The retired Product harness used one shared conformance body for PGlite and
+ordinary-role PostgreSQL. Installation and fresh-profile reopening had a
+90-second cancellable setup budget and a 120-second Vitest hook bound. Its
+dedicated installation command and `FLAREX_PRODUCT_MEASURE_STEPS` /
+`FLAREX_PRODUCT_TIMINGS` modes are historical; the installation test no longer
+exists. Current Product behavior and binding checks run through the logical
+Product service and shared schema-binding suites indexed in the closeout note.
 
 Preservation includes changed bytes with an old digest, changed row/sidecar projections, strict resource bounds, cancellation, separate transactions, cold restoration, fresh-head/CAS behavior, and existing Currency/Payload canonical and runtime contracts. General Product service behavior and production/Cloudflare claims remain separate gates.
 
@@ -82,8 +86,9 @@ existing 90-second budget. Repeated runs exceeded that budget before readiness,
 so dependent Product assertions were skipped. Sharing pure verification across
 the bounded coordinator batches did not eliminate the failure.
 
-Reproduce with `FLAREX_TEST_DRIVER=pglite`, `FLAREX_PRODUCT_TIMINGS=1`, and
-`pnpm --filter @flarex/medusa-adapter exec vitest run --config vitest.config.ts test/product-local.test.ts`.
+The retired `test/product-local.test.ts` was the sampled command target, with
+`FLAREX_TEST_DRIVER=pglite` and `FLAREX_PRODUCT_TIMINGS=1`; it is no longer a
+reproduction command.
 A sampled run reached 16/32/48/64/80 completed steps at approximately
 14.5/28.2/43.2/59.4/77.9 seconds, then timed out before readiness. CPU sampling of
 the main test thread attributed approximately 15.4 seconds to the installed

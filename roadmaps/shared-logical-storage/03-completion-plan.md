@@ -264,7 +264,7 @@ remain distinct from logical schema evolution.
   The joint Application/Payload/Product/Currency binding witness now selects
   logical Product and Currency together, with a native atomic command and no
   generated Product tables. The physical Product local suite, profile and event
-  policy are retired; Product installation remains a named physical consumer.
+  policy and Product-only physical installation test are retired.
   Other relationship kinds still need their own
   coherent cutovers. General
   bounded population/overflow, broader Product commands and
