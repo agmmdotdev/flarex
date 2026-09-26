@@ -17,7 +17,7 @@ import { commerceServiceCommands } from "./service-commands";
 import { commerceDecoder } from "./commerce-decoder";
 import { captureCommerceInput } from "./commerce-input";
 import { prepareShippingProfileRepository } from "./shipping-profile-repository";
-import { shippingProfileEventPolicy, shippingProfileLogicalEventPolicy } from "./shipping-profile-events";
+import { shippingProfileLogicalEventPolicy } from "./shipping-profile-events";
 import { captureShippingProfileMetadata } from "./shipping-profile-schema";
 import { QueryLimit, QueryOffset } from "./query-decoder";
 
@@ -52,7 +52,7 @@ const decodeRetrieve = commerceDecoder(Schema.Struct({ id: Id, config: Schema.op
 
 /** One definition per prepared model snapshot; each invocation borrows a fresh
  * command-owned service. There is no global container or second runtime owner.
- * The host supplies settlement, profile admission and the event destination. */
+ * The host supplies settlement, source admission and the event destination. */
 export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapter.commands")(function* () {
   const metadata = yield* captureShippingProfileMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
@@ -127,7 +127,7 @@ export const makeLocalShippingProfileCommands = Effect.fn("ShippingProfileAdapte
     return { create, list, count, retrieve, graph, workflow,
       commands: [create, list, count, retrieve],
       withService: module.use,
-      eventPolicy: shippingProfileEventPolicy, logicalEventPolicy: shippingProfileLogicalEventPolicy,
+      logicalEventPolicy: shippingProfileLogicalEventPolicy,
     };
   }));
 });

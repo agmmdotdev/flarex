@@ -1,4 +1,4 @@
-import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 
 /** Named trusted workflow selections. The core captures and caps these at
  * composition; business inputs cannot raise them. Keep distinct workload names

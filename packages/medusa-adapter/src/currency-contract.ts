@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { defaultCurrencies } from "@medusajs/utils/defaults/currencies";
 import { BigNumber } from "@medusajs/utils/totals/big-number";
-import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { capturePrivateJsonData, commerceError, type JsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 
 /** Currency owns its initialization data/count; the core records an admitted step. */

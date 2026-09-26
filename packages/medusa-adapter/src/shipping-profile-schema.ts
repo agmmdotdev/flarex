@@ -1,7 +1,7 @@
 import { Data, Effect, Schema } from "effect";
 import { fulfillmentModuleModels } from "@medusajs/fulfillment/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
-import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeCompiledDml } from "./schema/compiled";
 import { lowerDmlSchema } from "./schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";

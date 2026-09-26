@@ -1,10 +1,8 @@
 import type { LogicalCallReceiptValidation } from "./logical-call-receipt";
 import { Effect, Schema } from "effect";
 import { CommonEvents, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
-import { decodeRelationalRowKey, type CommerceProfileState, type LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
-import { commerceError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, defaultCommerceResources, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
-import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 
 function scalarCapture(source: string, tableName: string,
@@ -25,42 +23,8 @@ function scalarCapture(source: string, tableName: string,
   });
 }
 
-/** Native module messages must match the selected command's complete row facts.
- * This authenticates local delivery only; it does not grant outbox authority. */
-export function scalarEventPolicy(source: string, tableName: string,
-  commands: Readonly<{ insert: string; update?: string; delete?: string }>, descriptor: CommerceProfileState,
-  deliver: LocalCommerceEventPolicy["deliver"],
-): LocalCommerceEventPolicy {
-  const capture = scalarCapture(source, tableName, descriptor.resources, "ScalarEvents.capture");
-  return { capture, deliver,
-    validate: Effect.fn("ScalarEvents.validate")(function* (events, rows, command, lifecycle = []) {
-      if (lifecycle.length) return yield* Effect.fail(commerceError("receiptMismatch"));
-      const expected = new Set<string>();
-      for (const row of rows) {
-        const action = row.operation === "insert" ? CommonEvents.CREATED : row.operation === "update" ? CommonEvents.UPDATED : CommonEvents.DELETED;
-        const expectedCommand = commands[row.operation];
-        if (command !== expectedCommand || row.tableId !== tableName) return yield* Effect.fail(commerceError("receiptMismatch"));
-        const key = yield* decodeRelationalRowKey(descriptor.layout, row.tableId, row.keyBytes, row.codecVersion)
-          .pipe(Effect.mapError(cause => commerceError("receiptMismatch", cause)));
-        const id = key.components[0];
-        if (key.components.length !== 1 || id?.columnId !== "id" || typeof id.value !== "string") return yield* Effect.fail(commerceError("receiptMismatch"));
-        const identity = action + ":" + id.value;
-        if (expected.has(identity)) return yield* Effect.fail(commerceError("receiptMismatch"));
-        expected.add(identity);
-      }
-      for (const event of events) {
-        const message = yield* capture(event);
-        for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {
-          if (!expected.delete(message.metadata.action + ":" + id)) return yield* Effect.fail(commerceError("receiptMismatch"));
-        }
-      }
-      if (expected.size) return yield* Effect.fail(commerceError("receiptMismatch"));
-    }),
-  };
-}
-
 /** Authenticate one native scalar command against its exact logical row
- * attempts. Physical row-key decoding remains with the retained profile. */
+ * attempts and durable event capture. */
 export function scalarLogicalEventPolicy(source: string, tableName: string,
   commands: Readonly<{ insert: string; update?: string; delete?: string }>) {
   const capture = scalarCapture(source, tableName, defaultCommerceResources, "ScalarEvents.captureLogical");

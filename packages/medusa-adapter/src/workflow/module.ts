@@ -1,6 +1,5 @@
 import { Effect, Result, Schema } from "effect";
 import { commerceCommandIdentity, type CommerceCommand, type LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
-import type { LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
 import { commerceError, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { CommerceModuleDescription } from "../module-definition";
 import type { GraphModuleDefinition } from "../local-graph/model";
@@ -53,7 +52,7 @@ export interface WorkflowModule<Methods extends Readonly<Record<string, Workflow
 }
 export interface WorkflowLogicalPolicy {
   readonly commands: readonly CommerceCommand[];
-  readonly capture: LocalCommerceEventPolicy["capture"];
+  readonly capture: (event: unknown) => Effect.Effect<Json, CommerceTransactionError>;
   readonly validateLogicalCall: LogicalCommerceCallValidation;
   readonly allowSetNull?: true;
   readonly referenceReplacement?: Readonly<{

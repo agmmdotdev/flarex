@@ -1,7 +1,7 @@
 import { Data, Effect, Schema } from "effect";
 import type { ModuleJoinerConfig } from "@medusajs/framework/types";
 import { generateEntityDefinition } from "@medusajs/link-modules";
-import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { SchemaTable } from "./schema/model";
 import type { SchemaOrigins } from "./schema/model";
 

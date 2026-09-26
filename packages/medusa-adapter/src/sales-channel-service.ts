@@ -15,7 +15,7 @@ import { commerceServiceCommands } from "./service-commands";
 import { commerceDecoder } from "./commerce-decoder";
 import { captureCommerceInput } from "./commerce-input";
 import { prepareSalesChannelRepository } from "./sales-channel-repository";
-import { salesChannelEventPolicy, salesChannelLogicalEventPolicy } from "./sales-channel-events";
+import { salesChannelLogicalEventPolicy } from "./sales-channel-events";
 import { captureSalesChannelMetadata } from "./sales-channel-schema";
 import { QueryLimit, QueryOffset } from "./query-decoder";
 
@@ -60,7 +60,7 @@ const decodeRetrieve = commerceDecoder(Schema.Struct({ id: Id, config: Schema.op
 
 /** One definition per prepared model snapshot; each invocation borrows a fresh
  * command-owned service. There is no global container or second runtime owner.
- * The host supplies settlement, profile admission and the event destination. */
+ * The host supplies settlement, source admission and the event destination. */
 export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.commands")(function* () {
   const metadata = yield* captureSalesChannelMetadata();
   return yield* Effect.fromResult(Result.gen(function* () {
@@ -117,7 +117,7 @@ export const makeLocalSalesChannelCommands = Effect.fn("SalesChannelAdapter.comm
     return { create, update, delete: remove, list, count, retrieve, graph, workflow,
       commands: [create, update, remove, list, count, retrieve],
       withService: module.use,
-      eventPolicy: salesChannelEventPolicy, logicalEventPolicy: salesChannelLogicalEventPolicy,
+      logicalEventPolicy: salesChannelLogicalEventPolicy,
     };
   }));
 });

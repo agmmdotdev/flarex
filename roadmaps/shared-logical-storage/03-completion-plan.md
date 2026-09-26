@@ -167,6 +167,11 @@ remain distinct from logical schema evolution.
   Its standalone native service and promoted creation/event bodies use logical
   rows; the composed workflow now uses the same selected logical source under
   the [module cutover](./22-shipping-profile-module-cutover.md).
+  SalesChannel and ShippingProfile expose only logical event receipt policies.
+  The displaced physical scalar event validator and adapter imports of the
+  physical commerce-profile boundary are retired. Their native service and
+  workflow callers retain the shared logical publisher; generic physical
+  persistence fixtures still have separate named retirement gates.
   A selected native ProductType create/read/update/delete path and native
   Product `type_id` reference now share the Product logical source, including
   active-value uniqueness, nullable detachment, event receipts and two-shop

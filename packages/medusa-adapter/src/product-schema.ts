@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { relationalSchemaSourceFromDefinition } from "flarex-protocol/internal/relational-schema";
 import { compileProductDefinition, ProductSchemaError } from "./product-definition";
 import { captureRelationalSchemaArtifact } from "@flarex/persistence-postgres/internal/relational-schema-values";
-import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 
 export const captureProductSchema = Effect.fn("MedusaProduct.captureSchema")(
   function* (deploymentId: string) {

@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { pricingModuleModels } from "@medusajs/pricing/static-manifest";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
-import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeCompiledDml } from "./schema/compiled";
 import { lowerDmlSchema } from "./schema/lower";

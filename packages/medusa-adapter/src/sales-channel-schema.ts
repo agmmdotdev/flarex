@@ -1,7 +1,7 @@
 import { Data, Effect } from "effect";
 import { SalesChannel } from "@medusajs/sales-channel/models";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
-import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-profile";
+import { capturePrivateCanonicalValue } from "@flarex/persistence-postgres/internal/commerce-values";
 import { decodeCompiledDml } from "./schema/compiled";
 import { lowerDmlSchema } from "./schema/lower";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
