@@ -1,7 +1,7 @@
 import { Result, Schema } from "effect";
 import { isJsonObject, type Json } from "flarex-protocol/json";
 import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
-import { capturePrivateJsonData, cmsError } from "@flarex/persistence-postgres/internal/cms-adapter";
+import { capturePrivateJsonData, cmsError, cmsLimits } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { UnsupportedPayloadCapability } from "./errors";
 import { canonicalPayloadNumber } from "./contract";
 import type { PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
@@ -37,7 +37,7 @@ export function makePayloadQuery(collection: PayloadCollection) {
   }));
   const decode = Schema.decodeUnknownResult(Where, { onExcessProperty: "error" });
   return { decode, adapter: (input: unknown) => Result.gen(function* () {
-    let value = (yield* capturePrivateJsonData(input === undefined ? {} : input, 65_536, cmsError)).value;
+    let value = (yield* capturePrivateJsonData(input === undefined ? {} : input, cmsLimits.documentBytes, cmsError)).value;
     // Only Payload's single access-combination wrapper is admitted here.
     if (isJsonObject(value) && Object.keys(value).join() === "and" && Array.isArray(value.and) && value.and.length <= 1) {
       value = value.and[0] ?? {};
@@ -61,7 +61,7 @@ export function makePayloadQuery(collection: PayloadCollection) {
   }) };
 }
 
-export const PayloadLimit = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 32 }));
+export const PayloadLimit = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: cmsLimits.pageRows }));
 export const PayloadPage = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 257 }));
 export const PayloadPaging = Schema.Struct({
   page: Schema.optional(PayloadPage),

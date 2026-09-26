@@ -239,7 +239,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
         yield* prepareCmsApplicationCommit(prepared, controlDatabase, located.authority, pointCommitAuthority, materialization);
       const active = preparedLogical === undefined ? undefined : yield* prepareApplicationBindingSelection(application);
       return yield* runRelationalSession(session, requestKey === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
-        yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`),
+        yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', ${`${cmsLimits.statementMs}ms`}, true), set_config('lock_timeout', ${`${cmsLimits.lockMs}ms`}, true)`),
           cause => cmsError("statementFailure", cause));
         // Exclusion is scoped to the exact request, before admission or callbacks.
         // The hash is only a lock address; durable evidence still authenticates identity.

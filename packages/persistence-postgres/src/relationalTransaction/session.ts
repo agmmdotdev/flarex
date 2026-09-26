@@ -1,4 +1,5 @@
-import { Cause, Effect } from "effect";
+import { Cause, Effect, Schema } from "effect";
+import { FrameworkCommandMilliseconds } from "../frameworkExecutionPolicy";
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { PostgresFlarexPersistence } from "../postgres";
@@ -21,6 +22,7 @@ import {
 
 const access = makePhysicalSessionAccess(flarexSchema);
 const physicalDeadlines = makePhysicalDeadlineOperations(physicalSessionErrors);
+const isCommandMilliseconds = Schema.is(FrameworkCommandMilliseconds);
 
 declare const sessionBrand: unique symbol;
 export interface RelationalSession {
@@ -63,8 +65,7 @@ export const runRelationalSession = Effect.fn("RelationalSession.run")(
     const state = sessions.get(session);
     if (state === undefined)
       return yield* Effect.fail(relationalError("invalidAuthority"));
-    if (commandMs !== undefined && (profile !== "command" || !Number.isSafeInteger(commandMs) ||
-      commandMs < relationalLimits.commandMs || commandMs > 30_000))
+    if (commandMs !== undefined && (profile !== "command" || !isCommandMilliseconds(commandMs)))
       return yield* Effect.fail(relationalError("invalidAuthority"));
     return yield* state.run(profile, work, commandMs);
   },

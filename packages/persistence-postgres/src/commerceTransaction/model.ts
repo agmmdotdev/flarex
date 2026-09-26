@@ -1,14 +1,7 @@
 import { Data } from "effect";
-import { relationalReadLimits } from "../logicalDocuments/relationalQuery";
 import type { LogicalDocumentFailureReason } from "../logicalDocuments/model";
 
-/** Private bounded commerce execution limits, independent of the synthetic scalar store. */
-export const commerceLimits = Object.freeze({
-  commandDefinitions: 128,
-  catalogRows: 256, ...relationalReadLimits,
-  calls: 64, rowBytes: 65_536, commandBytes: 1_048_576,
-  commandMs: 10_000, statementMs: 1_000, lockMs: 500, cleanupMs: 2_000,
-});
+export { commerceLimits } from "../frameworkExecutionPolicy";
 
 export class CommerceTransactionError extends Data.TaggedError("CommerceTransactionError")<{
   readonly reason: "invalidInput" | "invalidAuthority" | "unsupportedProfile" |

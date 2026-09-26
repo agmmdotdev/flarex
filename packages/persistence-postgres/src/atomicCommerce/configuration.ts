@@ -8,7 +8,8 @@ import { captureCommerceJsonData } from "../commerceTransaction/request";
 import type { CommerceHostConfiguration } from "../commerceTransaction/hostConfiguration";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
 import type { RequestLimits } from "../boundedRequestLifetime";
-import { CommerceCallLimit, defaultCommerceResources } from "../commerceTransaction/resources";
+import { defaultCommerceResources } from "../commerceTransaction/resources";
+import { CommerceCallLimit, CommerceCommandByteLimit, FrameworkCommandMilliseconds } from "../frameworkExecutionPolicy";
 import { logicalMaterializationBatchBudget } from "../logicalDocuments/materialization";
 import { getAtomicCommerceCommand, type AtomicCommerceCommand } from "./commands";
 import {
@@ -43,12 +44,10 @@ export interface AtomicCommerceHostInput<Failure> extends CommerceHostConfigurat
 }
 
 const decodeCallLimit = Schema.decodeUnknownEffect(CommerceCallLimit);
-const decodeByteLimit = Schema.decodeUnknownEffect(Schema.Int.check(
-  Schema.isBetween({ minimum: 1, maximum: 16_777_216 })));
+const decodeByteLimit = Schema.decodeUnknownEffect(CommerceCommandByteLimit);
 const decodeEventLimit = Schema.decodeUnknownEffect(Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: commitEventLimits.messages })));
-const decodeCommandMs = Schema.decodeUnknownEffect(Schema.Int.check(
-  Schema.isBetween({ minimum: commerceLimits.commandMs, maximum: 30_000 })));
+const decodeCommandMs = Schema.decodeUnknownEffect(FrameworkCommandMilliseconds);
 
 /** Captured host configuration, with no request-local state or settlement capability. */
 export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
@@ -160,7 +159,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
     yield* hashAtomicCommerceBytes(identity.canonicalBytes),
   );
-  const limits = {
+  const limits = Object.freeze({
     ...commerceLimits,
     // A logical source has no installed resource profile. Its synthetic
     // descriptor carries ordinary defaults, not a cap on the trusted root's
@@ -170,7 +169,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     commandBytes: Math.min(byteLimit,
       ...members.map((member) => member.descriptor.resources.commandBytes)),
     commandMs,
-  };
+  });
   const transitionFacts = members.every(member => member.kind === "logical")
     ? Math.min(logicalMaterializationBatchBudget.rows,
       Math.max(defaultCommerceResources.facts, ...members.map(member => member.descriptor.resources.facts),

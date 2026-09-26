@@ -8,10 +8,11 @@ import type { JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure } from "./model";
 import { prepareLogicalRelationalRowValues, relationalTextIdentity } from "./relationalRows";
 import { hasMandatorySearchTrigram, type LogicalSearchPattern } from "./searchReads";
+import { relationalReadLimits } from "../frameworkExecutionPolicy";
 
 /** The admitted indexed text relational profile. Other predicate families require
  * their own indexed execution contract before they can be enabled here. */
-export const relationalReadLimits = Object.freeze({ filterNodes: 64, filterDepth: 8, filterOperands: 256 });
+export { relationalReadLimits } from "../frameworkExecutionPolicy";
 const Window = Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }));
 const Envelope = Schema.Struct({
   fields: Schema.optionalKey(Schema.Array(Schema.String)), predicate: Schema.optionalKey(Schema.Unknown),

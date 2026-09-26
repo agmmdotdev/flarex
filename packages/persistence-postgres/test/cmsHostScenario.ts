@@ -4,7 +4,7 @@ import { cmsHostFixture } from "./cmsHostFixture";
 import { assertCmsParticipantAdmission } from "./cmsParticipantAdmission";
 import { expect } from "vitest";
 import { Effect, Exit } from "effect";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { CanonicalFlarexValueBytesV1Schema } from "flarex-protocol/value";
 import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
@@ -23,7 +23,8 @@ import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConst
 
 import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidateValidation";
 import { defineCmsCommand, makeCmsHost, type CmsCommandContext } from "../src/cmsTransaction/host";
-import { cmsError } from "../src/cmsTransaction/model";
+import { cmsError, cmsLimits } from "../src/cmsTransaction/model";
+import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
 import type { PointCommitTransactionProofStepV1 } from "../src/pointCommitTransaction";
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import { fxAppRowCurrent, fxAppRowRevisions, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks, fxSystemTransactionSessions, fxSystemCommitAppRowChanges, fxSystemSnapshotLeases, fxSystemTransactionJournals, fxAppIndexEntryRevisions, fxAppIndexEntryCurrent, fxAppUniqueKeys, fxSystemAppSchemaCandidateValidations } from "../src/schema";
@@ -142,7 +143,13 @@ export async function cmsHostScenario(persistence: PGliteFlarexPersistence | Pos
       uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),
       candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({ candidateValidation: fixture.candidateValidation, pointCommitAuthority: fixture.pointCommitAuthority }),
     } };
-  const host = await runEffect(makeCmsHost(input));
+  const host = await runEffect(makeCmsHost(input, { afterAdmission: Effect.fn(function* (tx) {
+    const settings = yield* runDrizzleStatementEffect(tx.select({
+      statementMs: sql<number>`(extract(epoch from current_setting('statement_timeout')::interval) * 1000)::int`,
+      lockMs: sql<number>`(extract(epoch from current_setting('lock_timeout')::interval) * 1000)::int`,
+    }).from(sql`(select 1) as settings`), cause => cmsError("statementFailure", cause));
+    expect(settings).toEqual([{ statementMs: cmsLimits.statementMs, lockMs: cmsLimits.lockMs }]);
+  }) }));
   const inventory = async () => ({ rows: await persistence.drizzle.select().from(fxAppRowCurrent), revisions: await persistence.drizzle.select().from(fxAppRowRevisions),
     clock: await persistence.drizzle.select().from(fxSystemScopeClocks), commits: await persistence.drizzle.select().from(fxSystemCommits),
     outcomes: await persistence.drizzle.select().from(fxSystemIdempotency), wakes: await persistence.drizzle.select().from(fxSystemCommitWakes),

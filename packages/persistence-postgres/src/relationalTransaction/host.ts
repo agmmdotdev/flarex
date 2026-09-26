@@ -237,7 +237,7 @@ export const makeRelationalHost = Effect.fn("RelationalHost.make")(function* (
         Effect.gen(function* () {
           yield* runDrizzleStatementEffect(
             tx.execute(
-              sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`,
+              sql`select set_config('statement_timeout', ${`${relationalLimits.statementMs}ms`}, true), set_config('lock_timeout', ${`${relationalLimits.lockMs}ms`}, true)`,
             ),
             (cause) => relationalError("statementFailure", cause),
           );

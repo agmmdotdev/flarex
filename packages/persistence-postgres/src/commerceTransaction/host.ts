@@ -148,7 +148,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(commerceError("invalidAuthority"));
       const active = yield* prepareApplicationBindingSelection(application);
       return yield* runRelationalSession(session, key === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {
-        yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`), cause => commerceError("statementFailure", cause));
+        yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', ${`${commerceLimits.statementMs}ms`}, true), set_config('lock_timeout', ${`${commerceLimits.lockMs}ms`}, true)`), cause => commerceError("statementFailure", cause));
         // One exact request may be replayed through either retained storage
         // representation. Exclusion precedes admission and callback execution.
         if (key !== null) yield* lockCommerceRequest(tx, located.authority.scopeId, key);

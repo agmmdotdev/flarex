@@ -1,12 +1,14 @@
 import { Result, Schema } from "effect";
 import { commerceError, commerceLimits } from "./model";
+import { CommerceCallLimit, CommerceCommandByteLimit, commerceResourceCeilings } from "../frameworkExecutionPolicy";
 
 const ceiling = (maximum: number) => Schema.Int.check(Schema.isBetween({ minimum: 1, maximum }));
-export const CommerceCallLimit = ceiling(4096);
+export { CommerceCallLimit } from "../frameworkExecutionPolicy";
 const Resources = Schema.Struct({
-  catalogRows: ceiling(4096), queryRows: ceiling(4096), writeBatchRows: ceiling(2048),
-  facts: ceiling(4096), calls: CommerceCallLimit, eventMessages: ceiling(2048), eventIds: ceiling(4096),
-  commandBytes: ceiling(16_777_216), valueNodes: ceiling(131_072),
+  catalogRows: ceiling(commerceResourceCeilings.catalogRows), queryRows: ceiling(commerceResourceCeilings.queryRows),
+  writeBatchRows: ceiling(commerceResourceCeilings.writeBatchRows), facts: ceiling(commerceResourceCeilings.facts),
+  calls: CommerceCallLimit, eventMessages: ceiling(commerceResourceCeilings.eventMessages), eventIds: ceiling(commerceResourceCeilings.eventIds),
+  commandBytes: CommerceCommandByteLimit, valueNodes: ceiling(commerceResourceCeilings.valueNodes),
 });
 export type CommerceResources = typeof Resources.Type;
 

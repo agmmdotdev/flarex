@@ -9,6 +9,7 @@ import { isJsonObject, type Json } from "flarex-protocol/json";
 import {
   capturePrivateJsonData,
   cmsError,
+  cmsLimits,
   type CmsCommandContext,
   type CmsPresentedTransactionId,
   type CmsTransactionError,
@@ -51,7 +52,7 @@ const run = <Value>(state: RequestBridge, effect: Effect.Effect<Value, CmsTransa
   Effect.runPromise((state.population === null ? effect : state.semaphore.withPermits(1)(Effect.suspend(() =>
     state.live ? effect : Effect.fail(cmsError("closed"))))).pipe(Effect.mapError(error => projectUniqueFailure(state, error))), { signal: state.signal });
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over the owned Result decoder.
-const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, 65_536, cmsError)).value;
+const capture = (value: unknown): Json => Result.getOrThrow(capturePrivateJsonData(value, cmsLimits.documentBytes, cmsError)).value;
 // oxlint-disable-next-line flarex/no-result-get-or-throw-without-boundary -- REVIEW: compatibility - Payload requires a throwing parser over its sanitized query decoder.
 const where = (state: RequestBridge, input: unknown) => Result.getOrThrow(state.collection.query.adapter(input));
 const payloadDocument = (value: Json, profile: PayloadContentProfile, collection: PayloadCollectionRuntime): Record<string, Json> & { id: string } => {

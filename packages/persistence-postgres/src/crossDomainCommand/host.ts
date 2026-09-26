@@ -137,8 +137,8 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
           return yield* Effect.fail(compositeError("invalidAuthority"));
         const active = yield* prepareApplicationBindingSelection(application);
         return yield* runRelationalSession(session, "command", tx => Effect.scoped(Effect.gen(function* () {
-          yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', '1000ms', true),
-            set_config('lock_timeout', '500ms', true)`), cause => compositeError("resourceFailure", cause));
+          yield* runDrizzleStatementEffect(tx.execute(sql`select set_config('statement_timeout', ${`${cmsLimits.statementMs}ms`}, true),
+            set_config('lock_timeout', ${`${cmsLimits.lockMs}ms`}, true)`), cause => compositeError("resourceFailure", cause));
           yield* lockCommerceRequest(tx, located.authority.scopeId, request.key);
           const snapshot = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
           return yield* preparedApplication.withAdmission(active, tx, located.authority, snapshot,

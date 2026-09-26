@@ -93,6 +93,11 @@ public APIs and production activation retain separate decisions and gates.
 
 ## Current Architecture
 
+[Framework execution policy](./71-framework-execution-policy.md) owns shared
+CMS/Commerce request defaults, transaction timeouts and trusted resource ceilings.
+Adapter admission and database settings consume that policy; Application protocol
+ceilings and workflow-specific allowances retain their separate owners.
+
 Native Application execution records exact reads and logical writes, validates
 OCC and enters its existing materialization/publication transaction. CMS and
 commerce use the shared relational session and bounded request lifetime while

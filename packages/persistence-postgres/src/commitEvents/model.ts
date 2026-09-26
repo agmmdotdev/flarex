@@ -1,6 +1,7 @@
 import { Data, Schema } from "effect";
+import { frameworkEventMessageLimit } from "../frameworkExecutionPolicy";
 
-export const commitEventLimits = Object.freeze({ messages: 2048, subscribers: 8, bytes: 65_536,
+export const commitEventLimits = Object.freeze({ messages: frameworkEventMessageLimit, subscribers: 8, bytes: 65_536,
   totalBytes: 8_388_608,
   batch: 64, claimBatch: 8, leaseMs: 30_000, attempts: 5 });
 export const EventRevision = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/));

@@ -1,5 +1,6 @@
 import { expect, expectTypeOf, it } from "vitest";
 import { Result } from "effect";
+import { cmsLimits } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { decodePayloadPaging, makePayloadQuery } from "../src/query";
 import { payloadResults, type PayloadCountResult, type PayloadDocument, type PayloadPageResult } from "../src/results";
 import type { PayloadCreateInput, PayloadUpdateInput, PayloadFindByIdInput } from "../src/inputs";
@@ -24,9 +25,9 @@ it("keeps caller equality and sanitized adapter filters distinct", () => {
 });
 
 it("preserves the same bounded caller paging policy", () => {
-  expect(Result.getOrThrow(decodePayloadPaging({ page: 257, limit: 32, pagination: false })))
-    .toEqual({ page: 257, limit: 32, pagination: false });
-  for (const unsupported of [{ limit: 0 }, { limit: 33 }, { page: 258 }, { page: 0 }, { page: 1.5 }, { sort: ["id"] }]) {
+  expect(Result.getOrThrow(decodePayloadPaging({ page: 257, limit: cmsLimits.pageRows, pagination: false })))
+    .toEqual({ page: 257, limit: cmsLimits.pageRows, pagination: false });
+  for (const unsupported of [{ limit: 0 }, { limit: cmsLimits.pageRows + 1 }, { page: 258 }, { page: 0 }, { page: 1.5 }, { sort: ["id"] }]) {
     expect(Result.isFailure(decodePayloadPaging(unsupported))).toBe(true);
   }
 });

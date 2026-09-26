@@ -2,6 +2,7 @@ import { preparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
 import { expect } from "vitest";
 import { Effect, Result, Schema } from "effect";
 import { ValidationError } from "payload";
+import { cmsLimits } from "../src/frameworkExecutionPolicy";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { projectScopeIdUuidV1Result, ScopeIdSchema, ScopeEpochSchema, StorageGenerationSchema } from "flarex-protocol/storage-authority";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
@@ -98,6 +99,10 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
       expect(yield* host.read(runtime.commands.findByID, { collection, id })).toMatchObject({ id });
       expect(yield* host.read(runtime.commands.count, { collection, where: { [unique]: { equals: "same-value" } } })).toEqual({ totalDocs: 1 });
       expect(yield* host.read(runtime.commands.find, { collection, where: { id: { equals: id } }, limit: 1 })).toMatchObject({ docs: [{ id }], totalDocs: 1 });
+      expect(yield* host.read(runtime.commands.find, { collection, limit: cmsLimits.pageRows }))
+        .toMatchObject({ docs: [{ id }], limit: cmsLimits.pageRows, totalDocs: 1 });
+      expect(yield* Effect.flip(host.read(runtime.commands.find, { collection, limit: cmsLimits.pageRows + 1 })))
+        .toMatchObject({ reason: "unsupportedProfile" });
       const duplicate = yield* Effect.flip(host.run(host.newRequestKey(), runtime.commands.create, { collection, data: { [unique]: "same-value" } }));
       expect(duplicate).toMatchObject({ reason: "documentInvalid", cause: { data: { collection, errors: [{ path: unique }] } } });
       expect(duplicate.cause).toBeInstanceOf(ValidationError);

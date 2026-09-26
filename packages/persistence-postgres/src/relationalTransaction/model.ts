@@ -88,15 +88,4 @@ export interface RelationalStore {
     key: string,
   ) => Effect.Effect<Option.Option<ScalarRow>, RelationalTransactionError>;
 }
-export const relationalLimits = Object.freeze({
-  calls: 64,
-  page: 32,
-  rows: 256,
-  columns: 16,
-  rowBytes: 65_536,
-  commandBytes: 1_048_576,
-  commandMs: 10_000,
-  statementMs: 1_000,
-  lockMs: 500,
-  cleanupMs: 2_000,
-});
+export { relationalLimits } from "../frameworkExecutionPolicy";

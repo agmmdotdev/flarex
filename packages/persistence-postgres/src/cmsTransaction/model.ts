@@ -1,16 +1,6 @@
 import { Data } from "effect";
 
-export const cmsLimits = Object.freeze({
-  calls: 64,
-  pageRows: 32,
-  identities: 256,
-  documentBytes: 65_536,
-  commandBytes: 1_048_576,
-  commandMs: 10_000,
-  statementMs: 1_000,
-  lockMs: 500,
-  cleanupMs: 2_000,
-});
+export { cmsLimits } from "../frameworkExecutionPolicy";
 
 export class CmsTransactionError extends Data.TaggedError("CmsTransactionError")<{
   readonly reason:

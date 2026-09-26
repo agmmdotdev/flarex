@@ -3,6 +3,7 @@ import { decodeAppDocumentIdentityV1Result } from "flarex-protocol/app-document-
 import {
   capturePrivateJsonData,
   cmsError,
+  cmsLimits,
   type CmsTransactionError,
 } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { payloadRelatedPostsField } from "./contract";
@@ -10,7 +11,7 @@ import { payloadRelatedPostsField } from "./contract";
 /** Pure input capture; the request's posts capability subsequently checks table authority. */
 export function payloadManyIds(input: unknown): Result.Result<readonly string[], CmsTransactionError> {
   return Result.gen(function* () {
-    const value = (yield* capturePrivateJsonData(input, 65_536, cmsError)).value;
+    const value = (yield* capturePrivateJsonData(input, cmsLimits.documentBytes, cmsError)).value;
     if (!Array.isArray(value) || value.length > payloadRelatedPostsField.maxItems) return yield* Result.fail(cmsError("relationInvalid"));
     const ids: string[] = [];
     for (const id of value) {

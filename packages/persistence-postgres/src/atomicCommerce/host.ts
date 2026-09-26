@@ -10,7 +10,7 @@ import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock";
 import { enterCommercePublication } from "../commerceTransaction/admission";
 import { createCommittedJsonOutcomeResolver } from "../committedPointOutcome";
-import { commerceError, type CommerceTransactionError } from "../commerceTransaction/model";
+import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
 import { lockCommerceRequest, projectCommerceRequestFailure } from "../commerceTransaction/request";
 import type { AtomicCommerceHost } from "./commands";
 import { withAtomicCommerceAdmissions } from "./admission";
@@ -54,7 +54,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
           Effect.gen(function* () {
             yield* runDrizzleStatementEffect(
               tx.execute(
-                sql`select set_config('statement_timeout', '1000ms', true), set_config('lock_timeout', '500ms', true)`,
+                sql`select set_config('statement_timeout', ${`${commerceLimits.statementMs}ms`}, true), set_config('lock_timeout', ${`${commerceLimits.lockMs}ms`}, true)`,
               ),
               (cause) => commerceError("statementFailure", cause),
             );
