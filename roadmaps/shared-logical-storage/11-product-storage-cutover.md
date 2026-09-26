@@ -161,10 +161,11 @@ isolation and concurrency remain at the gates below. There is no new durable
 format, second settlement path, old Product data migration or production
 switch in this slice.
 
-The physical profile is constructed in `product-schema.ts` and
-`product-profile.ts`. Its active test consumers include the Product runner and
-local service, installation, relationship, SalesChannel, ShippingProfile,
-ProductTag, Variant/Image and Variant/Pricing workflow suites. The mixed
+The historical physical Product profile and local suite have since been
+retired. `product-schema.ts` still contains the generated-layout construction
+used by the named Product installation test; other physical-only witnesses
+retain their own removal gates in the
+[Product-module closeout](./44-product-module-closeout.md). The mixed
 Category/Currency fixture now uses two admitted logical sources under one
 atomic owner; its cutover and recovery proof are tracked in the
 [composition cutover](./36-category-currency-logical-composition.md).

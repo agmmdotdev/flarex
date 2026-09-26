@@ -3,6 +3,11 @@
 Status: shared-owner reconstruction correction implemented.
 This supports the fresh Product schema capability in [record 26](./26-medusa-product-schema-and-relationships.md). It does not admit Product services, change runtime mutation authority or introduce database metadata tables.
 
+The physical Product local test command recorded below is historical: that
+suite and its generated local profile were retired during the logical Product
+cutover. Current native and boundary evidence is indexed in
+[Product-module closeout](../../shared-logical-storage/44-product-module-closeout.md).
+
 ## Problem And Owner
 
 Ten Product models produce thirteen tables and an 85-step structural plan. The previous reconstruction path repeatedly measured, encoded, hashed and restored the same plan and its growing receipt/event graph. A shared database fixture alone cannot remove that repeated work. CPU sampling identified canonical reconstruction, repeated driver-row decoding and stack/span allocation in per-node helper calls.

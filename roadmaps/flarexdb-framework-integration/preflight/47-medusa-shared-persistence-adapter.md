@@ -173,9 +173,10 @@ Source examples:
   applies an admitted exclusion selector over complete scoped rows. Neither can
   be replaced by filtering a partial database page. Local Category string
   comparison also must not silently become a different SQL collation.
-- [Local event policy](../../../packages/medusa-adapter/src/product-local-events.ts)
-  distinguishes module-service and direct internal calls. Deleting that
-  distinction as duplication would change behavior and weaken authentication.
+- [Product call receipts](../../../packages/medusa-adapter/src/product-local-events.ts)
+  distinguish module-service and direct internal calls on logical storage.
+  Deleting that distinction as duplication would change behavior and weaken
+  authentication.
 
 ## Proposed architecture
 

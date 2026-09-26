@@ -2,11 +2,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
+import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { capturePrivateCanonicalValue } from "../../persistence-postgres/src/frameworkSchema/privateCanonicalValue";
 import { fxAppRowCurrent, fxAppSearchEntryCurrent } from "../../persistence-postgres/src/schema";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
+import { captureProductSchema } from "../src/product-schema";
+import { productRuntimeMetadata } from "../src/product-runtime-metadata";
+import { findProducts } from "../src/product-query";
 
 const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
 if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product test driver");
@@ -21,6 +24,27 @@ describe("native internal Product service on shared logical storage", () => {
     const failures: unknown[] = [];
     for (const close of cleanup.reverse()) await close().catch(cause => { failures.push(cause); });
     if (failures.length > 0) throw new AggregateError(failures, "Logical Product fixture cleanup failed");
+  }, 120_000);
+
+  it("preserves the native Product root predicate at the exact shared filter-node limit", async () => {
+    const { hostInput, host: base } = await prepareLogicalProductHost(fixture);
+    await Effect.runPromise(base.close);
+    const captured = await Effect.runPromise(captureProductSchema("logical-product-query-budget"));
+    const catalog = await Effect.runPromise(productRuntimeMetadata(captured.metadata.frame));
+    const queryBudget = defineCommerceCommand("productLogicalQueryBudget", "read", Effect.fn(function* (ctx, input) {
+      if (!isJsonObject(input) || (input.length !== 60 && input.length !== 61))
+        return yield* ctx.refuse(commerceError("invalidInput"));
+      const where = { $or: Array.from({ length: input.length }, (_, index) => ({ id: `budget-missing-${index}` })) };
+      return (yield* findProducts(ctx, catalog, { where }, false, true)).rows;
+    }));
+    const host = await Effect.runPromise(makeCommerceHost({ ...hostInput,
+      commands: [...hostInput.commands, queryBudget] }));
+    try {
+      await Effect.runPromise(host.initialize([]));
+      expect(await Effect.runPromise(host.read(queryBudget, { length: 60 }))).toEqual([]);
+      await expect(Effect.runPromise(host.read(queryBudget, { length: 61 })))
+        .rejects.toMatchObject({ reason: "limitExceeded" });
+    } finally { await Effect.runPromise(host.close); }
   }, 120_000);
 
   it("selects the complete Product source for native create, read and one committed replay", async () => {

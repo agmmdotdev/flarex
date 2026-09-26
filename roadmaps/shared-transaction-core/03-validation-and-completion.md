@@ -69,9 +69,13 @@ evidence includes:
   full cleanup causes and exact physical identity exclusion required by R1.
 - [Native located runner](../../packages/persistence-postgres/test/postgresLocatedReadCommitted.test.ts):
   pool and externally owned connected-client lifecycle and failure classification.
-- [Product conformance](../../packages/medusa-adapter/test/product-local.test.ts)
-  and the existing original-test lanes: lifecycle, exact events, ambiguous
-  acknowledgement, competing requests and no replay delivery.
+- [Logical Product native runner](../../packages/medusa-adapter/test/support/logical-product-runner.ts)
+  retains the pinned lifecycle and event cases. The
+  [logical atomic recovery suite](../../packages/medusa-adapter/test/logical-category-currency-atomic-recovery.test.ts)
+  checks lost acknowledgement, retained replay and request-key conflict;
+  [logical workflow delivery](../../packages/medusa-adapter/test/logical-product-sales-channel-workflow.test.ts)
+  checks committed outcomes when a subscriber fails. The former physical local
+  suite has been retired.
 
 Extend coverage where a selected replacement changes ownership or semantics;
 do not replace decisive framework scenarios with helper-only unit tests.

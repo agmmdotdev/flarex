@@ -263,8 +263,9 @@ remain distinct from logical schema evolution.
   higher-fan-out delivery and hot-shop throughput remain unmeasured.
   The joint Application/Payload/Product/Currency binding witness now selects
   logical Product and Currency together, with a native atomic command and no
-  generated Product tables. Remaining physical Product local and installation
-  witnesses retain their named consumers. Other relationship kinds still need their own
+  generated Product tables. The physical Product local suite, profile and event
+  policy are retired; Product installation remains a named physical consumer.
+  Other relationship kinds still need their own
   coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.

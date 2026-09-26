@@ -37,9 +37,9 @@ selected by outer host identity. The temporary logical probe and physical
 fixture-reset runner configurations are removed. The logical runner clears
 bounded fixture rows through admitted native commands before each native case.
 
-Named physical consumers include Product local, installation and exact-numeric
-tests; and the remaining link, population and persistence-core fixtures found
-by the reference inventory. The physical
+Named physical consumers include Product installation and exact-numeric tests;
+and the remaining link, population and persistence-core fixtures found by the
+reference inventory. The physical
 fixture-reset SQL, runner and configuration have no remaining consumer and are
 retired. Native logical Product deletion now proves original and tombstone
 revisions, retained idempotency outcomes, replay without additional events,
@@ -95,6 +95,17 @@ physical Product installation, extra binding activation and direct table writer
 are removed from that witness. The shared binding fixture advances unique-build
 work from its admitted definition count so a multi-module candidate reaches
 readiness; this does not alter the production build budget.
+The old local Product host suite is retired after its native service behavior
+was exercised through the unchanged pinned Product cases and the logical
+Product create, service, Type, Option, Collection, Category and lifecycle
+boundary suites. The exact 60/61 filter-node edge now runs against the logical
+Product host. Local callback-buffer behavior belongs to the displaced physical
+host; logical Product publication uses durable admitted events, with replay,
+subscriber failure and uncertain-outcome witnesses in the native runner and
+logical workflow suites. The generated Product local profile and its physical
+fact/event validator had no consumer beyond that suite and are removed; the
+Product call receipt policy remains the logical owner. This cutover drops no
+durable table or installed Product data.
 The remaining search recovery, pending-write and resource gates are in
 [indexed text search](./45-core-indexed-text-search.md); this selected witness
 does not claim arbitrary search scale.
