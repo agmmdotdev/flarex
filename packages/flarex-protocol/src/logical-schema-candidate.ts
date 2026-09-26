@@ -67,19 +67,23 @@ export const LogicalSchemaSourceSchema = Schema.Struct({
   bindings: Schema.Array(SourceBinding).check(Schema.isMaxLength(10_000)),
 }).annotate(strict);
 const Endpoint = Schema.Struct({ table: QualifiedLogicalTableSchema, field: Name }).annotate(strict);
+const EndpointLiveness = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("current") }).annotate(strict),
+  Schema.Struct({ kind: Schema.Literal("softDeleteNull"), field: Name }).annotate(strict),
+]);
 export const LogicalSchemaExtensionSchema = Schema.Struct({
   name: Name,
   sourceKey: Name,
   source: Endpoint,
   target: Endpoint,
   policy: Schema.Literal("strongReference"),
-  // This records a dependency requirement; traversal/enforcement stays unready.
+  liveness: Schema.Struct({ source: EndpointLiveness, target: EndpointLiveness }).annotate(strict),
   onTargetDelete: Schema.Literal("restrict"),
 }).annotate(strict);
 
 export const LogicalSchemaCandidateSchema = Schema.Struct({
   kind: Schema.Literal("logicalSchemaCandidate"),
-  definitionVersion: Schema.Literal(1),
+  definitionVersion: Schema.Literal(2),
   state: Schema.Literal("candidate"),
   deploymentId: Name,
   scopeId: Name,
@@ -200,12 +204,31 @@ function validateCandidate(candidate: LogicalSchemaCandidate): string | undefine
     const target = definitions.get(logicalTableKey(extension.target.table));
     if (source === undefined || target === undefined) return "Unresolved extension endpoint";
     if (source.source.key !== extension.sourceKey) return "Extension is not authorized by its source owner";
+    if (!matchesEndpointLiveness(source, extension.liveness.source) ||
+        !matchesEndpointLiveness(target, extension.liveness.target))
+      return "Extension liveness does not match its endpoint schema";
     const left = sourceReferenceKind(source, extension.source.field);
     const right = targetIdentityKind(target, extension.target.field);
     if (left === undefined || right === undefined || (left !== "text" && left !== right))
       return "Incompatible extension endpoints";
   }
   return undefined;
+}
+
+function matchesEndpointLiveness(binding: DefinitionBinding,
+  liveness: LogicalSchemaExtension["liveness"]["source"]): boolean {
+  const definition = binding.source.definition;
+  if (definition.kind === "documents") return liveness.kind === "current";
+  const table = definition.schema.tables.find(entry => entry.identity.tableId === binding.binding.localName);
+  if (table === undefined) return false;
+  const deletions = definition.schema.capabilities.filter(capability =>
+    capability.kind === "softDelete" && capability.deletedAtColumn.owner === table.identity.owner &&
+    capability.deletedAtColumn.lineageId === table.identity.lineageId &&
+    capability.deletedAtColumn.tableId === table.identity.tableId);
+  if (deletions.length === 0) return liveness.kind === "current";
+  return deletions.length === 1 && liveness.kind === "softDeleteNull" &&
+    deletions[0]?.kind === "softDelete" &&
+    deletions[0].deletedAtColumn.columnId === liveness.field;
 }
 
 const decodeIndexableReferenceField = Schema.decodeUnknownResult(SchemaManifestAppIndexFieldPathSchema);

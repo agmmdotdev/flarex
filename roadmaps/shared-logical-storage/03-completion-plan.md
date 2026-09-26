@@ -325,7 +325,12 @@ remain distinct from logical schema evolution.
   commerce and Payload preference storage still consume framework evidence;
   their migration and recovery obligations must move before table removal.
 - Cross-source strong-reference extensions now require a single-record target
-  identity, and the shared definition builder derives missing complete reverse
+  identity and schema-matched endpoint liveness. A soft-delete capability must
+  be named explicitly rather than treating a deleted Product as a live row.
+  Retained version-1 candidate history blocks version-2 admission until an
+  explicit disposable-development reset or approved offline artifact conversion;
+  in-place re-admission is not available while that history remains.
+  The shared definition builder derives missing complete reverse
   indexes through the existing index lifecycle. They remain candidate metadata,
   not an executable relationship. The shared source-admission owner refuses every
   affected Application, Payload or Medusa source before runtime token issue;

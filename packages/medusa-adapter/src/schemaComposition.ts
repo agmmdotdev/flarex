@@ -188,7 +188,7 @@ export function makeSchemaComposer(configuration: {
       }));
     }
     return yield* prepareLogicalSchemaCandidate({
-      kind: "logicalSchemaCandidate", definitionVersion: 1, state: "candidate",
+      kind: "logicalSchemaCandidate", definitionVersion: 2, state: "candidate",
       deploymentId, scopeId: authority.scopeId,
       applicationAnalysis: { candidateId: application.candidateId, analysisId: application.analysisId,
         manifestSha256: application.manifestSha256, sourceArtifactRootSha256: application.sourceArtifactRootSha256 },

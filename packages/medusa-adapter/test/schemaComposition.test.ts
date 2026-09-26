@@ -156,8 +156,8 @@ async function witness(
       { name: "title", type: "text", required: true }, { name: "commerceId", type: "text", required: true },
     ] }], bindings: [{ localName: "cms_view", table }] }],
     extensions: [
-      { name: "page_product", sourceKey: "application", source: { table, field: "commerceId" }, target: { table: productTable, field: "id" }, policy: "strongReference", onTargetDelete: "restrict" },
-      { name: "product_page", sourceKey: "medusa.product", source: { table: productTable, field: "handle" }, target: { table, field: "_id" }, policy: "strongReference", onTargetDelete: "restrict" },
+      { name: "page_product", sourceKey: "application", source: { table, field: "commerceId" }, target: { table: productTable, field: "id" }, policy: "strongReference", liveness: { source: { kind: "current" }, target: { kind: "softDeleteNull", field: "deleted_at" } }, onTargetDelete: "restrict" },
+      { name: "product_page", sourceKey: "medusa.product", source: { table: productTable, field: "handle" }, target: { table, field: "_id" }, policy: "strongReference", liveness: { source: { kind: "softDeleteNull", field: "deleted_at" }, target: { kind: "current" } }, onTargetDelete: "restrict" },
     ],
   };
   const linkWithoutEndpoints = makeSchemaComposer({ deploymentId, authority, applicationAnalyses: analyses,
@@ -186,6 +186,14 @@ async function witness(
     _tag: "Failure", failure: { reason: "unsupportedPlacement" },
   });
   const candidate = await Effect.runPromise(readPreparedLogicalSchemaCandidate(prepared));
+  for (const changed of [
+    { name: "page_product", liveness: { source: { kind: "current" }, target: { kind: "current" } } },
+    { name: "product_page", liveness: { source: { kind: "softDeleteNull", field: "other" }, target: { kind: "current" } } },
+  ]) {
+    const incorrect = { ...candidate, extensions: candidate.extensions.map(extension =>
+      extension.name === changed.name ? { ...extension, liveness: changed.liveness } : extension) };
+    expect(Result.isFailure(decodeLogicalSchemaCandidate(incorrect))).toBe(true);
+  }
   const mutableConfig = { deploymentId, authority: { ...authority }, applicationAnalyses: analyses, medusaModules };
   mutableConfig.applicationAnalyses = { ...analyses, inspect: (scope, id) => analyses.inspect(scope, id).pipe(Effect.tap(() => Effect.sync(() => {
     mutableConfig.deploymentId = "mutated-deployment";

@@ -20,6 +20,14 @@ ID source retains its declared target-table binding; an ordinary string or
 relational text source may carry either target identity format. Runtime must
 decode and verify the actual value before it can serve. The same candidate can
 still contain independently owned Application, Payload and Medusa sources.
+Candidate definition version 2 also requires an explicit live-row rule for
+both endpoints. A document endpoint uses its current non-tombstone row; a
+relational endpoint with a soft-delete capability must name that exact
+`deleted_at` column as `softDeleteNull`. A relational table without that
+capability uses its current row. Core candidate validation rejects a rule that
+contradicts the producer's schema, so a Product tombstone cannot be mistaken
+for a live target. Payload draft/version visibility remains a separate runtime
+admission gate even when its current collection row has this structural rule.
 Source and target column names must be addressable as literal top-level ordered
 index fields. A dotted relational column name would otherwise be interpreted
 as a nested document path; incompatible decimal-formatted source indexes are
@@ -39,13 +47,17 @@ identity in the selected transaction.
 This deliberately rejects previously admissible candidate metadata that named
 a non-unique target field. The prior metadata had no serving token or runtime
 data contract, so there is no supported row conversion or dual decoder. The
+version-2 liveness rule is likewise an intentional private candidate break;
+retained version-1 candidate history blocks version-2 admission until an
+explicit disposable-development reset or approved offline artifact conversion;
+in-place re-admission over that history is not available. The
 candidate composition witness now uses a Medusa-originating text field into an
 Application `_id` as a structural example; it does not claim that the native
 Product service writes such a field or that the relationship executes. The
 actual native extension must use a supported Medusa model/fork seam before
-runtime admission. Persisted development candidates using the old shape require
-an explicit reset or re-admission decision; this slice performs no silent data
-deletion.
+runtime admission. Persisted development candidate artifacts using the old shape
+require an explicit reset or offline conversion decision; this slice performs no
+silent data deletion.
 
 ## Connected proof and remaining gate
 

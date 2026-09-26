@@ -6,7 +6,7 @@ import { normalizeRelationalSchema } from "../src/relational-schema";
 
 const qualified = (logicalName: string) => ({ namespace: "app", logicalName });
 const candidate = {
-  kind: "logicalSchemaCandidate", definitionVersion: 1, state: "candidate", deploymentId: "test", scopeId: "scope",
+  kind: "logicalSchemaCandidate", definitionVersion: 2, state: "candidate", deploymentId: "test", scopeId: "scope",
   applicationAnalysis: { candidateId: "candidate", analysisId: "analysis", manifestSha256: "a".repeat(64), sourceArtifactRootSha256: "b".repeat(64) },
   sources: [{ key: "application", owner: "application", evidence: {}, sourceSha256: "c".repeat(64), writeProfile: "application.occ",
     definition: { kind: "documents", indexes: [], uniqueConstraints: [], relations: [], tables: ["references", "users", "posts"].map(logicalName => ({
@@ -16,7 +16,8 @@ const candidate = {
     bindings: ["references", "users", "posts"].map(localName => ({ kind: "definition", localName, table: qualified(localName) })),
   }],
   extensions: [{ name: "reference_user", sourceKey: "application", source: { table: qualified("references"), field: "user" },
-    target: { table: qualified("users"), field: "_id" }, policy: "strongReference", onTargetDelete: "restrict" }],
+    target: { table: qualified("users"), field: "_id" }, policy: "strongReference",
+    liveness: { source: { kind: "current" }, target: { kind: "current" } }, onTargetDelete: "restrict" }],
 };
 
 describe("logical candidate dependency identities", () => {
@@ -37,6 +38,17 @@ describe("logical candidate dependency identities", () => {
       bindings: source.bindings.map(binding => binding.localName === "users" ? { ...binding, table: qualified("accounts") } : binding),
     })), extensions: candidate.extensions.map(extension => ({ ...extension, target: { table: qualified("accounts"), field: "_id" } })) };
     expect(Result.isSuccess(decodeLogicalSchemaCandidate(renamed))).toBe(true);
+  });
+
+  it("requires an explicit liveness rule matching both endpoint schemas", () => {
+    expect(Result.isFailure(decodeLogicalSchemaCandidate({ ...candidate, definitionVersion: 1 }))).toBe(true);
+    const extension = candidate.extensions[0];
+    if (extension === undefined) throw new Error("Missing reference fixture");
+    for (const changed of [
+      { ...extension, liveness: undefined },
+      { ...extension, liveness: { source: { kind: "softDeleteNull", field: "deleted_at" }, target: { kind: "current" } } },
+      { ...extension, liveness: { source: { kind: "current" }, target: { kind: "softDeleteNull", field: "deleted_at" } } },
+    ]) expect(Result.isFailure(decodeLogicalSchemaCandidate({ ...candidate, extensions: [changed] }))).toBe(true);
   });
 
   it("refuses an id extension pointing at a different table", () => {
@@ -105,7 +117,8 @@ describe("logical candidate dependency identities", () => {
       return decodeLogicalSchemaCandidate({ ...candidate, sources: [...candidate.sources, source],
         extensions: [{ name: "reference_user", sourceKey: source.key,
           source: { table: source.bindings[0]?.table, field }, target: { table: qualified("users"), field: "_id" },
-          policy: "strongReference", onTargetDelete: "restrict" }],
+          policy: "strongReference", liveness: { source: { kind: "current" }, target: { kind: "current" } },
+          onTargetDelete: "restrict" }],
       });
     };
     expect(Result.isSuccess(withField("user_id"))).toBe(true);

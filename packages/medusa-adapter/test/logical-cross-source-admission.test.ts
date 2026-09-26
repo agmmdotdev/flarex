@@ -25,10 +25,12 @@ const payloadCollections = [{ slug: "news", fields: [{ name: "title", type: "tex
 const product = { namespace: "medusa", logicalName: "commerce.product/product" } as const;
 const extensions = [{ name: "user_product", sourceKey: "application",
   source: { table: { namespace: "app", logicalName: "users" }, field: "name" },
-  target: { table: product, field: "id" }, policy: "strongReference", onTargetDelete: "restrict" },
+  target: { table: product, field: "id" }, policy: "strongReference",
+  liveness: { source: { kind: "current" }, target: { kind: "softDeleteNull", field: "deleted_at" } }, onTargetDelete: "restrict" },
 { name: "news_product", sourceKey: "payload",
   source: { table: { namespace: "app", logicalName: "news" }, field: "title" },
-  target: { table: product, field: "id" }, policy: "strongReference", onTargetDelete: "restrict" }] as const;
+  target: { table: product, field: "id" }, policy: "strongReference",
+  liveness: { source: { kind: "current" }, target: { kind: "softDeleteNull", field: "deleted_at" } }, onTargetDelete: "restrict" }] as const;
 
 describe("cross-source relationship admission stays closed until enforcement exists", () => {
   let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;

@@ -4346,7 +4346,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-cross-source-admission.test.ts",
       "classification": "authored",
-      "targetSha256": "83623c13cfbf6c4d7184e70dfabbb4530b80dc15305c90be71b698dae2997540"
+      "targetSha256": "ad0bc9518b5cc4c83e9cb9c9b0261a2c409aed27c306bd78645726145e865ef5"
     },
     {
       "target": "packages/medusa-adapter/test/logical-commerce-snapshot.postgres.test.ts",
@@ -4426,12 +4426,12 @@
     {
       "target": "packages/medusa-adapter/src/schemaComposition.ts",
       "classification": "authored",
-      "targetSha256": "c292fc2b42672492e5a770e57eb79cd4495d5e1d17dd3527fa09b6ea5b38cad2"
+      "targetSha256": "cfd0bbf4ba2f544309d16d64991b3d744784dfbd2b6cec6d3888199a1ad8c16d"
     },
     {
       "target": "packages/medusa-adapter/test/schemaComposition.test.ts",
       "classification": "authored",
-      "targetSha256": "48284d026eb7a79191f1a01378df7347e0eb903764afdd3960fa1486e56da90c"
+      "targetSha256": "ded21536dd3fecfcdeb8cf536a9666b42dd138e8ee8a82ccec0da1351b33b64d"
     },
     {
       "target": "packages/medusa-adapter/test/logicalSchemaBindings.test.ts",

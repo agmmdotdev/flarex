@@ -1,7 +1,8 @@
 # Strong-reference settlement core
 
-Status: the common publication safety gate and authenticated endpoint projection
-are implemented. Runtime admission remains closed until the connected
+Status: the common publication safety gate, authenticated endpoint projection
+and schema-matched endpoint-liveness candidate contract are implemented.
+Runtime admission remains closed until the connected
 referential-enforcement proofs below pass.
 
 ## Trigger and owner
@@ -17,6 +18,18 @@ The shared persistence/publication owner must enforce the relationship for
 every writer. Source admission must remain closed until that is true.
 
 ## Selected contract
+
+The executable cutover breaks the private logical candidate to definition
+version 2. Each extension declares `current` or `softDeleteNull(field)` for
+both endpoints. Core candidate validation matches that declaration to the
+owner's document table or relational soft-delete capability; it cannot be a
+caller-selected override of Product's `deleted_at` semantics. Retained version-1
+candidate history blocks version-2 admission in `requireRetainedOwners` until
+an explicit disposable-development reset or approved offline artifact
+conversion. In-place re-admission over that history is not available. This
+slice does not reset or delete its artifacts or rows. A Payload collection
+with drafts/versions needs its publication visibility proven separately before
+its source is opened; a current document row alone is not that proof.
 
 Activation binds a compact, authenticated endpoint table set to the active
 logical schema head. The common publisher reads that head without reopening and
@@ -44,6 +57,18 @@ allows parent and child writes in either order within one settlement. The
 derived reverse index is required for bounded incoming checks; a scan over all
 rows or shops is not an alternative.
 
+The generic unique-slot reader currently requires an owner revision to be
+published through the old scope clock. It therefore cannot resolve a target
+created earlier in the *same* settlement before clock advancement. The core
+must add a transaction-local final-state resolution path, authenticated by the
+selected candidate and new commit facts, rather than rejecting child/parent
+order or letting an adapter bypass the slot check. Target lookup, source reverse
+selection and any relation-edge materialization must use the existing generic
+index/edge owners and their bounded resource contracts. Keep the common source
+refusal until source insertion, target deletion/soft deletion, same-transaction
+parent/child ordering, indexed traversal and ordinary-role PostgreSQL races
+are proved together for each opened profile.
+
 The current candidate permits only `restrict` on target deletion. Runtime must
 define target liveness for relational soft deletion and Payload draft/version
 records before admitting those profiles. Do not silently treat a soft-deleted
@@ -55,8 +80,8 @@ policy.
 The active-head endpoint projection is derived only from the authenticated
 candidate during activation. Existing version-1 heads without that projection
 cannot serve or be activated again through the version-2 reader. They require
-an explicit development reset or an approved offline conversion of the
-head/candidate evidence; a missing projection must not mean an empty
+an explicit disposable-development reset or an approved offline conversion of
+the retained head/candidate artifacts; a missing projection must not mean an empty
 relationship set. They now fail closed on read; no data is deleted by this
 slice. The eventual referential validator and refusal
 replacement must be delivered as one connected behavior.
