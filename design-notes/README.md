@@ -87,16 +87,20 @@ implemented or activated. Exact breaks and implementation gates are recorded in
     `@flarex/persistence-postgres`. It authorizes no migration and must be
     revalidated against the working tree before becoming a roadmap.
 
-- `flarex-durable-task-engine.md`
-  - Accepted direction for extracting Trigger.dev's first-class task-definition
-    and durable-run semantics into a canonical Standard Application task
-    catalog plus a host-neutral Flarex state machine backed by a private
-    FlarexDB Task System API and Cloudflare/compute-provider adapters. Current
-    Flarex actions are not task authority. Trigger remains an inactive
-    compatibility island rather than a runtime dependency. Private lifecycle,
-    Postgres, scheduling, provider, and delivery foundations now exist, while
-    connected runtime work is held behind a capability-local Trigger source
-    audit and the first end-to-end private vertical.
+- [Shared task system from the Trigger.dev fork](./flarexdb-shared-task-system.md)
+  - Recorded replacement direction: retain actual Trigger engine implementations
+    as a shared primitive for Application, Payload and Medusa. Adapt its store
+    to reserved Flarex logical schemas, remove active Prisma/Redis dependencies,
+    and retire the displaced task engine. Defines source reuse, transaction,
+    enqueue, migration and connected validation gates. Implementation requires
+    a focused preflight.
+
+- [Existing durable task engine](./flarex-durable-task-engine.md)
+  - Implemented-baseline architecture for the private Flarex lifecycle, Task
+    System Postgres, scheduling, Worker Loader and recovery vertical. The
+    Trigger source island remains inactive in this baseline. The shared-task
+    replacement note above records the intended new direction; the task roadmap
+    owns exact implementation and activation status.
 
 - `flarex-dynamic-worker-bundle-partitioning.md`
   - Accepted runtime design direction for automatic, size-bounded Dynamic
