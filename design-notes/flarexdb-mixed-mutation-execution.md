@@ -454,6 +454,23 @@ owners. Neither the adapters nor workflow runner introduce another recovery ledg
 
 ## Refactor, Compatibility And Cleanup
 
+The owner explicitly extends the [repository breaking-change policy](../AGENTS.md)
+to this mixed-mutation core work. Correct design takes priority over backward
+compatibility. Existing APIs, types, internal interfaces, schemas, codecs,
+identities, journal/protocol formats, index/search definitions and integration
+seams may be replaced when the approved core design requires it. Preserve no
+displaced contract merely because it exists, and do not add compatibility
+wrappers, dual paths or fallback engines to avoid updating affected consumers.
+
+This replacement policy is accepted now; runtime implementation still follows
+the wait and scope-agreement gates above. Once that scope is approved, necessary
+in-scope breaking changes need no additional compatibility permission. Record
+the breaks, rationale, affected callers/data/formats, cutover, validation and
+removal in the focused preflight. Preserve intended behavioral guarantees and
+explicitly handle named durable data and outstanding attempts; permission to
+break contracts does not authorize silent deletion or reinterpretation of
+durable evidence. Developer APIs remain outside the core phase.
+
 | Contract or owner | Proposed disposition and completion requirement |
 | --- | --- |
 | Native mutation coordinator/journal | Extend for authenticated domain participation; preserve ordinary Application semantics and recovery |

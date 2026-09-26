@@ -49,6 +49,21 @@ slice is approved, necessary in-scope breaking changes need no separate
 compatibility permission. The standing approval below governs the active core
 redesign; other work follows the approval rule below.
 
+The same breaking-change and cleanup policy explicitly applies to the proposed
+[mixed Application/Payload/Medusa mutation core](design-notes/flarexdb-mixed-mutation-execution.md).
+Correct core design takes priority over backward compatibility for this work,
+including OCC, transaction orchestration, journal/protocol formats, working-set
+contracts, index/search definitions, schemas, identities and framework integration
+seams. Do not preserve displaced internals or add compatibility layers merely
+to avoid migrating consumers. Once its implementation scope is approved,
+necessary in-scope breaks need no separate compatibility permission; inventory
+affected callers and durable data/formats, migrate and validate them, and remove
+displaced paths in the same coherent slice. Preserve intended correctness and
+explicit durable-data disposition. This extends the replacement policy only:
+implementation still waits for the shared-storage migration goal to finish and
+the subsequent core scope agreement. Developer APIs remain deferred; the standing
+implementation approvals for the goals below do not automatically start this work.
+
 The owner grants standing approval for the Flarex DB core redesign tracked in
 [core execution redesign](roadmaps/shared-transaction-core/10-core-execution-redesign.md).
 For this work, record and explain each focused preflight, then implement,
