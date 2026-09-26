@@ -1,4 +1,4 @@
-import { Clock, Effect, Option, Result } from "effect";
+import { Clock, Data, Effect, Option, Result } from "effect";
 import { eq, sql } from "drizzle-orm";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isJsonObject } from "flarex-protocol/json";
@@ -11,7 +11,8 @@ import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1,
   MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "../applicationDocumentMaterialization/materialization";
 import { readBoundedCurrentAppRowsInTransactionEffect, InvalidAppRowReadInputError, AppRowReadPersistenceError,
   type LiveAppRowRevisionV1 } from "../appRows";
-import { scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError } from "../appIndexEntries";
+import { scanCurrentAppIndexInTransactionEffect, countCurrentAppIndexRangeUpToLimitInTransactionEffect,
+  AppIndexEntryReadPersistenceError, AppIndexEntryHashError } from "../appIndexEntries";
 import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect, ScopeClockNotFoundError,
   ScopeAuthorizationRevocationEpochPersistenceError, type ScopeClockRecord } from "../scopeClock";
@@ -39,6 +40,11 @@ import { readLogicalIndexRange } from "./indexReads";
 export const logicalReferenceTransitionBudget = Object.freeze({
   pageRows: 32, affectedRows: 2016, totalReadBytes: 4_194_304, scanMilliseconds: 30_000,
 });
+export class LogicalReferenceCapacityError extends Data.TaggedError("LogicalReferenceCapacityError")<{
+  readonly resource: "affectedRows" | "readBytes" | "scanMilliseconds" | "pages";
+  readonly maximum: number;
+  readonly observedAtLeast: number;
+}> {}
 const compareReferenceKeys = (left: Readonly<{ key: string }>, right: Readonly<{ key: string }>) =>
   compareUtf16Strings(left.key, right.key);
 
@@ -141,6 +147,16 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
     .pipe(Effect.mapError(cause => error(cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
       ? "statementFailure" : cause instanceof ScopeClockNotFoundError ? "invalidAuthority" : "storedCorruption", cause)));
   yield* requireSourceBoundIndexCoverage(tx, clock, selected.value.definition, error);
+  // A range exceeding the atomic budget must not spend most of that budget
+  // lowering pages before it can report the inevitable capacity refusal.
+  const rangeCount = yield* countCurrentAppIndexRangeUpToLimitInTransactionEffect(tx, {
+    scopeId, definition: selected.value.definition, bounds: selected.value.bounds,
+    maximumEntries: affectedLimit,
+  }).pipe(Effect.mapError(cause => error(cause instanceof AppIndexEntryReadPersistenceError ? "statementFailure" :
+    cause instanceof AppIndexEntryHashError ? "resourceFailure" : "storedCorruption", cause)));
+  if (rangeCount > affectedLimit) return yield* Effect.fail(error("limitExceeded",
+    new LogicalReferenceCapacityError({ resource: "affectedRows", maximum: affectedLimit,
+      observedAtLeast: rangeCount })));
   const started = yield* Clock.currentTimeMillis;
   let after: Parameters<typeof scanCurrentAppIndexInTransactionEffect>[1]["after"];
   let affectedRows = 0;

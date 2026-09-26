@@ -202,6 +202,14 @@ operational safety budgets, not general parity or production performance
 claims. The effective reference ceiling also depends on the admitted source
 index and unique-key cost per page. A shop can legitimately exceed it; a
 refusal must remain atomic.
+Before staging a nullable-reference transition, the shared index owner probes
+at most the effective row ceiling plus one entry under the same scope
+publication lock. An over-budget range returns `limitExceeded` with a
+`LogicalReferenceCapacityError` cause identifying `affectedRows`, the effective
+maximum and a lower bound on the observed count. It does not lower any Product
+page or publish a partial Type deletion. Byte, materialization and time
+budgets still apply while processing an admitted range; the probe is not an
+unbounded count or a promise that every under-ceiling operation succeeds.
 
 An opt-in native Type capacity run with 2,016 small Products completed on local
 PGlite in 25.8 seconds and ordinary-role PostgreSQL in 12.2 seconds for the

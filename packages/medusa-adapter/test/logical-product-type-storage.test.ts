@@ -396,6 +396,47 @@ describe("native Product Type on shared logical Product storage", () => {
     }
   }, 360_000);
 
+  it.skipIf(process.env.FLAREX_FANOUT_OVERFLOW !== "1")(
+    "refuses over-budget Type deletion before staging Product changes", async () => {
+      const productCount = 2048;
+      const typeId = "ptype_over_capacity";
+      const created = await typeCommand("create");
+      const deleted = await typeCommand("delete", fixture, product, false, undefined, 30_000);
+      const productCreate = await productCreation();
+      try {
+        await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
+          { id: typeId, value: "Over capacity" }));
+        for (let batch = 0; batch < productCount / 32; batch++) {
+          const rows = Array.from({ length: 32 }, (_, index) => ({
+            id: `prod_over_capacity_${batch * 32 + index}`,
+            title: `Over capacity ${batch * 32 + index}`,
+            handle: `prod-over-capacity-${batch * 32 + index}`, type_id: typeId,
+          }));
+          await Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root, rows));
+        }
+        const before = await logicalCurrencyInventory(fixture);
+        let stagedFacts = 0;
+        fixture.observeSql?.(statement => {
+          if (/insert into "fx_system_commit_app_row_change"/i.test(statement)) stagedFacts++;
+        });
+        try {
+          await expect(Effect.runPromise(deleted.host.run(deleted.host.newRequestKey(), deleted.root, [typeId])))
+            .rejects.toMatchObject({ reason: "limitExceeded", cause: {
+              _tag: "LogicalReferenceCapacityError", resource: "affectedRows", maximum: 2016,
+              observedAtLeast: 2017,
+            } });
+        } finally { fixture.observeSql?.(undefined); }
+        expect(stagedFacts).toBe(0);
+        expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+        expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
+          { id: "prod_over_capacity_2047" }))).toMatchObject({ type_id: typeId });
+      } finally {
+        await Effect.runPromise(created.host.close);
+        await Effect.runPromise(deleted.host.close);
+        await Effect.runPromise(productCreate.host.close);
+      }
+    }, 360_000);
+
   it("rolls back a Type deletion when referenced Product bytes exceed the core transition budget", async () => {
     const localCleanup: Array<() => Promise<void>> = [];
     try {

@@ -48,6 +48,7 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import {
   isLocatedAppIndexDefinitionV1,
   type LocatedAppIndexDefinitionV1,
@@ -62,6 +63,11 @@ import {
 } from "./schema";
 
 export const MAX_APP_INDEX_RANGE_PAGE_SIZE_V1 = 1_000;
+const BoundedRangeCountRowSchema = Schema.Struct({
+  countText: Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]*)$/)),
+});
+const decodeBoundedRangeCountRow = Schema.decodeUnknownResult(BoundedRangeCountRowSchema,
+  { onExcessProperty: "error" });
 
 export type AppIndexEntryTransaction = FlarexMetadataTransaction;
 
@@ -1079,6 +1085,42 @@ export const scanCurrentAppIndexInTransactionEffect = Effect.fn(
     "scanCurrent",
     observer,
   );
+});
+
+/** Bounded cardinality probe over the same current index range used by the
+ * page reader. A transition can refuse over-budget fan-out before writing any
+ * derived revisions. The result is capped at maximumEntries + 1; it is not an
+ * unbounded count or a substitute for page-by-page row validation. */
+export const countCurrentAppIndexRangeUpToLimitInTransactionEffect = Effect.fn(
+  "AppIndexEntries.countCurrentRangeUpToLimit",
+)(function* (
+  tx: AppIndexEntryTransaction,
+  input: Omit<ScanCurrentAppIndexV1Input, "after" | "limit"> & { readonly maximumEntries: number },
+): Effect.fn.Return<number, ReadAppIndexRangeV1Error> {
+  if (!Number.isSafeInteger(input.maximumEntries) || input.maximumEntries < 1 || input.maximumEntries > 65_535)
+    return yield* Effect.fail(new InvalidAppIndexEntryInputError("invalidLimit"));
+  const decoded = yield* decodeRangeReadEffect(tx, { ...input, limit: 1 });
+  const predicates = rangePredicates("current_entry", decoded);
+  predicates.unshift(sql`current_entry.scope_uuid = ${decoded.scopeUuid}`,
+    sql`current_entry.index_definition_id = ${decoded.indexDefinitionId}`);
+  const query = tx.execute(sql`
+    select count(*)::text as "countText" from (
+      select 1 from fx_app_index_entry_current as current_entry
+      where ${sql.join(predicates, sql` and `)}
+      limit ${input.maximumEntries + 1}
+    ) as bounded
+  `);
+  const driverResult = yield* Effect.uninterruptible(runDrizzleStatementEffect(query,
+    cause => new AppIndexEntryReadPersistenceError("scanCurrent", cause)));
+  const rows = yield* Effect.fromResult(captureDriverRowsResult(driverResult));
+  if (rows.length !== 1)
+    return yield* Effect.fail(new AppIndexEntryStorageCorruptionError("invalid bounded range count"));
+  const row = yield* Effect.fromResult(decodeBoundedRangeCountRow(rows[0])).pipe(Effect.mapError(cause =>
+    new AppIndexEntryStorageCorruptionError("invalid bounded range count", { cause })));
+  const count = Number(row.countText);
+  if (!Number.isSafeInteger(count) || count > input.maximumEntries + 1)
+    return yield* Effect.fail(new AppIndexEntryStorageCorruptionError("out-of-range bounded count"));
+  return count;
 });
 
 interface ReadCurrentAppIndexEntriesForRowV1Input {

@@ -4496,7 +4496,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-type-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "98e5654e06bd14b15b1ed1264dc4e80f9b91b9e36e33733480a74fa5f4a13552"
+      "targetSha256": "fbc77d8538fd0adcaa047ce5e0f7f664e23ae1c517645a147cf648c8be0c33b5"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-product-fixture.ts",
