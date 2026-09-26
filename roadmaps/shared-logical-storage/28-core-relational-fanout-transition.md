@@ -191,6 +191,9 @@ per-page index-action limits remain unchanged.
 The selected native Type path has a 896-Product deletion witness beyond the
 former 882-row index-cost ceiling and retains
 rollback after several staged fact pages, one event and replayed outcome.
+It also refuses a native Type deletion when large referencing Product documents
+exhaust the transition's byte budget after fact pages have been staged; the
+whole attempt rolls back without detaching Products or deleting the Type.
 That larger witness selects the existing 30-second logical-command profile;
 the default 10-second request deadline can refuse a large delete earlier.
 The current **at-most-2,016-reference, 4 MiB read, 30-second scan** limits remain

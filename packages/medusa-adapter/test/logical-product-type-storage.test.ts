@@ -75,7 +75,8 @@ describe("native Product Type on shared logical Product storage", () => {
     return { host, root };
   }
 
-  async function productCreation(selectedFixture = fixture, selectedProduct = product) {
+  async function productCreation(selectedFixture = fixture, selectedProduct = product,
+    largeRows = false) {
     const command = selectedProduct.runtime.commands.create;
     const policy = selectedProduct.runtime.logicalPolicy;
     const revision = createHash("sha256").update("logical-typed-product-create").digest("hex");
@@ -88,7 +89,9 @@ describe("native Product Type on shared logical Product storage", () => {
     const root = defineAtomicCommerceCommand("typedProductCreate", (ctx, input) => ctx.call(participant, command, input));
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
       identityAndAccessPolicy: { profile: "logical-typed-product-create" },
+      ...(largeRows ? { requestByteLimit: logicalCommerceBatchResources.commandBytes } : {}),
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
+        ...(largeRows ? { logicalResources: logicalCommerceBatchResources } : {}),
         commands: [command], validateLogicalCall: policy.validateLogicalCall,
         events: { contracts: tokens, select: event => {
           const contract = isJsonObject(event) && typeof event.name === "string"
@@ -367,6 +370,52 @@ describe("native Product Type on shared logical Product storage", () => {
       await Effect.runPromise(rejected.host.close);
       await Effect.runPromise(productCreate.host.close);
     }
+  }, 360_000);
+
+  it("rolls back a Type deletion when referenced Product bytes exceed the core transition budget", async () => {
+    const localCleanup: Array<() => Promise<void>> = [];
+    try {
+      const localFixture = await logicalCurrencyFixture(driver, close => localCleanup.push(close), { includeProduct: true });
+      const localProduct = await prepareLogicalProductHost(localFixture);
+      try {
+        await Effect.runPromise(localProduct.host.initialize([]));
+        const closeHosts: Array<() => Promise<void>> = [];
+        try {
+          const created = await typeCommand("create", localFixture, localProduct);
+          closeHosts.push(() => Effect.runPromise(created.host.close));
+          const deleted = await typeCommand("delete", localFixture, localProduct, false, undefined, 30_000);
+          closeHosts.push(() => Effect.runPromise(deleted.host.close));
+          const productCreate = await productCreation(localFixture, localProduct, true);
+          closeHosts.push(() => Effect.runPromise(productCreate.host.close));
+          const typeId = "ptype_large_reference_bytes";
+          await Effect.runPromise(created.host.run(created.host.newRequestKey(), created.root,
+            { id: typeId, value: "Large reference bytes" }));
+          for (let batch = 0; batch < 16; batch++) {
+            const rows = Array.from({ length: 12 }, (_, index) => ({
+              id: `prod_large_reference_${batch * 12 + index}`,
+              title: `Large reference ${batch * 12 + index}`,
+              handle: `large-reference-${batch * 12 + index}`,
+              type_id: typeId, metadata: { data: "x".repeat(25_000) },
+            }));
+            expect(await Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root, rows)))
+              .toMatchObject(rows);
+          }
+          const before = await logicalCurrencyInventory(localFixture);
+          let stagedFactPages = 0;
+          localFixture.observeSql?.(text => {
+            if (/insert into "fx_system_commit_app_row_change"/i.test(text)) stagedFactPages++;
+          });
+          try {
+            await expect(Effect.runPromise(deleted.host.run(deleted.host.newRequestKey(), deleted.root, [typeId])))
+              .rejects.toMatchObject({ reason: "limitExceeded" });
+          } finally { localFixture.observeSql?.(undefined); }
+          if (localFixture.observeSql !== undefined) expect(stagedFactPages).toBeGreaterThan(1);
+          expect(await logicalCurrencyInventory(localFixture)).toEqual(before);
+          expect(await Effect.runPromise(localProduct.host.read(localProduct.runtime.commands.internalProductRetrieve,
+            { id: "prod_large_reference_0" }))).toMatchObject({ type_id: typeId });
+        } finally { for (const close of closeHosts.reverse()) await close(); }
+      } finally { await Effect.runPromise(localProduct.host.close); }
+    } finally { for (const close of localCleanup.reverse()) await close(); }
   }, 360_000);
 
   it("includes a Product reference committed while Type deletion awaits settlement", async () => {
