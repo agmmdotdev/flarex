@@ -1622,6 +1622,14 @@ function buildCurrentRangeStatement(input: DecodedAppIndexRangeReadV1): SQL {
     sql`current_entry.index_definition_id = ${input.indexDefinitionId}`,
   );
   return sql`
+    with page as materialized (
+      select current_entry.scope_uuid, current_entry.index_definition_id,
+        current_entry.encoded_key, current_entry.row_id, current_entry.commit_seq
+      from fx_app_index_entry_current as current_entry
+      where ${sql.join(predicates, sql` and `)}
+      order by current_entry.encoded_key asc, current_entry.row_id asc
+      limit ${input.limit + 1}
+    )
     select
       revision.table_id::text as "tableIdText",
       revision.key_codec_version::text as "keyCodecVersionText",
@@ -1631,16 +1639,14 @@ function buildCurrentRangeStatement(input: DecodedAppIndexRangeReadV1): SQL {
       revision.row_id as "rowIdBytes",
       revision.commit_seq::text as "commitSeqText",
       revision.is_tombstone as "isTombstone"
-    from fx_app_index_entry_current as current_entry
+    from page as current_entry
     join fx_app_index_entry_rev as revision
       on revision.scope_uuid = current_entry.scope_uuid
       and revision.index_definition_id = current_entry.index_definition_id
       and revision.encoded_key = current_entry.encoded_key
       and revision.row_id = current_entry.row_id
       and revision.commit_seq = current_entry.commit_seq
-    where ${sql.join(predicates, sql` and `)}
     order by current_entry.encoded_key asc, current_entry.row_id asc
-    limit ${input.limit + 1}
   `;
 }
 

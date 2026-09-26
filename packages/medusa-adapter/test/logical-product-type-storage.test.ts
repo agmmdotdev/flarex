@@ -45,7 +45,7 @@ describe("native Product Type on shared logical Product storage", () => {
 
   async function typeCommand(operation: "create" | "update" | "delete",
     selectedFixture = fixture, selectedProduct = product, rejectReceipt = false,
-    afterValidation?: () => Promise<void>) {
+    afterValidation?: () => Promise<void>, requestCommandMs?: number) {
     const command = operation === "create" ? selectedProduct.runtime.commands.createTypes
       : operation === "update" ? selectedProduct.runtime.commands.updateTypes : selectedProduct.runtime.commands.deleteTypes;
     const policy = selectedProduct.runtime.logicalPolicy;
@@ -56,6 +56,7 @@ describe("native Product Type on shared logical Product storage", () => {
     const participant = defineAtomicCommerceParticipant("product");
     const root = defineAtomicCommerceCommand(`productType${operation}`, (ctx, input) => ctx.call(participant, command, input));
     const host = await Effect.runPromise(makeAtomicCommerceHost({ ...selectedFixture.hostInput,
+      ...(requestCommandMs === undefined ? {} : { requestCommandMs }),
       identityAndAccessPolicy: { profile: `logical-product-type-${operation}` },
       participants: [{ participant, logicalStorage: selectedProduct.hostInput.logicalStorage,
         commands: [command], validateLogicalCall: rejectReceipt || afterValidation !== undefined
@@ -304,9 +305,10 @@ describe("native Product Type on shared logical Product storage", () => {
     }
   }, 180_000);
 
-  it.each([128, 512])("detaches %i Products in one Type delete publication and replays its outcome", async (productCount) => {
+  it.each([128, 512, 896])("detaches %i Products in one Type delete publication and replays its outcome", async (productCount) => {
     const created = await typeCommand("create");
-    const deleted = await typeCommand("delete");
+    const deleted = await typeCommand("delete", fixture, product, false, undefined,
+      productCount === 896 ? 30_000 : undefined);
     const rejected = await typeCommand("delete", fixture, product, true);
     const productCreate = await productCreation();
     const typeId = `ptype_fanout_boundary_${productCount}`;

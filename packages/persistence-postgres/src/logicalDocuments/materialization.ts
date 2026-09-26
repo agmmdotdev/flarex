@@ -3,12 +3,13 @@ import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protoc
 import { SnapshotTokenSchema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/storage-authority";
 import type { ApplicationDocumentMaterializationOptions, ApplicationDocumentDefinitionCommand, ApplicationDocumentMaterializationCommand,
   ApplicationDocumentObservation, PointCommitDependencyV1, PreparedPointCommitApplicationRelations } from "../applicationDocumentMaterialization/model";
-import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, validateApplicationUniqueTransitionBudget,
+import { validateApplicationUniqueTransitionBudget,
   lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState,
   validatePointCommitDependenciesResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions,
   preparePointCommitUniqueKeyActions, materializeApplicationDocumentRows, maintainPointCommitApplicationRelationsEffect,
   resetPointCommitDeveloperIndexValidation } from "../applicationDocumentMaterialization/materialization";
-import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, PointCommitConflictV1Error, mapTransactionFailure } from "../pointCommitErrors";
+import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, PointCommitConflictV1Error,
+  PointCommitDeveloperIndexMaintenanceUnavailableV1Error, mapTransactionFailure } from "../pointCommitErrors";
 import { AppUniqueKeyConflictError } from "../appUniqueKeys";
 import { ApplicationRelationCommitResourceExhaustionError, ApplicationRelationConstraintError,
   ApplicationRelationTargetDeleteRestrictedError, ApplicationRelationTargetNotLiveError } from "../applicationRelationCommit";
@@ -61,6 +62,9 @@ export function projectLogicalDocumentMaterializationFailure(cause: unknown): Lo
   if (cause instanceof ApplicationRelationCommitResourceExhaustionError)
     return logicalMaterializationError("limitExceeded", cause);
   const failure = mapTransactionFailure(cause);
+  if (failure instanceof PointCommitDeveloperIndexMaintenanceUnavailableV1Error &&
+    failure.reason === "entryRevisionLimitExceeded")
+    return logicalMaterializationError("limitExceeded", failure);
   return logicalMaterializationError(
     failure instanceof PointCommitSqlErrorV1
       ? "statementFailure"
@@ -164,19 +168,6 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
           prepared.unique,
         ),
       ).pipe(Effect.mapError((cause) => logicalMaterializationError("limitExceeded", cause)));
-      const minimumIndexRevisions = prepared.developer.reduce(
-        (total, definition) =>
-          total +
-          changes.filter(
-            (row) => row.tableId === definition.access.tableId,
-          ).length,
-        0,
-      );
-      if (
-        minimumIndexRevisions >
-        MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1
-      )
-        return yield* Effect.fail(logicalMaterializationError("limitExceeded"));
       const heads = yield* participantKernel(() =>
         loadPointCommitHeads(tx, clock, command, prepared.options),
       );

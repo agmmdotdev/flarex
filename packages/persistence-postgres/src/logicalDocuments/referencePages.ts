@@ -29,7 +29,7 @@ import type { LogicalDocumentChange } from "./workingSet";
 import { logicalMaterializationBatchBudget } from "./materialization";
 import type { LogicalRelationalAdmissionState } from "./relationalAdmission";
 import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
-import { prepareLogicalRelationalRows } from "./relationalRows";
+import { logicalManagedUpdatedColumns, prepareLogicalRelationalRows } from "./relationalRows";
 import { selectLogicalIndex, type LogicalWhere } from "./query";
 import { readLogicalIndexRange } from "./indexReads";
 
@@ -45,12 +45,28 @@ const compareReferenceKeys = (left: Readonly<{ key: string }>, right: Readonly<{
 type LogicalReferenceAdmission = Pick<LogicalRelationalAdmissionState,
   "tx" | "authority" | "schema" | "tables" | "indexes" | "unique">;
 
-/** Page size follows the admitted source's materialization cost. Adding an
- * index must not make an otherwise bounded relationship transition fail
- * halfway through its transaction. */
-function referencePageRows(admission: LogicalReferenceAdmission, tableId: CatalogTableId): number {
-  const indexes = admission.indexes.filter(index => index.access.kind === "developer" &&
-    index.access.tableId === tableId).length;
+/** Count only indexes whose key or membership can change in a set-null update.
+ * Unchanged keys produce no index revisions; the materializer checks the exact
+ * action count before writing each page. */
+function referencePageRows(admission: LogicalReferenceAdmission, tableId: CatalogTableId,
+  sourceColumn: string): number {
+  const source = admission.tables.find(table => table.tableId === tableId);
+  if (source === undefined) return 0;
+  const changed = [sourceColumn, ...logicalManagedUpdatedColumns(source.definition, admission.schema.capabilities)];
+  const affected = (path: string) => changed.some(column => path === column ||
+    path.startsWith(`${column}.`) || column.startsWith(`${path}.`));
+  const indexes = admission.indexes.filter(index => {
+    if (index.access.kind !== "developer" || index.access.tableId !== tableId) return false;
+    const spec = index.physicalSpec;
+    if (spec.orderedFields.some(field => field.kind === "documentPath" && affected(field.path))) return true;
+    const predicate = spec.predicate;
+    if (predicate === undefined) return false;
+    switch (predicate.kind) {
+      case "fieldIsNull": return affected(predicate.field);
+      case "fieldIsNullAndTextEquals": return affected(predicate.nullField) || affected(predicate.textField);
+      default: return true;
+    }
+  }).length;
   const unique = admission.unique.filter(definition => definition.tableId === tableId).length;
   return Math.min(logicalReferenceTransitionBudget.pageRows,
     // An updated indexed key may emit both a tombstone and a live revision.
@@ -112,7 +128,7 @@ export const forEachLogicalReferencePage = Effect.fn("LogicalReferences.forEachP
     key.target.column === input.targetColumn && key.source.nullable && key.onDelete === "noAction");
   if (declared === undefined)
     return yield* Effect.fail(error("invalidInput"));
-  const pageRows = referencePageRows(admission, declared.source.tableId);
+  const pageRows = referencePageRows(admission, declared.source.tableId, declared.source.column);
   if (pageRows < 1) return yield* Effect.fail(error("limitExceeded"));
   const affectedLimit = Math.min(logicalReferenceTransitionBudget.affectedRows,
     pageRows * (logicalMaterializationBatchBudget.pages - 1));
@@ -432,7 +448,7 @@ export const forEachLogicalReferenceReplacementPage = Effect.fn("LogicalReferenc
   const selected = [...input.selection.detach, ...input.selection.associate];
   if (selected.length > 255 || new Set(selected.map(row => row.rowId)).size !== selected.length)
     return yield* Effect.fail(input.error("invalidAuthority"));
-  const pageRows = referencePageRows(admission, input.sourceTableId);
+  const pageRows = referencePageRows(admission, input.sourceTableId, input.sourceColumn);
   if (pageRows < 1) return yield* Effect.fail(input.error("limitExceeded"));
   const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(input.tx, admission.authority.scopeId)
     .pipe(Effect.mapError(cause => input.error(cause instanceof ScopeAuthorizationRevocationEpochPersistenceError

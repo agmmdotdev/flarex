@@ -24,6 +24,11 @@ const decodeRaw = Schema.decodeUnknownResult(Raw);
 const belongsTo = (table: RelationalTableDefinition, column: RelationalColumnIdentity) =>
   column.owner === table.identity.owner && column.lineageId === table.identity.lineageId && column.tableId === table.identity.tableId;
 
+export const logicalManagedUpdatedColumns = (table: RelationalTableDefinition,
+  capabilities: readonly RelationalPersistenceCapability[]) => capabilities.flatMap(capability =>
+  capability.kind === "managedTimestamps" && belongsTo(table, capability.createdAtColumn)
+    ? [capability.updatedAtColumn.columnId] : []);
+
 /** Complete native values are checked before projection or mutation. Relation
  * enforcement is a separate execution capability, not a row-value rule. */
 export function prepareLogicalRelationalRowValues<Failure>(table: RelationalTableDefinition,
@@ -51,8 +56,7 @@ export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefi
   capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
   return Result.gen(function* () {
     const keyColumns = yield* relationalTextIdentity(table, error);
-    const managed = capabilities.flatMap(capability => capability.kind === "managedTimestamps" && belongsTo(table, capability.createdAtColumn)
-      ? [capability.updatedAtColumn.columnId] : []);
+    const managed = logicalManagedUpdatedColumns(table, capabilities);
     const deletions = capabilities.flatMap(capability => capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn)
       ? [capability.deletedAtColumn.columnId] : []);
     const validate = prepareLogicalRelationalRowValues(table, capabilities, error);

@@ -90,15 +90,22 @@ The shared reverse selector checks a declared nullable same-source FK, an
 enabled current-coverage index and each bounded current row under the scope
 publication lock. Its multi-page Product Type witness reaches 144 references
 without loading the range in one read. The 32-row page is a ceiling: core
-reduces it from the source table's admitted developer-index and unique-key
-counts so one page fits the point materializer, counting both the tombstone
-and live index revision an update may emit. The affected-row ceiling is
+reduces it from the source table's admitted unique-key count and the developer
+indexes whose key or predicate can change when the reference and managed
+timestamp columns change. The point materializer checks actual index actions
+before writing each page. This avoids charging unrelated Product indexes for
+revisions they cannot emit while retaining a conservative two-action allowance
+for every affected index. The affected-row ceiling is
 the lesser of 2,016 and 63 such pages, leaving one of the materializer's 64
 pages for the root operation. Adding an index can therefore reduce the safe
 synchronous fan-out without making an in-budget page fail halfway through.
-With the current Product index set, the effective page is 14 rows and the
-row-only ceiling is 882 references; bytes, time or another materialization
-limit can refuse earlier.
+With the current Product index set, the effective page is 32 rows and the
+row-only ceiling is 2,016 references; bytes, time or another materialization
+limit can refuse earlier. The 2,016-row arithmetic ceiling is not a measured
+successful delete at that size; the native witness currently reaches 896.
+The current-index range scan selects its bounded
+keyset page before joining revision metadata, so late pages do not join the
+whole current range first.
 The neutral `set null` operation uses the admitted row normalization policy to
 preserve native fields, set the declared nullable FK to null and update managed
 timestamps. It builds ordinary logical row intents page by page, requires the
@@ -181,8 +188,11 @@ Payload one-shot commits still use this publisher with their known fact count,
 without an extra header update. The 128-row point materializer and 256-entry
 per-page index-action limits remain unchanged.
 
-The selected native Type path supports a 512-Product deletion and retains
+The selected native Type path has a 896-Product deletion witness beyond the
+former 882-row index-cost ceiling and retains
 rollback after several staged fact pages, one event and replayed outcome.
+That larger witness selects the existing 30-second logical-command profile;
+the default 10-second request deadline can refuse a large delete earlier.
 The current **at-most-2,016-reference, 4 MiB read, 30-second scan** limits remain
 operational safety budgets, not general parity or production performance
 claims. The effective reference ceiling also depends on the admitted source

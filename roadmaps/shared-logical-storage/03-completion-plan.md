@@ -239,6 +239,9 @@ remain distinct from logical schema evolution.
   The selected native Type delete now uses the core-owned indexed,
   resource-accounted atomic `set null` transition specified in the
   [accepted fan-out contract](../../design-notes/flarexdb-shared-logical-storage.md#bounded-high-fan-out-relationship-transitions).
+  Its current witness reaches 896 Product references under the explicit
+  30-second logical-command profile; the 2,016-row arithmetic ceiling is not
+  a measured success or a general scale claim.
   The selected native Collection delete uses the same owner for
   `Product.collection_id`. Both remain bounded by total transition resources;
   native scalar Collection create, update and mixed upsert now use one logical
