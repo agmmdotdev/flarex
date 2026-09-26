@@ -33,15 +33,17 @@ The canonical pinned Product runner now uses the generic logical source for
 Product events, Products, Tags, Collections, Options, Variants and internal
 Product service calls. Its exact admitted-case reporter covers the unchanged
 native suite, including the 1,000-Image case. Trusted resource allowances are
-selected by outer host identity. The temporary logical probe configuration is
-removed. The physical runner is named `legacy-product-runner` and is selected
-only by the still-unmigrated physical boundary configurations; it is not the
-canonical Product test path.
+selected by outer host identity. The temporary logical probe and physical
+fixture-reset runner configurations are removed. The logical runner clears
+bounded fixture rows through admitted native commands before each native case.
 
-Named physical consumers include Product local, fixture-reset,
-installation and exact-numeric tests; and the remaining mixed physical binding,
-link, population and persistence-core fixtures found by the reference inventory.
-The only explicit legacy runner configuration is `product-fixture`. The failure and scale boundary suites
+Named physical consumers include Product local, installation and exact-numeric
+tests; and the remaining mixed physical binding, link, population and
+persistence-core fixtures found by the reference inventory. The physical
+fixture-reset SQL, runner and configuration have no remaining consumer and are
+retired. Native logical Product deletion now proves original and tombstone
+revisions, retained idempotency outcomes, replay without additional events,
+late rollback and shared-table isolation. The failure and scale boundary suites
 now select the logical runner: SQLSTATE cancellation targets generic row or
 outcome storage, while graph pages, ordered facts, native events, replay,
 late-page rollback, cancellation and capacity refusal use the same logical
@@ -203,5 +205,5 @@ integrity check for explicit repair users.
    these functional tests.
 
 The canonical native runner and exact admitted-case coverage gate have moved
-to logical storage. Gate 3 remains open for physical-only witnesses, the
+to logical storage. Gate 3 remains open for other physical-only witnesses, the
 Product profile/DDL compiler and the named durable-installation decision.

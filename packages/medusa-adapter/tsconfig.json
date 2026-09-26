@@ -29,7 +29,6 @@
     "vitest.sales-channel.config.ts",
     "vitest.sales-channel-upstream.config.ts",
     "vitest.product-upstream.config.ts",
-    "vitest.product-fixture.config.ts",
     "vitest.product-failure.config.ts",
     "vitest.product-types.config.ts",
     "vitest.product-tags.config.ts",

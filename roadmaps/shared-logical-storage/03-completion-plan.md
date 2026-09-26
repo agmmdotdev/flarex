@@ -164,8 +164,9 @@ remain distinct from logical schema evolution.
   active-value uniqueness, nullable detachment, event receipts and two-shop
   confinement. The Type-only physical boundary fixture is retired under the
   [selected Type cutover](./26-product-type-native-cutover.md); the canonical
-  admitted pinned Product runner now uses logical storage. Named physical-only
-  boundary suites retain the legacy runner until their generic witnesses move.
+  admitted pinned Product runner now uses logical storage. The physical
+  fixture-reset runner is retired; other physical-only witnesses retain their
+  named consumers until migration.
   The private Category/Currency atomic command now composes logical Product
   and Currency sources; its physical Product installer and binding fixture are
   retired under the [composition cutover](./36-category-currency-logical-composition.md).
@@ -213,12 +214,13 @@ remain distinct from logical schema evolution.
   exact native event and Value/pivot cascade semantics, and moves its
   physical-only boundary witness to logical two-shop and rollback tests.
   The shared relational planner now selects an indexed scalar equality conjunct before applying
-  an unindexed text residual, while a lone unindexed text or unanchored OR
-  branch still refuses. The [null-index residual correction](./29-relational-null-residual-anchor.md)
+  an unindexed text residual. Declared searchable text now has a separate
+  complete indexed path; unsupported unanchored branches still refuse. The
+  [null-index residual correction](./29-relational-null-residual-anchor.md)
   defers admission until the shared working set proves an actual installed
   nullable-field index; a primary-identity fallback cannot authorize it.
-  The canonical admitted Product runner is logical; physical-only boundary
-  configurations retain a legacy runner for their still-unmigrated witnesses.
+  The canonical admitted Product runner is logical; its physical fixture-reset
+  runner and configuration are retired.
   Product failure and large-graph scale boundaries now use the logical runner
   and generic shared tables; their former physical test routes are retired.
   Internal Product, Collection, Tag and Variant boundary routes now use the
@@ -230,8 +232,8 @@ remain distinct from logical schema evolution.
   including colliding two-shop inverse/tree reads and a second-row
   materialization failure during a native move. Final logical rank facts,
   native batch events, replay and refusals replace the physical DML witness.
-  Internal Product's only retained physical witness is the native
-  `q` plus `withDeleted` search, pending generic indexed text-search support.
+  Internal Product `q` plus `withDeleted` now uses generic indexed text search
+  over the logical Product source.
   Bulk internal updates now authenticate returned rows by selected Product ID
   even when the DAL returns them in a different order.
   The selected native Type delete now uses the core-owned indexed,
@@ -256,9 +258,9 @@ remain distinct from logical schema evolution.
   The [shared event delivery batch](./35-core-event-delivery-batches.md)
   keeps the admitted larger event family from being reread for each claim;
   higher-fan-out delivery and hot-shop throughput remain unmeasured.
-  Physical-only membership boundary witnesses and unported Product methods
-  remain with the named legacy boundary runner;
-  other relationship kinds still need their own coherent cutovers. General
+  Remaining physical Product local, installation and mixed binding witnesses
+  retain their named consumers. Other relationship kinds still need their own
+  coherent cutovers. General
   bounded population/overflow, broader Product commands and
   relationship queries, and remaining rich Link operations still block runtime cutover.
   Neutral reverse-pivot reads now select unconditional secondary text indexes,

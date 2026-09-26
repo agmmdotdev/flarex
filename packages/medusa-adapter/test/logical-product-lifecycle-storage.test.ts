@@ -910,16 +910,28 @@ describe("native Product lifecycle on shared logical storage", () => {
       const deletedPointers = afterRows.filter(row => beforeVersions.get(rowIdentity(row)) !== row.commitSeq);
       expect(deletedPointers).toHaveLength(6);
       const revisions = await currency.persistence.drizzle.select().from(fxAppRowRevisions);
-      for (const pointer of deletedPointers) expect(revisions.find(row => rowIdentity(row) === rowIdentity(pointer) &&
-        row.commitSeq === pointer.commitSeq)?.isTombstone).toBe(true);
+      for (const pointer of deletedPointers) {
+        expect(revisions.find(row => rowIdentity(row) === rowIdentity(pointer) &&
+          row.commitSeq === pointer.commitSeq)?.isTombstone).toBe(true);
+        expect(revisions.find(row => rowIdentity(row) === rowIdentity(pointer) &&
+          row.commitSeq === beforeVersions.get(rowIdentity(pointer)))?.isTombstone).toBe(false);
+      }
       expect(afterEvents.slice(beforeEvents.length).map(event => event.envelope.contract))
         .toEqual([catalog.product.deletedEvent]);
       expect(await Effect.runPromise(read.read(product.runtime.commands.list, {
         filters: { id: "prod_logical_hard_delete" }, config: { withDeleted: true },
       }))).toEqual([]);
+      const afterOutcomes = await currency.persistence.drizzle.select().from(fxSystemIdempotency);
+      const retained = afterOutcomes.filter(row => row.requestKey === key);
+      expect(retained).toHaveLength(1);
+      const afterCommits = await currency.persistence.drizzle.select().from(fxSystemCommits);
+      expect(afterCommits.some(commit => commit.commitSeq === retained[0]?.commitSeq)).toBe(true);
       expect(await Effect.runPromise(remove.host.run(key, remove.root, ["prod_logical_hard_delete"]))).toEqual(result);
       expect(await currency.persistence.drizzle.select().from(fxAppRowCurrent)).toEqual(afterRows);
+      expect(await currency.persistence.drizzle.select().from(fxAppRowRevisions)).toEqual(revisions);
+      expect(await currency.persistence.drizzle.select().from(fxSystemCommits)).toEqual(afterCommits);
       expect(await committedEvents()).toEqual(afterEvents);
+      expect(await currency.persistence.drizzle.select().from(fxSystemIdempotency)).toEqual(afterOutcomes);
       await Effect.runPromise(create.run(create.newRequestKey(), { products: [{
         id: "prod_logical_delete_rollback", title: "Hard Delete Rollback",
         images: [{ id: "img_logical_delete_rollback", url: "rollback.png" }],
