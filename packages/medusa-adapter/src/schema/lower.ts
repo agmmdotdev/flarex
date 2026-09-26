@@ -85,7 +85,10 @@ export function lowerDmlSchema(input: readonly SchemaTable[], lineageId: string,
         // Preserve unsupported native access methods for validation to refuse.
         // Treating a GIN declaration as B-tree would admit a false query contract.
         kind: index.type === undefined || index.type === "btree"
-          ? index.unique ? "uniqueBtree" : "btree" : index.type,
+          ? index.unique ? "uniqueBtree" : "btree"
+          : index.type === "gin" && !index.unique && index.columns.length === 1 &&
+            table.columns.find(column => column.name === index.columns[0])?.type === "json"
+            ? "jsonContainment" : index.type,
         columns: index.columns,
         predicate:
           index.where === undefined

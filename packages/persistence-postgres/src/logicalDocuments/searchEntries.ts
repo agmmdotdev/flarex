@@ -7,13 +7,24 @@ import type { CommitSeq, ScopeUuidV1 } from "flarex-protocol/storage-authority";
 import type { PreparedPointCommitRowIntentV1 } from "../applicationDocumentMaterialization/model";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
-import { fxAppSearchEntryCurrent, fxSystemSearchBuildStates } from "../schema";
+import { fxAppJsonEntryCurrent, fxAppSearchEntryCurrent, fxSystemSearchBuildStates } from "../schema";
 
 export interface LogicalSearchDefinition {
+  readonly kind: "text" | "jsonContainment";
   readonly tableId: CatalogTableId;
   readonly logicalIndexId: CatalogIndexId;
   readonly sourceSha256: string;
   readonly columns: readonly string[];
+  readonly nullPredicateField: string | null;
+}
+
+/** Only a predicate guaranteed by the query may narrow a JSON candidate set. */
+export function selectLogicalJsonSearchDefinition(definitions: readonly LogicalSearchDefinition[],
+  tableId: CatalogTableId, column: string, requiredNulls: ReadonlySet<string>) {
+  return definitions.find(definition => definition.tableId === tableId &&
+    definition.kind === "jsonContainment" && definition.columns.length === 1 &&
+    definition.columns[0] === column &&
+    (definition.nullPredicateField === null || requiredNulls.has(definition.nullPredicateField)));
 }
 
 export class LogicalSearchMaintenanceError extends Data.TaggedError("LogicalSearchMaintenanceError")<{
@@ -40,32 +51,56 @@ export const maintainLogicalSearchEntries = Effect.fn("LogicalSearchEntries.main
     if (selected.length === 0) continue;
     const ids = selected.map(change => appRowIdHexV1ToBytes(change.rowId));
     const entries: Array<typeof fxAppSearchEntryCurrent.$inferInsert> = [];
+    const jsonEntries: Array<typeof fxAppJsonEntryCurrent.$inferInsert> = [];
     for (const change of selected) {
       if (change.kind === "deleted") continue;
       const document = change.document.valueJson;
       if (!isJsonObject(document)) return yield* Effect.fail(failure("storedCorruption"));
+      if (definition.nullPredicateField !== null) {
+        const predicateValue = document[definition.nullPredicateField];
+        if (predicateValue === undefined) return yield* Effect.fail(failure("storedCorruption"));
+        if (predicateValue !== null) continue;
+      }
       for (const fieldId of definition.columns) {
         const value = document[fieldId];
+        if (value === undefined) return yield* Effect.fail(failure("storedCorruption"));
         if (value === null) continue;
-        if (typeof value !== "string") return yield* Effect.fail(failure("storedCorruption"));
-        const foldedText = foldAscii(value);
         entryCount++;
-        textBytes += new TextEncoder().encode(foldedText).byteLength;
+        if (definition.kind === "jsonContainment") {
+          textBytes += new TextEncoder().encode(JSON.stringify(value)).byteLength;
+          jsonEntries.push({ scopeUuid, tableId: definition.tableId, logicalIndexId: definition.logicalIndexId,
+            sourceSha256: definition.sourceSha256, fieldId, rowId: appRowIdHexV1ToBytes(change.rowId),
+            commitSeq, valueJson: value });
+        } else {
+          if (typeof value !== "string") return yield* Effect.fail(failure("storedCorruption"));
+          const foldedText = foldAscii(value);
+          textBytes += new TextEncoder().encode(foldedText).byteLength;
+          entries.push({ scopeUuid, tableId: definition.tableId, logicalIndexId: definition.logicalIndexId,
+            sourceSha256: definition.sourceSha256, fieldId, rowId: appRowIdHexV1ToBytes(change.rowId),
+            commitSeq, foldedText });
+        }
         if (entryCount > searchWriteBudget.entries || textBytes > searchWriteBudget.textBytes)
           return yield* Effect.fail(failure("limitExceeded"));
-        entries.push({ scopeUuid, tableId: definition.tableId, logicalIndexId: definition.logicalIndexId,
-          sourceSha256: definition.sourceSha256, fieldId, rowId: appRowIdHexV1ToBytes(change.rowId),
-          commitSeq, foldedText });
       }
     }
-    yield* runDrizzleStatementEffect(tx.delete(fxAppSearchEntryCurrent).where(and(
-      eq(fxAppSearchEntryCurrent.scopeUuid, scopeUuid),
-      eq(fxAppSearchEntryCurrent.tableId, definition.tableId),
-      eq(fxAppSearchEntryCurrent.logicalIndexId, definition.logicalIndexId),
-      inArray(fxAppSearchEntryCurrent.rowId, ids),
-    )), cause => failure("statementFailure", cause));
-    if (entries.length > 0) yield* runDrizzleStatementEffect(
-      tx.insert(fxAppSearchEntryCurrent).values(entries), cause => failure("statementFailure", cause));
+    if (definition.kind === "jsonContainment") {
+      yield* runDrizzleStatementEffect(tx.delete(fxAppJsonEntryCurrent).where(and(
+        eq(fxAppJsonEntryCurrent.scopeUuid, scopeUuid), eq(fxAppJsonEntryCurrent.tableId, definition.tableId),
+        eq(fxAppJsonEntryCurrent.logicalIndexId, definition.logicalIndexId),
+        inArray(fxAppJsonEntryCurrent.rowId, ids),
+      )), cause => failure("statementFailure", cause));
+      if (jsonEntries.length > 0) yield* runDrizzleStatementEffect(
+        tx.insert(fxAppJsonEntryCurrent).values(jsonEntries), cause => failure("statementFailure", cause));
+    } else {
+      yield* runDrizzleStatementEffect(tx.delete(fxAppSearchEntryCurrent).where(and(
+        eq(fxAppSearchEntryCurrent.scopeUuid, scopeUuid),
+        eq(fxAppSearchEntryCurrent.tableId, definition.tableId),
+        eq(fxAppSearchEntryCurrent.logicalIndexId, definition.logicalIndexId),
+        inArray(fxAppSearchEntryCurrent.rowId, ids),
+      )), cause => failure("statementFailure", cause));
+      if (entries.length > 0) yield* runDrizzleStatementEffect(
+        tx.insert(fxAppSearchEntryCurrent).values(entries), cause => failure("statementFailure", cause));
+    }
     const build = yield* runDrizzleStatementEffect(tx.select().from(fxSystemSearchBuildStates).where(and(
       eq(fxSystemSearchBuildStates.scopeUuid, scopeUuid),
       eq(fxSystemSearchBuildStates.tableId, definition.tableId),

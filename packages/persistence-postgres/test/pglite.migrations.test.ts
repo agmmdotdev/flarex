@@ -62,6 +62,7 @@ describe("createPGlitePersistence", () => {
       "fx_app_edge_current",
       "fx_app_index_entry_current",
       "fx_app_index_entry_rev",
+      "fx_app_json_entry_current",
       "fx_app_row_current",
       "fx_app_row_rev",
       "fx_app_search_entry_current",

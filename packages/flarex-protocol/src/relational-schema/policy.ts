@@ -371,7 +371,7 @@ function decodeIndex(
       brandIndexId,
     );
     const kind = fields.at(1);
-    if (kind !== "btree" && kind !== "uniqueBtree" && kind !== "textEquality") {
+    if (kind !== "btree" && kind !== "uniqueBtree" && kind !== "textEquality" && kind !== "jsonContainment") {
       return yield* unsupported(`${path}.kind`, fields.at(1));
     }
     const columns = yield* decodeLocalColumnIdentities(
@@ -818,6 +818,12 @@ function validateRelationalSchema(
         );
         if (index.kind === "textEquality" && (index.columns.length !== 1 || index.predicate !== null ||
           columns.get(index.columns[0]!.columnId)?.type !== "text")) {
+          return yield* Result.fail(RelationalSchemaError.invalidInput(`${tablePath}.indexes[${index.identity.indexId}]`));
+        }
+        if (index.kind === "jsonContainment" && (index.columns.length !== 1 ||
+          columns.get(index.columns[0]!.columnId)?.type !== "jsonb" ||
+          (index.predicate !== null && (index.predicate.kind !== "isNull" ||
+            index.predicate.column.columnId !== "deleted_at")))) {
           return yield* Result.fail(RelationalSchemaError.invalidInput(`${tablePath}.indexes[${index.identity.indexId}]`));
         }
         if (index.predicate !== null) {

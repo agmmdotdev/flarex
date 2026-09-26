@@ -4,10 +4,11 @@ import { isRelationalColumnValue, relationalHasIndexedScalarPrefix,
   type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import { encodeOrderedIndexComponentsV1, orderedIndexKeyHexV1ToBytes,
   orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
-import type { JsonObject } from "flarex-protocol/json";
+import type { Json, JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure } from "./model";
 import { prepareLogicalRelationalRowValues, relationalTextIdentity } from "./relationalRows";
 import { hasMandatorySearchTrigram, type LogicalSearchPattern } from "./searchReads";
+import { jsonbContains } from "./jsonContains";
 import { relationalReadLimits } from "../frameworkExecutionPolicy";
 
 /** The admitted indexed text relational profile. Other predicate families require
@@ -27,6 +28,7 @@ const Node = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("textNotEqual"), column: Schema.String, value: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("greaterThan"), column: Schema.String, value: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("textLikeAscii"), column: Schema.String, pattern: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("jsonContains"), column: Schema.String, value: Schema.Json }),
 ]);
 const decodeEnvelope = Schema.decodeUnknownResult(Envelope, { onExcessProperty: "error" });
 const decodeNode = Schema.decodeUnknownResult(Node, { onExcessProperty: "error" });
@@ -46,6 +48,7 @@ interface Filter<Failure> {
   /** Every matching row has these null fields, including across OR branches. */
   readonly requiredNulls: ReadonlySet<string>;
   readonly search: readonly LogicalSearchPattern[] | null;
+  readonly json?: Readonly<{ column: string; value: Json }>;
   readonly matches: (row: JsonObject) => boolean;
 }
 
@@ -139,7 +142,8 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           !isRelationalColumnValue(column.type, false, node.value))
           return yield* Result.fail(error("invalidInput"));
         const indexed = table.indexes.some(index => index.predicate === null &&
-          index.kind !== "textEquality" && index.columns[0]?.columnId === node.column);
+          index.kind !== "textEquality" && index.kind !== "jsonContainment" &&
+          index.columns[0]?.columnId === node.column);
         const bound = new TextEncoder().encode(node.value);
         return { select: () => Result.succeed({ selections: indexed
           ? [{ column: node.column, value: { gt: node.value } }] : null, unindexedText: !indexed }),
@@ -158,6 +162,17 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           matches: row => { const value = row[node.column]; return typeof value === "string" &&
             matchesTextLikeAscii(value, node.pattern); } };
       }
+      if (node.kind === "jsonContains") {
+        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        if (column?.type !== "jsonb") return yield* Result.fail(error("invalidInput"));
+        const encoded = new TextEncoder().encode(JSON.stringify(node.value));
+        if (encoded.byteLength > 4096) return yield* Result.fail(error("limitExceeded"));
+        return { select: () => Result.succeed({ selections: null, unindexedText: true }),
+          requiredNulls: new Set<string>(), search: null,
+          json: { column: node.column, value: node.value },
+          matches: row => row[node.column] !== null && row[node.column] !== undefined &&
+            jsonbContains(row[node.column]!, node.value) };
+      }
       const children: Filter<Failure>[] = [];
       for (const child of node.children) children.push(yield* visit(child, depth + 1));
       const requiredNulls = new Set<string>(node.kind === "or" ? children[0]?.requiredNulls ?? [] : []);
@@ -167,6 +182,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         }
         if (node.kind === "or") for (const field of requiredNulls) if (!child.requiredNulls.has(field)) requiredNulls.delete(field);
       }
+      const jsonChild = node.kind === "and" ? children.find(child => child.json !== undefined) : undefined;
       return { select: (inheritedNulls: ReadonlySet<string>) => Result.gen(function* () {
         const available = node.kind === "and" ? new Set([...inheritedNulls, ...requiredNulls]) : inheritedNulls;
         let selections: readonly Selection[] | null = node.kind === "and" ? null : [];
@@ -189,6 +205,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
             ?? children.find(child => child.search !== null)?.search ?? null
           : children.length > 0 && children.every(child => child.search !== null)
             ? children.flatMap(child => child.search ?? []) : null,
+        ...(jsonChild?.json === undefined ? {} : { json: jsonChild.json }),
         matches: row => node.kind === "and" ? children.every(child => child.matches(row)) : children.some(child => child.matches(row)) };
     });
     const filter = yield* visit(query.predicate ?? { kind: "and", children: [] }, 0);
@@ -197,14 +214,18 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
     const uniquePoint = isBoundedUniquePoints(planned.selections);
     const search = !uniquePoint && searchCandidate !== null && searchCandidate.every(pattern => hasMandatorySearchTrigram(pattern.pattern))
       ? searchCandidate : null;
-    if (planned.selections === null && searchCandidate !== null && search === null && filter.requiredNulls.size === 0)
+    const json = planned.selections?.length !== 0 && !uniquePoint && filter.json !== undefined && table.indexes.some(index =>
+      index.kind === "jsonContainment" && index.columns[0]?.columnId === filter.json?.column &&
+      (index.predicate === null || index.predicate.kind === "isNull" &&
+        filter.requiredNulls.has(index.predicate.column.columnId))) ? filter.json : null;
+    if (planned.selections === null && searchCandidate !== null && search === null && json === null && filter.requiredNulls.size === 0)
       return yield* Result.fail(error("limitExceeded"));
-    if (planned.selections === null && planned.unindexedText && filter.requiredNulls.size === 0 && search === null)
+    if (planned.selections === null && planned.unindexedText && filter.requiredNulls.size === 0 && search === null && json === null)
       return yield* Result.fail(error("invalidInput"));
-    const selections = search !== null || planned.selections === null ? null : Object.freeze([...new Map(planned.selections.map(selection =>
+    const selections = search !== null && json === null || planned.selections === null ? null : Object.freeze([...new Map(planned.selections.map(selection =>
       [JSON.stringify([selection.column, selection.value, selection.nullColumn ?? null]), selection] as const)).values()]);
-    return Object.freeze({ key, selections, search,
-      requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null,
+    return Object.freeze({ key, selections, search: json !== null ? null : search, json,
+      requiresIndexedNullAnchor: selections === null && planned.unindexedText && search === null && json === null,
       requiredNulls: Object.freeze([...filter.requiredNulls]),
       offset: query.skip ?? 0, limit: take, direction: query.order.direction, orderColumn: query.order.column, fields: Object.freeze([...fields]),
       inspect: (row: JsonObject) => Result.gen(function* () {

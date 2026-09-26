@@ -49,16 +49,15 @@ then remove displaced selected-fixture setup and commit the connected slice.
 
 ## Remaining Gates
 
-The full six-model Pricing source is blocked by a native index semantic gap:
-`PriceListRule.value` declares a JSON GIN index in the pinned model. The
-portable DML compiler now retains its index method, and checked logical
-lowering refuses the full source instead of misclassifying GIN as B-tree. A
-shared JSON containment/equality access path, including build, current-write
-maintenance, readiness, selective reads and exact `@>` recheck, is still
-required before admitting that table. The
-separate base-price source makes this limitation explicit; eventual ownership
-transfer must retain stable table identities and follow the structural
-migration gate rather than silently expanding a live source.
+The pinned `PriceListRule.value` JSON GIN declaration now lowers to a generic
+logical containment requirement. The shared core has a scope-confined current
+JSON entry family, physical GIN readiness, transactional maintenance and
+bounded `@>` candidate reads. A six-model Pricing-shaped source can be admitted
+and can write/query PriceListRule through the private core contract. This is
+not yet a native calculated-Pricing service cutover: the selected runtime
+source remains the four-table base-price source. Eventual ownership transfer
+must retain stable table identities and follow the structural migration gate
+rather than silently expanding a populated live source.
 
 The representative calculated-price query in
 [query and constraint acceptance](./02-query-and-constraint-acceptance.md)

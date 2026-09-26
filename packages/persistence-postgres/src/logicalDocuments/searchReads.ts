@@ -7,6 +7,7 @@ import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { fxAppSearchEntryCurrent } from "../schema";
 import type { LogicalDocumentFailure } from "./model";
 import type { LogicalSearchDefinition } from "./searchEntries";
+import type { Json } from "flarex-protocol/json";
 
 export interface LogicalSearchPattern { readonly column: string; readonly pattern: string }
 export interface LogicalSearchMember {
@@ -14,11 +15,11 @@ export interface LogicalSearchMember {
   readonly fieldId: string;
   readonly commitSeq: CommitSeq;
 }
-export interface LogicalSearchRead {
-  readonly definition: LogicalSearchDefinition;
-  readonly patterns: readonly LogicalSearchPattern[];
-  readonly entries: readonly LogicalSearchMember[];
-}
+export type LogicalSearchRead =
+  | Readonly<{ kind: "text"; definition: LogicalSearchDefinition;
+    patterns: readonly LogicalSearchPattern[]; entries: readonly LogicalSearchMember[] }>
+  | Readonly<{ kind: "jsonContainment"; definition: LogicalSearchDefinition;
+    column: string; value: Json; entries: readonly LogicalSearchMember[] }>;
 const foldAscii = (value: string) => value.replace(/[A-Z]/g, letter => letter.toLowerCase());
 
 /** A required three-character word run gives pg_trgm a selective key. A
@@ -29,7 +30,7 @@ export const readLogicalSearchRange = Effect.fn("LogicalDocuments.readSearchRang
   tx: FlarexMetadataTransaction, scopeId: ScopeId, definition: LogicalSearchDefinition,
   patterns: readonly LogicalSearchPattern[], maximumRows: number, error: LogicalDocumentFailure<Failure>,
 ) {
-  if (patterns.length === 0 || patterns.length > 16 || maximumRows < 1 ||
+  if (definition.kind !== "text" || patterns.length === 0 || patterns.length > 16 || maximumRows < 1 ||
     patterns.some(pattern => !definition.columns.includes(pattern.column) || !hasMandatorySearchTrigram(pattern.pattern)))
     return yield* Effect.fail(error("limitExceeded"));
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId))

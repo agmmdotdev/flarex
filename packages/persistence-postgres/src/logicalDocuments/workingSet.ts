@@ -23,7 +23,9 @@ import type { ApplicationDocumentObservation } from "../applicationDocumentMater
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { lowerAppDeveloperIndexKeyV1 } from "../appDeveloperIndexCommitV1";
 import { readLogicalIndexRange, readLogicalIndexPage, type LogicalIndexRead, type LogicalIndexPageRead } from "./indexReads";
-import { readLogicalSearchRange, type LogicalSearchRead } from "./searchReads";
+import { readLogicalSearchRange, type LogicalSearchMember, type LogicalSearchRead } from "./searchReads";
+import { readLogicalJsonContainsRange } from "./jsonContains";
+import { selectLogicalJsonSearchDefinition } from "./searchEntries";
 import { MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeCursorV1 } from "../appIndexEntries";
 import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogicalPageIndex, logicalQueryMatches, type LogicalWhere } from "./query";
 import { compileLogicalRelationalRead } from "./relationalQuery";
@@ -508,40 +510,71 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
     const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error));
-    if (complete && query.selections === null && query.search === null) return yield* Effect.fail(error("invalidInput"));
+    if (complete && query.selections === null && query.search === null && query.json === null)
+      return yield* Effect.fail(error("invalidInput"));
     const selected = new Map<AppDocumentIdV1, PendingDocument>();
     // A null predicate required by every Boolean branch may use an admitted
     // active-row index. Otherwise the first text identity member's range is the
     // bounded complete-set path; a page limit never turns into a table scan.
     let completeSelection: LogicalWhere = { [query.key]: { gte: "" } };
     let indexedNullAnchor = false;
-    if (query.selections === null && query.search === null) for (const field of query.requiredNulls) {
+    if (query.selections === null && query.search === null && query.json === null) for (const field of query.requiredNulls) {
       const candidate: LogicalWhere = { [field]: null };
       const index = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, candidate, error));
       if (Option.isSome(index)) { completeSelection = candidate; indexedNullAnchor = true; break; }
     }
     if (query.requiresIndexedNullAnchor && !indexedNullAnchor) return yield* Effect.fail(error("invalidInput"));
-    if (query.search !== null && query.selections === null) {
+    let usedSearchCandidates = false;
+    if (query.json !== null || query.search !== null && query.selections === null) {
       const searchPatterns = query.search;
-      const definition = state.searchDefinitions?.find(candidate => candidate.tableId === table.tableId &&
-        searchPatterns.every(pattern => candidate.columns.includes(pattern.column)));
+      const jsonPattern = query.json;
+      const definition = jsonPattern !== null
+        ? selectLogicalJsonSearchDefinition(state.searchDefinitions ?? [], table.tableId,
+          jsonPattern.column, new Set(query.requiredNulls))
+        : state.searchDefinitions?.find(candidate => candidate.tableId === table.tableId &&
+          candidate.kind === "text" && searchPatterns !== null &&
+          searchPatterns.every(pattern => candidate.columns.includes(pattern.column)));
       if (definition === undefined)
         return yield* Effect.fail(error("invalidInput"));
       if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-      const entries = yield* readLogicalSearchRange(state.tx, state.scopeId, definition, searchPatterns, limits.identities, error);
-      yield* charge(128 + entries.length * 96);
-      searchReads.push(Object.freeze({ definition, patterns: searchPatterns, entries }));
-      const members = new Set(entries.map(entry => entry.rowId));
-      const missing = [...members].filter(rowId => !dependencies.has(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId })));
-      if (missing.length > 0) yield* readBase(table.tableId, undefined, missing);
-      for (const entry of entries) {
-        const { pending } = yield* locate(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId: entry.rowId }));
-        if (pending?.base?.kind !== "live" || pending.base.commitSeq !== entry.commitSeq)
-          return yield* Effect.fail(error("writeConflict"));
+      let entries: readonly LogicalSearchMember[] | undefined;
+      if (jsonPattern !== null) {
+        // The JSON path may be broad while a scalar equality path is small.
+        // Probe one extra member before charging or recording a read; only a
+        // complete candidate path can become a transaction dependency.
+        entries = yield* readLogicalJsonContainsRange(state.tx, state.scopeId,
+          definition, jsonPattern.column, jsonPattern.value, limits.identities,
+          (reason, cause) => reason === "limitExceeded"
+            ? { kind: "overflow" as const } : { kind: "failure" as const, value: error(reason, cause) })
+          .pipe(Effect.matchEffect({
+            onSuccess: matches => Effect.succeed(matches),
+            onFailure: failure => failure.kind === "failure" ? Effect.fail(failure.value)
+              : query.selections === null ? Effect.fail(error("limitExceeded")) : Effect.succeed(undefined),
+          }));
+      } else if (searchPatterns !== null) {
+        entries = yield* readLogicalSearchRange(state.tx, state.scopeId, definition,
+          searchPatterns, limits.identities, error);
       }
-      for (const row of rows.values()) if (row.tableId === table.tableId && row.current !== null &&
-        (members.has(row.rowId) || row.attempts.length > 0)) selected.set(row.documentId, row);
-    } else {
+      if (entries !== undefined) {
+        usedSearchCandidates = true;
+        yield* charge(128 + entries.length * 96);
+        if (jsonPattern !== null) searchReads.push(Object.freeze({ kind: "jsonContainment", definition,
+          column: jsonPattern.column, value: jsonPattern.value, entries }));
+        else if (searchPatterns !== null) searchReads.push(Object.freeze({ kind: "text", definition,
+          patterns: searchPatterns, entries }));
+        const members = new Set(entries.map(entry => entry.rowId));
+        const missing = [...members].filter(rowId => !dependencies.has(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId })));
+        if (missing.length > 0) yield* readBase(table.tableId, undefined, missing);
+        for (const entry of entries) {
+          const { pending } = yield* locate(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId: entry.rowId }));
+          if (pending?.base?.kind !== "live" || pending.base.commitSeq !== entry.commitSeq)
+            return yield* Effect.fail(error("writeConflict"));
+        }
+        for (const row of rows.values()) if (row.tableId === table.tableId && row.current !== null &&
+          (members.has(row.rowId) || row.attempts.length > 0)) selected.set(row.documentId, row);
+      }
+    }
+    if (!usedSearchCandidates) {
       const selections: LogicalWhere[] = query.selections === null ? [completeSelection] :
         query.selections.map(selection => ({ [selection.column]: selection.value,
           ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) }));

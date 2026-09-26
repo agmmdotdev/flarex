@@ -3804,6 +3804,42 @@ export const fxAppSearchEntryCurrent = pgTable(
   ],
 );
 
+/** Current values of explicitly declared JSON containment fields. One shared
+ * physical GIN family serves all scopes and logical definitions. The revision
+ * link is checked again by readers before a candidate is used. */
+export const fxAppJsonEntryCurrent = pgTable(
+  "fx_app_json_entry_current",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    logicalIndexId: integer("logical_index_id").$type<CatalogIndexId>().notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    fieldId: text("field_id").notNull(),
+    rowId: bytea("row_id").notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" }).$type<CommitSeq>().notNull(),
+    valueJson: jsonb("value_json").$type<Json>().notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "fx_app_json_entry_current_pk", columns: [
+      table.scopeUuid, table.tableId, table.logicalIndexId, table.fieldId, table.rowId,
+    ] }),
+    index("fx_app_json_entry_current_row_idx").on(table.scopeUuid, table.tableId, table.rowId),
+    index("fx_app_json_entry_current_lookup_gin").using("gin", table.scopeUuid,
+      table.logicalIndexId, sql`${table.valueJson} jsonb_path_ops`),
+    foreignKey({ name: "fx_app_json_entry_current_revision_fk",
+      columns: [table.scopeUuid, table.tableId, table.rowId, table.commitSeq],
+      foreignColumns: [fxAppRowRevisions.scopeUuid, fxAppRowRevisions.tableId,
+        fxAppRowRevisions.rowId, fxAppRowRevisions.commitSeq],
+    }).onUpdate("restrict").onDelete("restrict"),
+    check("fx_app_json_entry_current_table_id_check", sql`${table.tableId} between 1 and 2147483647`),
+    check("fx_app_json_entry_current_index_id_check", sql`${table.logicalIndexId} between 1 and 2147483647`),
+    check("fx_app_json_entry_current_source_check", sql`${table.sourceSha256} ~ '^[0-9a-f]{64}$'`),
+    check("fx_app_json_entry_current_field_check", sql`length(${table.fieldId}) between 1 and 512`),
+    check("fx_app_json_entry_current_row_id_check", sql`octet_length(${table.rowId}) = 16`),
+    check("fx_app_json_entry_current_commit_seq_check", sql`${table.commitSeq} >= 1`),
+  ],
+);
+
 /** Search coverage is scoped to an exact logical source generation. Absence or
  * a stale digest cannot authorize serving; the shared binding owner may mark
  * an empty table ready under the publication lock. */

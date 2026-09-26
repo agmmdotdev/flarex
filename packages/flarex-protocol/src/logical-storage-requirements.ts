@@ -28,6 +28,8 @@ export interface LogicalSourceSearchRequirement {
   readonly localName: string;
   readonly descriptor: CatalogDefinitionName;
   readonly columns: readonly string[];
+  readonly kind: "text" | "jsonContainment";
+  readonly nullPredicateField: string | null;
 }
 const decodeName = Schema.decodeUnknownResult(CatalogDefinitionNameSchema);
 const decodeIndex = Schema.decodeUnknownResult(SchemaManifestAppDeveloperOrderedIndexSpecV1Schema, { onExcessProperty: "error" });
@@ -54,7 +56,8 @@ export function compileLogicalSourceIndexes(source: LogicalSchemaSource) {
       const declarations = [
         ...table.keys.map(key => ({ name: `key/${key.identity.keyId}`, columns: key.columns, predicate: null,
           kind: "btree" as const })),
-        ...table.indexes.map(index => ({ name: `index/${index.identity.indexId}`, columns: index.columns, predicate: index.predicate,
+        ...table.indexes.filter(index => index.kind !== "jsonContainment").map(index => ({
+          name: `index/${index.identity.indexId}`, columns: index.columns, predicate: index.predicate,
           kind: index.kind })),
         ...relationalForeignKeyReverseColumns(table).map(column => ({ name: `fk-reverse/${column.columnId}`,
           columns: [column], predicate: null, kind: "btree" as const })),
@@ -110,6 +113,19 @@ export function compileLogicalSourceSearches(source: LogicalSchemaSource) {
   return Result.gen(function* () {
     const requirements: LogicalSourceSearchRequirement[] = [];
     if (source.definition.kind === "documents") return Object.freeze(requirements);
+    for (const table of source.definition.schema.tables) for (const index of table.indexes) {
+      if (index.kind !== "jsonContainment") continue;
+      const column = index.columns[0];
+      if (column === undefined || index.columns.length !== 1 ||
+        table.columns.find(member => member.identity.columnId === column.columnId)?.type !== "jsonb" ||
+        (index.predicate !== null && (index.predicate.kind !== "isNull" ||
+          index.predicate.column.columnId !== "deleted_at"))) return yield* Result.fail(failure(source));
+      const descriptor = yield* decodeName(`index/${index.identity.indexId}`)
+        .pipe(Result.mapError(cause => failure(source, cause)));
+      requirements.push({ localName: table.identity.tableId, descriptor,
+        kind: "jsonContainment", columns: Object.freeze([column.columnId]),
+        nullPredicateField: index.predicate?.kind === "isNull" ? index.predicate.column.columnId : null });
+    }
     for (const capability of source.definition.schema.capabilities) {
       if (capability.kind !== "searchableText") continue;
       const first = capability.columns[0];
@@ -122,8 +138,8 @@ export function compileLogicalSourceSearches(source: LogicalSchemaSource) {
         return yield* Result.fail(failure(source));
       const descriptor = yield* decodeName(`search/${capability.identity.capabilityId}`)
         .pipe(Result.mapError(cause => failure(source, cause)));
-      requirements.push({ localName: first.tableId, descriptor,
-        columns: Object.freeze(capability.columns.map(column => column.columnId)) });
+      requirements.push({ localName: first.tableId, descriptor, kind: "text",
+        columns: Object.freeze(capability.columns.map(column => column.columnId)), nullPredicateField: null });
     }
     return Object.freeze(requirements);
   });

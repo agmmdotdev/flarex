@@ -23,6 +23,7 @@ export {
   fxAppRowCurrent,
   fxAppRowRevisions,
   fxAppSearchEntryCurrent,
+  fxAppJsonEntryCurrent,
   fxAppUniqueKeys,
   fxControlApplicationSchemaAuthoritiesV1,
   fxControlApplicationManifestSchemaBindings,

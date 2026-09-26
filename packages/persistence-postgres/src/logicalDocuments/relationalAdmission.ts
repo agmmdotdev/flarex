@@ -90,7 +90,8 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
     }).pipe(Effect.mapError(cause => new LogicalRelationalAdmissionError({ reason: "notReady", cause })));
     if (identity === null) return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "notReady" }));
     search.push(Object.freeze({ tableId: table.tableId, logicalIndexId: identity.logicalIndexId,
-      sourceSha256: selected.source.sourceSha256, columns: requirement.columns }));
+      sourceSha256: selected.source.sourceSha256, kind: requirement.kind, columns: requirement.columns,
+      nullPredicateField: requirement.nullPredicateField }));
   }
   const values = yield* prepareLogicalRelationalValueValidation(capturedPorts.controlDb,
     capturedInput.deploymentId, capturedInput.schemaVersionId);

@@ -32,7 +32,7 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
     }).pipe(Effect.mapError(cause => failure("definitionMissing", cause)));
     if (identity === null) return yield* Effect.fail(failure("definitionMissing"));
     definitions.push(Object.freeze({ tableId: requirement.tableId, logicalIndexId: identity.logicalIndexId,
-      sourceSha256: requirement.sourceSha256 }));
+      sourceSha256: requirement.sourceSha256, kind: requirement.kind }));
   }
   const selected = Object.freeze(definitions);
 
@@ -51,6 +51,11 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
     for (let refresh = 0; refresh < 3; refresh++) {
       let uncovered = false;
       for (const definition of selected) {
+        const physical = definition.kind === "jsonContainment"
+          ? { index: "fx_app_json_entry_current_lookup_gin", table: "fx_app_json_entry_current",
+              column: "value_json", operator: "jsonb_path_ops" }
+          : { index: "fx_app_search_entry_current_lookup_gin", table: "fx_app_search_entry_current",
+              column: "folded_text", operator: "gin_trgm_ops" };
         const states = yield* runDrizzleStatementEffect(tx.select({
           sourceSha256: fxSystemSearchBuildStates.sourceSha256,
           lifecycle: fxSystemSearchBuildStates.lifecycle,
@@ -73,8 +78,8 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
             join pg_catalog.pg_opclass text_opclass on text_opclass.oid = physical_index.indclass[2]
             where index_namespace.nspname = current_schema()
               and source_namespace.nspname = current_schema()
-              and index_class.relname = 'fx_app_search_entry_current_lookup_gin'
-              and source_table.relname = 'fx_app_search_entry_current'
+              and index_class.relname = ${physical.index}
+              and source_table.relname = ${physical.table}
               and access_method.amname = 'gin'
               and physical_index.indisvalid and physical_index.indisready
               and physical_index.indpred is null
@@ -82,10 +87,10 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
               and physical_index.indnkeyatts = 3
               and scope_attribute.attname = 'scope_uuid'
               and index_attribute.attname = 'logical_index_id'
-              and text_attribute.attname = 'folded_text'
+              and text_attribute.attname = ${physical.column}
               and scope_opclass.opcname = 'uuid_ops'
               and index_opclass.opcname = 'int4_ops'
-              and text_opclass.opcname = 'gin_trgm_ops'
+              and text_opclass.opcname = ${physical.operator}
           )`,
         }).from(fxSystemSearchBuildStates).where(and(
           eq(fxSystemSearchBuildStates.scopeUuid, scope.scopeUuid),

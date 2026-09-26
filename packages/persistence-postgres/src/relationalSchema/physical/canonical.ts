@@ -1095,6 +1095,7 @@ function physicalIndexKind(
     case "uniqueBtree":
       return Result.succeed(kind);
     case "textEquality":
+    case "jsonContainment":
       return Result.fail(RelationalPhysicalValueError.unsupportedArtifact());
     default:
       return unreachablePhysicalVocabulary(kind);
@@ -1306,6 +1307,8 @@ function indexCapabilityId(
       return "relational-schema.index.btree";
     case "textEquality":
       return "relational-schema.index.textEquality";
+    case "jsonContainment":
+      return "relational-schema.index.jsonContainment";
     default:
       return unreachablePhysicalVocabulary(kind);
   }

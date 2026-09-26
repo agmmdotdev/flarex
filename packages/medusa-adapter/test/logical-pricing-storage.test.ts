@@ -3,6 +3,7 @@ import { Effect, Result, Schema } from "effect";
 import { compileDmlSchema } from "@medusajs/drizzle/schema";
 import { pricingModuleModels } from "@medusajs/pricing/static-manifest";
 import { normalizeRelationalSchema } from "flarex-protocol/internal/relational-schema";
+import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-storage-requirements";
 import { AppCreationTimeV1Schema, canonicalizeAppDocumentV1 } from "flarex-protocol/app-document";
 import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { createWorkflow, transform, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
@@ -43,12 +44,23 @@ describe("native Pricing on shared logical storage", () => {
     for (const close of cleanup.reverse()) await close();
   });
 
-  it("preserves PriceListRule's native GIN method and refuses its unsupported logical source", async () => {
+  it("preserves PriceListRule's native GIN method as a logical JSON containment index", async () => {
     const compiled = await Effect.runPromise(decodeCompiledDml(JSON.parse(JSON.stringify(compileDmlSchema(pricingModuleModels)))));
     const rule = compiled.tables.find(table => table.name === "price_list_rule");
     expect(rule?.indexes.find(index => index.columns.length === 1 && index.columns[0] === "value"))
       .toMatchObject({ type: "gin", where: "deleted_at IS NULL" });
-    expect(Result.isFailure(normalizeRelationalSchema(lowerDmlSchema(compiled.tables, "commerce.pricing")))).toBe(true);
+    const schema = Result.getOrThrow(normalizeRelationalSchema(lowerDmlSchema(compiled.tables, "commerce.pricing")));
+    expect(schema.tables.find(table => table.identity.tableId === "price_list_rule")?.indexes
+      .find(index => index.columns[0]?.columnId === "value"))
+      .toMatchObject({ kind: "jsonContainment", predicate: { kind: "isNull",
+        column: { columnId: "deleted_at" } } });
+    expect(Result.getOrThrow(compileLogicalSourceSearches({
+      key: "medusa.pricing", owner: "medusa", evidence: null,
+      sourceSha256: "0".repeat(64), writeProfile: "medusa.pricing",
+      definition: { kind: "relational", schema }, bindings: [],
+    })).find(requirement => requirement.localName === "price_list_rule"))
+      .toMatchObject({ kind: "jsonContainment", columns: ["value"],
+        nullPredicateField: "deleted_at" });
   });
 
   it("admits the base-price dependency set without module table DDL", async () => {

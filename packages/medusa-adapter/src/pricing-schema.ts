@@ -54,3 +54,12 @@ export const compilePricingDefinition = Effect.fn("Pricing.compileDefinition")(f
   const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(compiled.tables, "commerce.pricing")));
   return Object.freeze({ schema, provenance: pricingSourceProvenance });
 });
+
+/** Full pinned source for the containment/readiness acceptance path. The base
+ * Pricing runtime remains separately selected until native calculated-price
+ * behavior and a stable source-identity transition have been proved. */
+export const compileFullPricingDefinition = Effect.fn("Pricing.compileFullDefinition")(function* () {
+  const compiled = yield* compilePinnedPricingMetadata();
+  const schema = yield* Effect.fromResult(normalizeRelationalSchema(lowerDmlSchema(compiled.tables, "commerce.pricing")));
+  return Object.freeze({ schema, provenance: pricingSourceProvenance });
+});

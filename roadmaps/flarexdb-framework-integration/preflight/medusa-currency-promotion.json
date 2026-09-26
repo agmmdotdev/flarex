@@ -842,7 +842,7 @@
     {
       "target": "packages/medusa-adapter/src/schema/lower.ts",
       "classification": "authored",
-      "targetSha256": "063bb46d0c571455020955ea80b98ba6e3a3e82829ccdd5099e090d83e3b2108"
+      "targetSha256": "fbd33760c36a408e55a208ff2aac52e4b039d3812bf8c25252a83370849dcb4a"
     },
     {
       "target": "packages/medusa-adapter/src/schema/model.ts",
@@ -4105,7 +4105,7 @@
     {
       "target": "packages/medusa-adapter/src/pricing-schema.ts",
       "classification": "authored",
-      "targetSha256": "574685b809c168b8329f84fb90f98fe5322d0ec4157702f7ab1e13b379f4978a"
+      "targetSha256": "689cbaf97a0f7c1c007975f903a4c4dd587d8e5c1e26b3c56e1aa0b73288abb3"
     },
     {
       "target": "packages/medusa-adapter/src/pricing-service.ts",
@@ -4349,9 +4349,14 @@
       "targetSha256": "71066ea664c4d55b51f407497548be6ace50f9dc02f88d96c8484381c0c67303"
     },
     {
+      "target": "packages/medusa-adapter/test/logical-pricing-json-containment.test.ts",
+      "classification": "authored",
+      "targetSha256": "8c45c4bbd32171eab6a56d95a79e54e44d8bee83f3d91675b8dbd36081f06e85"
+    },
+    {
       "target": "packages/medusa-adapter/test/logical-pricing-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "3c67f946f621cb7db4128e1953bba59b9f0ddca2e99c74ac4747fccf8491c0a3"
+      "targetSha256": "2335edf5b5a476956724d63144b36302e31bd20ff2d0e559d5b97a7909badf8f"
     },
     {
       "target": "packages/medusa-adapter/test/logical-variant-pricing-link.test.ts",

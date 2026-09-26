@@ -5,7 +5,8 @@ import type { RelationalColumnIdentity, RelationalTableDefinition } from "./mode
 export function relationalForeignKeyReverseColumns(table: RelationalTableDefinition): readonly RelationalColumnIdentity[] {
   const covered = new Set([
     ...table.keys.map(key => key.columns[0]?.columnId),
-    ...table.indexes.filter(index => index.predicate === null).map(index => index.columns[0]?.columnId),
+    ...table.indexes.filter(index => index.predicate === null && index.kind !== "jsonContainment")
+      .map(index => index.columns[0]?.columnId),
   ]);
   const derived: RelationalColumnIdentity[] = [];
   for (const constraint of table.constraints) {
@@ -23,6 +24,7 @@ export function relationalForeignKeyReverseColumns(table: RelationalTableDefinit
  * index. The derived FK reverse path is text-only. */
 export function relationalHasIndexedScalarPrefix(table: RelationalTableDefinition, columnId: string): boolean {
   return table.keys.some(key => key.columns[0]?.columnId === columnId) ||
-    table.indexes.some(index => index.predicate === null && index.columns[0]?.columnId === columnId) ||
+    table.indexes.some(index => index.predicate === null && index.kind !== "jsonContainment" &&
+      index.columns[0]?.columnId === columnId) ||
     relationalForeignKeyReverseColumns(table).some(column => column.columnId === columnId);
 }
