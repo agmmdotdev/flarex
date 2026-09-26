@@ -21,6 +21,7 @@ import { internalModuleWorkflowEvents } from "../src/workflow/events";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { defineCommerceCommand, makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { defaultCommerceResources } from "../../persistence-postgres/src/commerceTransaction/resources";
+import { isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { fxControlTables } from "../../persistence-postgres/src/schema";
 import { locateAppDeveloperIndexDefinitionsForSchemaEffect } from "../../persistence-postgres/src/appIndexDefinitions";
@@ -318,6 +319,37 @@ describe("native Pricing on shared logical storage", () => {
       }))).rejects.toMatchObject({ _tag: "CommerceTransactionError" });
       expect(await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents))
         .toHaveLength(before.length + events.length);
+      const matrix: typeof Input.Type = { sets: ["sale", "override", "future", "expired"].map(name => ({
+        id: `${name}-set`, prices: [{ id: `${name}-base`, currency_code: "USD", amount: "100" }],
+      })), lists: [
+        { id: "sale-list", title: "Sale", description: "Below base", status: "active", type: "sale",
+          prices: [{ id: "sale-price", price_set_id: "sale-set", currency_code: "USD", amount: "90" }] },
+        { id: "override-list", title: "Override", description: "Above base", status: "active", type: "override",
+          starts_at: "2020-01-01T00:00:00.000Z", ends_at: "2999-01-01T00:00:00.000Z",
+          prices: [{ id: "override-price", price_set_id: "override-set", currency_code: "USD", amount: "120" }] },
+        { id: "future-list", title: "Future", description: "Not yet active", status: "active", type: "sale",
+          starts_at: "2999-01-01T00:00:00.000Z",
+          prices: [{ id: "future-price", price_set_id: "future-set", currency_code: "USD", amount: "10" }] },
+        { id: "expired-list", title: "Expired", description: "No longer active", status: "active", type: "sale",
+          ends_at: "2020-01-01T00:00:00.000Z",
+          prices: [{ id: "expired-price", price_set_id: "expired-set", currency_code: "USD", amount: "10" }] },
+      ] };
+      const matrixKey = host.newRequestKey();
+      const matrixResult = await Effect.runPromise(host.run(matrixKey, matrix));
+      expect(matrixResult).toMatchObject({ lists: matrix.lists.map(list => ({ id: list.id })) });
+      expect(await Effect.runPromise(host.run(matrixKey, matrix))).toEqual(matrixResult);
+      const draft: typeof Input.Type = { sets: [{ id: "draft-set", prices: [
+        { id: "draft-base", currency_code: "USD", amount: "100" }] }],
+        lists: [{ id: "draft-list", title: "Draft", description: "Not active", status: "draft", type: "sale",
+          prices: [{ id: "draft-price", price_set_id: "draft-set", currency_code: "USD", amount: "10" }] }] };
+      await Effect.runPromise(host.run(host.newRequestKey(), draft));
+      const invalid: typeof Input.Type = { sets: [{ id: "invalid-date-set", prices: [
+        { id: "invalid-date-base", currency_code: "USD", amount: "100" }] }],
+        lists: [{ id: "invalid-date-list", title: "Invalid", description: "Bad interval", status: "active", type: "sale",
+          starts_at: "not-a-date", prices: [{ id: "invalid-date-price", price_set_id: "invalid-date-set",
+            currency_code: "USD", amount: "10" }] }] };
+      await expect(Effect.runPromise(host.run(host.newRequestKey(), invalid)))
+        .rejects.toMatchObject({ _tag: "CommerceTransactionError" });
       const reader = await Effect.runPromise(makeCommerceHost(fixture.pricing.hostInput));
       try {
         const calculated = await Effect.runPromise(reader.read(fixture.pricing.runtime.calculate, {
@@ -337,6 +369,27 @@ describe("native Pricing on shared logical storage", () => {
         expect(await Effect.runPromise(reader.read(fixture.pricing.runtime.list, {
           filters: { id: ["failed-list-set"] },
         }))).toEqual([]);
+        expect(await Effect.runPromise(reader.read(fixture.pricing.runtime.list, {
+          filters: { id: ["invalid-date-set"] },
+        }))).toEqual([]);
+        const selected = await Effect.runPromise(reader.read(fixture.pricing.runtime.calculate, {
+          filters: { id: ["sale-set", "override-set", "future-set", "expired-set", "draft-set"] },
+          pricingContext: { context: { currency_code: "USD" } },
+        }));
+        if (!Array.isArray(selected)) throw new Error("Expected calculated PriceSets");
+        const rows = selected.filter(isJsonObject);
+        expect(rows).toHaveLength(5);
+        const byId = Object.fromEntries(rows.map(row => [row.id, row]));
+        expect(byId["sale-set"]).toMatchObject({ calculated_amount: 90, original_amount: 100,
+          calculated_price: { id: "sale-price" }, original_price: { id: "sale-base" } });
+        expect(byId["override-set"]).toMatchObject({ calculated_amount: 120, original_amount: 120,
+          calculated_price: { id: "override-price" } });
+        for (const name of ["future", "expired", "draft"]) expect(byId[`${name}-set`])
+          .toMatchObject({ calculated_amount: 100, original_amount: 100,
+            calculated_price: { id: `${name}-base` } });
+        expect(await Effect.runPromise(reader.read(fixture.pricing.runtime.calculate, {
+          filters: { id: ["override-set"] }, pricingContext: { context: { currency_code: "USD", region_id: "elsewhere" } },
+        }))).toMatchObject([{ calculated_amount: 120, calculated_price: { id: "override-price" } }]);
       } finally { await Effect.runPromise(reader.close); }
     } finally { await Effect.runPromise(host.close); }
   }, 60_000);

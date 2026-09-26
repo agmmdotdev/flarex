@@ -21,11 +21,12 @@ const ListPriceInput = Schema.Struct({ id: Schema.optionalKey(PricingId), price_
   min_quantity: Schema.optionalKey(Schema.NullOr(Numeric)), max_quantity: Schema.optionalKey(Schema.NullOr(Numeric)),
 });
 const PriceListInput = Schema.Struct({ id: Schema.optionalKey(PricingId), title: Text, description: Schema.String,
-  status: Schema.Literal("active"), type: Schema.Literal("override"),
+  status: Schema.Literals(["active", "draft"]), type: Schema.Literals(["sale", "override"]),
+  starts_at: Schema.optionalKey(Schema.NullOr(Text)), ends_at: Schema.optionalKey(Schema.NullOr(Text)),
   prices: Schema.Array(ListPriceInput).check(Schema.isMaxLength(2)),
-  rules: Schema.Struct({ region_id: Schema.Array(Text).check(Schema.isLengthBetween(1, 2)) }),
+  rules: Schema.optionalKey(Schema.Struct({ region_id: Schema.Array(Text).check(Schema.isLengthBetween(1, 2)) })),
 });
-export const PriceListsInput = Schema.Array(PriceListInput).check(Schema.isLengthBetween(1, 1));
+export const PriceListsInput = Schema.Array(PriceListInput).check(Schema.isLengthBetween(1, 4));
 export const decodePriceListCreate = commerceDecoder(PriceListsInput, "invalidInput");
 export const PriceSetFilters = Schema.Struct({ id: Schema.optionalKey(Schema.Union([PricingId, Schema.Array(PricingId).check(Schema.isMaxLength(256))])) });
 export const PriceSetConfig = Schema.Struct({

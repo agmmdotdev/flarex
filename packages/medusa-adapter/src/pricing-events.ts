@@ -1,37 +1,11 @@
 import type { LogicalCallReceiptValidation } from "./logical-call-receipt";
 import { Effect, Schema } from "effect";
-import type { CommerceProfileState, LocalCommerceEventPolicy } from "@flarex/persistence-postgres/internal/commerce-profile";
-import { commerceError } from "@flarex/persistence-postgres/internal/commerce-values";
-import { scalarEventPolicy } from "./scalar-events";
+import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
 import { captureCommerceInput } from "./commerce-input";
 import { CommonEvents, Modules, buildModuleResourceEventName } from "@medusajs/framework/utils/portable";
 import { defaultCommerceResources } from "@flarex/persistence-postgres/internal/commerce-values";
 import type { LogicalCommerceCallValidation } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import type { Json } from "@flarex/persistence-postgres/internal/commerce-values";
-
-/** Reuse scalar fact authentication for each member of the native create graph. */
-export function pricingEventPolicy(descriptor: CommerceProfileState, deliver: LocalCommerceEventPolicy["deliver"]): LocalCommerceEventPolicy {
-  const tables = ["price_set", "price", "price_rule"];
-  const policies = new Map(tables.map(table => [table, scalarEventPolicy("pricing", table, { insert: "pricingCreate" }, descriptor, deliver)]));
-  const decode = Schema.decodeUnknownEffect(Schema.Struct({ metadata: Schema.Struct({ object: Schema.String }) }));
-  const capture = Effect.fn("PricingEvents.capture")(function* (input: unknown) {
-    const captured = yield* Effect.fromResult(captureCommerceInput(input, descriptor.resources));
-    const value = yield* decode(captured).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
-    const policy = policies.get(value.metadata.object);
-    if (!policy) return yield* Effect.fail(commerceError("unadmittedEvent"));
-    return yield* policy.capture(captured);
-  });
-  return { capture, deliver, validate: Effect.fn("PricingEvents.validate")(function* (events, rows, command, lifecycle = []) {
-    if (lifecycle.length || rows.some(row => !policies.has(row.tableId))) return yield* Effect.fail(commerceError("receiptMismatch"));
-    const groups = new Map<string, typeof events[number][]>();
-    for (const event of events) {
-      yield* capture(event);
-      const value = yield* decode(event).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
-      const group = groups.get(value.metadata.object) ?? []; group.push(event); groups.set(value.metadata.object, group);
-    }
-    for (const [table, policy] of policies) yield* policy.validate(groups.get(table) ?? [], rows.filter(row => row.tableId === table), command);
-  }) };
-}
 
 /** Core owns FK/unique settlement; this receipt authenticates the exact native
  * create events for each admitted Pricing graph. */
@@ -71,17 +45,29 @@ export function pricingLogicalCreateEventPolicy() {
       const emitted = call.events;
       const expected = new Set<string>();
       let listRoots = 0;
+      const listRootIds = new Set<string>();
       for (const mutation of mutations) {
         const id = mutation.after?.id;
         const identity = mutation.table + ":" + id;
         if (!allowed.has(mutation.table) || mutation.operation !== "insert" || mutation.before !== null ||
           typeof id !== "string" || mutation.after?.deleted_at !== null || expected.has(identity))
           return yield* Effect.fail(commerceError("receiptMismatch"));
-        if (call.commandName === "pricingCreateList" && mutation.table === "price_list") listRoots++;
+        if (call.commandName === "pricingCreateList" && mutation.table === "price_list") {
+          listRoots++;
+          listRootIds.add(id);
+        }
         expected.add(identity);
       }
-      if (call.commandName === "pricingCreateList" && listRoots !== 1)
-        return yield* Effect.fail(commerceError("receiptMismatch"));
+      if (call.commandName === "pricingCreateList") {
+        if (!Array.isArray(call.input) || !Array.isArray(call.result) ||
+          call.input.length < 1 || call.input.length > 4 ||
+          listRoots !== call.input.length || call.result.length !== listRoots)
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        for (const result of call.result) if (!isJsonObject(result) ||
+          typeof result.id !== "string" || !listRootIds.delete(result.id))
+          return yield* Effect.fail(commerceError("receiptMismatch"));
+        if (listRootIds.size !== 0) return yield* Effect.fail(commerceError("receiptMismatch"));
+      }
       for (const event of emitted) {
         const message = yield* capture(event);
         for (const id of Array.isArray(message.data.id) ? message.data.id : [message.data.id]) {

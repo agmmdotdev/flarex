@@ -92,10 +92,11 @@ four-table source until the separate structural conversion/reset decision.
 
 ## Remaining gates
 
-Native PriceList updates/deletes, PricePreference mutation, persisted sale,
-future and expired list calculation, and pending calculation during an admitted
-write still need connected dual-driver proofs. The selected PriceList create
-path now proves persisted active override and one JSON region rule.
+Native PriceList updates/deletes, PricePreference mutation, broader rule and
+quantity combinations, and pending calculation during an admitted write still
+need connected dual-driver proofs. The selected PriceList create path now proves
+persisted active override, sale, draft, valid/future/expired windows, rule-free
+lists and one JSON region rule in the finite connected matrix.
 Range PriceRules need PostgreSQL-compatible numeric-cast validation and a
 connected rule mutation/read proof before admission.
 The selected path refuses unsupported input shapes and complete-set overflow;

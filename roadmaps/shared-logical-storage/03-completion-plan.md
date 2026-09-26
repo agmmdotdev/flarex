@@ -56,9 +56,9 @@ remain distinct from logical schema evolution.
   evidence. Native Links and current workflow tests are replacement obligations,
   not generic query proofs. Exact numeric storage and scoped population boundary
   suites now use logical sources without generated module tables. A selected
-  native calculated-PriceSet read and selected persisted active-override
-  PriceList creation have dual-driver proofs; full calculated-query acceptance
-  remains gated.
+  native calculated-PriceSet read and a finite persisted PriceList sale/override,
+  status and date matrix have dual-driver proofs; full calculated-query
+  acceptance remains gated.
   The connected [Currency cutover](./10-currency-storage-cutover.md) is in progress;
   its native and atomic consumers use shared storage. A selected-source private
   announcement now combines native Currency, Payload and Application writes in

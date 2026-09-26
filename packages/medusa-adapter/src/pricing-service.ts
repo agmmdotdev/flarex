@@ -20,7 +20,7 @@ import { decodeGraphCount } from "./local-graph/query";
 import type { GraphModuleDefinition } from "./local-graph/model";
 import { PriceSetsInput, PriceListsInput, PricingId, decodePriceSetCreate, decodePriceListCreate, decodePriceSetRead, decodePriceSetRetrieve } from "./pricing-input";
 import { decodePricingCalculation } from "./pricing-calculation";
-import { pricingEventPolicy, pricingLogicalCreateEventPolicy } from "./pricing-events";
+import { pricingLogicalCreateEventPolicy } from "./pricing-events";
 const decodeCreateArguments = commerceDecoder(Schema.Tuple([PriceSetsInput]), "invalidInput");
 const decodeCreateListArguments = commerceDecoder(Schema.Tuple([PriceListsInput]), "invalidInput");
 
@@ -65,8 +65,11 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     const create = commands.write("pricingCreate", prepare(decodePriceSetCreate), ({ service, context }, data) =>
       Array.isArray(data) ? service.createPriceSets(data as CreatePriceSetDTO[], context) : service.createPriceSets(data as CreatePriceSetDTO, context));
     const createList = commands.write("pricingCreateList", prepare(decodePriceListCreate), ({ service, context }, data) =>
-      service.createPriceLists(data.map(list => ({ ...list, prices: list.prices.map(price => ({ ...price })),
-        rules: { region_id: [...list.rules.region_id] } })) as PricingTypes.CreatePriceListDTO[], context));
+      service.createPriceLists(data.map(list => {
+        const { prices, rules, ...fields } = list;
+        return { ...fields, prices: prices.map(price => ({ ...price })),
+          ...(rules === undefined ? {} : { rules: { region_id: [...rules.region_id] } }) };
+      }) as PricingTypes.CreatePriceListDTO[], context));
     const list = commands.read("pricingList", prepare(decodePriceSetRead), ({ service, context }, args) => service.listPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
     const count = commands.read("pricingCount", prepare(decodePriceSetRead), ({ service, context }, args) => service.listAndCountPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
     const retrieve = commands.read("pricingRetrieve", prepare(decodePriceSetRetrieve), ({ service, context }, args) => service.retrievePriceSet(args.id, args.config as FindConfig<PriceSetDTO> | undefined, context));
@@ -84,7 +87,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
     const createPriceLists = yield* defineWorkflowMethod({ command: createList, arguments: decodeCreateListArguments,
       encode: ([lists]) => lists,
       output: commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: PricingId }),
-        [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 1)), "storedCorruption"),
+        [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 4)), "storedCorruption"),
       moduleEvents: ["price_list", "price", "price_list_rule"].map(objectName =>
         buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action: "created" })),
     });
@@ -92,6 +95,6 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       methods: { createPriceSets, createPriceLists }, graph,
       logical: { ...pricingLogicalCreateEventPolicy(), commands: [create, createList, list, count, retrieve, calculate] },
     });
-    return { create, createList, list, count, retrieve, calculate, commands: [create, createList, list, count, retrieve, calculate], graph, workflow, withService: module.use, eventPolicy: pricingEventPolicy };
+    return { create, createList, list, count, retrieve, calculate, commands: [create, createList, list, count, retrieve, calculate], graph, workflow, withService: module.use };
   }));
 });
