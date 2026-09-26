@@ -4349,6 +4349,11 @@
       "targetSha256": "26b8a9f30b6c5c673d917d52a381f7328225d5ceb965e1361dd6bd041311e92a"
     },
     {
+      "target": "packages/medusa-adapter/test/logical-commerce-snapshot.postgres.test.ts",
+      "classification": "authored",
+      "targetSha256": "c2c61cd9e835df05a096004694309514187ac685105c464eb144b0a2fb17319f"
+    },
+    {
       "target": "packages/medusa-adapter/test/logical-currency-fixture.test.ts",
       "classification": "authored",
       "targetSha256": "430d0cddcde54e234a3f555680643704f977f59fa76d82b2537fd9b60206be73"
@@ -4496,7 +4501,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-type-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "fbc77d8538fd0adcaa047ce5e0f7f664e23ae1c517645a147cf648c8be0c33b5"
+      "targetSha256": "353140e3963a01d429c266299730a73c4a2bb6eb7fa31d612eec498c7b9ee2f6"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-product-fixture.ts",

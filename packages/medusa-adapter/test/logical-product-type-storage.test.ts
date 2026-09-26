@@ -13,7 +13,8 @@ import { defineCommerceEventContract } from "../../persistence-postgres/src/atom
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
 import { logicalCommerceBatchResources } from "../../persistence-postgres/src/commerceTransaction/resources";
 import { commerceError, isJsonObject } from "@flarex/persistence-postgres/internal/commerce-values";
-import { fxAppRowCurrent, fxAppSearchEntryCurrent, fxSystemSearchBuildStates } from "../../persistence-postgres/src/schema";
+import { fxAppRowCurrent, fxAppSearchEntryCurrent, fxSystemScopeClocks,
+  fxSystemSearchBuildStates } from "../../persistence-postgres/src/schema";
 import { prepareLogicalSearchBuild } from "../../persistence-postgres/src/logicalSearchBuild";
 import { runEffectTransaction } from "../../persistence-postgres/src/effectTransaction";
 import type { FlarexMetadataTransaction } from "../../persistence-postgres/src/metadataTransaction";
@@ -414,7 +415,28 @@ describe("native Product Type on shared logical Product storage", () => {
           }));
           await Effect.runPromise(productCreate.host.run(productCreate.host.newRequestKey(), productCreate.root, rows));
         }
-        const before = await logicalCurrencyInventory(fixture);
+        const compactInventory = async () => {
+          // Counts avoid sorting every historical index revision after 2,048 seeds.
+          // A refused delete must add no revision, fact, event or outcome.
+          const rows = await fixture.persistence.query<{
+            rows: number; revisions: number; indexEntries: number; indexRevisions: number;
+            commits: number; facts: number; outcomes: number; wakes: number; events: number;
+          }>(`select
+            (select count(*)::int from fx_app_row_current) as rows,
+            (select count(*)::int from fx_app_row_rev) as revisions,
+            (select count(*)::int from fx_app_index_entry_current) as "indexEntries",
+            (select count(*)::int from fx_app_index_entry_rev) as "indexRevisions",
+            (select count(*)::int from fx_system_commit) as commits,
+            (select count(*)::int from fx_system_commit_app_row_change) as facts,
+            (select count(*)::int from fx_system_idempotency) as outcomes,
+            (select count(*)::int from fx_system_commit_wake) as wakes,
+            (select count(*)::int from fx_system_commit_event) as events`);
+          return {
+            counts: rows.rows[0],
+            clocks: await fixture.persistence.drizzle.select().from(fxSystemScopeClocks),
+          };
+        };
+        const before = await compactInventory();
         let stagedFacts = 0;
         fixture.observeSql?.(statement => {
           if (/insert into "fx_system_commit_app_row_change"/i.test(statement)) stagedFacts++;
@@ -427,7 +449,7 @@ describe("native Product Type on shared logical Product storage", () => {
             } });
         } finally { fixture.observeSql?.(undefined); }
         expect(stagedFacts).toBe(0);
-        expect(await logicalCurrencyInventory(fixture)).toEqual(before);
+        expect(await compactInventory()).toEqual(before);
         expect(await Effect.runPromise(product.host.read(product.runtime.commands.internalProductRetrieve,
           { id: "prod_over_capacity_2047" }))).toMatchObject({ type_id: typeId });
       } finally {

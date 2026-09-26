@@ -171,6 +171,7 @@ describe.skipIf(postgresUrl === null)(
     for (const kind of ["standalone", "atomic"] as const) {
       it.each([false, true])(`${kind} admits metadata during protected execution (duplicate=%s)`, async duplicate => {
         const held = await runEffect(Deferred.make<void>());
+        const attempted = await runEffect(Deferred.make<void>());
         const admitted = await runEffect(Deferred.make<void>());
         const release = await runEffect(Deferred.make<void>());
         const firstId = `${kind}-admission-${duplicate}-first`;
@@ -199,6 +200,8 @@ describe.skipIf(postgresUrl === null)(
         const spans: string[] = [];
         const tracer = Tracer.make({ span(options) {
           spans.push(options.name);
+          if (options.name === "CommerceHost.attempt" || options.name === "AtomicCommerce.attempt")
+            Effect.runSync(Deferred.succeed(attempted, undefined));
           if (options.name === "CommerceAdmission.enterPublication") Effect.runSync(Deferred.succeed(admitted, undefined));
           return new Tracer.NativeSpan(options);
         } });
@@ -208,15 +211,25 @@ describe.skipIf(postgresUrl === null)(
           yield* Deferred.await(held).pipe(Effect.timeout("5 seconds"));
           const second = yield* run(duplicate ? firstKey : `${firstKey}/second`, secondId)
             .pipe(Effect.provideService(Tracer.Tracer, tracer), Effect.forkScoped);
-          yield* Deferred.await(admitted).pipe(Effect.timeout("5 seconds"));
-          expect(spans).toContain("InstallationRuntime.accept");
-          expect(spans).toContain("CommerceBinding.verify");
+          yield* Deferred.await(attempted).pipe(Effect.timeout("5 seconds"));
+          if (!duplicate) {
+            yield* Deferred.await(admitted).pipe(Effect.timeout("5 seconds"));
+            expect(spans).toContain("InstallationRuntime.accept");
+            expect(spans).toContain("CommerceBinding.verify");
+          } else {
+            // A duplicate cannot cross its request-key lock before the first outcome settles.
+            expect(yield* Deferred.isDone(admitted)).toBe(false);
+          }
           expect(callbacks).toBe(1);
           expect(yield* Deferred.isDone(release)).toBe(false);
           yield* Deferred.succeed(release, undefined);
           const firstResult = yield* Fiber.join(first);
           const secondResult = yield* Fiber.join(second);
-          if (duplicate) expect(secondResult).toEqual(firstResult);
+          if (duplicate) {
+            expect(secondResult).toEqual(firstResult);
+            expect(spans).toContain("InstallationRuntime.accept");
+            expect(spans).toContain("CommerceBinding.verify");
+          }
         }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)), Effect.timeout("20 seconds"))));
         const after = await commerceInventory(fixture);
         const publications = duplicate ? 1 : 2;
@@ -230,77 +243,6 @@ describe.skipIf(postgresUrl === null)(
     }
 
     for (const kind of ["standalone", "atomic"] as const) {
-      it(`${kind} publication completes while a commerce snapshot is held`, async () => {
-        const entered = await runEffect(Deferred.make<void>());
-        const release = await runEffect(Deferred.make<void>());
-        const read = readCommand(
-          Deferred.succeed(entered, undefined).pipe(
-            Effect.andThen(Deferred.await(release)),
-          ),
-        );
-        const host = await local([read]);
-        const write = await writer(kind);
-        const id = `${kind}-reader-first`;
-        const before = await commerceInventory(fixture);
-        const count = executions;
-        await runEffect(
-          Effect.scoped(
-            Effect.gen(function* () {
-              const reading = yield* host
-                .read(read, id)
-                .pipe(Effect.forkScoped);
-              yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
-              yield* Effect.promise(async () => {
-                await expect(
-                  persistence.drizzle.transaction(async (tx) => {
-                    await tx.execute(sql`set local lock_timeout = '100ms'`);
-                    return runEffect(
-                      advanceScopeAuthorizationRevocationEpochInTransactionEffect(
-                        tx,
-                        fixture.cms.fixture.authority.scopeId,
-                      ),
-                    );
-                  }),
-                ).rejects.toMatchObject({
-                  operation: "lockForUpdate",
-                  cause: { cause: { code: "55P03" } },
-                });
-              });
-              expect(yield* write.run(write.key, id)).toEqual([
-                { id, value: 1 },
-              ]);
-              expect(yield* Deferred.isDone(release)).toBe(false);
-              expect(yield* write.run(write.key, id)).toEqual([
-                { id, value: 1 },
-              ]);
-              yield* Deferred.succeed(release, undefined);
-              expect(yield* Fiber.join(reading)).toEqual({
-                first: [{ id: "baseline", value: 1 }],
-                second: [],
-              });
-            }).pipe(
-              Effect.ensuring(Deferred.succeed(release, undefined)),
-              Effect.timeout("20 seconds"),
-            ),
-          ),
-        );
-        expect(executions).toBe(count + 1);
-        const after = await commerceInventory(fixture);
-        expect(after.commits.length).toBe(before.commits.length + 1);
-        expect(after.facts.length).toBe(before.facts.length + 1);
-        expect(after.outcomes.length).toBe(before.outcomes.length + 1);
-        expect(after.wakes.length).toBe(before.wakes.length + 1);
-        expect(after.clocks[0]?.lastCommitSeq).toBe(
-          (before.clocks[0]?.lastCommitSeq ?? 0n) + 1n,
-        );
-        expect(await runEffect(host.read(read, id))).toEqual({
-          first: [{ id: "baseline", value: 1 }],
-          second: [{ id, value: 1 }],
-        });
-        expect(await commerceInventory(fixture)).toEqual(after);
-        expect(persistence.pool.idleCount).toBe(persistence.pool.totalCount);
-      }, 60_000);
-
       it(`commerce snapshot completes while ${kind} publication awaits physical COMMIT`, async () => {
         const entered = await runEffect(Deferred.make<void>());
         const release = await runEffect(Deferred.make<void>());

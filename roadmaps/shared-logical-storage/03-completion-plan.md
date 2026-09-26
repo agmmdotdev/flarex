@@ -298,6 +298,13 @@ remain distinct from logical schema evolution.
 - Core execution, materialization, admission integrity and scoped host lifetime
   are implemented. Reuse these owners; do not reopen completed work without a
   connected defect or changed replacement contract.
+- The PostgreSQL witness that a commerce publication completes while an older
+  snapshot is held now uses the selected logical Currency source and native
+  Currency upsert/read through both standalone and atomic roots. It checks the
+  scope-clock lock, one publication/replay, and old/new snapshot visibility.
+  The duplicate physical-only version of that witness is retired. Other
+  physical commerce snapshot cases retain their named physical host consumer
+  until their binding, commit-hold and revocation claims move.
 - Framework installation and Application evolution remain distinct. Generated
   commerce and Payload preference storage still consume framework evidence;
   their migration and recovery obligations must move before table removal.
