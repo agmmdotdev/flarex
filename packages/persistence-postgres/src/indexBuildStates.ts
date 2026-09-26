@@ -608,9 +608,14 @@ export interface IndexCoverageContext {
  * A joint command names exactly which selected tables retain Application
  * maintenance; framework-owned tables still require source-bound coverage. */
 export type IndexPublicationProfile = "activeApplication" | "sourceBound" |
-  Readonly<{ kind: "mixedSelectedSources"; activeApplicationTables: ReadonlySet<CatalogTableId> }>;
+  Readonly<{ kind: "mixedSelectedSources"; activeApplicationTables: ReadonlySet<CatalogTableId>;
+    activeApplicationDeveloperIndexDefinitionIds: ReadonlySet<CatalogIndexDefinitionId> }>;
 export const publicationModeForTable = (profile: IndexPublicationProfile, tableId: CatalogTableId) =>
   typeof profile === "string" ? profile : profile.activeApplicationTables.has(tableId) ? "activeApplication" : "sourceBound";
+export const publicationModeForIndex = (profile: IndexPublicationProfile, definition: AppIndexDefinitionRecord) =>
+  typeof profile === "string" ? profile : definition.access.kind === "by_creation_time"
+    ? publicationModeForTable(profile, definition.access.tableId)
+    : profile.activeApplicationDeveloperIndexDefinitionIds.has(definition.indexDefinitionId) ? "activeApplication" : "sourceBound";
 
 /** Keep this value within the guarded transaction that produced it. */
 export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuildState.readCoverageContext")(

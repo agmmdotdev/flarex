@@ -341,6 +341,11 @@ remain distinct from logical schema evolution.
   document ID through the [Medusa-origin correction](./54-medusa-origin-document-reference.md);
   Application deletion is restricted while Product is live, Product soft
   deletion releases the restriction, and restore requires a live target.
+  The private [mixed-source publication](./55-mixed-source-reference-publication.md)
+  settles Application, Payload and Currency in one command with both document
+  sources referencing Product. It distinguishes native Application indexes from
+  source-bound reverse indexes by definition and accepts an authenticated
+  native index when it also serves the reverse lookup.
   New policies cannot activate over nonempty source tables without a validated
   backfill. Unrelated Currency remains writable. Other relationship profiles,
   parent/child joint settlement, traversal and recovery gates remain explicit.

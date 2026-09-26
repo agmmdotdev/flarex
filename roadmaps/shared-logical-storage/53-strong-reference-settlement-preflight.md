@@ -44,6 +44,13 @@ targets and target deletion while live sources remain abort settlement. An
 unrelated Currency write uses the head and bounded fact probe without loading
 the full relationship projection.
 
+An Application-declared index can share the reverse definition. The final-state
+validator accepts that index only when its active maintenance evidence matches
+the selected schema and its pending entries match final source rows. Native
+materialization then owns coverage; source-bound reverse indexes still advance
+their explicit frontier. The mixed Application/Payload/Currency witness is
+recorded in [mixed-source publication](./55-mixed-source-reference-publication.md).
+
 Connected PGlite and ordinary-role PostgreSQL witnesses cover standalone
 Application source insertion, Payload source insertion, Product soft deletion,
 source detachment, cross-deployment scope refusal, and a concurrent

@@ -9,6 +9,7 @@ import { preparedHostTestRuntime } from "../../persistence-postgres/test/prepare
 import { currencyAnnouncementWrite } from "../src/currency-service";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
+import { logicalCurrencyInventory } from "./support/logical-currency-inventory";
 import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
 import { requireStrongReferencePublication } from "../../persistence-postgres/src/commitPublication/strongReferenceAdmission";
 import { readBindingActiveReferenceProjection, readBindingHeadProjection } from "../../persistence-postgres/src/frameworkSchema/binding/repository";
@@ -37,7 +38,7 @@ describe("cross-source relationship publication and source admission", () => {
   let fixture: Awaited<ReturnType<typeof logicalCurrencyFixture>>;
   beforeAll(async () => {
     fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), {
-      includeProduct: true, payloadCollections, extensions,
+      includeProduct: true, includeUserNameIndex: true, payloadCollections, extensions,
     });
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
@@ -99,6 +100,17 @@ describe("cross-source relationship publication and source admission", () => {
     expect(head.value.frame.strongReferenceTableIds).not.toContain(currencyId);
     const projected = await Effect.runPromise(inspect(tx => readBindingActiveReferenceProjection(tx, clock, head.value)));
     expect(projected.map(reference => reference.name)).toEqual(["user_product", "news_product"]);
+    const builds = await fixture.persistence.query<{ index_definition_id: number; maintenance_activation_sequence: string | null }>(
+      "select index_definition_id, maintenance_activation_sequence::text as maintenance_activation_sequence " +
+      "from fx_system_index_build_state where scope_id=$1 and index_definition_id=any($2::int[])",
+      [clock.scopeId, projected.map(reference => reference.reverseIndex.indexDefinitionId)]);
+    expect(builds.rows).toHaveLength(2);
+    const userReference = projected.find(reference => reference.name === "user_product");
+    const newsReference = projected.find(reference => reference.name === "news_product");
+    if (userReference === undefined || newsReference === undefined) throw new Error("Missing projected references");
+    const maintenanceById = new Map(builds.rows.map(row => [row.index_definition_id, row.maintenance_activation_sequence]));
+    expect(maintenanceById.get(userReference.reverseIndex.indexDefinitionId)).not.toBeNull();
+    expect(maintenanceById.get(newsReference.reverseIndex.indexDefinitionId)).toBeNull();
     for (const reference of projected) {
       expect(reference.targetTableId).toBe(productId);
       expect(reference.targetLiveness).toEqual({ kind: "softDeleteNull", field: "deleted_at" });
@@ -158,6 +170,67 @@ describe("cross-source relationship publication and source admission", () => {
       await Effect.runPromise(productHost.host.close);
     }
   }, 150_000);
+
+  it("settles Application and Payload references with Currency in one publication", async () => {
+    const productHost = await prepareLogicalProductHost(fixture);
+    const payload = await Effect.runPromise(compilePayloadCollections(payloadCollections));
+    const cmsCommand = defineCmsCommand({ name: "payload-create", mode: "write", run: (ctx, args) =>
+      ctx.documents.insert(ctx.context, ctx.transactionId, "news", args) });
+    const composite = await Effect.runPromise(makeCurrencyAnnouncementHost({
+      hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
+      database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,
+      session: fixture.session, deploymentId: fixture.deploymentId,
+      authority: fixture.application.authorityPorts, application: fixture.application.activation,
+      identityAndAccessPolicy: { profile: "mixed-reference-publication" }, materialization: {},
+      expectedContentIdentity: payload.contentIdentity, currency: fixture.hostInput.logicalStorage,
+      applicationSource: fixture.applicationSource, payloadSource: payload.sourceContract,
+      currencyCommand: currencyAnnouncementWrite, cmsCommand, applicationTable: "users",
+    }));
+    try {
+      await Effect.runPromise(productHost.host.initialize([]));
+      await Effect.runPromise(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductCreate,
+        { id: "mixed-reference-product", title: "Mixed reference target", handle: "mixed-reference-product" }));
+      const args = { currency: { code: "mix", name: "Mixed reference Currency", symbol: "M", symbol_native: "M" },
+        cms: { title: "mixed-reference-product", createdAt: "2026-09-23T00:00:00.000Z",
+          updatedAt: "2026-09-23T00:00:00.000Z" },
+        application: { name: "mixed-reference-product" } };
+      const before = await logicalCurrencyInventory(fixture);
+      const key = composite.newRequestKey();
+      const result = await Effect.runPromise(composite.run(key, args));
+      expect(result).toMatchObject({ currency: { code: "mix" },
+        cms: { title: "mixed-reference-product" }, applicationId: expect.any(String) });
+      const published = await logicalCurrencyInventory(fixture);
+      expect(published.rows).toHaveLength(before.rows.length + 3);
+      expect(published.rowChanges).toHaveLength(before.rowChanges.length + 3);
+      expect(published.commits).toHaveLength(before.commits.length + 1);
+      expect(published.outcomes).toHaveLength(before.outcomes.length + 1);
+      expect(await Effect.runPromise(composite.run(key, args))).toEqual(result);
+      expect(await logicalCurrencyInventory(fixture)).toEqual(published);
+      expect(await Effect.runPromise(Effect.flip(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductSoftDelete, "mixed-reference-product"))))
+        .toMatchObject({ reason: "invalidInput",
+          cause: { reason: "targetDeleteRestricted", reference: "user_product" } });
+      const missing = { currency: { ...args.currency, code: "mis" },
+        cms: { ...args.cms, title: "missing-reference-product" },
+        application: { name: "missing-reference-product" } };
+      const missingFailure = await Effect.runPromise(Effect.flip(composite.run(composite.newRequestKey(), missing)));
+      expect(missingFailure)
+        .toMatchObject({ reason: "invalidInput",
+          cause: { reason: "targetNotLive", reference: "user_product" } });
+      expect(await logicalCurrencyInventory(fixture)).toEqual(published);
+      const missingPayload = { currency: { ...args.currency, code: "mip" },
+        cms: { ...args.cms, title: "missing-payload-product" },
+        application: { name: "mixed-reference-product" } };
+      expect(await Effect.runPromise(Effect.flip(composite.run(composite.newRequestKey(), missingPayload))))
+        .toMatchObject({ reason: "invalidInput",
+          cause: { reason: "targetNotLive", reference: "news_product" } });
+      expect(await logicalCurrencyInventory(fixture)).toEqual(published);
+    } finally {
+      await Effect.runPromise(composite.close);
+      await Effect.runPromise(productHost.host.close);
+    }
+  }, 180_000);
 
   it("accepts a native Application source for a live Product and restricts Product soft deletion", async () => {
     const productHost = await prepareLogicalProductHost(fixture);

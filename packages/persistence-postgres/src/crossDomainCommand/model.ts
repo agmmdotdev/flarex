@@ -33,7 +33,8 @@ export const compositeError = (reason: CompositeCommandError["reason"], cause?: 
 export type CompositeFailure = CompositeCommandError | CmsTransactionError | CommerceTransactionError | ApplicationCommandError | LogicalDocumentMaterializationError;
 /** Foreign publication boundary retains corruption separately from resource failures. */
 export const projectCompositePublicationFailure = (cause: unknown): CompositeCommandError =>
-  compositeError(cause instanceof ScopePublicationCorruptionError ? "storedCorruption" : "resourceFailure", cause);
+  compositeError(cause instanceof ScopePublicationReferenceConstraintError ? "invalidInput" :
+    cause instanceof ScopePublicationCorruptionError ? "storedCorruption" : "resourceFailure", cause);
 /** One root projection for authority and physical/retained-outcome boundaries. */
 export function projectCompositeFailure(cause: unknown): CompositeFailure {
   if (cause instanceof CompositeCommandError || cause instanceof CmsTransactionError || cause instanceof CommerceTransactionError || cause instanceof ApplicationCommandError || cause instanceof LogicalDocumentMaterializationError) return cause;

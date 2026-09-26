@@ -1,7 +1,7 @@
 import { Data, Effect, Result, Schema } from "effect";
 import { requireAppDocumentIdentityV1ForTableResult } from "flarex-protocol/app-document-id";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES } from "flarex-protocol/internal/logical-schema-candidate";
-import type { CatalogTableId } from "flarex-protocol/catalog";
+import type { CatalogIndexDefinitionId, CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId, SchemaManifestAppTableDeclarationV1 } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
@@ -15,6 +15,7 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
+import { getStableLogicalIndexIdentityByNameEffect } from "../stableLogicalIndexCatalog";
 import type { LogicalDocumentWrite } from "./model";
 import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError } from "./sourceAdmission";
 
@@ -40,6 +41,7 @@ export interface LogicalApplicationSourceAdmissionState {
   readonly tables: readonly Readonly<{ localName: string; tableId: CatalogTableId;
     definition: SchemaManifestAppTableDeclarationV1 }>[];
   readonly indexes: readonly LocatedAppIndexDefinitionV1[];
+  readonly activeDeveloperIndexDefinitionIds: ReadonlySet<CatalogIndexDefinitionId>;
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
   readonly validate: (write: LogicalDocumentWrite) => Result.Result<void, LogicalApplicationSourceAdmissionError>;
 }
@@ -73,6 +75,21 @@ export const prepareLogicalApplicationSourceAdmission = Effect.fn("LogicalApplic
     tables.push(Object.freeze({ ...binding, definition }));
   }
   const ownedTables = Object.freeze(tables);
+  const activeDeveloperIndexDefinitionIds = new Set<CatalogIndexDefinitionId>();
+  for (const declaration of selected.source.definition.indexes) {
+    const table = ownedTables.find(member => member.localName === declaration.tableLogicalName);
+    if (table === undefined) return yield* Effect.fail(new LogicalApplicationSourceAdmissionError({ reason: "sourceMismatch" }));
+    const stable = yield* getStableLogicalIndexIdentityByNameEffect(capturedPorts.controlDb, {
+      deploymentId: capturedInput.deploymentId, tableId: table.tableId, descriptor: declaration.descriptor,
+    }).pipe(Effect.mapError(cause => new LogicalApplicationSourceAdmissionError({ reason: "notReady", cause })));
+    const located = stable === null ? undefined : selected.indexes.find(index =>
+      index.access.kind === "developer" && index.access.tableId === table.tableId &&
+      index.access.logicalIndexId === stable.logicalIndexId);
+    if (located === undefined) return yield* Effect.fail(new LogicalApplicationSourceAdmissionError({ reason: "sourceMismatch" }));
+    activeDeveloperIndexDefinitionIds.add(located.indexDefinitionId);
+  }
+  if (activeDeveloperIndexDefinitionIds.size !== selected.source.definition.indexes.length)
+    return yield* Effect.fail(new LogicalApplicationSourceAdmissionError({ reason: "sourceMismatch" }));
   const idPolicy: ValidatorIdPolicyV1 = Object.freeze({ mode: "tableAware", check: (tableName, value) => {
     if (tableName.startsWith("_")) return "unavailable";
     const table = ownedTables.find(member => member.localName === tableName);
@@ -104,7 +121,8 @@ export const prepareLogicalApplicationSourceAdmission = Effect.fn("LogicalApplic
       // SAFETY: only this callback issues and registers a token for the checked selected binding.
       const admission = Object.freeze({}) as LogicalApplicationSourceAdmission;
       admissions.set(admission, Object.freeze({ tx, authority, clock, schemaVersionId: binding.schemaVersionId,
-        head: binding.head, tables: ownedTables, indexes: selected.indexes, unique: selected.unique, validate }));
+        head: binding.head, tables: ownedTables, indexes: selected.indexes, unique: selected.unique,
+        activeDeveloperIndexDefinitionIds, validate }));
       return Effect.suspend(() => work(admission)).pipe(Effect.ensuring(Effect.sync(() => admissions.delete(admission))));
     });
   });

@@ -133,7 +133,8 @@ export const prepareJointLogicalMaterialization = Effect.fn("CurrencyAnnouncemen
     return Effect.fail(compositeError("invalidAuthority"));
   };
   const prepared: LogicalDocumentMaterializationInput<CompositeFailure> = {
-    coverage: { kind: "mixedSelectedSources", activeApplicationTables: new Set(appTables.keys()) },
+    coverage: { kind: "mixedSelectedSources", activeApplicationTables: new Set(appTables.keys()),
+      activeApplicationDeveloperIndexDefinitionIds: application.activeDeveloperIndexDefinitionIds },
     command: { authorityPins: { deploymentId: TransactionGrantDeploymentIdV1Schema.make(application.authority.deploymentId),
       scopeId: scope.scopeId, schemaVersionId: application.schemaVersionId },
     rowIntents: tableIds.map(tableId => ({ tableId })) },

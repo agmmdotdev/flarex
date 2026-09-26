@@ -156,7 +156,6 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       if (buildRow === undefined) return yield* Effect.fail(corruption("reference index build row is missing"));
       const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(buildRow, clock.scopeId, indexId))
         .pipe(Effect.mapError(cause => corruption(cause)));
-      if (state.maintenance !== null) return yield* Effect.fail(corruption("reference index maintenance has changed"));
       const digest = yield* Effect.fromResult(decodeDigest(reference.reverseIndex.physicalSpecSha256Hex))
         .pipe(Effect.mapError(cause => corruption(cause)));
       if (state.coveredThroughCommitSeq !== pendingCommitSeq) {
@@ -211,6 +210,8 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
           }).pipe(Effect.mapError(classify));
           if (entries.length > 1) return yield* Effect.fail(corruption("reference index has multiple current keys for one row"));
           const observed = entries[0]?.encodedKey ?? null;
+          if (build.maintenance !== null && observed !== finalKey)
+            return yield* Effect.fail(corruption("maintained reference index disagrees with final row key"));
           if (observed === finalKey) {
             if (observed !== null && priorKey !== finalKey && entries[0]?.commitSeq !== pendingCommitSeq)
               return yield* Effect.fail(corruption("new reference index key has no pending revision"));
@@ -228,7 +229,10 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
         if (actions.length > 0) yield* appendPublicationIndexEntryRevisionsInTransactionEffect(tx, actions)
           .pipe(Effect.mapError(classify));
       }
-      if (build.coveredThroughCommitSeq === pendingCommitSeq) return;
+      // An activated Application index may also serve as the reverse index.
+      // Its pending entries were already lowered by the document materializer;
+      // the checks above still require those entries to match the final rows.
+      if (build.maintenance !== null || build.coveredThroughCommitSeq === pendingCommitSeq) return;
       const baseline = build.coveredThroughCommitSeq;
       if (baseline === null) return yield* Effect.fail(corruption("reference index lost its coverage frontier"));
       const updated = yield* Effect.tryPromise({ try: () => tx.update(fxSystemIndexBuildStates)

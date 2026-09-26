@@ -177,7 +177,7 @@ import {
 
 import {
   decodeIndexBuildStateRowResult,
-  publicationModeForTable,
+  publicationModeForIndex,
   type IndexBuildStateRecord,
 } from "../indexBuildStates";
 import { validateAppRowPointOccV1 } from "../appRowPointOcc";
@@ -554,7 +554,7 @@ export async function materializeApplicationDocumentRows(
       uniqueDefinitions, coverageContext, publicationProfile, deferCoverage),
   );
   for (const { build, definition } of maintainedBuilds) {
-    const mode = publicationModeForTable(publicationProfile, definition.access.tableId);
+    const mode = publicationModeForIndex(publicationProfile, definition);
     if ((mode === "activeApplication" && coverageContext.active !== null && (build.lifecycle !== "enabled" || build.maintenance === null)) ||
       (mode === "sourceBound" && (build.lifecycle !== "enabled" || build.maintenance !== null)) ||
       (typeof publicationProfile !== "string" && mode === "activeApplication" && coverageContext.active === null))
@@ -1300,11 +1300,14 @@ export async function lockPointCommitDeveloperIndexBuilds(
   if (rows.length !== definitions.length) {
     throw corruption("developerIndexBuildInvalid");
   }
+  const rowsByDefinitionId = new Map(rows.map((row) => [row.indexDefinitionId, row]));
+  if (rowsByDefinitionId.size !== definitions.length) {
+    throw corruption("developerIndexBuildInvalid");
+  }
   const locked: LockedPointCommitDeveloperIndexV1[] = [];
-  for (let index = 0; index < definitions.length; index += 1) {
-    const definition = definitions[index];
-    const row = rows[index];
-    if (definition === undefined || row === undefined) {
+  for (const definition of definitions) {
+    const row = rowsByDefinitionId.get(definition.indexDefinitionId);
+    if (row === undefined) {
       throw corruption("developerIndexBuildInvalid");
     }
     const state = projectPointCommitTransactionResult(
