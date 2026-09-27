@@ -2,16 +2,21 @@
 
 ## Status And Scope
 
-Status: the first Application and Product slice is implemented as a private,
-isolated-scope execution profile. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
+Status: the Application, Product and selected Payload Local API slices are
+implemented as a private, isolated-scope execution profile. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
 owns architecture and open contract questions. This roadmap owns current status,
 sequencing and finite delivery gates. Numbered slice preflights own their
 specific scope, decisions, affected contracts and remaining gates. The implemented
 [first Application and Product attempt](./01-application-product-attempt-preflight.md)
 uses the real Worker, Product service and shared journal/commit owners. It is
 not activated on a named durable environment and exposes no public authoring API.
-The [Payload Local API attempt](./02-payload-local-api-attempt-preflight.md) is
-the proposed next slice; it has no runtime implementation approval.
+The [Payload Local API attempt](./02-payload-local-api-attempt-preflight.md) adds
+one pinned native create, update and find-by-ID lifecycle under the same root.
+Named-environment activation and public authoring APIs remain separate gates.
+Its required unique `posts.title` field needs a retained ordered index for
+historical uniqueness checks. Adding that compiler index changes the compiled
+Payload source definition and digest. Isolated proof scopes can be reprovisioned;
+named sources require an explicit upgrade and readiness decision before activation.
 
 The other shared-storage session has reviewed, validated and committed its
 active [exact-scope retained-history slice](../shared-logical-storage/56-same-deployment-scope-authority.md)
@@ -118,7 +123,7 @@ from this roadmap alone.
    lock behavior for that method. Refactor owner contracts and migrate affected
    native/framework callers together, removing displaced duplicate paths.
    Remaining storage work is imported only if this exact proof needs it.
-2. **[Payload Local API lifecycle](./02-payload-local-api-attempt-preflight.md) (proposed).** Admit selected real Local API create, update and find-by-ID with
+2. **[Payload Local API lifecycle](./02-payload-local-api-attempt-preflight.md) (implemented private isolated proof).** Admit selected real Local API create, update and find-by-ID with
    access, validation, nested same-request calls and a database-only hook into
    the same attempt. Define hook location, permitted capabilities, first-failure
    order, rollback-only and retry behavior before admission. Prove pending
@@ -126,16 +131,16 @@ from this roadmap alone.
    no committed rows or event intent. Migrate adapter/request consumers and
    remove their displaced transaction, evidence or lifecycle mechanics while
    retaining independently supported standalone profiles.
-3. **Finite Medusa workflow and connected three-consumer proof.** Select an
+3. **Finite Medusa workflow (proposed; focused preflight required).** Select an
    admitted ordered workflow, its child frames, actual services, Links, events
    and transitive dependencies. Borrow the root attempt without independent
    child settlement or blind callback replay. Prove graph/pending reads and
    the index, text/JSON search, relation, uniqueness and resource-lock semantics
    the selected graph actually uses; refuse unsupported effects, waits,
-   parallelism or locks. Run one combined Application/Payload/Medusa scenario
-   with late failure, whole-attempt conflict retry, replay, cancellation and
-   uncertain COMMIT. Migrate affected workflow/adapter consumers and remove
-   displaced paths in this package.
+   parallelism or locks. Extend the existing private Application/Product/Payload
+   attempt with that selected workflow and prove its late failure, whole-attempt
+   conflict retry, replay, cancellation and uncertain COMMIT. Migrate affected
+   workflow/adapter consumers and remove displaced paths in that package.
 4. **Evidence-driven cost and completion.** Only after representative real
    integration and correctness work, measure equivalent workloads on ordinary-role
    PostgreSQL, attributing SQL statements, sequential round trips, journal,

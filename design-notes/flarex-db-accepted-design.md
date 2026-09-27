@@ -140,6 +140,12 @@ This profile is implemented in isolated test scopes and has no public developer
 API or named-environment activation. Existing Application, standalone framework and named
 command profiles remain available to their actual callers.
 
+The [Payload Local API mixed-attempt preflight](../roadmaps/mixed-mutation-core/02-payload-local-api-attempt-preflight.md)
+is implemented as a private isolated-scope proof. It adds one pinned native
+Payload create, update and find-by-ID lifecycle to that private root, with one
+Application/Product/Payload outcome and selected recovery and conflict proofs.
+It does not activate a named environment or provide a public `ctx.cms` API.
+
 Explicit cross-domain atomic commands are an accepted target after the
 participating lanes and a separate atomicity contract pass their gates. One
 trusted command owner may coordinate admitted Application, Payload, and Medusa
@@ -304,7 +310,8 @@ work continues.
 | DeploymentSyncDO | Accepted first Flarex/Cloudflare coordination adapter | One deterministic instance per scope, durable SQLite cursor/query/dependency state and Postgres catch-up composed around the separately owned portable Query Sync Engine semantics. |
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization | Add only after measurement and a gap-free freshness protocol. |
 | Private admitted mixed Application and Product attempt | Implemented private isolated proof | One authenticated scope/placement, selected Product update and reads, one journal-backed pending view and final outcome. Named-environment activation remains gated by the mixed-core roadmap. |
-| Generic or public atomic `ctx.db + ctx.cms + ctx.commerce` | Deferred | The private Product admission grants no general or public composition. Payload, workflow and developer API gates remain separate; cross-placement follow-up uses committed steps and durable coordination. |
+| Private admitted mixed Application, Product and Payload attempt | Implemented private isolated proof | One selected native Payload Local API lifecycle borrows the same root and settles with Application and Product. Named-environment activation and public APIs remain gated. |
+| Generic or public atomic `ctx.db + ctx.cms + ctx.commerce` | Deferred | The private selected Product and Payload admissions grant no general or public composition. Broader Payload, workflow and developer API gates remain separate; cross-placement follow-up uses committed steps and durable coordination. |
 
 Replacement strategy is selected from shipped-state evidence:
 

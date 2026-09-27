@@ -23,8 +23,8 @@ import type { ApplicationManifest } from
   "@flarex/analysis/application-analysis";
 
 import type { TransactionGrantVerifierV1 } from "../transactionGrant";
-import type { LogicalRelationalParticipantCommitAuthority } from
-  "@flarex/persistence-postgres/internal/logical-relational-admission";
+import type { LogicalParticipantCommitAuthority } from
+  "@flarex/persistence-postgres/internal/logical-participant-admission";
 import type {
   ApplicationMutationGrantVerificationKernelV1,
 } from "../applicationMutationGrantVerificationKernel";
@@ -246,7 +246,7 @@ export interface PinnedPointMutationFunctionMetadataReaderPortV1 {
 
 interface StoredCommitAuthorityAuthenticationBaseConfigV1 {
   readonly evidenceLoader: StoredCommitAuthorityEvidenceLoaderPortV1;
-  readonly logicalParticipants?: readonly LogicalRelationalParticipantCommitAuthority[];
+  readonly logicalParticipants?: readonly LogicalParticipantCommitAuthority[];
 }
 
 export type StoredCommitAuthorityAuthenticationConfigV1 =

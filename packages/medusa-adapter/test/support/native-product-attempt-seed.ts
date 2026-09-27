@@ -7,6 +7,7 @@ import { defineAtomicCommerceCommand, defineAtomicCommerceParticipant,
 import { defineCommerceEventContract } from "../../../persistence-postgres/src/atomicCommerce/events";
 import { makeAtomicCommerceHost } from "../../../persistence-postgres/src/atomicCommerce/host";
 import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
+import type { RelationalSession } from "../../../persistence-postgres/src/relationalTransaction/session";
 import { captureProductSchema } from "../../src/product-schema";
 import { productRuntimeMetadata } from "../../src/product-runtime-metadata";
 import type { logicalCurrencyFixture } from "./logical-currency-fixture";
@@ -18,7 +19,8 @@ type Product = Awaited<ReturnType<typeof prepareLogicalProductHost>>;
 type Entity = Readonly<{ createdEvent: string }>;
 
 async function runNativeProductCommand(currency: Currency, product: Product, suffix: string,
-  command: CommerceCommand, input: Json, entities: readonly Entity[], label: string) {
+  command: CommerceCommand, input: Json, entities: readonly Entity[], label: string,
+  session?: RelationalSession) {
   const revision = createHash("sha256").update(`mixed-product-seed-${suffix}-${label}`).digest("hex");
   const named = entities.map(entity => ({ name: entity.createdEvent,
     contract: defineCommerceEventContract({ name: entity.createdEvent, revision, internal: true,
@@ -27,6 +29,7 @@ async function runNativeProductCommand(currency: Currency, product: Product, suf
   const participant = defineAtomicCommerceParticipant("product");
   const root = defineAtomicCommerceCommand(`mixedProductSeed${label}`, (ctx, args) => ctx.call(participant, command, args));
   const host = await Effect.runPromise(makeAtomicCommerceHost({ ...currency.hostInput,
+    ...(session === undefined ? {} : { session }),
     identityAndAccessPolicy: { profile: "mixed-product-seed" },
     participants: [{ participant, logicalStorage: product.hostInput.logicalStorage,
       commands: [command], validateLogicalCall: product.runtime.logicalPolicy.validateLogicalCall,
@@ -45,11 +48,11 @@ async function runNativeProductCommand(currency: Currency, product: Product, suf
 
 /** A separate, independently committed native Product command for OCC proofs. */
 export async function runNativeStandaloneProductUpdate(currency: Currency, product: Product,
-  suffix: string, input: Json) {
+  suffix: string, input: Json, session?: RelationalSession) {
   const catalog = await Effect.runPromise(captureProductSchema("atomic-commerce")
     .pipe(Effect.flatMap(value => productRuntimeMetadata(value.metadata.frame))));
   return runNativeProductCommand(currency, product, suffix, product.runtime.commands.update,
-    input, [{ createdEvent: catalog.product.updatedEvent }], "Update");
+    input, [{ createdEvent: catalog.product.updatedEvent }], "Update", session);
 }
 
 /** Seed the actual pinned Product service graph with independently committed

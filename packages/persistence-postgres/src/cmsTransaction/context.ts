@@ -4,7 +4,7 @@ import type { CmsCommand, CmsCommandContext } from "./host";
 import type { CmsRequestLifetime } from "./lifetime";
 import type { CmsRequestContext, CmsTransactionError } from "./model";
 
-/** Request-owned adapter view; only the physical owner holds seal/close authority. */
+/** Request-owned adapter view; only the trusted outer owner holds seal/close authority. */
 export function makeCmsCommandContext(
   lifetime: CmsRequestLifetime, transactionId: string, context: CmsRequestContext,
   ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences">, standaloneRead: boolean,

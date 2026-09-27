@@ -5,7 +5,7 @@ import { analyzeLoadedApplicationSourcePackageEffect } from "@flarex/analysis";
 import { makeApplicationManifest, verifyApplicationManifestV3 } from "@flarex/analysis/application-analysis";
 import { compilePayloadCollections } from "../src/collections";
 import { PayloadConfigurationSchema } from "@flarex/analysis/internal/application-write-policy";
-import { payloadScalarContentIdentity, payloadScalarConfiguration, payloadRelationContentIdentity, payloadRelationConfiguration, payloadPostsCollection } from "../src/conformanceProfile";
+import { payloadScalarContentIdentity, payloadScalarConfiguration, payloadRelationContentIdentity, payloadRelationConfiguration, payloadPostsCollection, payloadPostsCollectionDefinition } from "../src/conformanceProfile";
 
 const definitions = (): CollectionConfig[] => [
   { slug: "news-items", fields: [
@@ -69,7 +69,10 @@ describe("Payload collection compiler", () => {
     const uniqueIndex = { fields: ["category", "price"], unique: true };
     const ordinaryIndex = { fields: ["category", "price"] };
     const compiled = await compile([{ slug: "items", fields, indexes: [ordinaryIndex, uniqueIndex] }]);
-    expect(compiled.configuration.tables[0]?.indexes).toMatchObject([{ fields: ["category", "price"], unique: true }]);
+    expect(compiled.configuration.tables[0]?.indexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fields: ["title"] }), expect.objectContaining({ fields: ["alias"] }),
+      expect.objectContaining({ fields: ["category", "price"], unique: true }),
+    ]));
     expect((await compile([{ slug: "items", fields, indexes: [uniqueIndex, ordinaryIndex] }])).contentIdentity).toEqual(compiled.contentIdentity);
     const ordinary = await compile([{ slug: "items", fields, indexes: [ordinaryIndex] }]);
     expect(ordinary.contentIdentity.configSha256).not.toBe(compiled.contentIdentity.configSha256);
@@ -80,11 +83,24 @@ describe("Payload collection compiler", () => {
         { path: "_flarex/schema.js", roles: 2, sourceSha256: "3".repeat(64), sourceByteLength: 64 }],
     }));
     const verified = await Effect.runPromise(verifyApplicationManifestV3(manifest.manifest));
-    expect(verified.manifest.schema.writePolicies.configuration.tables[0]?.indexes).toMatchObject([{ unique: true }]);
+    expect(verified.manifest.schema.writePolicies.configuration.tables[0]?.indexes)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ fields: ["category", "price"], unique: true })]));
     const changed = { ...compiled.schemaDefinition, writePolicies: { ...compiled.schemaDefinition.writePolicies,
       configuration: ordinary.configuration } };
     expect(await Effect.runPromise(analyzeLoadedApplicationSourcePackageEffect({ executionModules: {}, sourceMaps: {}, schemaDefinition: changed }).pipe(Effect.result)))
       .toMatchObject({ _tag: "Failure" });
+  });
+  it("retains a historical ordered index for a required unique Payload title", async () => {
+    const compiled = await compile([payloadPostsCollectionDefinition("payload.scalar")]);
+    expect(compiled.configuration.tables[0]?.indexes).toEqual([
+      expect.objectContaining({ fields: ["title"] }),
+    ]);
+    expect(compiled.logicalDefinition.indexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tableLogicalName: "posts", fields: ["title"] }),
+    ]));
+    expect(compiled.logicalDefinition.uniqueConstraints).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tableLogicalName: "posts", fields: ["title"] }),
+    ]));
   });
   it("uses the shared 15-field declaration boundary before compiling physical indexes", async () => {
     const fields = Array.from({ length: 16 }, (_, index) => ({ name: `field${index}`, type: "text", required: true }));

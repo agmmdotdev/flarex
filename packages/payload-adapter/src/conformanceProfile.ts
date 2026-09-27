@@ -2,9 +2,11 @@ import { payloadHasMany, payloadJoins, payloadRelatedPostField, payloadRelatedPo
 import { payloadIsManagedField, payloadScalarProvenance, type PayloadContentProfile } from "./contract";
 import { createHash } from "node:crypto";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
+import { SchemaManifestAppIndexDescriptorSchema, SchemaManifestAppIndexFieldPathSchema } from
+  "flarex-protocol/schema-manifest";
 import type { PayloadConfiguration } from "@flarex/analysis/internal/application-write-policy";
 import type { CollectionConfig } from "payload";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { registerPayloadContentProfiles, type PayloadContentProfiles } from "@flarex/persistence-postgres/internal/cms-adapter";
 
 /** Concrete collections and identities are conformance data, never ordinary defaults. */
@@ -21,16 +23,16 @@ const payloadManyFields = Object.freeze([...payloadRelationFields.filter(field =
 export const payloadContentFields = (profile: PayloadContentProfile) =>
   profile === "payload.scalar" ? payloadScalarFields : payloadHasMany(profile) ? payloadManyFields : payloadRelationFields;
 export function payloadContentConfiguration(profile: PayloadContentProfile, provenanceSha256: string): PayloadConfiguration {
-  const tables = [{ logicalTableName: "posts", collectionSlug: "posts", timestamps: true, fields: payloadContentFields(profile) }];
+  const tables = [{ logicalTableName: "posts", collectionSlug: "posts", timestamps: true, fields: payloadContentFields(profile),
+    indexes: [{ name: Schema.decodeUnknownSync(SchemaManifestAppIndexDescriptorSchema)(`i_${digest(["title"]).slice(0, 60)}`),
+      fields: [Schema.decodeUnknownSync(SchemaManifestAppIndexFieldPathSchema)("title")] }] }];
   if (profile === "payload.content-joins") return { format: "flarex.payload-configuration", version: 3, profile, provenanceSha256, tables, joins: payloadJoins };
   return { format: "flarex.payload-configuration", version: 3, profile, provenanceSha256, tables };
 }
 
-export function payloadPostsCollection(profile: PayloadContentProfile = "payload.scalar"): CollectionConfig {
+/** Serializable compiler declaration; native access is installed separately. */
+export function payloadPostsCollectionDefinition(profile: PayloadContentProfile = "payload.scalar"): Omit<CollectionConfig, "access"> {
   return { slug: "posts", lockDocuments: false, enableQueryPresets: false, timestamps: true, defaultSort: "id",
-    // The private host authenticates the command; these fixed local policies
-    // exercise Payload access execution without admitting dynamic user callbacks.
-    access: { read: () => true, create: () => true, update: () => true, delete: () => true },
     fields: [
       { name: "title", type: "text", required: true, unique: true },
       { name: "score", type: "number", required: true, defaultValue: 0 },
@@ -40,6 +42,13 @@ export function payloadPostsCollection(profile: PayloadContentProfile = "payload
       ...(payloadHasMany(profile) ? [{ name: payloadRelatedPostsField.name, type: "relationship", relationTo: payloadRelatedPostsField.target, hasMany: true, required: false, maxRows: payloadRelatedPostsField.maxItems, defaultValue: [] } as const] : []),
       ...(profile === "payload.content-joins" ? payloadJoins.map(({ maximumLimit: _maximum, ...join }) => ({ ...join, type: "join" as const })) : []),
     ] };
+}
+
+export function payloadPostsCollection(profile: PayloadContentProfile = "payload.scalar"): CollectionConfig {
+  // The private host authenticates the command; fixed local policies exercise
+  // Payload access without admitting dynamic callbacks in compiler input.
+  return { ...payloadPostsCollectionDefinition(profile),
+    access: { read: () => true, create: () => true, update: () => true, delete: () => true } };
 }
 
 const digest = (value: Json) => createHash("sha256").update(encodeCanonicalJson(value, () => { throw new Error("Invalid fixed Payload profile"); })).digest("hex");

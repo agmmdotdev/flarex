@@ -199,6 +199,30 @@ describe("O08-A exact-attempt replacement", () => {
     });
   });
 
+  it("refuses a participant retry ticket absent from the authenticated sealed journal", async () => {
+    const current = await prepareAttempt("forged_participant", true);
+    const port = createPointMutationAttemptReplacementPortV1(current.ports, {
+      leaseDurationMilliseconds: LEASE_DURATION_MILLISECONDS,
+    });
+    const forged = Object.freeze({ ...current.command, expectedConflict: Object.freeze({
+      ...current.command.expectedConflict,
+      conflict: Object.freeze({ kind: "logicalParticipant" as const,
+        participant: "payload.fixed", syscallSequence: CommitSyscallSequenceV1Schema.make(1n) }),
+    }) });
+    const failure = await runEffectFailure(port.replace(forged));
+    expect(failure).toBeInstanceOf(PointMutationAttemptReplacementCorruptionV1Error);
+    expect(failure).toMatchObject({ reason: "occEvidenceInvalid" });
+
+    const invalid = Object.freeze({ ...forged, expectedConflict: Object.freeze({
+      ...forged.expectedConflict,
+      conflict: Object.freeze({ kind: "logicalParticipant" as const,
+        participant: "", syscallSequence: CommitSyscallSequenceV1Schema.make(1n) }),
+    }) });
+    const invalidFailure = await runEffectFailure(port.replace(invalid));
+    expect(invalidFailure).toBeInstanceOf(PointMutationAttemptReplacementCorruptionV1Error);
+    expect(invalidFailure).toMatchObject({ reason: "commandInvalid" });
+  });
+
   it("rolls every mutation phase back to the exact old attempt", async () => {
     const phases = [
       "sessionEnteredRetrying",

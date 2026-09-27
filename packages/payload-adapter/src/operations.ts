@@ -19,7 +19,8 @@ const noPopulation: ReadOptions = { depth: 0, joins: noJoins, joinRead: false };
 
 /** These handlers belong to one Payload instance; no request state is retained. */
 export function makePayloadOperations(payload: BasePayload, bridge: Bridge, profile: PayloadContentProfile,
-  collections: readonly PayloadCollectionRuntime[], isLive: () => boolean, onExecute?: () => void) {
+  collections: readonly PayloadCollectionRuntime[], isLive: () => boolean, onExecute?: () => void,
+  trustedRequestContext?: PayloadRequest["context"]) {
   const inputs = makePayloadInputs(profile, collections);
   const options = (req: Partial<PayloadRequest>, collection: PayloadCollectionRuntime, read: ReadOptions) => ({
     collection: collection.collectionSlug, req, depth: read.depth, overrideAccess: false,
@@ -34,7 +35,14 @@ export function makePayloadOperations(payload: BasePayload, bridge: Bridge, prof
     invoke: (common: ReturnType<typeof options>) => Promise<unknown>,
     decode: (value: unknown) => Result.Result<A, CmsTransactionError>,
   ) {
-    const req: Partial<PayloadRequest> = write ? { transactionID: context.transactionId } : {};
+    // Each outer Local API call owns a fresh request and therefore a fresh
+    // Payload dataloader. Native nested calls reuse this exact mutable request.
+    const req: Partial<PayloadRequest> = {
+      // Standalone snapshot reads intentionally omit an ID. A mixed-attempt
+      // read is borrowed work and must present the owned ID like a write.
+      ...(write || !context.standaloneRead ? { transactionID: context.transactionId } : {}),
+      ...(trustedRequestContext === undefined ? {} : { context: { ...trustedRequestContext } }),
+    };
     const common = options(req, collection, read);
     onExecute?.();
     const result = yield* Effect.tryPromise({

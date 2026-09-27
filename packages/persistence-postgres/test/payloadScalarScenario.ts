@@ -14,7 +14,8 @@ import { createAppSchemaCandidateWriteGuardPort } from "../src/appSchemaCandidat
 import { makePayloadConformanceRuntime, type PayloadConformanceRuntime } from "../../payload-adapter/src/testing";
 import { makePayloadRuntime, type PayloadHostInput } from "../../payload-adapter/src/runtime";
 import { compilePayloadCollections } from "../../payload-adapter/src/collections";
-import { payloadScalarFields, payloadScalarContentIdentity } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarFields, payloadScalarContentIdentity,
+  payloadPostsCollectionDefinition } from "../../payload-adapter/src/conformanceProfile";
 import type { RelationalSession } from "../src/relationalTransaction/session";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -27,7 +28,8 @@ export function payloadScalarScenario(persistence: PGliteFlarexPersistence | Pos
     hostInput: PayloadHostInput<unknown>;
     host: CmsHost; inventory: () => Promise<unknown> }) => Promise<void>) {
   return runEffect(Effect.scoped(makePayloadConformanceRuntime().pipe(Effect.flatMap(conformance => Effect.promise(async () => {
-    const { fixture } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields });
+    const compiled = await runEffect(compilePayloadCollections([payloadPostsCollectionDefinition("payload.scalar")]));
+    const { fixture } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields }, compiled);
     const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
       deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
       authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,

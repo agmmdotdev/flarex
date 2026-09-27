@@ -15,6 +15,8 @@ interface ConformanceHooks {
   readonly hooks: NonNullable<CollectionConfig["hooks"]>;
   readonly onExecute: () => void;
   readonly onCollection: (collection: string) => void;
+  readonly access?: NonNullable<CollectionConfig["access"]>;
+  readonly requestContext?: Readonly<Record<string, unknown>>;
 }
 
 /** Multiple profiles coexist; Scope owns each instance, not a singleton Context. */
@@ -27,7 +29,10 @@ export const makePayloadComposition = Effect.fn("PayloadAdapter.compose")(functi
   const bridge = makePayloadDatabaseAdapter(profile, collections, conformance?.onCollection);
   let live = true;
   const native = compiled.createNativeCollections();
-  if (conformance !== undefined) for (const collection of native) collection.hooks = conformance.hooks;
+  if (conformance !== undefined) for (const collection of native) {
+    collection.hooks = conformance.hooks;
+    if (conformance.access !== undefined) collection.access = conformance.access;
+  }
   const config = yield* buildPayloadConfiguration(native, bridge);
   const slugs = config.collections.map(collection => collection.slug).toSorted();
   const expected = [...collections.map(collection => collection.collectionSlug), "payload-migrations", "payload-preferences", "users"].toSorted();
@@ -41,7 +46,8 @@ export const makePayloadComposition = Effect.fn("PayloadAdapter.compose")(functi
       try: () => instance.destroy(), catch: cause => cmsError("resourceFailure", cause),
     })), Effect.orDie));
   yield* Effect.tryPromise({ try: () => payload.init({ config, disableOnInit: true }), catch: cause => cmsError("unsupportedProfile", cause) });
-  const commands = makePayloadOperations(payload, bridge, profile, collections, () => live, conformance?.onExecute);
+  const commands = makePayloadOperations(payload, bridge, profile, collections, () => live,
+    conformance?.onExecute, conformance?.requestContext);
   const bind = Effect.fn("PayloadAdapter.bind")(function* <Failure>(input: PayloadHostInput<Failure>): Effect.fn.Return<CmsHost, CmsTransactionError> {
     if (!live) return yield* Effect.fail(cmsError("closed"));
     const host = yield* Effect.uninterruptibleMask(restore => Effect.gen(function* () {

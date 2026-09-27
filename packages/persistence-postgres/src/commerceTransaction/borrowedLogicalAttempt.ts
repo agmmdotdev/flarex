@@ -6,7 +6,8 @@ import type { SessionJournalAttemptV1 } from "../sessionJournalStore";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
 import type { LogicalPendingDocumentSeed } from "../logicalDocuments/model";
-import { withLogicalRelationalAttemptAdmissionEffect, type LogicalRelationalAttemptAdmission } from "../logicalDocuments/relationalAdmission";
+import { withLogicalRelationalAttemptAdmissionEffect } from "../logicalDocuments/relationalAdmission";
+import type { LogicalParticipantAttemptAdmission } from "../logicalDocuments/participantAdmission";
 import { prepareLogicalRelationalRows } from "../logicalDocuments/relationalRows";
 import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError } from "./model";
@@ -19,7 +20,7 @@ const refuseNested: Parameters<typeof makeCommerceCommandContext>[4] = () =>
   Effect.fail(commerceError("invalidAuthority"));
 
 export interface BorrowedLogicalAttemptInput {
-  readonly admission: LogicalRelationalAttemptAdmission;
+  readonly admission: LogicalParticipantAttemptAdmission;
   readonly attempt: SessionJournalAttemptV1;
   readonly method: string;
   /** Decoded from the canonical journal point table by the journal owner. */
@@ -102,6 +103,7 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
       const rootIdentity = Object.freeze({ scopeUuid: projectScopeIdUuidV1(state.root.scopeId).scopeUuid,
         sessionId: state.root.sessionId, attemptFence: state.root.attemptFence });
       return Object.freeze({ context: context satisfies CommerceCommandContext, rootIdentity, close, abort: lifetime.close,
+        withinDeadline: lifetime.withinDeadline,
         currentUsage: () => Object.freeze({ workBytes: resources.commandBytes - lifetime.remainingBytes(),
           workCalls: lifetime.usedCalls() }),
         activityCursor: working.activityCursor,

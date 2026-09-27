@@ -6,9 +6,7 @@ import { compileLogicalSourceSearches } from "flarex-protocol/internal/logical-s
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { AdmittedParticipantOperationV1 } from "flarex-protocol/commit-protocol";
 import type { ScopeId } from "flarex-protocol/storage-authority";
-import type { CommitSeq } from "flarex-protocol/storage-authority";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import type { TransactionAttemptFence, TransactionSessionIdV1 } from "flarex-protocol/transaction-session";
 import type { ApplicationBindingInput } from "../applicationActivation";
 import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
@@ -24,6 +22,10 @@ import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError } from "./sourceAdmission";
 import { prepareLogicalRelationalValueValidation, LogicalRelationalValueError } from "./relationalValues";
 import type { LogicalSearchDefinition } from "./searchEntries";
+import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
+  withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
+  type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptRoot,
+  type LogicalParticipantAttemptReadTransaction, type LogicalParticipantCommitAuthority } from "./participantAdmission";
 
 export class LogicalRelationalAdmissionError extends Data.TaggedError("LogicalRelationalAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" |
@@ -46,6 +48,11 @@ const projectBindingFailure = (cause: unknown): LogicalRelationalAdmissionError 
   }
   return new LogicalRelationalAdmissionError({ reason: "resourceFailure", cause });
 };
+const projectParticipantBindingFailure = (cause: unknown): LogicalParticipantAdmissionError => {
+  if (cause instanceof LogicalParticipantAdmissionError) return cause;
+  const projected = projectBindingFailure(cause);
+  return new LogicalParticipantAdmissionError({ reason: projected.reason, cause: projected });
+};
 
 declare const admissionBrand: unique symbol;
 export interface LogicalRelationalAdmission { readonly [admissionBrand]: true }
@@ -66,143 +73,25 @@ export interface LogicalRelationalAdmissionState {
 }
 const admissions = new WeakMap<object, LogicalRelationalAdmissionState>();
 
-declare const attemptAdmissionBrand: unique symbol;
-/** Opaque domain authority issued for one exact journal handle. Its method
- * names are trusted host selections, never data decoded from a sandbox call. */
-export interface LogicalRelationalAttemptAdmission { readonly [attemptAdmissionBrand]: true }
-export interface LogicalRelationalAttemptRoot {
-  readonly scopeId: ScopeId;
-  readonly sessionId: TransactionSessionIdV1;
-  readonly attemptFence: TransactionAttemptFence;
-  readonly principalDigest: string;
-  readonly snapshotCommitSeq: CommitSeq;
-  readonly schemaVersionId: CatalogSchemaVersionId;
-}
-export type LogicalRelationalAttemptReadTransaction = <Value, Failure>(
-  work: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-    clock: ScopeClockRecord) => Effect.Effect<Value, Failure>,
-) => Effect.Effect<Value, Failure | LogicalRelationalAdmissionError>;
+/** Source-specific fields used only by the native Product evaluator. The
+ * neutral issuer owns the opaque token, exact attempt and checked reads. */
 export interface LogicalRelationalAttemptAdmissionState extends Omit<LogicalRelationalAdmissionState, "tx" | "authority"> {
-  readonly attempt: SessionJournalAttemptV1;
-  readonly root: LogicalRelationalAttemptRoot;
-  readonly methods: ReadonlySet<string>;
-  readonly readTransaction: LogicalRelationalAttemptReadTransaction;
-  readonly verifyBinding: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-    clock: ScopeClockRecord) => Effect.Effect<void, LogicalRelationalAdmissionError>;
+  readonly root: LogicalParticipantAttemptRoot;
 }
-const attemptAdmissions = new WeakMap<object, LogicalRelationalAttemptAdmissionState>();
+const relationalAttemptStates = new WeakMap<object, LogicalRelationalAttemptAdmissionState>();
 
-declare const commitAuthorityBrand: unique symbol;
-export interface LogicalRelationalParticipantCommitAuthority { readonly [commitAuthorityBrand]: true }
-interface LogicalRelationalParticipantCommitAuthorityState {
-  readonly participant: string;
-  readonly methods: ReadonlySet<string>;
-  readonly sourceKey: string;
-  readonly sourceSha256: string;
-  readonly schemaVersionId: CatalogSchemaVersionId;
-  readonly tableIds: ReadonlySet<CatalogTableId>;
-  readonly indexes: readonly LocatedAppIndexDefinitionV1[];
-  readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
-  readonly validateDocument: (tableId: CatalogTableId, document: CanonicalFlarexValueV1) =>
-    Result.Result<unknown, LogicalRelationalValueError>;
-  readonly verify: (operation: AdmittedParticipantOperationV1,
-    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-    clock: ScopeClockRecord) => Effect.Effect<Readonly<{
-      tableIds: ReadonlySet<CatalogTableId>;
-      indexes: readonly LocatedAppIndexDefinitionV1[];
-      unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
-      search: readonly LogicalSearchDefinition[];
-      validateDocument: (tableId: CatalogTableId, document: CanonicalFlarexValueV1) =>
-        Result.Result<unknown, LogicalRelationalValueError>;
-    }>, LogicalRelationalAdmissionError>;
-}
-const participantCommitAuthorities = new WeakMap<object, LogicalRelationalParticipantCommitAuthorityState>();
-
-/** Trusted preparation only. The final transaction rechecks this exact source
- * and binding head before any selected definition can authorize publication. */
-export const inspectLogicalRelationalParticipantCommitAuthority = (
-  token: LogicalRelationalParticipantCommitAuthority, operation: AdmittedParticipantOperationV1,
-): Readonly<{ schemaVersionId: CatalogSchemaVersionId; tableIds: ReadonlySet<CatalogTableId>;
-  indexes: readonly LocatedAppIndexDefinitionV1[]; unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
-  validateDocument: (tableId: CatalogTableId, document: CanonicalFlarexValueV1) =>
-    Result.Result<unknown, LogicalRelationalValueError> }> | null => {
-  const state = typeof token === "object" && token !== null ? participantCommitAuthorities.get(token) : undefined;
-  return state === undefined || state.participant !== operation.participant || !state.methods.has(operation.method) ||
-    state.sourceKey !== operation.sourceKey || state.sourceSha256 !== operation.sourceSha256Hex ||
-    operation.effects.some(effect => !state.tableIds.has(effect.tableId)) ? null : Object.freeze({
-      schemaVersionId: state.schemaVersionId, tableIds: state.tableIds, indexes: state.indexes, unique: state.unique,
-      validateDocument: state.validateDocument,
-    });
-};
-
-export const hasLogicalRelationalParticipantCommitAuthority = (
-  token: LogicalRelationalParticipantCommitAuthority, participant: string, method: string,
-): boolean => {
-  const state = typeof token === "object" && token !== null ? participantCommitAuthorities.get(token) : undefined;
-  return state !== undefined && state.participant === participant && state.methods.has(method);
-};
-
-export const requireLogicalRelationalParticipantCommitAuthorityEffect = Effect.fn("LogicalRelationalParticipantCommitAuthority.require")(
-  function* (token: LogicalRelationalParticipantCommitAuthority, operation: AdmittedParticipantOperationV1,
-    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) {
-    const state = typeof token === "object" && token !== null ? participantCommitAuthorities.get(token) : undefined;
-    if (state === undefined || state.participant !== operation.participant || !state.methods.has(operation.method))
-      return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
-    return yield* state.verify(operation, tx, authority, clock);
-  });
-
-export const hasLogicalRelationalAttemptAdmission = (
-  admission: LogicalRelationalAttemptAdmission, attempt: SessionJournalAttemptV1, method: string,
-): boolean => {
-  const state = typeof admission === "object" && admission !== null ? attemptAdmissions.get(admission) : undefined;
-  return state !== undefined && state.attempt === attempt && state.methods.has(method);
-};
-
-export const inspectLogicalRelationalAttemptAdmission = (
-  admission: LogicalRelationalAttemptAdmission, attempt: SessionJournalAttemptV1, method: string,
-): Readonly<{ root: LogicalRelationalAttemptRoot; sourceKey: string; sourceSha256: string;
-  bindingHead: DataBindingHeadToken }> | null => {
-  const state = typeof admission === "object" && admission !== null ? attemptAdmissions.get(admission) : undefined;
-  return state === undefined || state.attempt !== attempt || !state.methods.has(method) ? null : Object.freeze({
-    root: state.root, sourceKey: state.sourceKey, sourceSha256: state.sourceSha256, bindingHead: state.head,
-  });
-};
-
-/** A short transaction must surround every source/binding recheck. The caller
- * supplies this checked transaction from the exact journal attempt owner. */
-export const requireLogicalRelationalAttemptAdmissionInTransactionEffect = Effect.fn("LogicalRelationalAttemptAdmission.require")(
-  function* (admission: LogicalRelationalAttemptAdmission, attempt: SessionJournalAttemptV1, method: string,
-    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) {
-    const state = typeof admission === "object" && admission !== null ? attemptAdmissions.get(admission) : undefined;
-    if (state === undefined || state.attempt !== attempt || !state.methods.has(method) ||
-      state.root.scopeId !== authority.scopeId || state.root.scopeId !== clock.scopeId ||
-      state.root.snapshotCommitSeq > clock.lastCommitSeq ||
-      authority.epoch !== clock.epoch || authority.storageGeneration !== clock.storageGeneration ||
-      authority.storageGenerationFence !== clock.storageGenerationFence)
-      return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
-    yield* state.verifyBinding(tx, authority, clock);
-    return state;
-  });
-
-/** Borrow an authenticated participant without retaining its SQL transaction.
- * Every evaluator read borrows another checked short transaction. */
 export const withLogicalRelationalAttemptAdmissionEffect = Effect.fn("LogicalRelationalAttemptAdmission.with")(
-  function* <Value, Failure, Requirements>(admission: LogicalRelationalAttemptAdmission,
+  function* <Value, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
     attempt: SessionJournalAttemptV1, method: string,
     work: (state: LogicalRelationalAttemptAdmissionState,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
-        Effect.Effect<A, E | LogicalRelationalAdmissionError>) => Effect.Effect<Value, Failure, Requirements>) {
-    const state = typeof admission === "object" && admission !== null ? attemptAdmissions.get(admission) : undefined;
-    if (state === undefined || state.attempt !== attempt || !state.methods.has(method))
-      return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
-    const checkedRead = <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
-      state.readTransaction((tx, authority, clock) =>
-        requireLogicalRelationalAttemptAdmissionInTransactionEffect(admission, attempt, method, tx, authority, clock)
-          .pipe(Effect.flatMap(() => read(tx))));
-    yield* checkedRead(() => Effect.void);
-    return yield* work(state, checkedRead);
+        Effect.Effect<A, E | LogicalParticipantAdmissionError>) => Effect.Effect<Value, Failure, Requirements>) {
+    return yield* withLogicalParticipantAttemptAdmissionEffect(admission, attempt, method, (_, checkedRead) => Effect.gen(function* () {
+      const state = relationalAttemptStates.get(admission);
+      if (state === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      return yield* work(state, checkedRead);
+    }));
   });
-
 /** Native semantics remain here; source identity, structural readiness and
  * selected binding evidence are shared with document-source admission. */
 export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdmission.prepare")(function* (
@@ -267,31 +156,31 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
     });
   });
   const bindAttemptEffect = Effect.fn("LogicalRelationalAttemptAdmission.bind")(function* (
-    application: ApplicationBindingInput, attempt: SessionJournalAttemptV1, root: LogicalRelationalAttemptRoot,
-    readTransaction: LogicalRelationalAttemptReadTransaction, methods: readonly string[],
+    application: ApplicationBindingInput, attempt: SessionJournalAttemptV1, root: LogicalParticipantAttemptRoot,
+    readTransaction: LogicalParticipantAttemptReadTransaction, methods: readonly string[],
   ) {
     if (root.scopeId !== capturedInput.scopeId ||
       root.principalDigest.length === 0 || methods.length === 0 ||
       methods.some(method => method.length === 0) || new Set(methods).size !== methods.length)
-      return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     const pinned = yield* readTransaction((tx, authority, clock) =>
       selected.withBinding(application, tx, authority, clock, binding => {
         if (authority.scopeId !== root.scopeId || clock.scopeId !== root.scopeId ||
           clock.lastCommitSeq < root.snapshotCommitSeq || binding.schemaVersionId !== capturedInput.schemaVersionId)
-          return Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
+          return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         return Effect.succeed(Object.freeze({ head: binding.head, clock }));
-      }).pipe(Effect.mapError(projectBindingFailure)));
+      }).pipe(Effect.mapError(projectParticipantBindingFailure)));
     const verifyBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
       selected.withBinding(application, tx, authority, clock, binding =>
         binding.schemaVersionId === capturedInput.schemaVersionId &&
         binding.head.sequence === pinned.head.sequence && binding.head.sha256 === pinned.head.sha256 &&
         authority.scopeId === root.scopeId && clock.scopeId === root.scopeId
-          ? Effect.void : Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" })))
-        .pipe(Effect.mapError(projectBindingFailure));
-    // SAFETY: only the issuer's WeakMap membership authenticates this opaque, inert capability.
-    const token = Object.freeze({}) as LogicalRelationalAttemptAdmission;
-    attemptAdmissions.set(token, Object.freeze({ attempt, root: Object.freeze({ ...root }),
-      methods: new Set(methods), readTransaction, verifyBinding,
+          ? Effect.void : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })))
+        .pipe(Effect.mapError(projectParticipantBindingFailure));
+    const token = issueLogicalParticipantAttemptAdmission(Object.freeze({ attempt, root: Object.freeze({ ...root }),
+      methods: new Set(methods), readTransaction, verifyBinding, tableIds,
+      sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: pinned.head }));
+    relationalAttemptStates.set(token, Object.freeze({ root: Object.freeze({ ...root }),
       clock: pinned.clock, schemaVersionId: capturedInput.schemaVersionId, sourceKey: selected.source.key,
       sourceSha256: selected.source.sourceSha256, schema, tables: selectedTables,
       values: confinedValues, indexes: selected.indexes, unique: selected.unique,
@@ -299,16 +188,22 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
     return token;
   });
   const createCommitAuthority = (application: ApplicationBindingInput, participant: string,
-    methods: readonly string[]): LogicalRelationalParticipantCommitAuthority => {
-    // SAFETY: trusted publisher construction registers this opaque token before it can authorize a method.
-    const token = Object.freeze({}) as LogicalRelationalParticipantCommitAuthority;
+    methods: readonly string[]): LogicalParticipantCommitAuthority => {
     const allowed = new Set(methods);
     if (participant.length === 0 || allowed.size === 0 || allowed.size !== methods.length ||
-      methods.some(method => method.length === 0)) return token;
-    participantCommitAuthorities.set(token, Object.freeze({ participant, methods: allowed,
+      methods.some(method => method.length === 0)) return issueLogicalParticipantCommitAuthority(Object.freeze({
+        participant: "", methods: new Set<string>(), sourceKey: selected.source.key,
+        sourceSha256: selected.source.sourceSha256, schemaVersionId: capturedInput.schemaVersionId,
+        tableIds, indexes: selected.indexes, unique: selected.unique, search: Object.freeze(search),
+        validateDocument: () => Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })),
+        verify: () => Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })),
+      }));
+    return issueLogicalParticipantCommitAuthority(Object.freeze({ participant, methods: allowed,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256,
       schemaVersionId: capturedInput.schemaVersionId, tableIds, indexes: selected.indexes, unique: selected.unique,
-      validateDocument: confinedValues.validate,
+      search: Object.freeze(search),
+      validateDocument: (tableId: CatalogTableId, document: CanonicalFlarexValueV1) => confinedValues.validate(tableId, document).pipe(
+        Result.mapError(cause => new LogicalParticipantAdmissionError({ reason: "documentInvalid", cause }))),
       verify: (operation: AdmittedParticipantOperationV1, tx: FlarexMetadataTransaction,
         authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
         selected.withBinding(application, tx, authority, clock, binding => {
@@ -318,15 +213,13 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
           operation.sourceSha256Hex !== selected.source.sourceSha256 ||
           operation.bindingHead.sequence !== binding.head.sequence ||
           operation.bindingHead.sha256 !== binding.head.sha256)
-          return Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
+          return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         const admittedTableIds = new Set(selectedTables.map(table => table.tableId));
         if (operation.effects.some(effect => !admittedTableIds.has(effect.tableId)))
-          return Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
-        return Effect.succeed(Object.freeze({ tableIds: admittedTableIds, indexes: selected.indexes,
-          unique: selected.unique, search: Object.freeze(search), validateDocument: confinedValues.validate }));
-      }).pipe(Effect.mapError(projectBindingFailure)),
+          return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+        return Effect.void;
+      }).pipe(Effect.mapError(projectParticipantBindingFailure)),
     }));
-    return token;
   };
   return Object.freeze({ withAdmission, bindAttemptEffect, createCommitAuthority });
 });

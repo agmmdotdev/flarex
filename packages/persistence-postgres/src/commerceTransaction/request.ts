@@ -6,6 +6,7 @@ import { Effect, Result } from "effect";
 import { PreparedHostRuntimeError } from "../preparedHostRuntime";
 import { LogicalDocumentMaterializationError } from "../logicalDocuments/materialization";
 import { LogicalRelationalAdmissionError } from "../logicalDocuments/relationalAdmission";
+import { LogicalParticipantAdmissionError } from "../logicalDocuments/participantAdmission";
 import { DataBindingError } from "../frameworkSchema/binding/errors";
 import { TrustedScopeAuthorityPortError } from "../scopeAuthorityResolution";
 import { canonicalizeJsonOutcome, captureJsonOutcomeValue, JsonOutcomeError } from "../jsonOutcome";
@@ -53,6 +54,10 @@ export const projectCommerceRequestFailure = (cause: unknown): CommerceTransacti
     return commerceError("bindingChanged", cause);
   if (cause instanceof LogicalRelationalAdmissionError && cause.reason === "unsupportedProfile")
     return commerceError("unsupportedProfile", cause);
+  if (cause instanceof LogicalParticipantAdmissionError) return commerceError(
+    cause.reason === "unsupportedProfile" ? "unsupportedProfile" :
+      cause.reason === "resourceFailure" ? "resourceFailure" :
+        cause.reason === "storedCorruption" ? "storedCorruption" : "invalidAuthority", cause);
   if (cause instanceof LogicalDocumentMaterializationError) return commerceError(
     cause.reason === "uniqueConflict" || cause.reason === "relationInvalid" || cause.reason === "relationTargetMissing" || cause.reason === "relationDeleteRestricted"
       ? "invalidInput" : cause.reason, cause);

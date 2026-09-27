@@ -72,7 +72,10 @@ import {
   PointMutationJournalRelationConflictError,
   PointMutationJournalPersistenceV1Error,
   UnsupportedPointMutationJournalOperationV1Error,
+  PointMutationJournalParticipantSetV1Error,
+  PointMutationJournalParticipantSelectionV1Error,
   createPointMutationJournalV1,
+  type PointMutationJournalAdmittedParticipantV1,
   type PointMutationJournalV1,
   type PointMutationJournalApplicationRelationReadCapability,
 } from "../src/pointMutationJournal";
@@ -164,6 +167,36 @@ const executionClaimsByJournal = new WeakMap<
 >();
 
 describe("C03 executor point-mutation journal boundary", () => {
+  const inertParticipant = (participant: string) => ({ participant,
+    admission: { methods: ["read"] }, borrow: () => Effect.die("unused") }) as unknown as
+    PointMutationJournalAdmittedParticipantV1;
+
+  it.each([
+    ["duplicate", ["source.one", "source.one"]],
+    ["tooMany", ["source.one", "source.two", "source.three"]],
+    ["invalidSelector", [" source.one"]],
+  ] as const)("refuses a %s trusted participant set before opening persistence", async (reason, names) => {
+    const participants = names.map(inertParticipant);
+    const harness = createHarness({ admittedParticipants: participants });
+    const failure = await runFailure(harness.journal.openAttempt(
+      await loadedAttempt(), executionScopeForJournal(harness.journal)));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantSetV1Error);
+    expect((failure as PointMutationJournalParticipantSetV1Error).reason).toBe(reason);
+  });
+
+  it("refuses an unselected participant before invoking its persistence callback", async () => {
+    const harness = createHarness({ admittedParticipants: [inertParticipant("source.one")] });
+    const attempt = await runEffect(harness.journal.openAttempt(
+      await loadedAttempt(), executionScopeForJournal(harness.journal)));
+    const runAdmitted = harness.journal.runAdmittedOperation;
+    if (runAdmitted === undefined) throw new Error("Missing selected participant runner");
+    const input = { operation: { participant: "source.other" } } as unknown as
+      Parameters<typeof runAdmitted>[1];
+    const failure = await runFailure(runAdmitted(attempt, input));
+    expect(failure).toBeInstanceOf(PointMutationJournalParticipantSelectionV1Error);
+    expect((failure as PointMutationJournalParticipantSelectionV1Error).participant).toBe("source.other");
+  });
+
   it("rejects unsupported, malformed, accessor, and excess-field operations before persistence", async () => {
     const harness = createHarness();
     const { table } = await openResolvedTable(harness.journal);
@@ -862,6 +895,7 @@ describe("C03 executor point-mutation journal boundary", () => {
 });
 
 interface HarnessOptions {
+  readonly admittedParticipants?: readonly PointMutationJournalAdmittedParticipantV1[];
   readonly openAttemptFailure?: InvalidSessionJournalInputV1Error;
   readonly resolvePointTable?: (
     persistenceAttempt: unknown,
@@ -926,6 +960,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
       : options.runPointOperation(table, operation);
   };
   const persistence = Object.freeze({
+    admitLogicalParticipantEffect: () => Effect.succeed(Object.freeze({ kind: "test-participant-admission" })),
     openAttemptEffect: () => options.openAttemptFailure === undefined
       ? Effect.succeed(persistenceAttempt)
       : Effect.fail(options.openAttemptFailure),
@@ -1057,7 +1092,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   const journal: PointMutationJournalV1 = Reflect.apply(
     createPointMutationJournalV1,
     undefined,
-    [persistence, executionClaims.admission, syscallValidator],
+    [persistence, executionClaims.admission, syscallValidator, options.admittedParticipants],
   );
   const samePersistenceJournal = journal;
   executionClaimsByJournal.set(journal, executionClaims);

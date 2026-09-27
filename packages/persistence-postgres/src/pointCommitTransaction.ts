@@ -20,7 +20,7 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 import { validateApplicationWriteOwnershipForCommit } from "./applicationWriteOwnership/Commit";
-import { hasLogicalRelationalParticipantCommitAuthority, inspectLogicalRelationalParticipantCommitAuthority, requireLogicalRelationalParticipantCommitAuthorityEffect, type LogicalRelationalParticipantCommitAuthority } from "./logicalDocuments/relationalAdmission";
+import { hasLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthority, requireLogicalParticipantCommitAuthorityEffect, type LogicalParticipantCommitAuthority } from "./logicalDocuments/participantAdmission";
 import { validateLogicalParticipantDependencyEvidence } from "./logicalDocuments/commitEvidence";
 import { maintainLogicalSearchEntries, type LogicalSearchDefinition } from "./logicalDocuments/searchEntries";
 import { admittedCommerceEventGroup, validateAdmittedCommerceEventIntents,
@@ -849,10 +849,10 @@ export type PointCommitTransactionProofStepV1 =
 
 export interface PointCommitTransactionProofOptionsV1 {
   /** Publisher-owned source admission, reconstructed from trusted selection on restart. */
-  readonly logicalParticipants?: readonly LogicalRelationalParticipantCommitAuthority[];
+  readonly logicalParticipants?: readonly LogicalParticipantCommitAuthority[];
   /** Same opaque participant token pins the event contract selected before ack. */
   readonly logicalParticipantEvents?: readonly Readonly<{
-    authority: LogicalRelationalParticipantCommitAuthority;
+    authority: LogicalParticipantCommitAuthority;
     policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>;
     selection: ParticipantEventSelection;
   }>[];
@@ -947,6 +947,8 @@ export type PointMutationAttemptReplacementProofStepV1 =
 
 export interface PointMutationAttemptReplacementOptionsV1 {
   readonly leaseDurationMilliseconds: number;
+  /** Reissued from the trusted source selection used by final publication. */
+  readonly logicalParticipants?: readonly LogicalParticipantCommitAuthority[];
   readonly executionClaimDurationMilliseconds?: number;
   readonly randomExecutionClaimOwner?: () => string;
   /** Test-only deterministic transaction pause/failure seam. */
@@ -1208,9 +1210,9 @@ export function createPointMutationAttemptReplacementPortV1(
   const randomExecutionClaimOwner = options.randomExecutionClaimOwner ??
     (() => crypto.randomUUID());
   const proofOptions: PointCommitTransactionProofOptionsV1 = Object.freeze(
-    options.observeQuery === undefined
-      ? {}
-      : { observeQuery: options.observeQuery },
+    { ...(options.observeQuery === undefined ? {} : { observeQuery: options.observeQuery }),
+      ...(options.logicalParticipants === undefined ? {} :
+        { logicalParticipants: Object.freeze([...options.logicalParticipants]) }) },
   );
 
   const replace: PointMutationAttemptReplacementPortV1["replace"] = Effect.fn(
@@ -1752,9 +1754,9 @@ const preparePointCommitMixedDefinitions = Effect.fn("PointCommitTransaction.pre
     const sourceSchemaVersionByTable = new Map<CatalogTableId, CatalogSchemaVersionId>();
     for (const operation of command.participantOperations) {
       const authorities = (options.logicalParticipants ?? []).filter(token =>
-        hasLogicalRelationalParticipantCommitAuthority(token, operation.participant, operation.method));
+        hasLogicalParticipantCommitAuthority(token, operation.participant, operation.method));
       if (authorities.length !== 1) return yield* Effect.fail(corruption("commandInvalid"));
-      const selected = inspectLogicalRelationalParticipantCommitAuthority(authorities[0]!, operation);
+      const selected = inspectLogicalParticipantCommitAuthority(authorities[0]!, operation);
       if (selected === null) return yield* Effect.fail(corruption("commandInvalid"));
       const touched = new Set(operation.effects.map(effect => effect.tableId));
       for (const tableId of touched) {
@@ -2370,6 +2372,15 @@ function capturePointCommitConflictEvidenceResult(
         snapshotCommitSeq: expectedSnapshotCommitSeq,
         currentCommitSeq,
       });
+    }
+    if (cause.kind === "logicalParticipant") {
+      const syscallSequence = yield* Schema.decodeUnknownResult(
+        Schema.toType(CommitSyscallSequenceV1Schema),
+      )(cause.syscallSequence).pipe(Result.mapError(() => corruption("commandInvalid")));
+      if (typeof cause.participant !== "string" || cause.participant.length === 0)
+        return yield* Result.fail(corruption("commandInvalid"));
+      return Object.freeze({ conflict: Object.freeze({ kind: "logicalParticipant", participant: cause.participant,
+        syscallSequence }), snapshotCommitSeq: expectedSnapshotCommitSeq, currentCommitSeq });
     }
     if (
       cause.kind !== "appIndexRange" ||
@@ -3276,6 +3287,7 @@ async function runPointMutationAttemptReplacement(
       command,
       heads,
       sharedOptions,
+      preliminaryAuthority,
     );
     await emitReplacementStep(options, command, "dependenciesValidated");
 
@@ -5175,7 +5187,7 @@ async function validateAdmittedParticipantOperations(
   const principalDigest = encodeBytesToLowercaseHex(command.session.identityAccessPolicySha256);
   const validated: Array<Readonly<{ search: readonly LogicalSearchDefinition[] }>> = [];
   for (const operation of operations) {
-    const tokens = authorities.filter(token => hasLogicalRelationalParticipantCommitAuthority(
+    const tokens = authorities.filter(token => hasLogicalParticipantCommitAuthority(
       token, operation.participant, operation.method));
     if (tokens.length !== 1) throw corruption("commandInvalid");
     const binding = projectPointCommitTransactionResult(canonicalizeAdmittedParticipantBindingV1Result({
@@ -5194,7 +5206,7 @@ async function validateAdmittedParticipantOperations(
     const bindingDigest = encodeBytesToLowercaseHex(new Uint8Array(
       await crypto.subtle.digest("SHA-256", new Uint8Array(binding.bytes).buffer)));
     if (bindingDigest !== operation.participantBindingSha256Hex) throw corruption("commandInvalid");
-    const admittedEffect = requireLogicalRelationalParticipantCommitAuthorityEffect(
+    const admittedEffect = requireLogicalParticipantCommitAuthorityEffect(
       tokens[0]!, operation, tx, authority, clock).pipe(
       Effect.mapError(error => error.reason === "resourceFailure"
         ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
@@ -6486,15 +6498,14 @@ async function requireReproduciblePointCommitConflict(
   command: PreparedPointMutationAttemptReplacementCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
   options: PointCommitTransactionProofOptionsV1,
+  authority: TrustedScopeAuthority,
 ): Promise<void> {
-  const pointConflict = projectPointCommitTransactionResult(
-    findPointCommitConflictAfterEvidenceValidationResult(command, heads),
-  );
-  const actual = pointConflict ?? await findPointCommitIndexRangeConflict(
-    tx,
-    clock,
-    command,
-  ) ?? await findPointCommitRelationConflict(tx, clock, command, options);
+  const actual = command.expectedConflict.conflict.kind === "logicalParticipant"
+    ? await findPointCommitLogicalParticipantConflict(tx, clock, command, options, authority)
+    : projectPointCommitTransactionResult(
+      findPointCommitConflictAfterEvidenceValidationResult(command, heads),
+    ) ?? await findPointCommitIndexRangeConflict(tx, clock, command) ??
+      await findPointCommitRelationConflict(tx, clock, command, options);
   if (
     actual === null ||
     !pointCommitConflictsReproduce(command.expectedConflict, actual)
@@ -6503,6 +6514,62 @@ async function requireReproduciblePointCommitConflict(
       reason: "conflictNoLongerPresent",
     });
   }
+}
+
+async function findPointCommitLogicalParticipantConflict(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  command: PreparedPointMutationAttemptReplacementCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+  authority: TrustedScopeAuthority,
+): Promise<PointCommitConflictEvidenceV1 | null> {
+  const expected = command.expectedConflict.conflict;
+  if (expected.kind !== "logicalParticipant") return null;
+  // The root was locked and authenticated against sealIdentity above. Read its
+  // sealed bytes under the same transaction and authenticate the canonical
+  // journal digest before selecting any participant operation.
+  const query = tx.select({ sealedJournalBytes: fxSystemTransactionJournals.sealedJournalBytes })
+    .from(fxSystemTransactionJournals).where(and(
+      eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
+      eq(fxSystemTransactionJournals.sessionId, command.authorityPins.sessionId),
+      eq(fxSystemTransactionJournals.attemptFence, command.authorityPins.attemptFence),
+    )).limit(2);
+  observeDrizzleQuery("lockJournalRoot", query, options);
+  const rows = await sqlCall("lockJournalRoot", () => query);
+  const bytes = rows[0]?.sealedJournalBytes;
+  if (rows.length !== 1 || !isUint8ArrayWithByteLength(bytes, command.sealIdentity.journalByteLength))
+    throw corruption("occEvidenceInvalid");
+  const sealed = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    decodeCanonicalSessionJournalV2Effect({ canonicalBytes: bytes,
+      expectedSha256Hex: encodeBytesToLowercaseHex(command.sealIdentity.journalSha256) })
+      .pipe(Effect.mapError(() => corruption("occEvidenceInvalid")))));
+  const matching = sealed.journal.participantOperations.filter(operation =>
+    operation.participant === expected.participant && operation.syscallSequence === expected.syscallSequence);
+  if (matching.length !== 1) throw corruption("occEvidenceInvalid");
+  const operation = matching[0]!;
+  const tokens = (options.logicalParticipants ?? []).filter(token =>
+    hasLogicalParticipantCommitAuthority(token, operation.participant, operation.method));
+  if (tokens.length !== 1) throw corruption("commandInvalid");
+  const admitted = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+    requireLogicalParticipantCommitAuthorityEffect(tokens[0]!, operation, tx, authority, clock.record).pipe(
+      Effect.mapError(error => error.reason === "resourceFailure"
+        ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
+        : error.reason === "storedCorruption" ? corruption("activeApplicationHeadInvalid")
+          : new PointCommitStaleAuthorityV1Error({ reason: "activeSchemaChanged" })))));
+  const validation = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(Effect.result(
+    validateLogicalParticipantDependencyEvidence(tx, command.authorityPins.scopeId, operation, admitted))));
+  return Result.match(validation, {
+    onSuccess: () => null,
+    onFailure: failure => {
+      if (failure.reason === "resourceFailure")
+        throw new PointCommitSqlFailureMarkerV1("validateIndexRanges", failure.cause ?? failure);
+      if (failure.reason !== "writeConflict") throw corruption("dependencySetInvalid");
+      return Object.freeze({ conflict: Object.freeze({ kind: "logicalParticipant" as const,
+        participant: operation.participant, syscallSequence: operation.syscallSequence }),
+        snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
+        currentCommitSeq: clock.record.lastCommitSeq });
+    },
+  });
 }
 
 function pointCommitConflictsReproduce(
@@ -6529,7 +6596,7 @@ function pointCommitConflictsReproduce(
     return actual.conflict.kind === "logicalParticipant" &&
       expected.conflict.participant === actual.conflict.participant &&
       expected.conflict.syscallSequence === actual.conflict.syscallSequence &&
-      expected.currentCommitSeq === actual.currentCommitSeq;
+      actual.currentCommitSeq >= expected.currentCommitSeq;
   }
   if (actual.conflict.kind !== "appIndexRange") return false;
   if (

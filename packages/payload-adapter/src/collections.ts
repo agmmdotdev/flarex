@@ -146,7 +146,7 @@ export const compilePayloadCollections = Effect.fn("PayloadCollections.compile")
     }
     const indexes: NonNullable<PayloadConfiguration["tables"][number]["indexes"]>[number][] = [];
     const selections = [...definition.fields.flatMap(field => field.type !== "relationship" &&
-      (field.index || (field.type === "text" && field.unique && field.required !== true)) ? [{ fields: [field.name], unique: false }] : []),
+      (field.index || (field.type === "text" && field.unique)) ? [{ fields: [field.name], unique: false }] : []),
       ...(definition.indexes ?? [])];
     for (const selection of selections) {
       const digest = yield* digestApplicationWritePolicyFrame(selection.fields);

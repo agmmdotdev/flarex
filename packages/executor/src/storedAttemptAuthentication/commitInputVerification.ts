@@ -6,10 +6,10 @@ import {
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
-import { hasLogicalRelationalParticipantCommitAuthority,
-  inspectLogicalRelationalParticipantCommitAuthority,
-  type LogicalRelationalParticipantCommitAuthority } from
-  "@flarex/persistence-postgres/internal/logical-relational-admission";
+import { hasLogicalParticipantCommitAuthority,
+  inspectLogicalParticipantCommitAuthority,
+  type LogicalParticipantCommitAuthority } from
+  "@flarex/persistence-postgres/internal/logical-participant-admission";
 
 import {
   AppDocumentIdV1Error,
@@ -237,7 +237,7 @@ export interface CommitInputVerificationSourceV1 {
   readonly points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>;
   readonly successfulResult: AuthenticatedSuccessfulResultV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
-  readonly logicalParticipants: readonly LogicalRelationalParticipantCommitAuthority[];
+  readonly logicalParticipants: readonly LogicalParticipantCommitAuthority[];
   readonly functionValidationAuthority: Readonly<{
     readonly path: string;
     readonly returnsValidator:
@@ -269,15 +269,15 @@ export const verifyCommitInputStateEffect = Effect.fn(
     tableIdsByName.set(table.logicalName, table.tableId);
   }
   const participantTables = new Map<CatalogTableId, Readonly<{
-    authority: LogicalRelationalParticipantCommitAuthority;
-    validateDocument: NonNullable<ReturnType<typeof inspectLogicalRelationalParticipantCommitAuthority>>["validateDocument"];
+    authority: LogicalParticipantCommitAuthority;
+    validateDocument: NonNullable<ReturnType<typeof inspectLogicalParticipantCommitAuthority>>["validateDocument"];
   }>>();
   for (const operation of source.journal.participantOperations) {
     const authorities = source.logicalParticipants.filter(token =>
-      hasLogicalRelationalParticipantCommitAuthority(token, operation.participant, operation.method));
+      hasLogicalParticipantCommitAuthority(token, operation.participant, operation.method));
     if (authorities.length !== 1) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
     const authority = authorities[0]!;
-    const inspected = inspectLogicalRelationalParticipantCommitAuthority(authority, operation);
+    const inspected = inspectLogicalParticipantCommitAuthority(authority, operation);
     if (inspected === null) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
     for (const tableId of inspected.tableIds) {
       const existing = participantTables.get(tableId);

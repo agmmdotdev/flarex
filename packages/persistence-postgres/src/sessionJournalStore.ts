@@ -251,26 +251,18 @@ import {
   type TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
 import { decodeScopeClockRecord } from "./scopeClock";
-import {
-  prepareLogicalRelationalAdmission,
-  LogicalRelationalAdmissionError,
-  type LogicalRelationalAttemptAdmission,
-  type LogicalRelationalAttemptReadTransaction,
-} from "./logicalDocuments/relationalAdmission";
+import { LogicalParticipantAdmissionError, LogicalParticipantInvocationError,
+  inspectLogicalParticipantAttemptAdmission, hasLogicalParticipantAttemptAdmission,
+  requireLogicalParticipantAttemptAdmissionInTransactionEffect,
+  type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptReadTransaction,
+  type LogicalParticipantSelection } from "./logicalDocuments/participantAdmission";
 import type { ApplicationBindingInput } from "./applicationActivation";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import type { ScopeClockRecord } from "./scopeClock";
-import {
-  inspectLogicalRelationalAttemptAdmission,
-  hasLogicalRelationalAttemptAdmission,
-  requireLogicalRelationalAttemptAdmissionInTransactionEffect,
-} from "./logicalDocuments/relationalAdmission";
-import { makeBorrowedLogicalAttempt } from "./commerceTransaction/borrowedLogicalAttempt";
 import { projectLogicalDocumentJournalContribution, type LogicalJournalContributionError } from "./logicalDocuments/journalContribution";
 import { serializeLogicalParticipantDependencyEvidence, type LogicalParticipantEvidenceError } from "./logicalDocuments/journalEvidence";
 import type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
 import type { LogicalPendingDocumentSeed } from "./logicalDocuments/model";
-import { CommerceTransactionError } from "./commerceTransaction/model";
 import {
   encodeAdmittedFrameworkOperationV1Result,
   MAX_ADMITTED_FRAMEWORK_OPERATION_BYTES_V1,
@@ -723,6 +715,18 @@ export interface PreparedSessionJournalSealResultV1 {
   readonly journal: SessionJournalV2;
 }
 
+export interface LogicalBorrowedParticipantOperation {
+  readonly invoke: (method: string, args: Json) => Effect.Effect<AdmittedCompletion, LogicalParticipantInvocationError>;
+  readonly abort: Effect.Effect<void>;
+  readonly currentUsage: () => Readonly<{ workBytes: number; workCalls: number }>;
+}
+export type LogicalParticipantBorrow = (input: Readonly<{
+  attempt: SessionJournalAttemptV1;
+  admission: LogicalParticipantAttemptAdmission;
+  method: string;
+  pendingRows: readonly LogicalPendingDocumentSeed[];
+}>) => Effect.Effect<LogicalBorrowedParticipantOperation, LogicalParticipantInvocationError>;
+
 export interface SessionJournalStorePersistenceV1 {
   readonly openAttemptEffect: (
     input: OpenSessionJournalAttemptV1Input,
@@ -739,20 +743,20 @@ export interface SessionJournalStorePersistenceV1 {
   readonly admitLogicalParticipantEffect: (
     attempt: SessionJournalAttemptV1,
     input: Readonly<{
-      selection: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>;
+      selection: LogicalParticipantSelection;
       application: ApplicationBindingInput;
       methods: readonly string[];
     }>,
   ) => Effect.Effect<
-    LogicalRelationalAttemptAdmission,
+    LogicalParticipantAttemptAdmission,
     InvalidSessionJournalCapabilityV1Error |
       SessionJournalPersistenceV1Error |
       SessionJournalTargetUnavailableV1Error |
-      LogicalRelationalAdmissionError
+      LogicalParticipantAdmissionError
   >;
   readonly runAdmittedOperationEffect: (
     attempt: SessionJournalAttemptV1,
-    admission: LogicalRelationalAttemptAdmission,
+    admission: LogicalParticipantAttemptAdmission,
     input: Readonly<{
       syscallSequence: CommitSyscallSequenceV1;
       requestBytes: Uint8Array;
@@ -760,10 +764,7 @@ export interface SessionJournalStorePersistenceV1 {
       participant: string;
       method: string;
     }>,
-    invoke: (borrowed: Effect.Success<ReturnType<typeof makeBorrowedLogicalAttempt>>,
-      method: string, args: Json) =>
-      Effect.Effect<Readonly<{ result: Json; changes: LogicalDocumentChanges;
-        eventIntents: readonly Json[]; workBytes: number; workCalls: number }>, CommerceTransactionError>,
+    borrow: LogicalParticipantBorrow,
   ) => Effect.Effect<
     Readonly<{ kind: "completed"; delivery: "executed" | "replayed"; result: Json }> |
       Readonly<{ kind: "sequenceRejected"; issue: SessionJournalSequenceIssueV1 }> |
@@ -771,8 +772,8 @@ export interface SessionJournalStorePersistenceV1 {
     InvalidSessionJournalCapabilityV1Error | SessionJournalPersistenceV1Error |
       SessionJournalAttemptUnavailableV1Error | SessionJournalStorageCorruptionV1Error |
       SessionJournalTargetUnavailableV1Error |
-      LogicalRelationalAdmissionError | LogicalJournalContributionError |
-      LogicalParticipantEvidenceError | CommerceTransactionError
+      LogicalParticipantAdmissionError | LogicalJournalContributionError |
+      LogicalParticipantEvidenceError | LogicalParticipantInvocationError
   >;
   readonly resolvePointTableEffect: (
     attempt: SessionJournalAttemptV1,
@@ -1438,27 +1439,27 @@ const captureAdmittedOperationRequestEffect = Effect.fn(
   requestSha256: Uint8Array;
 }>): Effect.fn.Return<
   Readonly<{ frame: AdmittedFrameworkOperationV1; sha256: Uint8Array }>,
-  LogicalRelationalAdmissionError | SessionJournalPersistenceV1Error
+  LogicalParticipantAdmissionError | SessionJournalPersistenceV1Error
 > {
   if (!(input.requestBytes instanceof Uint8Array) ||
     input.requestBytes.byteLength < 1 ||
     input.requestBytes.byteLength > MAX_ADMITTED_FRAMEWORK_OPERATION_BYTES_V1 ||
     !(input.requestSha256 instanceof Uint8Array) ||
     input.requestSha256.byteLength !== 32) {
-    return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidInput" }));
+    return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidInput" }));
   }
   const bytes = new Uint8Array(input.requestBytes);
   const suppliedDigest = new Uint8Array(input.requestSha256);
   const parsed = yield* Effect.try({
     try: (): unknown => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
-    catch: (cause) => new LogicalRelationalAdmissionError({ reason: "invalidInput", cause }),
+    catch: (cause) => new LogicalParticipantAdmissionError({ reason: "invalidInput", cause }),
   });
   const encoded = yield* Effect.fromResult(
     encodeAdmittedFrameworkOperationV1Result(parsed).pipe(Result.mapError((cause) =>
-      new LogicalRelationalAdmissionError({ reason: "invalidInput", cause }))),
+      new LogicalParticipantAdmissionError({ reason: "invalidInput", cause }))),
   );
   if (!bytesEqual(bytes, encoded.bytes)) {
-    return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidInput" }));
+    return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidInput" }));
   }
   const digest = yield* Effect.tryPromise({
     try: () => sha256(bytes),
@@ -1467,7 +1468,7 @@ const captureAdmittedOperationRequestEffect = Effect.fn(
     }),
   });
   if (!bytesEqual(digest, suppliedDigest)) {
-    return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidInput" }));
+    return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidInput" }));
   }
   return Object.freeze({ frame: encoded.operation, sha256: digest });
 });
@@ -1476,7 +1477,7 @@ function mapAdmittedKernelFailure(cause: unknown):
   InvalidSessionJournalCapabilityV1Error | SessionJournalPersistenceV1Error |
   SessionJournalAttemptUnavailableV1Error | SessionJournalStorageCorruptionV1Error |
   SessionJournalTargetUnavailableV1Error |
-  LogicalRelationalAdmissionError | CommerceTransactionError {
+  LogicalParticipantAdmissionError | LogicalParticipantInvocationError {
   if (cause instanceof ExactRunningAttemptTransactionV1Error) {
     return mapExactAdmissionFailure("runAdmittedOperation", cause);
   }
@@ -1485,8 +1486,8 @@ function mapAdmittedKernelFailure(cause: unknown):
     cause instanceof SessionJournalPersistenceV1Error ||
     cause instanceof SessionJournalStorageCorruptionV1Error ||
     cause instanceof SessionJournalTargetUnavailableV1Error ||
-    cause instanceof LogicalRelationalAdmissionError ||
-    cause instanceof CommerceTransactionError) return cause;
+    cause instanceof LogicalParticipantAdmissionError ||
+    cause instanceof LogicalParticipantInvocationError) return cause;
   return new SessionJournalPersistenceV1Error({
     operation: "runAdmittedOperation", cause,
   });
@@ -1498,7 +1499,7 @@ const preflightAdmittedOperationInTransactionEffect = Effect.fn(
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   attempt: SessionJournalAttemptStateV1,
-  admission: LogicalRelationalAttemptAdmission,
+  admission: LogicalParticipantAttemptAdmission,
   attemptHandle: SessionJournalAttemptV1,
   authority: TrustedScopeAuthority,
   request: Extract<SessionJournalStoredRequestV1, { readonly kind: "admittedLogicalOperation" }>,
@@ -1593,12 +1594,12 @@ const preflightAdmittedOperationInTransactionEffect = Effect.fn(
         lastAccepted: last }),
     }) });
   }
-  const admittedState = yield* requireLogicalRelationalAttemptAdmissionInTransactionEffect(
+  const admittedState = yield* requireLogicalParticipantAttemptAdmissionInTransactionEffect(
     admission, attemptHandle, request.method, tx, authority, context.scopeClock,
   );
-  const tableIds = admittedState.tables.map((table) => table.tableId);
+  const tableIds = [...admittedState.tableIds];
   if (tableIds.length === 0) {
-    return yield* Effect.fail(new LogicalRelationalAdmissionError({
+    return yield* Effect.fail(new LogicalParticipantAdmissionError({
       reason: "unsupportedProfile",
     }));
   }
@@ -1684,7 +1685,7 @@ const persistAdmittedInvocationMarkerInTransactionEffect = Effect.fn(
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   attemptState: SessionJournalAttemptStateV1,
-  admission: LogicalRelationalAttemptAdmission,
+  admission: LogicalParticipantAttemptAdmission,
   attempt: SessionJournalAttemptV1,
   authority: TrustedScopeAuthority,
   request: Extract<SessionJournalStoredRequestV1, { readonly kind: "admittedLogicalOperation" }>,
@@ -1696,7 +1697,7 @@ const persistAdmittedInvocationMarkerInTransactionEffect = Effect.fn(
     root.lastSyscallSequence + 1n !== request.syscallSequence) {
     return yield* Effect.fail(corruption(attemptState, "journalRootOperationUpdateMismatch"));
   }
-  yield* requireLogicalRelationalAttemptAdmissionInTransactionEffect(
+  yield* requireLogicalParticipantAttemptAdmissionInTransactionEffect(
     admission, attempt, request.method, tx, authority, context.scopeClock,
   );
   const outcomeEvidence = yield* Effect.tryPromise({
@@ -1711,7 +1712,7 @@ const persistAdmittedInvocationMarkerInTransactionEffect = Effect.fn(
   // native service; a full result can then fail closed without losing poison.
   if (root.receiptEvidenceBytes + evidenceBytes + 1_024 >
     MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1) {
-    return yield* Effect.fail(new LogicalRelationalAdmissionError({
+    return yield* Effect.fail(new LogicalParticipantAdmissionError({
       reason: "unsupportedProfile",
     }));
   }
@@ -1758,7 +1759,7 @@ const persistAdmittedInvocationMarkerInTransactionEffect = Effect.fn(
   }
 });
 
-type AdmittedCompletion = Readonly<{
+export type AdmittedCompletion = Readonly<{
   result: Json;
   changes: LogicalDocumentChanges;
   eventIntents: readonly Json[];
@@ -1772,7 +1773,7 @@ const appendAdmittedOperationInTransactionEffect = Effect.fn(
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   attemptState: SessionJournalAttemptStateV1,
-  admission: LogicalRelationalAttemptAdmission,
+  admission: LogicalParticipantAttemptAdmission,
   attempt: SessionJournalAttemptV1,
   authority: TrustedScopeAuthority,
   request: Extract<SessionJournalStoredRequestV1, { readonly kind: "admittedLogicalOperation" }>,
@@ -1787,7 +1788,7 @@ const appendAdmittedOperationInTransactionEffect = Effect.fn(
     BigInt(root.lastSyscallSequence) !== BigInt(request.syscallSequence)) {
     return yield* Effect.fail(corruption(attemptState, "journalRootOperationUpdateMismatch"));
   }
-  yield* requireLogicalRelationalAttemptAdmissionInTransactionEffect(
+  yield* requireLogicalParticipantAttemptAdmissionInTransactionEffect(
     admission, attempt, request.method, tx, authority, context.scopeClock,
   );
   const principalRows = yield* Effect.tryPromise({
@@ -1801,13 +1802,13 @@ const appendAdmittedOperationInTransactionEffect = Effect.fn(
       operation: "runAdmittedOperation", cause,
     }),
   });
-  const admissionEvidence = inspectLogicalRelationalAttemptAdmission(
+  const admissionEvidence = inspectLogicalParticipantAttemptAdmission(
     admission, attempt, request.method,
   );
   if (admissionEvidence === null || principalRows.length !== 1 ||
     encodeBytesToLowercaseHex(principalRows[0]!.digest) !==
       admissionEvidence.root.principalDigest) {
-    return yield* Effect.fail(new LogicalRelationalAdmissionError({
+    return yield* Effect.fail(new LogicalParticipantAdmissionError({
       reason: "invalidAuthority",
     }));
   }
@@ -1928,7 +1929,7 @@ const appendAdmittedOperationInTransactionEffect = Effect.fn(
   if (limit !== undefined ||
     root.participantWorkBytes + completed.workBytes > MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1 ||
     root.participantWorkCalls + completed.workCalls > MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1) {
-    return yield* Effect.fail(new LogicalRelationalAdmissionError({
+    return yield* Effect.fail(new LogicalParticipantAdmissionError({
       reason: "unsupportedProfile",
     }));
   }
@@ -2024,7 +2025,7 @@ export function createSessionJournalStorePersistenceV1(
       }));
     }
     const resolved = yield* resolveJournalTargetEffect(attemptState);
-    const readTransaction: LogicalRelationalAttemptReadTransaction =
+    const readTransaction: LogicalParticipantAttemptReadTransaction =
       <Value, Failure>(work: (tx: FlarexMetadataTransaction,
         authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
           Effect.Effect<Value, Failure>) =>
@@ -2036,7 +2037,7 @@ export function createSessionJournalStorePersistenceV1(
           },
           (tx, context) => work(tx, resolved.authority, context.scopeClock),
         ).pipe(Effect.catchTag("ExactRunningAttemptTransactionV1Error", (cause) =>
-          Effect.fail(new LogicalRelationalAdmissionError({
+          Effect.fail(new LogicalParticipantAdmissionError({
             reason: "invalidAuthority", cause,
           }))));
     const principalRows = yield* readTransaction((tx) => Effect.tryPromise({
@@ -2054,7 +2055,7 @@ export function createSessionJournalStorePersistenceV1(
       }),
     }));
     if (principalRows.length !== 1 || principalRows[0]?.digest.byteLength !== 32) {
-      return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     }
     const principalDigest = encodeBytesToLowercaseHex(principalRows[0].digest);
     return yield* input.selection.bindAttemptEffect(input.application, attempt, {
@@ -2071,18 +2072,18 @@ export function createSessionJournalStorePersistenceV1(
   const runAdmittedOperationEffect: SessionJournalStorePersistenceV1[
     "runAdmittedOperationEffect"
   ] = Effect.fn("SessionJournalStore.runAdmittedOperation")(function* (
-    attempt, admission, input, invoke,
+    attempt, admission, input, borrow,
   ) {
     const attemptState = typeof attempt === "object" && attempt !== null
       ? attemptStates.get(attempt)
       : undefined;
     if (attemptState === undefined ||
-      !hasLogicalRelationalAttemptAdmission(admission, attempt, input.method)) {
+      !hasLogicalParticipantAttemptAdmission(admission, attempt, input.method)) {
       return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
         capability: "attempt",
       }));
     }
-    const admitted = inspectLogicalRelationalAttemptAdmission(
+    const admitted = inspectLogicalParticipantAttemptAdmission(
       admission, attempt, input.method,
     );
     if (admitted === null || admitted.root.scopeId !== attemptState.selector.scopeId ||
@@ -2097,7 +2098,7 @@ export function createSessionJournalStorePersistenceV1(
     const captured = yield* captureAdmittedOperationRequestEffect(input);
     if (captured.frame.participant !== input.participant ||
       captured.frame.operation !== input.method) {
-      return yield* Effect.fail(new LogicalRelationalAdmissionError({
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({
         reason: "invalidInput",
       }));
     }
@@ -2111,7 +2112,7 @@ export function createSessionJournalStorePersistenceV1(
         sourceSha256Hex: admitted.sourceSha256,
         bindingHead: admitted.bindingHead,
       }).pipe(Result.mapError((cause) =>
-        new LogicalRelationalAdmissionError({ reason: "invalidAuthority", cause }))),
+        new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause }))),
     );
     const bindingDigest = yield* Effect.tryPromise({
       try: () => sha256(binding.bytes),
@@ -2165,7 +2166,7 @@ export function createSessionJournalStorePersistenceV1(
             request, requestEvidence, bindingDigest,
           ),
         ).pipe(Effect.mapError(mapAdmittedKernelFailure));
-        const borrowedExit = yield* Effect.exit(makeBorrowedLogicalAttempt({
+        const borrowedExit = yield* Effect.exit(borrow({
           admission, attempt, method: input.method, pendingRows: preflight.pendingRows,
         }));
         if (Exit.isFailure(borrowedExit)) {
@@ -2185,18 +2186,16 @@ export function createSessionJournalStorePersistenceV1(
         // projection or evidence check fails. Keep the entire preparation in
         // the failure bracket and durably poison the exact root before exit.
         const prepared = yield* Effect.exit(restore(Effect.gen(function* () {
-          const completed = yield* invoke(
-            borrowed, captured.frame.operation, captured.frame.args,
-          );
+          const completed = yield* borrowed.invoke(captured.frame.operation, captured.frame.args);
           if (completed.eventIntents.length > commitEventLimits.messages) {
-            return yield* Effect.fail(new LogicalRelationalAdmissionError({
+            return yield* Effect.fail(new LogicalParticipantAdmissionError({
               reason: "invalidInput",
             }));
           }
           for (const intent of completed.eventIntents) {
             yield* Effect.fromResult(Schema.decodeUnknownResult(EventEnvelope,
               { onExcessProperty: "error" })(intent).pipe(Result.mapError(cause =>
-                new LogicalRelationalAdmissionError({ reason: "invalidInput", cause }))));
+                new LogicalParticipantAdmissionError({ reason: "invalidInput", cause }))));
           }
           const contribution = yield* projectLogicalDocumentJournalContribution(
             completed.changes,

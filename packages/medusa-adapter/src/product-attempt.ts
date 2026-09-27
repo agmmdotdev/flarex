@@ -114,7 +114,7 @@ export const executePrivateProductAttemptOperation: (
     captureLocalEvent: (event: unknown) => Effect.flatMap(binding.logicalPolicy.capture(event),
       captured => borrowed.context.captureLocalEvent(captured)),
   });
-  const result = yield* runCommerceCommand(selected.command, nativeContext, selected.args);
+  const result = yield* borrowed.withinDeadline(runCommerceCommand(selected.command, nativeContext, selected.args));
   const activity = yield* borrowed.callActivity(cursor);
   const closed = yield* borrowed.close;
   if (identity.mode === "read" && (activity.mutations.length !== 0 || activity.lifecycle.length !== 0 ||

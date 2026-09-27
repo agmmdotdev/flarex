@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import { CommerceTransactionError } from
   "@flarex/persistence-postgres/internal/commerce-values";
+import { LogicalParticipantInvocationError } from
+  "@flarex/persistence-postgres/internal/logical-participant-admission";
 import { makeCommerceHost } from
   "../../persistence-postgres/src/commerceTransaction/host";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
@@ -164,7 +166,8 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
           method: request.operation.operation,
         }, () => {
           duplicateInvocations += 1;
-          return Effect.fail(new CommerceTransactionError({ reason: "adapterFailure" }));
+          return Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection",
+            cause: new CommerceTransactionError({ reason: "adapterFailure" }) }));
         },
       ));
       expect(duplicate).toMatchObject({ kind: "stateRejected",
@@ -723,7 +726,8 @@ it("refuses a Product capability from another scope on the same physical target"
         participant: "medusa.product", method: "update",
       }, () => {
         invoked += 1;
-        return Effect.fail(new CommerceTransactionError({ reason: "adapterFailure" }));
+        return Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection",
+          cause: new CommerceTransactionError({ reason: "adapterFailure" }) }));
       },
     ))).rejects.toMatchObject({ _tag: "InvalidSessionJournalCapabilityV1Error" });
     expect(invoked).toBe(0);
