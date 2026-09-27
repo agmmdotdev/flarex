@@ -380,6 +380,8 @@ function portDependencies(fixture: Fixture) {
     controlDb: fixture.persistence.drizzle,
     authority: {
       scopeMetadata: {
+        getScopeMetadata: (scopeId: Fixture["scopeId"]) =>
+          fixture.persistence.getScopeMetadata(scopeId),
         getScopeMetadataByDeploymentId: (deploymentId: string) =>
           fixture.persistence.getScopeMetadataByDeploymentId(deploymentId),
       },

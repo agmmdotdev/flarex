@@ -18,6 +18,7 @@ import { createAppUniqueConstraintSetEligibilityPortV1 } from "../src/appUniqueC
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from "../src/pointCommitTransaction";
 import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import type { ExactTrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
 import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
 import { issueSetupSeededSyscallValidatorProofV1 } from "./applicationRevisionSyscallValidatorTestSupport";
@@ -36,7 +37,8 @@ interface RelationSourceCommitFixture {
   readonly selection: ApplicationActiveSelection;
   readonly scopeId: ScopeId;
   readonly ports: Parameters<typeof createPointCommitPublisherPortV1>[0];
-  readonly authority: Parameters<typeof createAppUniqueConstraintSetEligibilityPortV1>[0]["authority"];
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts &
+    Parameters<typeof createAppUniqueConstraintSetEligibilityPortV1>[0]["authority"];
   readonly publication: ApplicationRelationBindingPublication;
   readonly definitions: LocatedApplicationRelationDefinitionSet;
   readonly relationCommit: ApplicationRelationCommitPort;

@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
-import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
+import { decodeReplacementScopeIdV1, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TransactionAttemptFenceSchema,
@@ -20,6 +20,7 @@ import {
 } from "../src/postgres";
 import type { AppRowTransaction } from "../src/appRows";
 import { rowsFromDriverExecuteResult } from "../src/driverExecuteResult";
+import { fxSystemScopeClocks } from "../src/schema";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
   type PostgresLocatedReadCommittedRunnerOptionsV1,
@@ -85,6 +86,42 @@ interface ActivationContext {
 
 describePostgres("real Postgres O03-B session authority", () => {
   const withPostgresPersistence = useFileScopedPostgresPersistence();
+
+  it("activates exact shops when a deployment has two scopes", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(
+        persistence,
+        "shared_deployment_exact_scope",
+        sharedLocator("shared-deployment-exact-scope"),
+        ids,
+      );
+      const peerScopeId = decodeReplacementScopeIdV1(`scope_${ids()}`);
+      await persistence.insertScopeMetadata({
+        deploymentId: context.deploymentId,
+        scopeId: peerScopeId,
+        physicalLocator: context.physicalLocator,
+      });
+      await persistence.drizzle.insert(fxSystemScopeClocks).values({
+        scopeId: peerScopeId,
+        storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+        epoch: ScopeEpochSchema.make(`epoch_${ids()}`),
+      });
+      await setFlarexActivationClock(persistence, peerScopeId);
+      await expect(persistence.getScopeMetadataByDeploymentId(context.deploymentId))
+        .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
+
+      const activation = createActivationPersistence(persistence, ids);
+      for (const scopeId of [context.scopeId, peerScopeId]) {
+        const result = await activatePointMutationSession(
+          activation,
+          pointMutationSessionActivationFixture(context.deploymentId, scopeId),
+        );
+        expect(result.status).toBe("created");
+        expect(result.anchor.scopeId).toBe(scopeId);
+      }
+    });
+  });
 
   it("shares same-scope read admission while preserving the update-lock writer lane", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {

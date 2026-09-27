@@ -403,6 +403,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       return createStoredAttemptEvidenceLoaderV1({
         ...basePorts,
         scopeMetadata: {
+          getScopeMetadata: async () => {
+            throw cause;
+          },
           getScopeMetadataByDeploymentId: async () => {
             throw cause;
           },
@@ -5962,6 +5965,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(liveResult).toEqual({ kind: "wouldCommit" });
     expect(Object.isFrozen(liveResult)).toBe(true);
     expect(liveSteps).toEqual([
+      "lifecycleProtected",
       "clockLocked",
       "intrinsicIndexBuildLocked",
       "sessionLocked",
@@ -6092,6 +6096,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       createPointCommitRollbackProofPortV1({
         ...resolutionPorts(persistence),
         scopeMetadata: {
+          getScopeMetadata: async () => {
+            authorityReads += 1;
+            throw new Error("Running input must fail before authority I/O.");
+          },
           getScopeMetadataByDeploymentId: async () => {
             authorityReads += 1;
             throw new Error("Running input must fail before authority I/O.");
@@ -6203,6 +6211,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const proof = createPointCommitRollbackProofPortV1({
       ...resolutionPorts(persistence),
       scopeMetadata: {
+        getScopeMetadata: async () => {
+          authorityReads += 1;
+          throw new Error("Invalid command reached authority I/O.");
+        },
         getScopeMetadataByDeploymentId: async () => {
           authorityReads += 1;
           throw new Error("Invalid command reached authority I/O.");

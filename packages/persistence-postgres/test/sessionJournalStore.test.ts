@@ -1722,6 +1722,9 @@ describe("C03 Postgres SessionJournalStore", () => {
     const resolutionCause = new Error("resolution persistence unavailable");
     const failingResolutionPorts = {
       scopeMetadata: {
+        getScopeMetadata: async () => {
+          throw resolutionCause;
+        },
         getScopeMetadataByDeploymentId: async () => {
           throw resolutionCause;
         },

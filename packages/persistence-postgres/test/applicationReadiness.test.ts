@@ -2330,6 +2330,14 @@ describe("Application activation", { timeout: 30_000 }, () => {
       authority: fixture.authorityPorts,
     });
 
+    await fixture.control.insertScopeMetadata({
+      deploymentId: fixture.input.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_application_mutation_admission_peer"),
+      physicalLocator: LOCATOR,
+    });
+    await expect(fixture.control.getScopeMetadataByDeploymentId(fixture.input.deploymentId))
+      .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
+
     const admitted = await runEffect(selectApplicationMutationAdmission(
       active.selection,
       "users:get",
@@ -2388,6 +2396,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
       expectedActiveHead: null,
     }));
     const active = await runEffect(activation.readActive());
+    await fixture.control.insertScopeMetadata({
+      deploymentId: fixture.input.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_application_action_admission_peer"),
+      physicalLocator: LOCATOR,
+    });
     const admitted = await runEffect(selectApplicationActionAdmission(
       active.selection,
       "users:get",

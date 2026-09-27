@@ -3,6 +3,8 @@ import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalS
 import { Effect, Exit, Fiber } from "effect";
 import {
   ReplacementScopeIdV1Schema,
+  FlarexDbV1StorageGenerationSchema,
+  ScopeEpochSchema,
   decodeReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
 import type { Json, JsonObject } from "flarex-protocol/json";
@@ -37,6 +39,7 @@ import { TransactionExecutionClaimOwnerV1Schema } from
   "../src/transactionExecutionClaimModel";
 import {
   fxSystemSnapshotLeases,
+  fxSystemScopeClocks,
   fxSystemTransactionSessions,
 } from "../src/schema";
 import {
@@ -140,6 +143,38 @@ describe("O03-B1 point-mutation session activation", () => {
       },
     );
   }
+
+  it("activates exact shops when a deployment has two scopes", async () => {
+    const first = await provisionContext("shared_deployment_exact_scope");
+    const peerScopeId = decodeReplacementScopeIdV1(`scope_${nextUuid()}`);
+    await persistence.insertScopeMetadata({
+      deploymentId: first.deploymentId,
+      scopeId: peerScopeId,
+      physicalLocator: sharedLocator,
+    });
+    await persistence.drizzle.insert(fxSystemScopeClocks).values({
+      scopeId: peerScopeId,
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      epoch: ScopeEpochSchema.make(`epoch_${nextUuid()}`),
+    });
+    await setFlarexActivationClock(persistence, peerScopeId);
+    await expect(persistence.getScopeMetadataByDeploymentId(first.deploymentId))
+      .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
+
+    const activation = activationPersistence();
+    for (const scopeId of [first.scopeId, peerScopeId]) {
+      const result = await activatePointMutationSession(
+        activation,
+        pointMutationSessionActivationFixture(first.deploymentId, scopeId),
+      );
+      expect(result.status).toBe("created");
+      expect(result.anchor.scopeId).toBe(scopeId);
+      await expect(rowCounts(persistence, scopeId)).resolves.toMatchObject({
+        sessions: 1,
+        leases: 1,
+      });
+    }
+  });
 
   function executionClaimAcquisition(owner: string) {
     return createPointMutationExecutionClaimAcquisitionV1(
@@ -456,6 +491,9 @@ describe("O03-B1 point-mutation session activation", () => {
       {
         ...basePorts,
         scopeMetadata: {
+          getScopeMetadata: async () => {
+            throw cause;
+          },
           getScopeMetadataByDeploymentId: async () => {
             throw cause;
           },
@@ -676,6 +714,7 @@ describe("O03-B1 point-mutation session activation", () => {
     } as const;
     const missingAuthorityPorts = {
       scopeMetadata: {
+        getScopeMetadata: async () => null,
         getScopeMetadataByDeploymentId: async () => null,
       },
       ...inaccessibleTarget,
@@ -713,6 +752,9 @@ describe("O03-B1 point-mutation session activation", () => {
     const portFailure = new Error("scope metadata unavailable");
     const failedPort = {
       scopeMetadata: {
+        getScopeMetadata: async () => {
+          throw portFailure;
+        },
         getScopeMetadataByDeploymentId: async () => {
           throw portFailure;
         },
@@ -1469,6 +1511,10 @@ describe("O03-B1 point-mutation session activation", () => {
     let authorityReads = 0;
     const ports = {
       scopeMetadata: {
+        getScopeMetadata: async () => {
+          authorityReads += 1;
+          return null;
+        },
         getScopeMetadataByDeploymentId: async () => {
           authorityReads += 1;
           return null;

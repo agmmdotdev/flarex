@@ -47,7 +47,8 @@ import {
   type LockScopeClockForShareError,
 } from "./scopeClock";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+  type ExactTrustedScopeAuthorityResolutionPorts,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
@@ -77,9 +78,9 @@ export interface ApplicationMutationAdmissionContext {
   readonly controlDb: FlarexMetadataDatabase;
   readonly schema: ApplicationSchemaAuthorityPublisher<unknown>;
   readonly relationSchema?: ApplicationRelationSchemaAuthorityPort;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
-  >;
+  > & TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
 }
 
 export class ApplicationMutationAdmissionError extends Data.TaggedError(
@@ -197,8 +198,8 @@ const selectApplicationMutationAdmissionForVisibility = Effect.fn(
     kind: "mutation" as const,
     visibility: fn.visibility,
   });
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    context.deploymentId,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: context.deploymentId, scopeId: basis.authority.scopeId },
     context.authority,
   );
   yield* requireSameAuthority(basis.authority, located.authority);

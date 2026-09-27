@@ -504,6 +504,9 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const authorityFailure = createPointMutationSessionAttemptLoadPersistenceV1({
       ...basePorts,
       scopeMetadata: {
+        getScopeMetadata: async () => {
+          throw cause;
+        },
         getScopeMetadataByDeploymentId: async () => {
           throw cause;
         },
@@ -589,14 +592,14 @@ describe("O03-B exact point-mutation attempt authority", () => {
       ...selector,
       scopeId: other.scopeId,
     })).rejects.toMatchObject({
-      issue: { reason: "selectorScopeMismatch" },
-    } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
+      failure: { reason: "scopeDeploymentMismatch", scopeId: other.scopeId },
+    });
     await expect(loadPointMutationSessionAttempt(loader, {
       ...selector,
       deploymentId: other.deploymentId,
     })).rejects.toMatchObject({
-      issue: { reason: "selectorScopeMismatch" },
-    } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
+      failure: { reason: "scopeDeploymentMismatch", scopeId: primary.scopeId },
+    });
     await expect(loadPointMutationSessionAttempt(loader, {
       ...selector,
       sessionId: TransactionSessionIdV1Schema.make(
@@ -884,6 +887,9 @@ describe("O03-B exact point-mutation attempt authority", () => {
       createPointMutationSessionAttemptTerminalizationPersistenceV1({
         ...ports,
         scopeMetadata: {
+          getScopeMetadata: async () => {
+            throw cause;
+          },
           getScopeMetadataByDeploymentId: async () => {
             throw cause;
           },
@@ -917,6 +923,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       createPointMutationSessionAttemptTerminalizationPersistenceV1({
         ...ports,
         scopeMetadata: {
+          getScopeMetadata: async (scopeId) => {
+            authorityReads += 1;
+            return ports.scopeMetadata.getScopeMetadata(scopeId);
+          },
           getScopeMetadataByDeploymentId: async (deploymentId) => {
             authorityReads += 1;
             return ports.scopeMetadata.getScopeMetadataByDeploymentId(

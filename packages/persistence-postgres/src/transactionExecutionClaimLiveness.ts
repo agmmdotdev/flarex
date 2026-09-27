@@ -16,13 +16,13 @@ import {
 import type {
   LocatedScopeClockReader,
   ScopeClockTargetReaderResolver,
-  ScopeMetadataReader,
+  ExactScopeMetadataReader,
   ScopeProvisioningReceiptReader,
   TrustedScopeAuthority,
   TrustedScopeAuthorityResolutionError,
 } from "./scopeAuthorityResolution";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   TrustedScopeAuthorityPortError,
 } from "./scopeAuthorityResolution";
 import {
@@ -174,7 +174,7 @@ export interface PointMutationExecutionClaimLivenessConfigurationV1 {
 }
 
 export interface PointMutationExecutionClaimLivenessPortsV1 {
-  readonly scopeMetadata: ScopeMetadataReader;
+  readonly scopeMetadata: ExactScopeMetadataReader;
   readonly provisioningReceipts: ScopeProvisioningReceiptReader;
   readonly scopeSessionTargets: ScopeClockTargetReaderResolver;
 }
@@ -337,8 +337,8 @@ export function createPointMutationExecutionClaimLivenessV1(
     > {
       const config = yield* Effect.fromResult(configuration);
       const captured = yield* Effect.fromResult(captureLivenessInput(input));
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        captured.selector.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        { deploymentId: captured.selector.deploymentId, scopeId: captured.selector.scopeId },
         {
           scopeMetadata: ports.scopeMetadata,
           provisioningReceipts: ports.provisioningReceipts,

@@ -88,6 +88,31 @@ interface AttemptScenario {
 }
 
 describePostgres("real Postgres C05-A finishing transition", () => {
+  it("enters finishing for a pinned shop after a peer joins its deployment", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("9c000000");
+      const scope = await createScope(persistence, randomUuid, "shared_deployment_exact_scope");
+      const metadata = await persistence.getScopeMetadata(scope.scopeId);
+      if (metadata === null) throw new Error("Missing selected scope metadata");
+      await persistence.insertScopeMetadata({
+        deploymentId: scope.deploymentId,
+        scopeId: decodeReplacementScopeIdV1(`scope_${randomUuid()}`),
+        physicalLocator: metadata.physicalLocator,
+      });
+      const attempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "shared_deployment_exact_scope",
+      );
+      await expect(persistence.getScopeMetadataByDeploymentId(scope.deploymentId))
+        .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
+      const result = await runEffect(
+        createPort(persistence, scope).enterFinishing(attempt.command),
+      );
+      expect(result.kind).toBe("transitioned");
+    });
+  });
   it("uses the canonical lock order, bounded projections, and index-backed plans", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("9b000000");

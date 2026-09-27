@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import { newTestPGlite } from "./pgliteSearchExtensions";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
 import type { LocatedScopeClockReader } from
@@ -51,6 +52,13 @@ const sharedLocator = Object.freeze({
 describe("O08-B2b2b1 inert point-attempt discovery", () => {
   it("returns only frozen inert hints in the exact global order", async () => {
     const persistence = await discoveryPersistence();
+    await persistence.insertScopeMetadata({
+      scopeId: ScopeIdSchema.make("scope_87000000-0000-0000-0000-000000000003"),
+      deploymentId: DISCOVERY_DEPLOYMENT_ID,
+      physicalLocator: sharedLocator,
+    });
+    await expect(persistence.getScopeMetadataByDeploymentId(DISCOVERY_DEPLOYMENT_ID))
+      .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
     const tiedAt = "2025-01-01T00:00:00.000Z";
     const expiredId = discoverySessionIdAt(1);
     const finishingId = discoverySessionIdAt(2);

@@ -32,7 +32,7 @@ import {
 import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
 import { observeDrizzleQuery } from "../drizzleQueryObservation";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
 } from "../scopeAuthorityResolution";
 import {
   fxControlSchemaVersions,
@@ -229,8 +229,8 @@ export const captureStoredCommitAuthorityRowsEffect = Effect.fn(
   StoredCommitAuthorityRowsCaptureResultV1,
   StoredCommitAuthorityEvidencePersistenceV1Error
 > {
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    authority.deploymentId,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: authority.deploymentId, scopeId: authority.scopeId },
     {
       scopeMetadata: ports.scopeMetadata,
       provisioningReceipts: ports.provisioningReceipts,

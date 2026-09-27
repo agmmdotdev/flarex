@@ -104,11 +104,12 @@ import {
   type ScopeClockRecord,
 } from "./scopeClock";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   TrustedScopeAuthorityPortError,
   type LocatedTrustedScopeAuthority,
   type LocatedScopeClockReader,
   type ScopeClockTargetReaderResolver,
+  type ExactScopeMetadataReader,
   type ScopeMetadataReader,
   type ScopeProvisioningReceiptReader,
   type TrustedScopeAuthority,
@@ -248,7 +249,7 @@ const decodeAttemptSnapshotTokenResult = Schema.decodeUnknownResult(
 );
 
 export interface PointMutationSessionAuthorityResolutionPortsV1 {
-  readonly scopeMetadata: ScopeMetadataReader;
+  readonly scopeMetadata: ExactScopeMetadataReader & ScopeMetadataReader;
   readonly provisioningReceipts: ScopeProvisioningReceiptReader;
   readonly scopeSessionTargets: ScopeClockTargetReaderResolver;
 }
@@ -1096,8 +1097,8 @@ export function createPointMutationSessionActivationPersistenceV1(
       const executionClaimOwner = yield* generateExecutionClaimOwnerEffect(
         randomExecutionClaimOwner,
       );
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        prepared.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        { deploymentId: prepared.deploymentId, scopeId: prepared.scopeId },
         {
           scopeMetadata: ports.scopeMetadata,
           provisioningReceipts: ports.provisioningReceipts,
@@ -1160,8 +1161,8 @@ export function createApplicationMutationSessionActivationPersistenceV1(
     const executionClaimOwner = yield* generateExecutionClaimOwnerEffect(
       randomExecutionClaimOwner,
     );
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-      prepared.activation.deploymentId,
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      { deploymentId: prepared.activation.deploymentId, scopeId: prepared.activation.scopeId },
       {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,
@@ -1202,8 +1203,8 @@ export function createPointMutationSessionAttemptLoadPersistenceV1(
       PointMutationSessionAttemptLoadEffectErrorV1
     > {
       const selector = yield* Effect.fromResult(captureAttemptSelector(input));
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        selector.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        { deploymentId: selector.deploymentId, scopeId: selector.scopeId },
         {
           scopeMetadata: ports.scopeMetadata,
           provisioningReceipts: ports.provisioningReceipts,
@@ -1252,8 +1253,8 @@ export function createPointMutationExecutionClaimAcquisitionV1(
         })
       )),
     );
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-      selector.deploymentId,
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      { deploymentId: selector.deploymentId, scopeId: selector.scopeId },
       {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,
@@ -1305,8 +1306,8 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
     PointMutationSessionAttemptTerminalizationResultV1,
     PointMutationSessionAttemptTerminalizationEffectErrorV1
   > {
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-      input.selector.deploymentId,
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      { deploymentId: input.selector.deploymentId, scopeId: input.selector.scopeId },
       {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,

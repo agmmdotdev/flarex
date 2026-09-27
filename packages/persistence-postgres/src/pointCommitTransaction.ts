@@ -27,7 +27,7 @@ import { CatalogEdgeDefinitionIdSchema, type CatalogIndexDefinitionId, type Cata
 import { CanonicalSuccessfulResultBytesV1Schema, CanonicalSessionJournalBytesV1Schema, decodeCanonicalSessionJournalV1Effect, CommitSyscallSequenceV1Schema, LogicalApplicationRelationIncomingReadDependencyV1Schema, LogicalIndexRangeReadDependencyV1Schema, MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1, MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1, MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1, MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1, MAX_COMMIT_READ_DOCUMENTS_V1, MAX_COMMIT_READ_SEMANTIC_BYTES_V1, MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1, MAX_COMMIT_RELATION_READ_SYSCALLS_V1, MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1, MAX_COMMIT_POINT_READ_DEPENDENCIES_V1, MAX_COMMIT_WRITE_OPERATIONS_V1, MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1, MAX_POINT_COMMIT_MATERIAL_ROWS_V1, SESSION_JOURNAL_FORMAT_V1, canonicalizeSuccessfulResultV1Effect, measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result, normalizeLogicalIndexRangeReadDependenciesV1Result, type CommitFinalSyscallSequenceV1, type CommitSyscallSequenceV1, type CommitMaterialWriteEventEvidenceBytesV1, type LogicalReadDependencyV1, type LogicalApplicationRelationIncomingReadDependencyV1, type LogicalIndexRangeReadDependencyV1, type SuccessfulResultSha256HexV1 } from "flarex-protocol/commit-protocol";
 import { orderedIndexBoundHexV1ToBytes, orderedIndexKeyBytesHexV1FromBytes, orderedIndexKeyBytesHexV1ToBytes, orderedIndexRowIdHexV1ToBytes, orderedIndexRowIdHexV1FromBytesResult, OrderedIndexKeyBytesHexV1Schema, OrderedIndexRowIdHexV1Schema, type OrderedIndexKeyBytesHexV1, type OrderedIndexRowIdHexV1 } from "flarex-protocol/ordered-index";
 import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, ScopeEpochUuidV1Schema, ScopeUuidV1Schema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, type CommitSeq, type FlarexDbV1StorageGeneration, type ReplacementScopeIdV1, type ScopeEpochUuidV1, type ScopeUuidV1, type SnapshotToken, type StorageGenerationFence } from "flarex-protocol/storage-authority";
+import { CommitSeqSchema, ScopeEpochUuidV1Schema, ScopeUuidV1Schema, projectScopeEpochUuidV1Result, projectScopeIdUuidV1Result, replacementScopeIdV1FromUuid, type CommitSeq, type FlarexDbV1StorageGeneration, type ReplacementScopeIdV1, type ScopeEpochUuidV1, type ScopeUuidV1, type SnapshotToken, type StorageGenerationFence } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import { TRANSACTION_SESSION_PROTOCOL_VERSION_V1, MAX_TRANSACTION_ATTEMPT_FENCE, TransactionAttemptFenceSchema, TransactionAuthorizationRevocationEpochSchema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema, type StoredTransactionSessionScalarsV1, type TransactionArtifactIdV1, type TransactionArtifactRuntimeV1, type TransactionAttemptFence, type TransactionAuthorizationGrantIdV1, type TransactionAuthorizationRevocationEpoch, type TransactionExecutionModuleV1, type TransactionFunctionPathV1, type TransactionPackageIdV1, type TransactionPolicyVersionV1, type TransactionRequestKeyV1, type TransactionSessionIdV1, type TransactionSourcePackageSha256HexV1 } from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1, FlarexValueCodecV1Error, FlarexValueEvidenceV1Error, canonicalizeFlarexValueV1, decodeCanonicalFlarexValueEvidenceV1, isCanonicalFlarexRuntimeObjectV1, type CanonicalFlarexRuntimeValueV1, type CanonicalFlarexValueV1, type FlarexValueCodecVersion } from "flarex-protocol/value";
@@ -54,7 +54,7 @@ import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import { createCommittedPointOutcomeResolverV1 } from "./committedPointOutcome";
 import { observeDrizzleQuery as observeCompiledDrizzleQuery } from "./drizzleQueryObservation";
 import { decodeScopeClockRecordResult, ScopeClockCorruptionError, ScopeClockNotFoundError, type ScopeClockRecord } from "./scopeClock";
-import { resolveLocatedTrustedScopeAuthorityEffect, TrustedScopeAuthorityPortError, TrustedScopeAuthorityResolutionError, type LocatedTrustedScopeAuthority, type TrustedScopeAuthority, type TrustedScopeAuthorityError } from "./scopeAuthorityResolution";
+import { resolveLocatedTrustedScopeAuthorityByIdEffect, TrustedScopeAuthorityPortError, TrustedScopeAuthorityResolutionError, type LocatedTrustedScopeAuthority, type TrustedScopeAuthority, type TrustedScopeAuthorityError, type TrustedScopeSelection } from "./scopeAuthorityResolution";
 import { fxSystemApplicationActiveHeads } from "./applicationActivationSchema";
 import { fxSystemApplicationReadiness } from "./applicationRelationSchema";
 import { fxSystemCommits, fxSystemIdempotency, fxSystemApplicationReadinessV1, fxSystemScopeClocks, fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims, fxSystemTransactionJournalLatestReceipts, fxSystemTransactionJournalIndexRanges, fxSystemTransactionJournalPoints, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournalWriteEvents, fxSystemTransactionJournals, fxSystemTransactionSessions } from "./schema";
@@ -1101,13 +1101,13 @@ class PointMutationAttemptReplacementSqlFailureMarkerV1 {
 const resolvePointCommitAuthority = Effect.fn(
   "PointCommitTransaction.resolveAuthority",
 )((
-  deploymentId: TransactionGrantDeploymentIdV1,
+  selection: TrustedScopeSelection,
   ports: PointMutationSessionAuthorityResolutionPortsV1,
 ): Effect.Effect<
   LocatedTrustedScopeAuthority,
   PointCommitFinishingTransitionV1Error
 > =>
-  resolveLocatedTrustedScopeAuthorityEffect(deploymentId, {
+  resolveLocatedTrustedScopeAuthorityByIdEffect(selection, {
     scopeMetadata: ports.scopeMetadata,
     provisioningReceipts: ports.provisioningReceipts,
     scopeClockTargets: ports.scopeSessionTargets,
@@ -1126,7 +1126,7 @@ export function createPointCommitFinishingTransitionPortV1(
       capturePointCommitFinishingTransitionCommandResult(input),
     );
     const located = yield* resolvePointCommitAuthority(
-      command.authorityPins.deploymentId,
+      command.authorityPins,
       ports,
     );
     const preliminaryFailure = preliminaryAuthorityFailure(
@@ -1207,7 +1207,7 @@ export function createPointMutationAttemptReplacementPortV1(
       ),
     );
     const located = yield* resolvePointCommitAuthority(
-      command.authorityPins.deploymentId,
+      command.authorityPins,
       ports,
     ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
     const preliminaryFailure = preliminaryAuthorityFailure(
@@ -1264,7 +1264,7 @@ export function createPointMutationAttemptReplacementPortV1(
         )
       ));
       const located = yield* resolvePointCommitAuthority(
-        command.authorityPins.deploymentId,
+        command.authorityPins,
         ports,
       ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
       const preliminaryFailure = preliminaryAuthorityFailure(
@@ -1307,7 +1307,7 @@ export function createPointMutationAttemptReplacementPortV1(
           captureRunningRelationConflictRecoveryCommandResult(input),
         ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
         const located = yield* resolvePointCommitAuthority(
-          command.authorityPins.deploymentId,
+          command.authorityPins,
           ports,
         ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
         const preliminaryFailure = preliminaryAuthorityFailure(
@@ -1357,7 +1357,7 @@ export function createPointCommitRollbackProofPortV1(
   )(function* (input) {
     const command = yield* preparePointCommitCommand(input);
     const located = yield* resolvePointCommitAuthority(
-      command.authorityPins.deploymentId,
+      command.authorityPins,
       ports,
     );
     const preliminaryFailure = preliminaryAuthorityFailure(
@@ -1457,7 +1457,7 @@ export function createPointCommitPublisherPortV1(
   )(function* (input) {
     const command = yield* preparePointCommitPublicationCommand(input);
     const located = yield* resolvePointCommitAuthority(
-      command.authorityPins.deploymentId,
+      command.authorityPins,
       ports,
     );
     const target = isLocatedPointCommitPublicationTargetV1(located.target)
@@ -1573,7 +1573,10 @@ export function createPointCommitPublisherPortV1(
   ] = Effect.fn(
     "PointCommitTransaction.resolvePointCommitOutcome",
   )(function* (deploymentId, input) {
-    const located = yield* resolvePointCommitAuthority(deploymentId, ports);
+    const located = yield* resolvePointCommitAuthority({
+      deploymentId,
+      scopeId: replacementScopeIdV1FromUuid(input.scopeUuid),
+    }, ports);
     const target = isLocatedPointCommitPublicationTargetV1(located.target)
       ? located.target
       : null;

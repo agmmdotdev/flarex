@@ -29,10 +29,10 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { detachUnknownDriverRows } from "./detachDriverRows";
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type LocatedScopeClockReader,
   type ScopeClockTargetReaderResolver,
-  type ScopeMetadataReader,
+  type ExactScopeMetadataReader,
   type ScopeProvisioningReceiptReader,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
@@ -93,7 +93,7 @@ export interface PointMutationAttemptDiscoveryV1 {
 }
 
 export interface PointMutationAttemptDiscoveryPortsV1 {
-  readonly scopeMetadata: ScopeMetadataReader;
+  readonly scopeMetadata: ExactScopeMetadataReader;
   readonly provisioningReceipts: ScopeProvisioningReceiptReader;
   readonly scopeDiscoveryTargets:
     ScopeClockTargetReaderResolver<LocatedScopeClockReader>;
@@ -317,8 +317,8 @@ export function createPointMutationAttemptDiscoveryV1(
       );
     }
 
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-      input.deploymentId,
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      { deploymentId: input.deploymentId, scopeId: input.scopeId },
       {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,

@@ -95,6 +95,19 @@ describe("C05-A point-commit finishing transition", () => {
     await persistence.migrate();
   });
 
+  it("enters finishing for a pinned shop after a peer joins its deployment", async () => {
+    const current = await scenario("shared_deployment_exact_scope", true);
+    await expect(persistence.getScopeMetadataByDeploymentId(current.anchor.deploymentId))
+      .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
+    const result = await runEffect(
+      createPointCommitFinishingTransitionPortV1(current.ports)
+        .enterFinishing(current.command),
+    );
+    expect(result.kind).toBe("transitioned");
+    expect((await sessionFingerprint(current.anchor.sessionId)).lifecycle)
+      .toBe("finishing");
+  });
+
   it("changes lifecycle and updatedAt while atomically consuming the execution claim", async () => {
     const current = await scenario("transition");
     const before = await sessionFingerprint(current.anchor.sessionId);
@@ -392,6 +405,9 @@ describe("C05-A point-commit finishing transition", () => {
     const sqlPorts = Object.freeze({
       ...current.ports,
       scopeMetadata: {
+        getScopeMetadata: async () => {
+          throw sqlCause;
+        },
         getScopeMetadataByDeploymentId: async () => {
           throw sqlCause;
         },
@@ -413,6 +429,9 @@ describe("C05-A point-commit finishing transition", () => {
     const defectPorts = Object.freeze({
       ...current.ports,
       scopeMetadata: {
+        getScopeMetadata: async () => {
+          throw defect;
+        },
         getScopeMetadataByDeploymentId: async () => {
           throw defect;
         },
@@ -493,7 +512,7 @@ describe("C05-A point-commit finishing transition", () => {
     );
   });
 
-  async function scenario(label: string): Promise<Scenario> {
+  async function scenario(label: string, addPeer = false): Promise<Scenario> {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       `deployment_c05a_${label}`,
     );
@@ -513,6 +532,13 @@ describe("C05-A point-commit finishing transition", () => {
       tables: [appTable("users")],
       indexes: [],
     });
+    if (addPeer) {
+      await persistence.insertScopeMetadata({
+        deploymentId,
+        scopeId: decodeReplacementScopeIdV1(`scope_${nextUuid()}`),
+        physicalLocator: sharedLocator,
+      });
+    }
     const ports = resolutionPorts();
     const activation = await activatePointMutationSession(
       createPointMutationSessionActivationPersistenceV1(

@@ -236,7 +236,7 @@ import {
   PinnedPointTablePersistenceV1Error,
 } from "./pinnedPointTableResolution";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   TrustedScopeAuthorityPortError,
   type TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
@@ -1364,8 +1364,8 @@ export function createSessionJournalStorePersistenceV1(
     ResolvedJournalTargetV1,
     SessionJournalPersistenceV1Error | SessionJournalTargetUnavailableV1Error
   > {
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-      attempt.selector.deploymentId,
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      { deploymentId: attempt.selector.deploymentId, scopeId: attempt.selector.scopeId },
       {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,

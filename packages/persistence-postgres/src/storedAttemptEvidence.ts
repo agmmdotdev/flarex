@@ -76,7 +76,7 @@ import {
   observeDrizzleQuery as observeStoredAttemptQuery,
 } from "./drizzleQueryObservation";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityPortOperation,
 } from "./scopeAuthorityResolution";
@@ -450,8 +450,8 @@ export function createStoredAttemptEvidenceLoaderV1(
     const selector = request.kind === "expectedAuthority"
       ? request.authority
       : request.selector;
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-      selector.deploymentId,
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      { deploymentId: selector.deploymentId, scopeId: selector.scopeId },
       {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,

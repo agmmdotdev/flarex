@@ -38,10 +38,10 @@ import {
   type LockScopeClockForShareError,
 } from "./scopeClock";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+  type ExactTrustedScopeAuthorityResolutionPorts,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
-  type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import { fxSystemApplicationFunctionsV1 } from "./schema";
 import {
@@ -62,7 +62,7 @@ export interface ApplicationActionAdmissionContext {
   readonly deploymentId: string;
   readonly controlDb: FlarexMetadataDatabase;
   readonly schema: ApplicationSchemaAuthorityPublisher<unknown>;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   >;
 }
@@ -135,8 +135,8 @@ export const selectApplicationActionAdmission = Effect.fn(
     kind: "action" as const,
     visibility: "public" as const,
   });
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    context.deploymentId,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: context.deploymentId, scopeId: basis.authority.scopeId },
     context.authority,
   );
   yield* requireSameAuthority(basis.authority, located.authority);

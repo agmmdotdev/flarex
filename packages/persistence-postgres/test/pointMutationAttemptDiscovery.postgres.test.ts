@@ -1,6 +1,6 @@
 import { asNonArrayRecord } from "@flarex/utils/records";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
+import { ScopeIdSchema, ScopeUuidV1Schema } from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -51,6 +51,13 @@ describePostgres("real Postgres O08-B2b2b1 attempt discovery", () => {
   it("returns duplicate inert scans, preserves one horizon, and stays scope-local", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await installAuthority(persistence);
+      await persistence.insertScopeMetadata({
+        scopeId: ScopeIdSchema.make(OTHER_SCOPE_ID),
+        deploymentId: DEPLOYMENT_ID,
+        physicalLocator: sharedLocator,
+      });
+      await expect(persistence.getScopeMetadataByDeploymentId(DEPLOYMENT_ID))
+        .rejects.toMatchObject({ name: "ScopeDeploymentAmbiguousError" });
       await seedPlanPopulation(persistence);
       const repository = discovery(persistence);
       const before = await candidateStateCounts(persistence, SCOPE_UUID);
