@@ -4,10 +4,10 @@
 
 Status: proposed private core execution goal. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
 owns architecture and open contract questions. This roadmap owns current status,
-sequencing and finite delivery gates. Numbered slice preflights will own their
-specific scope, decisions, affected contracts and remaining gates when ready;
-there are no placeholder preflights. Recording this plan does not approve runtime
-implementation. The first focused core scope still needs agreement.
+sequencing and finite delivery gates. Numbered slice preflights own their
+specific scope, decisions, affected contracts and remaining gates. The proposed
+[first Application and Product attempt](./01-application-product-attempt-preflight.md)
+is pending scope agreement. Recording it does not approve runtime implementation.
 
 The other shared-storage session has reviewed, validated and committed its
 active [exact-scope retained-history slice](../shared-logical-storage/56-same-deployment-scope-authority.md)
@@ -101,7 +101,7 @@ durable-data disposition, validation, cleanup and exit criteria. A material
 change to those decisions returns to scope discussion. No runtime package starts
 from this roadmap alone.
 
-1. **Application plus Product private atomic attempt.** Agree the first real
+1. **[Application plus Product private atomic attempt](./01-application-product-attempt-preflight.md).** Agree the first real
    Product service method and field set from the paused baseline. Through the
    genuine sandbox/host boundary, compose Application write, admitted Product
    service call, pending Product read and dependent Application write. Connect
