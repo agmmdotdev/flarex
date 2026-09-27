@@ -21,7 +21,8 @@ export async function payloadManyCollectionsScenario(persistence: PGliteFlarexPe
     let scans = 0;
     const host = yield* Effect.acquireRelease(makeCmsHost({ hostRuntime: preparedHostTestRuntime(persistence.drizzle),
       database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
-      deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
+      deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+      authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
       application: fixture.relationActivation, identityAndAccessPolicy: { subject: "many-collection-reader" },
       commands: [runtime.commands.find, runtime.commands.count], materialization: {},
     }, { documentReads: { beforeRead: selection => Effect.sync(() => { if (selection === "scan") scans++; }) } }), value => value.close);

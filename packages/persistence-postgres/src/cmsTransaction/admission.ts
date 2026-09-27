@@ -6,12 +6,12 @@ import type { InstallationRuntimeData } from "../frameworkSchema/installation/ru
 import { bindingInstallationReference } from "../frameworkSchema/binding/model";
 import { runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
 import { lockScopeClockForShareInTransactionEffect } from "../scopeClock";
-import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
+import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { verifyPayloadPreferenceStorageBinding } from "../payloadPreferences/binding";
 import { Effect, Option, Schema } from "effect";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
+import { projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
 import { MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
@@ -30,7 +30,7 @@ import type { DataBindingSetFrame, DataBindingHeadToken } from "../frameworkSche
 import type { FlarexMetadataDatabase } from "../deployments";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
-import type { TrustedScopeAuthority, TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import type { TrustedScopeAuthority, ExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { cmsError } from "./model";
 
@@ -72,10 +72,10 @@ function cmsClockMatches(authority: TrustedScopeAuthority, clock: ScopeClockReco
  * releases its scope lock before the installation owner's snapshot preparation. */
 export const prepareCmsPreferences = Effect.fn("CmsAdmission.preparePreferences")(function* (
   database: FlarexMetadataDatabase, session: RelationalSession,
-  authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
-  deploymentId: string, target: FrameworkSchemaTarget,
+  authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
+  deploymentId: string, scopeId: ScopeId, target: FrameworkSchemaTarget,
 ) {
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority);
   if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
   const reference = yield* runRelationalSession(session, "command", tx => Effect.gen(function* () {
     const clock = yield* lockScopeClockForShareInTransactionEffect(tx, located.authority.scopeId);
@@ -95,13 +95,14 @@ export const prepareCmsPreferences = Effect.fn("CmsAdmission.preparePreferences"
  * evidence is captured before opening any request's target data transaction. */
 export const prepareCmsApplication = Effect.fn("CmsAdmission.prepare")(function* <Failure>(
   application: ApplicationBindingSelectionReader<Failure>,
-  authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
+  authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
   controlDb: FlarexMetadataDatabase,
-  deploymentId: string,
+  deploymentId: string, selectedScopeId: ScopeId,
 ) {
   if (!hasApplicationBindingComposition(application, authority)) return yield* Effect.fail(cmsError("invalidAuthority"));
   const selection = yield* prepareApplicationBindingSelection(application);
   const { schema, manifest, scopeId } = yield* readApplicationBindingPreparationInputs(selection, controlDb);
+  if (scopeId !== selectedScopeId) return yield* Effect.fail(cmsError("invalidAuthority"));
   if (schema.deploymentId !== deploymentId || schema.writePolicy === null || schema.relations.length > 2) {
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   }

@@ -12,7 +12,7 @@ import { makeLivePrivateSha256V1 } from "@flarex/analysis/internal/private-sha25
 import { canonicalizeSuccessfulResultV1Effect, type CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
-import { projectScopeIdUuidV1Result } from "flarex-protocol/storage-authority";
+import { projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionRequestKeyV1Schema, TransactionFunctionPathV1Schema, TransactionIdentityAccessPolicySha256V1Schema, TransactionRequestSha256V1Schema } from "flarex-protocol/transaction-session";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { FlarexMetadataDatabase } from "../deployments";
@@ -36,7 +36,8 @@ import { LogicalSchemaAdmissionEvidenceError } from "../logicalSchemaAdmissionEv
 import { SchemaVersionArtifactPersistenceError } from "../schemaVersionArtifacts";
 import { StableTableIdentityPersistenceError } from "../stableTableCatalog";
 import { DataBindingError } from "../frameworkSchema/binding/errors";
-import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect, type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
+  TrustedScopeAuthorityPortError, type ExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock";
@@ -92,7 +93,9 @@ export interface CmsHostInput<Failure> {
   readonly controlDatabase: FlarexMetadataDatabase;
   readonly session: RelationalSession;
   readonly deploymentId: string;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+  /** Selected by trusted composition, never by a Payload command. */
+  readonly scopeId: ScopeId;
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1;
   readonly application: ApplicationBindingSelectionReader<Failure>;
   readonly commands: readonly CmsCommand[];
@@ -148,6 +151,7 @@ const projectFailure = (cause: unknown): CmsTransactionError => {
     cause.reason === "sourceMismatch" || cause.reason === "bindingMissing" || cause.reason === "notReady"
       ? "bindingChanged" : cause.reason, cause);
   if (cause instanceof PreparedHostRuntimeError) return cmsError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
+  if (cause instanceof TrustedScopeAuthorityPortError) return cmsError("resourceFailure", cause);
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return cmsError("requestConflict", cause);
   if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return cmsError("storedCorruption", cause);
   if (cause instanceof RelationalSessionError) return cmsError(cause.reason === "decisionUncertain" ? "decisionUncertain" : "resourceFailure", cause);
@@ -173,7 +177,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   requestBudget: CmsRequestBudget, explicitBudget: boolean,
   hooks?: CmsHostTestHooks,
 ): Effect.fn.Return<Omit<CmsHost, "close" | "requestBudget">, CmsTransactionError> {
-  const { database, session, deploymentId, controlDatabase, application } = input;
+  const { database, session, deploymentId, scopeId, controlDatabase, application } = input;
   const pointCommitAuthority = "pointCommitAuthority" in input ? input.pointCommitAuthority : undefined;
   const logicalSelectionInput = input.logicalStorage;
   const logicalSelection = logicalSelectionInput === undefined ? undefined : Object.freeze({
@@ -193,7 +197,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     return yield* Effect.fail(cmsError("unsupportedProfile"));
   if (logicalSelection === undefined && pointCommitAuthority === undefined)
     return yield* Effect.fail(cmsError("invalidAuthority"));
-  const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
+  const authority = captureExactTrustedScopeAuthorityResolutionPorts(input.authority);
   const expectedContentIdentity = input.expectedContentIdentity === undefined ? undefined :
     yield* decodeContentIdentity(input.expectedContentIdentity).pipe(Effect.mapError(cause => cmsError("invalidInput", cause)));
   if (preferenceTarget !== undefined && expectedContentIdentity === undefined) {
@@ -224,13 +228,13 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   yield* chargeHostPreparation({ deploymentId, commands: [...names], identityDigest, requestBudget, expectedContentIdentity: expectedContentIdentity ?? null })
     .pipe(Effect.mapError(projectFailure));
   const preparedPreferences = preferenceTarget === undefined ? undefined : yield* prepareCmsPreferences(database, session, authority,
-    deploymentId, preferenceTarget).pipe(Effect.mapError(projectFailure));
+    deploymentId, scopeId, preferenceTarget).pipe(Effect.mapError(projectFailure));
   // A host owns one revision's immutable preparation. Every attempt still accepts
   // its live evidence below; a different revision requires a new host.
-  const prepared = logicalSelection === undefined ? yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId)
+  const prepared = logicalSelection === undefined ? yield* prepareCmsApplication(application, compositionAuthority, controlDatabase, deploymentId, scopeId)
     .pipe(Effect.mapError(projectFailure)) : undefined;
   const logicalLocation = logicalSelection === undefined ? undefined :
-    yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(projectFailure));
+    yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority).pipe(Effect.mapError(projectFailure));
   const preparedLogical = logicalSelection === undefined || logicalLocation === undefined ? undefined :
     yield* prepareLogicalDocumentSourceAdmission(logicalSelection.ports, logicalSelection.unique,
       { deploymentId, scopeId: logicalLocation.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId },
@@ -249,7 +253,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
     const requestIdentity = Object.freeze({ requestId: Symbol("cms.request") });
     const attempt = Effect.fn("CmsHost.attempt")(function* (recoverOnly: boolean) {
       // Both first entry and uncertain-decision recovery re-authenticate the target.
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(cmsError("invalidAuthority"));
       const commit = requestKey === null || prepared === undefined || pointCommitAuthority === undefined ? null :
         yield* prepareCmsApplicationCommit(prepared, controlDatabase, located.authority, pointCommitAuthority, materialization);

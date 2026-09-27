@@ -32,8 +32,8 @@ import {
 import { makeCmsRequestLifetime } from "../src/cmsTransaction/lifetime";
 import { capturePrivateJsonData } from "../src/privateJsonData";
 import {
-  captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
 } from "../src/scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../src/transactionSessionAttemptKernel";
 import {
@@ -95,7 +95,7 @@ const hash = (bytes: Uint8Array) =>
  * physical recovery are common. First-insert execution, writes and publication are independent.
  * This incremental reference supplies no complete CE0 timing claim. */
 type ReferenceInput<Failure> = Pick<CmsHostInput<Failure>,
-  "hostRuntime" | "database" | "controlDatabase" | "session" | "deploymentId" |
+  "hostRuntime" | "database" | "controlDatabase" | "session" | "deploymentId" | "scopeId" |
   "authority" | "pointCommitAuthority" | "application" | "identityAndAccessPolicy" | "materialization">;
 
 export const makeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.make")(function* <Failure>(input: ReferenceInput<Failure>) {
@@ -118,6 +118,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
       controlDatabase,
       session,
       deploymentId,
+      scopeId,
       application,
       pointCommitAuthority,
     } = input;
@@ -125,7 +126,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
       return yield* Effect.fail(cmsError("invalidAuthority"));
     const compositionAuthority = input.authority;
     const authority =
-      captureTrustedScopeAuthorityResolutionPorts(compositionAuthority);
+      captureExactTrustedScopeAuthorityResolutionPorts(compositionAuthority);
     const options = Object.freeze({ ...input.materialization });
     const identity = yield* Effect.fromResult(
       capturePrivateJsonData(
@@ -144,7 +145,7 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
       .pipe(Effect.mapError(projectFailure));
     const owner = Object.freeze({ hostId: Symbol("ce0.cms.reference") });
     const prepared = yield* prepareCmsApplication(
-      application, compositionAuthority, controlDatabase, deploymentId,
+      application, compositionAuthority, controlDatabase, deploymentId, scopeId,
     ).pipe(Effect.mapError(projectFailure));
     const run = Effect.fn("Ce0CmsReference.run")(function* (
       requestKey: string,
@@ -171,8 +172,8 @@ const composeCe0CmsMutationReference = Effect.fn("Ce0CmsReference.compose")(
       const attempt = Effect.fn("Ce0CmsReference.attempt")(function* (
         recoverOnly: boolean,
       ) {
-        const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-          deploymentId,
+        const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+          { deploymentId, scopeId },
           authority,
         );
         if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))

@@ -146,6 +146,7 @@ describe("cross-source relationship publication and source admission", () => {
     const cms = await Effect.runPromise(makeCmsHost({
       hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle), database: fixture.persistence.drizzle,
       controlDatabase: fixture.control.drizzle, session: fixture.session, deploymentId: fixture.deploymentId,
+      scopeId: fixture.application.authority.scopeId,
       authority: fixture.application.authorityPorts, application: fixture.application.activation,
       commands: [create], identityAndAccessPolicy: { profile: "cross-source-payload" }, materialization: {},
       expectedContentIdentity: compiled.contentIdentity,

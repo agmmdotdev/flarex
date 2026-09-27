@@ -13,6 +13,8 @@ import { makePostgresRelationalSession } from "../src/relationalTransaction/sess
 import { compactRetainedCommitHistoryPageEffect, createRetainedCommitHistoryCompactionPort } from "../src/retainedCommitHistoryCompaction";
 import { createLocatedRetainedHistoryFloorTargetInternal } from "../src/retainedHistoryFloorObservation";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../src/transactionSessionActivation";
+import type { TrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
+import type { LocatedRetainedHistoryFloorTarget } from "../src/retainedHistoryFloorObservation";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -20,6 +22,7 @@ import { runEffect, runEffectFailure } from "./effectTestRuntime";
 export async function payloadPreferencePublicationScenario(input: {
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
   hostInput: Omit<CmsHostInput<unknown>, "commands">;
+  retentionAuthority: TrustedScopeAuthorityResolutionPorts<LocatedRetainedHistoryFloorTarget>;
   seed: (postId: string, preferenceIds: readonly string[]) => Promise<void>;
   readPreferenceIds: () => Promise<readonly (string | null)[]>;
   inventory: () => Promise<unknown>;
@@ -151,7 +154,7 @@ export async function payloadPreferencePublicationScenario(input: {
     const clock = clocks[0];
     if (clock === undefined) throw new Error("Missing scope clock");
     await persistence.drizzle.update(fxSystemScopeClocks).set({ oldestAvailableCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq) }).where(eq(fxSystemScopeClocks.scopeUuid, first.scopeUuid));
-    const compactor = createRetainedCommitHistoryCompactionPort({ authority: { ...hostInput.authority,
+    const compactor = createRetainedCommitHistoryCompactionPort({ authority: { ...input.retentionAuthority,
       scopeClockTargets: { resolve: async locator => createLocatedRetainedHistoryFloorTargetInternal(persistence.drizzle, locator,
         createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle)) } } });
     const headers = await persistence.drizzle.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, first.scopeUuid)).orderBy(asc(fxSystemCommits.commitSeq));

@@ -51,7 +51,7 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   Object.assign(planning.manifest, { version: 0 });
   expect((await runEffect(readApplicationBindingPreparationInputs(prepared, base.fixture.control.drizzle))).manifest.version).toBe(manifestVersion);
   const cms = await runEffect(prepareCmsApplication(base.fixture.relationActivation, base.fixture.authorityPorts,
-    base.fixture.control.drizzle, base.fixture.deploymentId));
+    base.fixture.control.drizzle, base.fixture.deploymentId, base.fixture.authority.scopeId));
   const assertFrozen = (value: unknown): void => {
     if (typeof value !== "object" || value === null) return;
     expect(Object.isFrozen(value)).toBe(true);

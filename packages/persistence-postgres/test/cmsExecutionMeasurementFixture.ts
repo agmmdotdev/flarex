@@ -67,7 +67,8 @@ export async function cmsExecutionMeasurementFixture(persistence: PGliteFlarexPe
     return yield* ctx.documents.insert(ctx.context, ctx.transactionId, "posts", { title: input.temporaryTitle });
   }) });
   const input = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
-    deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
+    deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+    authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
     application: fixture.relationActivation, commands: [insert, read, moveAndReuse], identityAndAccessPolicy: { subject: "ce2-measurement", policy: "cms-scalar" },
     materialization: {
       observeQuery: query => { if (query.name === "loadPriorDocuments") priorDocumentReads++; },

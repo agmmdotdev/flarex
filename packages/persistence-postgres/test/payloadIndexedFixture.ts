@@ -52,7 +52,8 @@ export const makeIndexedPayloadFixture = Effect.fn("IndexedPayload.fixture")(fun
     return null;
   }) });
   const input = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle,
-    session, deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
+    session, deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+    authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
     application: fixture.relationActivation, identityAndAccessPolicy: { subject: "indexed-payload" }, commands: [...Object.values(runtime.commands), seed],
     materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
       developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle), uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),

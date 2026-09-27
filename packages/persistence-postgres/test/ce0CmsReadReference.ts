@@ -22,8 +22,8 @@ import {
 import { makeCmsRequestLifetime } from "../src/cmsTransaction/lifetime";
 import { capturePrivateJsonData } from "../src/privateJsonData";
 import {
-  captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
 } from "../src/scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../src/transactionSessionAttemptKernel";
 import {
@@ -56,7 +56,7 @@ const digest = (bytes: Uint8Array) =>
 /** Test-only fixed point-read request. Admission, storage decoding and lifetime
  * remain common; invocation/accounting and result collection are independent. */
 type ReferenceInput<Failure> = Pick<CmsHostInput<Failure>,
-  "hostRuntime" | "database" | "controlDatabase" | "session" | "deploymentId" |
+  "hostRuntime" | "database" | "controlDatabase" | "session" | "deploymentId" | "scopeId" |
   "authority" | "application" | "identityAndAccessPolicy">;
 
 export const makeCe0CmsReadReference = Effect.fn("Ce0ReadReference.make")(function* <Failure>(
@@ -77,13 +77,13 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
     measurement: { executions: number },
     hooks?: Pick<CmsHostTestHooks, "afterAdmission" | "documentReads">,
   ) {
-    const { database, controlDatabase, session, deploymentId, application } =
+    const { database, controlDatabase, session, deploymentId, scopeId, application } =
       input;
     if (!hasRelationalSessionDatabase(session, database))
       return yield* Effect.fail(cmsError("invalidAuthority"));
     const compositionAuthority = input.authority;
     const authority =
-      captureTrustedScopeAuthorityResolutionPorts(compositionAuthority);
+      captureExactTrustedScopeAuthorityResolutionPorts(compositionAuthority);
     const identity = yield* Effect.fromResult(
       capturePrivateJsonData(
         input.identityAndAccessPolicy,
@@ -100,7 +100,7 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
       .pipe(Effect.mapError(projectCe0CmsRequestFailure));
     const owner = Object.freeze({ hostId: Symbol("ce0.read.reference") });
     const prepared = yield* prepareCmsApplication(
-      application, compositionAuthority, controlDatabase, deploymentId,
+      application, compositionAuthority, controlDatabase, deploymentId, scopeId,
     ).pipe(Effect.mapError(projectCe0CmsRequestFailure));
     const read = Effect.fn("Ce0ReadReference.read")(function* (args: Json) {
       const captured = yield* Effect.fromResult(
@@ -111,8 +111,8 @@ const composeCe0CmsReadReference = Effect.fn("Ce0ReadReference.compose")(
         requestId: Symbol("ce0.read.request"),
       });
       const attempt = Effect.gen(function* () {
-        const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-          deploymentId,
+        const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+          { deploymentId, scopeId },
           authority,
         );
         if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))

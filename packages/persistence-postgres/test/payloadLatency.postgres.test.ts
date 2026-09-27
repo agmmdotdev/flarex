@@ -106,7 +106,8 @@ it.skipIf(process.env.FLAREX_PAYLOAD_LATENCY !== "1")("measures the ordinary com
     await runEffect(bindings.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration,
       "latency-preferences", combined.sha256, prior.head)));
     const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle,
-      session: makePostgresRelationalSession(persistence), deploymentId: fixture.deploymentId, authority: fixture.authorityPorts,
+      session: makePostgresRelationalSession(persistence), deploymentId: fixture.deploymentId,
+      scopeId: fixture.authority.scopeId, authority: fixture.authorityPorts,
       application: fixture.relationActivation, pointCommitAuthority: fixture.pointCommitAuthority,
       identityAndAccessPolicy: { subject: "payload-latency" }, payloadPreferenceTarget: target,
       materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),

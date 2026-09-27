@@ -14,7 +14,7 @@ import {
 import type { CmsHostInput } from "../src/cmsTransaction/host";
 import { makeCmsRequestLifetime } from "../src/cmsTransaction/lifetime";
 import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
-import { resolveLocatedTrustedScopeAuthorityEffect } from "../src/scopeAuthorityResolution";
+import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../src/scopeAuthorityResolution";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import { createMigratedPGlitePersistence } from "./pgliteTestFixture";
 import { orderedIndexCompositionRefusals } from "./orderedIndexCompositionRefusals";
@@ -23,13 +23,15 @@ import { orderedIndexCompositionRefusals } from "./orderedIndexCompositionRefusa
 export async function assertCmsParticipantAdmission<Failure>(
   input: CmsHostInput<Failure>,
 ) {
-  const { authority } = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(input.deploymentId, input.authority));
+  const { authority } = await runEffect(resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: input.deploymentId, scopeId: input.scopeId }, input.authority));
   const application = await runEffect(
     prepareCmsApplication(
       input.application,
       input.authority,
       input.controlDatabase,
       input.deploymentId,
+      input.scopeId,
     ),
   );
   const prepared = await runEffect(

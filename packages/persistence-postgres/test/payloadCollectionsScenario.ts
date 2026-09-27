@@ -83,7 +83,8 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const runtime = yield* makePayloadRuntime(compiled);
     expect(Object.keys(runtime.commands)).toHaveLength(6);
-    const hostInput = { hostRuntime: preparedHostTestRuntime(db), ...bindingInput, session, controlDatabase: fixture.control.drizzle, pointCommitAuthority: fixture.pointCommitAuthority,
+    const hostInput = { hostRuntime: preparedHostTestRuntime(db), ...bindingInput, scopeId: fixture.authority.scopeId,
+      session, controlDatabase: fixture.control.drizzle, pointCommitAuthority: fixture.pointCommitAuthority,
       identityAndAccessPolicy: { subject: "compiled-collection-test" }, payloadPreferenceTarget: target,
       materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
         developerIndexes: createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle), uniqueConstraints: createAppUniqueConstraintDefinitionPortV1(fixture.control.drizzle),

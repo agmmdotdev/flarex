@@ -4,6 +4,7 @@ import { expect } from "vitest";
 import { Effect } from "effect";
 import { ValidationError } from "payload";
 import { isJsonObject } from "flarex-protocol/json";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { makeCmsHost, type CmsHost } from "../src/cmsTransaction/host";
 import { createIntrinsicCreationTimeIndexDefinitionPortV1 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
@@ -28,7 +29,8 @@ export function payloadScalarScenario(persistence: PGliteFlarexPersistence | Pos
   return runEffect(Effect.scoped(makePayloadConformanceRuntime().pipe(Effect.flatMap(conformance => Effect.promise(async () => {
     const { fixture } = await cmsHostFixture(persistence, { cmsFields: payloadScalarFields });
     const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
-      deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
+      deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+      authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
       application: fixture.relationActivation,
       identityAndAccessPolicy: { profile: "payload.scalar", release: "3.88.0", access: "closed-headless-local-api", hook: "fixed-nested-conformance" },
       materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),
@@ -151,6 +153,27 @@ export function payloadScalarScenario(persistence: PGliteFlarexPersistence | Pos
       expect(afterOrdinary.commits).toHaveLength(beforeOrdinary.commits.length + 2);
       expect(conformance.observations.executions()).toBe(observed);
     })));
+    const active = await runEffect(fixture.relationActivation.readActive());
+    const peerScopeId = ScopeIdSchema.make("scope_payload_scalar_peer");
+    await fixture.control.insertScopeMetadata({ deploymentId: fixture.deploymentId,
+      scopeId: peerScopeId, physicalLocator: active.basis.authority.physicalLocator });
+    const beforePeer = await inventory();
+    expect(await runEffectFailure(conformance.runtime.bind({ ...hostInput, scopeId: peerScopeId })))
+      .toMatchObject({ reason: "invalidAuthority" });
+    expect(await inventory()).toEqual(beforePeer);
+    const selected = await runEffect(conformance.runtime.bind(hostInput));
+    const scopedKey = selected.newRequestKey();
+    const scopedInput = { collection: "posts", data: { title: "selected-after-peer", publishedAt: "2026-01-01" } };
+    const scoped = await runEffect(selected.run(scopedKey, conformance.runtime.commands.create, scopedInput));
+    if (!isJsonObject(scoped) || typeof scoped.id !== "string") throw new Error("Missing selected Payload document ID");
+    expect(scoped).toMatchObject({ title: "selected-after-peer" });
+    expect(await runEffect(selected.run(scopedKey, conformance.runtime.commands.create, scopedInput))).toEqual(scoped);
+    expect(await runEffect(selected.read(conformance.runtime.commands.findByID,
+      { collection: "posts", id: scoped.id }))).toEqual(scoped);
+    const afterPeer = await inventory();
+    expect(afterPeer.rows).toHaveLength(beforePeer.rows.length + 1);
+    expect(afterPeer.commits).toHaveLength(beforePeer.commits.length + 1);
+    expect(afterPeer.outcomes).toHaveLength(beforePeer.outcomes.length + 1);
     const beforeClose = await inventory();
     // These escaped capabilities execute only after Effect.scoped has destroyed Payload.
     return async () => {

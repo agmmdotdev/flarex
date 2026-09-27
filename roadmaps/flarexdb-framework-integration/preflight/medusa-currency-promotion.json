@@ -4346,7 +4346,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-cross-source-admission.test.ts",
       "classification": "authored",
-      "targetSha256": "cbb6e58dc43318367a17fb8caa553622e375a18ddf583a297a0b113654ea4188"
+      "targetSha256": "6b5bdb93f6ea0777e0e761e7e87da57661560318df4281b7c492631885cd8729"
     },
     {
       "target": "packages/medusa-adapter/test/logical-commerce-snapshot.postgres.test.ts",
@@ -4356,7 +4356,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-currency-fixture.test.ts",
       "classification": "authored",
-      "targetSha256": "6320754626116277382e62f413d5abddf78a2d7a42807caede3586477df2c83c"
+      "targetSha256": "23c8d33a27f6c43db5393844a58054185b183c8cb2f5c973383716f2263ac31b"
     },
     {
       "target": "packages/medusa-adapter/test/logical-currency-joint.test.ts",

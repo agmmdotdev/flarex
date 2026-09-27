@@ -66,7 +66,8 @@ export async function payloadConfiguredRelationshipScenario(
     edges: await db.select().from(fxAppEdgeCurrent), adjacency: await db.select().from(fxAppEdgeAdjacencyVersions),
     relationFacts: await db.select().from(fxSystemCommitRelationAdjacencyChanges), preferences: await db.select().from(table),
     preferenceFacts: await db.select().from(fxSystemCommitPayloadPreferenceDeletions) });
-  const hostInput = { hostRuntime: preparedHostTestRuntime(db), database: db, controlDatabase: fixture.control.drizzle, session, deploymentId: fixture.deploymentId,
+  const hostInput = { hostRuntime: preparedHostTestRuntime(db), database: db, controlDatabase: fixture.control.drizzle, session,
+    deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
     authority: fixture.authorityPorts, application: fixture.relationActivation, pointCommitAuthority: fixture.pointCommitAuthority,
     identityAndAccessPolicy: { subject: "configured-relationship-test" }, payloadPreferenceTarget: target,
     materialization: { intrinsicCreationTimeIndexes: createIntrinsicCreationTimeIndexDefinitionPortV1(fixture.control.drizzle),

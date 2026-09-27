@@ -61,7 +61,8 @@ async function snapshotFixture(persistence: PostgresFlarexPersistence, session: 
     return { first, second, before: [...before.docs], after: [...after.docs] };
   }) });
   const host = await runEffect(makeCmsHost({ hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, controlDatabase: fixture.control.drizzle, session,
-    deploymentId: fixture.deploymentId, authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
+    deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
+    authority: fixture.authorityPorts, pointCommitAuthority: fixture.pointCommitAuthority,
     application: fixture.relationActivation, commands: [create, change, read], identityAndAccessPolicy: { subject: "snapshot-witness" },
     relationReads: createApplicationRelationReadPort(fixture.control.drizzle, fixture.pointCommitAuthority, fixture.relationCommit, fixture.fold),
     materialization: {
