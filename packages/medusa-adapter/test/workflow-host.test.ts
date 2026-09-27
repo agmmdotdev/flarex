@@ -236,6 +236,24 @@ describe("workflow registration and scoped resource composition", () => {
     expect(Exit.isFailure(exit)).toBe(true); expect(prepare).not.toHaveBeenCalled();
   });
 
+  it("refuses top-level host accessors before invoking them or the execution factory", async () => {
+    const prepare = vi.fn(() => Effect.fail(commerceError("invalidAuthority")));
+    const flow = createWorkflow("accessor-host", () => new WorkflowResponse(null));
+    const plain = { execution: { identityAndAccessPolicy: {}, prepare }, modules: {},
+      revision: "a".repeat(64), workflow: { name: "accessor", resources,
+        prepared: Result.getOrThrow(flow.prepare()), input: Schema.Json, output: Schema.Json } };
+    for (const key of ["execution", "modules"] as const) {
+      const getter = vi.fn(() => plain[key]);
+      const input = Object.defineProperty({ ...plain }, key, { get: getter, enumerable: true });
+      const exit = await Effect.runPromise(Effect.exit(prepareAtomicWorkflowHost(input)));
+      if (Exit.isSuccess(exit)) throw new Error("Expected host accessor refusal");
+      expect(Result.getOrThrow(Cause.findError(exit.cause)))
+        .toMatchObject({ reason: "unsupportedProfile" });
+      expect(getter).not.toHaveBeenCalled();
+    }
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it("rejects copied prepared graphs before retaining callbacks or calling the execution factory", async () => {
     const prepare = vi.fn(() => Effect.fail(commerceError("invalidAuthority")));
     const flow = createWorkflow("authentic-definition", () => new WorkflowResponse(null));

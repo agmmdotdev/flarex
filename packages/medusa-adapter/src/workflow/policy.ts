@@ -7,3 +7,7 @@ export const productRelationshipsPolicy = Object.freeze({ calls: 128, queryRows:
 export const productReferenceReplacementEventLimit = 256;
 export const productShippingProfileResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
 export const productVariantPricingResources = Object.freeze({ ...defaultCommerceResources, calls: 128 });
+/** One parent launch graph owns Pricing, Link, Product Tag and pending graph reads. */
+export const productLaunchResources = Object.freeze({ ...defaultCommerceResources, calls: 256 });
+/** The finite launch workflow shares one bounded logical lifetime across both native children. */
+export const productLaunchCommandMs = 30_000;

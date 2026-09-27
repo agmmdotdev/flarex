@@ -11,9 +11,9 @@ import type {
   SessionJournalRelationIncomingRequestEvidenceV1,
   SessionJournalRelationIncomingOperationV1,
   SessionJournalPointSuccessV1,
-  SessionJournalAttemptV1,
+  SessionJournalAttempt,
   SessionJournalPointOperationV1,
-  SessionJournalStorePersistenceV1,
+  SessionJournalStorePersistence,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
   InvalidSessionJournalCapabilityV1Error,
@@ -45,7 +45,7 @@ import { LogicalParticipantAdmissionError, LogicalParticipantInvocationError } f
 import { Data, Effect, Result, Schema, Semaphore } from "effect";
 
 import {
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
   type CommitProtocolV1Error,
   type CommitSyscallSequenceV1,
@@ -110,7 +110,7 @@ export interface PointMutationJournalRelation {
 }
 
 export type PointMutationJournalApplicationRelationReadCapability = Parameters<
-  SessionJournalStorePersistenceV1["resolveApplicationRelationReadEffect"]
+  SessionJournalStorePersistence["resolveApplicationRelationReadEffect"]
 >[1];
 
 export class InvalidPointMutationJournalCapabilityV1Error
@@ -152,7 +152,7 @@ export class PointMutationJournalPersistenceV1Error extends Data.TaggedError(
 export class PointMutationJournalAdmittedOperationRejectedV1Error extends Data.TaggedError(
   "PointMutationJournalAdmittedOperationRejectedV1Error",
 )<{ readonly result: Exclude<Awaited<Effect.Success<ReturnType<
-  SessionJournalStorePersistenceV1["runAdmittedOperationEffect"]>>>, { readonly kind: "completed" }> }> {}
+  SessionJournalStorePersistence["runAdmittedOperationEffect"]>>>, { readonly kind: "completed" }> }> {}
 
 /** A selected framework method failed after the journal had admitted it.
  * The store owns the sticky root state; this error keeps the native cause
@@ -169,13 +169,13 @@ export class PointMutationJournalParticipantSelectionV1Error extends Data.Tagged
   "PointMutationJournalParticipantSelectionV1Error",
 )<{ readonly participant: string }> {}
 
-type AdmittedOperationInvoke = Parameters<SessionJournalStorePersistenceV1["runAdmittedOperationEffect"]>[3];
+type AdmittedOperationInvoke = Parameters<SessionJournalStorePersistence["runAdmittedOperationEffect"]>[3];
 
-/** Trusted composition for one selected framework source. The sandbox frame
- * can choose only the admitted operation and JSON arguments. */
+/** Trusted composition for one selector and its exact ordered source bundle.
+ * The sandbox frame can choose only the admitted operation and JSON arguments. */
 export interface PointMutationJournalAdmittedParticipantV1 {
   readonly participant: string;
-  readonly admission: Parameters<SessionJournalStorePersistenceV1["admitLogicalParticipantEffect"]>[1];
+  readonly admission: Parameters<SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>[1];
   readonly borrow: AdmittedOperationInvoke;
 }
 
@@ -322,10 +322,10 @@ interface JournalAttemptCoordinatorV1 {
 }
 
 interface JournalAttemptStateV1 {
-  readonly persistenceAttempt: SessionJournalAttemptV1;
+  readonly persistenceAttempt: SessionJournalAttempt;
   readonly coordinator: JournalAttemptCoordinatorV1;
   readonly participantAdmissions: ReadonlyMap<string, Effect.Success<ReturnType<
-    SessionJournalStorePersistenceV1["admitLogicalParticipantEffect"]>>>;
+    SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>>>;
 }
 
 interface JournalTableStateV1 {
@@ -357,14 +357,14 @@ const decodeOrderedIndexBoundResult = Schema.decodeUnknownResult(
 );
 
 export function createPointMutationJournalV1(
-  persistence: SessionJournalStorePersistenceV1,
+  persistence: SessionJournalStorePersistence,
   executionClaims: PointMutationExecutionClaimAdmissionV1,
   syscallValidator: ApplicationRevisionSyscallValidatorV1,
   admittedParticipants: readonly PointMutationJournalAdmittedParticipantV1[] = [],
 ): PointMutationJournalV1 & PointMutationJournalRelationConflictRecovery {
   const selectedParticipants = new Map<string, PointMutationJournalAdmittedParticipantV1>();
   let participantSetError: PointMutationJournalParticipantSetV1Error | undefined;
-  if (admittedParticipants.length > 2) {
+  if (admittedParticipants.length > 3) {
     participantSetError = new PointMutationJournalParticipantSetV1Error({ reason: "tooMany" });
   } else for (const participant of admittedParticipants) {
     if (typeof participant.participant !== "string" || participant.participant.length === 0 ||
@@ -380,10 +380,20 @@ export function createPointMutationJournalV1(
       });
       break;
     }
+    if (participant.admission.participant !== participant.participant) {
+      participantSetError = new PointMutationJournalParticipantSetV1Error({
+        reason: "invalidSelector", participant: participant.participant,
+      });
+      break;
+    }
     selectedParticipants.set(participant.participant, Object.freeze({
       participant: participant.participant,
       admission: Object.freeze({ ...participant.admission,
-        methods: Object.freeze([...participant.admission.methods]) }),
+        operationMethods: Object.freeze([...participant.admission.operationMethods]),
+        sources: Object.freeze(participant.admission.sources.map(source => Object.freeze({
+          ...source, methods: Object.freeze([...source.methods]),
+        }))),
+      }),
       borrow: participant.borrow,
     }));
   }
@@ -483,9 +493,9 @@ export function createPointMutationJournalV1(
       executionClaim: claimState.observation,
     }).pipe(Effect.mapError(mapPersistenceFailure));
     const participantAdmissions = new Map<string, Effect.Success<ReturnType<
-      SessionJournalStorePersistenceV1["admitLogicalParticipantEffect"]>>>();
+      SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>>>();
     for (const participant of selectedParticipants.values()) {
-      const admission = yield* persistence.admitLogicalParticipantEffect(persistenceAttempt,
+      const admission = yield* persistence.admitLogicalParticipantsEffect(persistenceAttempt,
         participant.admission).pipe(Effect.mapError(mapAdmittedFailure));
       participantAdmissions.set(participant.participant, admission);
     }
@@ -517,6 +527,7 @@ export function createPointMutationJournalV1(
           syscallSequence: input.syscallSequence, requestBytes: input.requestBytes,
           requestSha256: input.requestSha256, participant: input.operation.participant,
           method: input.operation.operation,
+          profileRevision: selected.admission.profileRevision,
         }, selected.borrow).pipe(
           Effect.flatMap(result => result.kind === "completed" ? Effect.succeed(result.result)
             : Effect.fail(new PointMutationJournalAdmittedOperationRejectedV1Error({ result }))),
@@ -766,7 +777,7 @@ export function createPointMutationJournalV1(
                 .prepareSealEffect(state.persistenceAttempt)
                 .pipe(Effect.mapError(mapPersistenceFailure)),
             );
-            const journal = yield* canonicalizeSessionJournalV2Effect(
+            const journal = yield* canonicalizeSessionJournalEffect(
               prepared.journal,
             );
             const result =

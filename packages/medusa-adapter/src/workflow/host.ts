@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { isPreparedWorkflow, type PreparedWorkflow } from "@medusajs/workflows-sdk";
-import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, defineCommerceDerivedIdEventContract, type AtomicCommerceHost, type AtomicCommerceHostInput,
+import { commerceCommandIdentity, defineAtomicCommerceCommand, defineCommerceEventContract, defineCommerceDerivedIdEventContract, type AtomicCommerceContext, type AtomicCommerceHost, type AtomicCommerceHostInput,
   type AtomicCommerceParticipantInput, type AtomicCommerceEvents, type AtomicCommerceCallObservation, type CommerceCommand, type CommerceEventContract,
   } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from "@flarex/persistence-postgres/internal/commerce-values";
@@ -44,8 +44,8 @@ export interface AtomicWorkflowDefinition<Resources, Input extends Json, Output 
 
 /** Explicit multi-instance host: immutable preparation, fresh scoped resources
  * per invocation, and exactly one existing core transaction/recovery owner. */
-export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
-  readonly execution: AtomicWorkflowExecution;
+export const prepareWorkflowComposition = Effect.fn("Workflow.prepareComposition")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
+  readonly identityAndAccessPolicy: Json;
   readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
   readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
   readonly revision: string;
@@ -54,13 +54,12 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   readonly requestCallLimit?: number;
 }) {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
-  const execution = yield* Effect.fromResult(captureWorkflowRecord(options.execution));
-  const policy = yield* Effect.fromResult(captureCommerceInput(execution.identityAndAccessPolicy));
+  const policy = yield* Effect.fromResult(captureCommerceInput(options.identityAndAccessPolicy));
   const workflow = yield* Effect.fromResult(captureWorkflowRecord(options.workflow));
   if (!isPreparedWorkflow(workflow.prepared)) return yield* Effect.fail(commerceError("invalidAuthority"));
   const installed = yield* Effect.fromResult(captureWorkflowRecord(options.modules));
   const members = workflowResourceSelections(workflow.resources);
-  if (members === undefined || members.length < 1 || members.length !== Object.keys(installed).length || typeof execution.prepare !== "function"
+  if (members === undefined || members.length < 1 || members.length !== Object.keys(installed).length
     || !Schema.isSchema(workflow.input) || !Schema.isSchema(workflow.output) || !/^[a-f0-9]{64}$/.test(options.revision)
     || workflow.resources.events !== (workflow.events !== undefined) || (!workflow.resources.events && options.subscribers !== undefined)) return yield* Effect.fail(commerceError("unsupportedProfile"));
   const eventDefinition = workflow.events === undefined ? undefined : yield* Effect.fromResult(captureWorkflowRecord(workflow.events));
@@ -163,11 +162,12 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   const decodeInput = commerceDecoder(workflow.input, "invalidInput");
   const decodeOutput = commerceDecoder(workflow.output, "storedCorruption");
   const decodeStoredOutput = commerceDecoder(Schema.toType(workflow.output), "storedCorruption");
-  const command = defineAtomicCommerceCommand(workflow.name, Effect.fn("Workflow.runAtomic")(function* (ctx, value) {
+  const execute = Effect.fn("Workflow.runAtomic")(function* (ctx: AtomicCommerceContext, value: Json) {
     const args = yield* checkedCommerceValue(ctx, () => decodeInput(value));
     const result = yield* runNativeMedusaWorkflow(workflow.prepared, ctx, args, owner => bindWorkflowResources(workflow.resources, members, graph, emitted, ctx, owner));
     return yield* checkedCommerceValue(ctx, () => decodeOutput(result));
-  }));
+  });
+  const command = defineAtomicCommerceCommand(workflow.name, execute);
   const events: AtomicCommerceEvents | undefined = eventDefinition === undefined || options.subscribers === undefined ? undefined : {
     producerRevision: options.revision, contracts, subscribers: options.subscribers,
     ...(derivedEvents ? { derivedIdValidation: "capturedOnly" as const } : {}),
@@ -185,12 +185,37 @@ export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")
   const identity = yield* Effect.fromResult(captureCommerceInput({ policy, workflow: {
     revision: options.revision, definition: workflow.prepared.identity, resources: identities, events: [...names],
   } }));
-  const host = yield* execution.prepare({ participants, commands: [command], identityAndAccessPolicy: identity,
+  const composition = { participants, commands: [command], identityAndAccessPolicy: identity,
     ...(requestEventLimit === undefined ? {} : { requestEventLimit }),
-    ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) });
+    ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }), ...(events === undefined ? {} : { events }) };
+  return Object.freeze({ composition, command, decodeStoredOutput,
+    run: (ctx: AtomicCommerceContext, value: Json) => Effect.fromResult(captureCommerceInput(value)).pipe(
+      Effect.flatMap(args => execute(ctx, args)),
+      Effect.flatMap(result => Effect.fromResult(decodeStoredOutput(result))),
+    ) });
+});
+
+export const prepareAtomicWorkflowHost = Effect.fn("Workflow.prepareAtomicHost")(function* <Resources, Input extends Json, Output extends Json, EncodedInput extends Json>(input: {
+  readonly execution: AtomicWorkflowExecution;
+  readonly modules: Readonly<Record<string, InstalledWorkflowModule>>;
+  readonly workflow: AtomicWorkflowDefinition<Resources, Input, Output, EncodedInput>;
+  readonly revision: string;
+  readonly subscribers?: AtomicCommerceEvents["subscribers"];
+  readonly requestCallLimit?: number;
+}) {
+  const options = yield* Effect.fromResult(captureWorkflowRecord(input));
+  const execution = yield* Effect.fromResult(captureWorkflowRecord(options.execution));
+  if (typeof execution.prepare !== "function") return yield* Effect.fail(commerceError("unsupportedProfile"));
+  const prepared = yield* prepareWorkflowComposition({ identityAndAccessPolicy: execution.identityAndAccessPolicy,
+    modules: options.modules, workflow: options.workflow, revision: options.revision,
+    ...(options.subscribers === undefined ? {} : { subscribers: options.subscribers }),
+    ...(options.requestCallLimit === undefined ? {} : { requestCallLimit: options.requestCallLimit }),
+  });
+  const host = yield* execution.prepare(prepared.composition);
   return Object.freeze({ newRequestKey: host.newRequestKey, close: host.close,
     run: Effect.fn("Workflow.run")((key: string, value: EncodedInput) => Effect.fromResult(captureCommerceInput(value)).pipe(
-      Effect.flatMap(args => host.run(key, command, args)), Effect.flatMap(result => Effect.fromResult(decodeStoredOutput(result))),
+      Effect.flatMap(args => host.run(key, prepared.command, args)),
+      Effect.flatMap(result => Effect.fromResult(prepared.decodeStoredOutput(result))),
     )),
   });
 });

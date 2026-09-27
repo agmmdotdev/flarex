@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { Effect, Fiber } from "effect";
 import {
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -35,7 +35,7 @@ import type { LocatedScopeClockReader } from
   "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
-import { createSessionJournalStorePersistenceV1 } from
+import { createSessionJournalStorePersistence } from
   "../src/sessionJournalStore";
 import { createPointMutationExecutionClaimLivenessV1 } from
   "../src/transactionExecutionClaimLiveness";
@@ -691,7 +691,7 @@ async function createAttempt(
       },
     ),
   );
-  const store = createSessionJournalStorePersistenceV1(scope.ports, {
+  const store = createSessionJournalStorePersistence(scope.ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
@@ -703,7 +703,7 @@ async function createAttempt(
   }));
   const prepared = await runEffect(store.prepareSealEffect(attempt));
   const journal = await runEffect(
-    canonicalizeSessionJournalV2Effect(prepared.journal),
+    canonicalizeSessionJournalEffect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: label }),

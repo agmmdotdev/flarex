@@ -6,7 +6,7 @@ import {
 } from "flarex-protocol/app-document-id";
 import {
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -51,7 +51,7 @@ import {
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "../src/schema";
-import { createSessionJournalStorePersistenceV1 } from
+import { createSessionJournalStorePersistence } from
   "../src/sessionJournalStore";
 import {
   createStoredAttemptEvidenceLoaderV1,
@@ -662,7 +662,7 @@ describe("O08-A exact-attempt replacement", () => {
     if (activation.status !== "created") {
       throw new Error("Expected a newly created replacement attempt.");
     }
-    const store = createSessionJournalStorePersistenceV1(ports, {
+    const store = createSessionJournalStorePersistence(ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
     });
@@ -687,7 +687,7 @@ describe("O08-A exact-attempt replacement", () => {
     });
     const prepared = await prepareSessionJournalSeal(store, attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV2Effect(prepared.journal),
+      canonicalizeSessionJournalEffect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),

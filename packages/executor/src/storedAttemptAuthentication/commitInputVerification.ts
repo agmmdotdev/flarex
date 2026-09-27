@@ -8,6 +8,7 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
 import { hasLogicalParticipantCommitAuthority,
   inspectLogicalParticipantCommitAuthority,
+  inspectLogicalParticipantCommitAuthoritySource,
   type LogicalParticipantCommitAuthority } from
   "@flarex/persistence-postgres/internal/logical-participant-admission";
 
@@ -21,10 +22,10 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
   canonicalizeSuccessfulResultV1Effect,
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   type CanonicalSuccessfulResultBytesV1,
   type CanonicalSuccessfulResultV1,
-  type SessionJournalV2,
+  type SessionJournal,
   type SuccessfulResultSha256HexV1,
 } from "flarex-protocol/commit-protocol";
 import type { SchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
@@ -223,7 +224,7 @@ export interface VerifiedCommitInputStateV1 {
   readonly journalBytes: Uint8Array;
   readonly authorityPins: Readonly<CommitInputAuthorityPinsV1>;
   readonly sealIdentity: Readonly<StoredAttemptSealIdentityPortV1>;
-  readonly journal: SessionJournalV2;
+  readonly journal: SessionJournal;
   readonly points: ReadonlyArray<VerifiedCommitPointV1>;
   readonly successfulResult: Readonly<VerifiedSuccessfulResultV1>;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
@@ -233,7 +234,7 @@ export interface CommitInputVerificationSourceV1 {
   readonly authority: StoredAttemptAuthorityStateV1;
   readonly session: StoredAttemptSessionScalarsPortV1;
   readonly sealIdentity: Readonly<StoredAttemptSealIdentityPortV1>;
-  readonly journal: SessionJournalV2;
+  readonly journal: SessionJournal;
   readonly points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>;
   readonly successfulResult: AuthenticatedSuccessfulResultV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
@@ -273,18 +274,32 @@ export const verifyCommitInputStateEffect = Effect.fn(
     validateDocument: NonNullable<ReturnType<typeof inspectLogicalParticipantCommitAuthority>>["validateDocument"];
   }>>();
   for (const operation of source.journal.participantOperations) {
-    const authorities = source.logicalParticipants.filter(token =>
-      hasLogicalParticipantCommitAuthority(token, operation.participant, operation.method));
-    if (authorities.length !== 1) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
-    const authority = authorities[0]!;
-    const inspected = inspectLogicalParticipantCommitAuthority(authority, operation);
-    if (inspected === null) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
-    for (const tableId of inspected.tableIds) {
-      const existing = participantTables.get(tableId);
-      if (tablesById.has(tableId) || (existing !== undefined && existing.authority !== authority))
-        return yield* authorityCorruptionEffect("duplicateTableAuthority");
-      participantTables.set(tableId, Object.freeze({ authority,
-        validateDocument: inspected.validateDocument }));
+    if (operation.sourceContributions.length === 0)
+      return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
+    for (const contribution of operation.sourceContributions) {
+      const authorities = source.logicalParticipants.filter(token =>
+        hasLogicalParticipantCommitAuthority(token, operation.participant, contribution));
+      if (authorities.length !== 1) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
+      const authority = authorities[0]!;
+      const inspected = inspectLogicalParticipantCommitAuthority(authority, operation, contribution);
+      if (inspected === null) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
+      const sourceIdentity = inspectLogicalParticipantCommitAuthoritySource(authority);
+      if (sourceIdentity === null) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
+      for (const tableId of inspected.tableIds) {
+        const existing = participantTables.get(tableId);
+        const priorSource = existing === undefined ? undefined :
+          inspectLogicalParticipantCommitAuthoritySource(existing.authority);
+        if (tablesById.has(tableId) || (existing !== undefined && (
+          priorSource === null || priorSource === undefined ||
+          priorSource.sourceKey !== sourceIdentity.sourceKey ||
+          priorSource.sourceSha256 !== sourceIdentity.sourceSha256 ||
+          priorSource.schemaVersionId !== sourceIdentity.schemaVersionId ||
+          priorSource.tableIds.size !== sourceIdentity.tableIds.size ||
+          [...priorSource.tableIds].some(id => !sourceIdentity.tableIds.has(id)))))
+          return yield* authorityCorruptionEffect("duplicateTableAuthority");
+        participantTables.set(tableId, Object.freeze({ authority,
+          validateDocument: inspected.validateDocument }));
+      }
     }
   }
   const idPolicy = tableAwareIdPolicy(tableIdsByName);
@@ -427,7 +442,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
   }
 
   const stableResultBytes = copyBytes(canonicalResult.canonicalBytes);
-  const canonicalJournal = yield* canonicalizeSessionJournalV2Effect(source.journal).pipe(
+  const canonicalJournal = yield* canonicalizeSessionJournalEffect(source.journal).pipe(
     Effect.mapError(() => authorityCorruption("journalSealMismatch")));
   if (canonicalJournal.sha256Hex !== encodeBytesToLowercaseHex(source.sealIdentity.journalSha256)) {
     return yield* authorityCorruptionEffect("journalSealMismatch");

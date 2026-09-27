@@ -3,7 +3,7 @@ import { CatalogIndexDefinitionIdSchema, CatalogUniqueConstraintDefinitionIdSche
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { OrderedIndexBoundHexV1Schema, OrderedIndexKeyBytesHexV1Schema,
   OrderedIndexRowIdHexV1Schema, decodeOrderedIndexComponentsV1 } from "flarex-protocol/ordered-index";
-import type { AdmittedParticipantOperationV1 } from "flarex-protocol/commit-protocol";
+import type { AdmittedParticipantOperation, SourceContribution } from "flarex-protocol/commit-protocol";
 import { readAppUniqueKeySlotInTransactionEffect } from "../appUniqueKeys";
 import { canonicalizeAppUniqueKeyV1Result } from "../appUniqueKeyContract";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -27,11 +27,12 @@ const failure = (reason: LogicalDocumentFailureReason | "invalidEvidence", cause
  * state under the root publisher's scope lock. The definitions come only from
  * a re-resolved source admission, including finish-only recovery. */
 export const validateLogicalParticipantDependencyEvidence = Effect.fn("LogicalDocuments.validateParticipantEvidence")(
-  function* (tx: FlarexMetadataTransaction, scopeId: ScopeId, operation: AdmittedParticipantOperationV1,
+  function* (tx: FlarexMetadataTransaction, scopeId: ScopeId, operation: AdmittedParticipantOperation,
+    contribution: SourceContribution,
     admitted: Readonly<{ tableIds: ReadonlySet<CatalogTableId>;
       indexes: readonly LocatedAppIndexDefinitionV1[];
       unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }>) {
-    const evidence = yield* Effect.fromResult(decodeLogicalParticipantDependencyEvidence(operation.dependencyEvidence));
+    const evidence = yield* Effect.fromResult(decodeLogicalParticipantDependencyEvidence(contribution.dependencyEvidence));
     for (const read of evidence.indexRanges) {
       const id = yield* Effect.fromResult(decodeIndexId(read.indexDefinitionId).pipe(Result.mapError(cause => failure("invalidEvidence", cause))));
       const definition = admitted.indexes.find(member => member.indexDefinitionId === id);

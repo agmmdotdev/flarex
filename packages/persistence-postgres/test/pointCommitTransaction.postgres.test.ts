@@ -50,9 +50,9 @@ import {
 } from "flarex-protocol/index-build-state";
 import {
   CommitSyscallSequenceV1Schema,
-  AdmittedParticipantOperationV1Schema,
+  AdmittedParticipantOperationSchema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
   type LogicalIndexRangeReadDependencyV1,
 } from "flarex-protocol/commit-protocol";
@@ -151,7 +151,7 @@ import {
 } from "../src/schema";
 import {
   createAppDeveloperIndexQueryPortV1,
-  createSessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import {
   createStoredAttemptEvidenceLoaderV1,
@@ -551,18 +551,22 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       await commitCompetingIndexedUser(persistence, scope, attempt, "24".repeat(16));
       const digest = "0".repeat(64);
       const operation = Result.getOrThrow(Schema.decodeUnknownResult(
-        Schema.toType(AdmittedParticipantOperationV1Schema))({
+        Schema.toType(AdmittedParticipantOperationSchema))({
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
-          participant: "fixture.borrowed", method: "readIndex", sourceKey: "fixture.source",
-          sourceSha256Hex: digest, bindingHead: { sequence: "1", sha256: digest },
-          participantBindingSha256Hex: digest, requestSha256Hex: digest, resultSha256Hex: digest,
-          effects: [], eventIntents: [],
-          dependencyEvidence: { format: "flarex.logical-participant-evidence", version: 1,
-            indexRanges: [{ indexDefinitionId: attempt.definition.indexDefinitionId,
-              bounds: {}, entries: [] }], indexPages: [], uniqueReads: [] },
+          participant: "fixture.borrowed", method: "readIndex", profileRevision: digest,
+          admissionBundleSha256Hex: digest, requestSha256Hex: digest, resultSha256Hex: digest,
+          sourceContributions: [{ sourceKey: "fixture.source", sourceSha256Hex: digest,
+            bindingHead: { sequence: "1", sha256: digest }, sourceBindingSha256Hex: digest,
+            methods: ["readIndex"], effects: [],
+            dependencyEvidence: { format: "flarex.logical-participant-evidence", version: 1,
+              indexRanges: [{ indexDefinitionId: attempt.definition.indexDefinitionId,
+                bounds: {}, entries: [] }], indexPages: [], uniqueReads: [] } }],
+          eventIntents: [],
         }));
+      const sourceContribution = operation.sourceContributions[0];
+      if (sourceContribution === undefined) throw new Error("Missing tested source contribution");
       const failure = await persistence.drizzle.transaction(tx => runFailure(
-        validateLogicalParticipantDependencyEvidence(tx, scope.scopeId, operation, {
+        validateLogicalParticipantDependencyEvidence(tx, scope.scopeId, operation, sourceContribution, {
           tableIds: new Set([decodeCatalogTableId(1)]), indexes: [attempt.definition], unique: [],
         })));
       expect(failure).toMatchObject({ reason: "writeConflict" });
@@ -4676,7 +4680,7 @@ async function createAttempt(
       },
     }),
   );
-  const store = createSessionJournalStorePersistenceV1(scope.ports, {
+  const store = createSessionJournalStorePersistence(scope.ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
@@ -4803,7 +4807,7 @@ async function createAttempt(
   const prepared = await prepareSeal(store, attempt);
   markPhase?.("sealCanonicalization");
   const journal = await runEffect(
-    canonicalizeSessionJournalV2Effect(prepared.journal),
+    canonicalizeSessionJournalEffect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -4935,7 +4939,7 @@ async function createIndexedAttempt(
       },
     }),
   );
-  const store = createSessionJournalStorePersistenceV1(scope.ports, {
+  const store = createSessionJournalStorePersistence(scope.ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
     indexedQueries: createAppDeveloperIndexQueryPortV1(
@@ -4973,7 +4977,7 @@ async function createIndexedAttempt(
   );
   const prepared = await prepareSeal(store, attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV2Effect(prepared.journal),
+    canonicalizeSessionJournalEffect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),

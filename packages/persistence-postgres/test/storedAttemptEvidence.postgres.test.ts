@@ -9,8 +9,8 @@ import {
   CommitEnvelopeV1Schema,
   CommitSyscallSequenceV1Schema,
   CommitFinalSyscallSequenceV1Schema,
-  SESSION_JOURNAL_FORMAT_V2,
-  canonicalizeSessionJournalV2Effect,
+  SESSION_JOURNAL_FORMAT,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -161,8 +161,8 @@ import {
   fxSystemTransactionJournals,
 } from "../src/schema";
 import {
-  createSessionJournalStorePersistenceV1,
-  type SessionJournalAttemptV1,
+  createSessionJournalStorePersistence,
+  type SessionJournalAttempt,
 } from "../src/sessionJournalStore";
 import {
   createStoredCommitAuthorityEvidenceLoaderV1,
@@ -241,7 +241,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       });
       const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
-        canonicalizeSessionJournalV2Effect(prepared.journal),
+        canonicalizeSessionJournalEffect(prepared.journal),
       );
       const result = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -453,7 +453,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       const racing = await scenario(persistence, "seal_load_race");
       const prepared = await prepareSeal(racing.store, racing.attempt);
       const journal = await runEffect(
-        canonicalizeSessionJournalV2Effect(prepared.journal),
+        canonicalizeSessionJournalEffect(prepared.journal),
       );
       const result = await runEffect(
         canonicalizeSuccessfulResultV1Effect(null),
@@ -513,7 +513,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       const current = await scenario(persistence, "commit_authority_rr");
       const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
-        canonicalizeSessionJournalV2Effect(prepared.journal),
+        canonicalizeSessionJournalEffect(prepared.journal),
       );
       const result = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3015,8 +3015,8 @@ interface Scenario {
   readonly executionClaims: PointMutationExecutionClaimVaultV1;
   readonly executionScope: PointMutationExecutionScopeV1;
   readonly authority: StoredAttemptEvidenceAuthorityV1;
-  readonly store: ReturnType<typeof createSessionJournalStorePersistenceV1>;
-  readonly attempt: SessionJournalAttemptV1;
+  readonly store: ReturnType<typeof createSessionJournalStorePersistence>;
+  readonly attempt: SessionJournalAttempt;
   readonly loader: ReturnType<typeof createStoredAttemptEvidenceLoaderV1>;
   readonly loading: ReturnType<
     typeof createPointMutationSessionAttemptLoadingV1
@@ -3080,7 +3080,7 @@ async function scenario(
       mode: "execute",
     }), "execute"),
   ));
-  const store = createSessionJournalStorePersistenceV1(ports, {
+  const store = createSessionJournalStorePersistence(ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
@@ -3299,7 +3299,7 @@ async function o08B1Scenario(
       mode: "execute",
     }), "execute"),
   ));
-  const store = createSessionJournalStorePersistenceV1(ports, {
+  const store = createSessionJournalStorePersistence(ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
@@ -3550,7 +3550,7 @@ async function preparePostgresO08CCompanionPublication(
   if (activation.status !== "created") {
     throw new Error("Expected a newly created O08-C companion attempt.");
   }
-  const store = createSessionJournalStorePersistenceV1(ports, {
+  const store = createSessionJournalStorePersistence(ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
@@ -3567,7 +3567,7 @@ async function preparePostgresO08CCompanionPublication(
   }));
   const prepared = await prepareSeal(store, attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV2Effect(prepared.journal),
+    canonicalizeSessionJournalEffect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: false }),
@@ -3887,7 +3887,7 @@ async function assertNoOpenExecutionEvidenceTransaction(
 async function sealScenario(current: Scenario) {
   const prepared = await prepareSeal(current.store, current.attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV2Effect(prepared.journal),
+    canonicalizeSessionJournalEffect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -4141,7 +4141,7 @@ function commitAuthorityFromStoredEvidence(
       finalSyscallSequence: evidence.root.lastSyscallSequence,
       creationTimeSeed: evidence.root.creationTimeSeed,
       nextCreationTime: evidence.root.nextCreationTime,
-      journalFormat: SESSION_JOURNAL_FORMAT_V2,
+      journalFormat: SESSION_JOURNAL_FORMAT,
       journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
       journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
       journalByteLength: evidence.root.journalBytes.byteLength,

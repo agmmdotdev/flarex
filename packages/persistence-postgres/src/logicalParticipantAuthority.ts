@@ -3,7 +3,9 @@
 export { LogicalParticipantAdmissionError, LogicalParticipantInvocationError,
   hasLogicalParticipantAttemptAdmission, inspectLogicalParticipantAttemptAdmission,
   hasLogicalParticipantCommitAuthority, inspectLogicalParticipantCommitAuthority,
+  inspectLogicalParticipantCommitAuthoritySource,
   requireLogicalParticipantCommitAuthorityEffect } from "./logicalDocuments/participantAdmission";
 export type { LogicalParticipantAttemptAdmission, LogicalParticipantCommitAuthority,
+  LogicalParticipantAdmissionBundle,
   LogicalParticipantSelection, LogicalParticipantAttemptRoot,
   LogicalParticipantAttemptReadTransaction } from "./logicalDocuments/participantAdmission";

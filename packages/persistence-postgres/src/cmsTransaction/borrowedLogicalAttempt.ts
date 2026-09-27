@@ -1,7 +1,7 @@
 import { Clock, Effect, Result } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
-import type { SessionJournalAttemptV1 } from "../sessionJournalStore";
+import type { SessionJournalAttempt } from "../sessionJournalStore";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { LogicalDocumentSourceAdmissionError, withLogicalDocumentAttemptAdmissionEffect } from
@@ -25,7 +25,7 @@ const projectCheckedReadFailure = (cause: unknown): CmsTransactionError =>
 
 export interface BorrowedCmsAttemptInput {
   readonly admission: LogicalParticipantAttemptAdmission;
-  readonly attempt: SessionJournalAttemptV1;
+  readonly attempt: SessionJournalAttempt;
   readonly method: string;
   /** The journal owns this pending point overlay and all durable receipts. */
   readonly pendingRows: readonly LogicalPendingDocumentSeed[];

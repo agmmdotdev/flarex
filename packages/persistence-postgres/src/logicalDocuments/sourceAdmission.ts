@@ -49,6 +49,38 @@ export interface LogicalSourceBindingState {
   readonly head: DataBindingHeadToken;
 }
 
+type SharedCheckedBinding = Readonly<{
+  application: ApplicationBindingInput;
+  controlDb: AppUniqueConstraintSetBuildPortsV1["controlDb"];
+  authorityPort: AppUniqueConstraintSetBuildPortsV1["authority"];
+  unique: AppUniqueConstraintSetEligibilityPortV1;
+  deploymentId: string;
+  scopeId: ScopeId;
+  authority: TrustedScopeAuthority;
+  clock: ScopeClockRecord;
+  schemaVersionId: CatalogSchemaVersionId;
+  manifestSha256: string;
+  frame: DataBindingSetFrame;
+  head: DataBindingHeadToken;
+}>;
+const checkedBindings = new WeakMap<FlarexMetadataTransaction, SharedCheckedBinding[]>();
+
+/** Scope common candidate/readiness IO to one checked historical-read transaction.
+ * Each source still compares its own pinned head and source contract. The next
+ * read opens a new transaction and must authenticate the binding again. */
+export function withSharedLogicalSourceBindingChecks<Value, Failure, Requirements>(
+  tx: FlarexMetadataTransaction, work: () => Effect.Effect<Value, Failure, Requirements>,
+): Effect.Effect<Value, Failure, Requirements> {
+  return Effect.suspend(() => {
+    const previous = checkedBindings.get(tx);
+    checkedBindings.set(tx, []);
+    return Effect.suspend(work).pipe(Effect.ensuring(Effect.sync(() => {
+      if (previous === undefined) checkedBindings.delete(tx);
+      else checkedBindings.set(tx, previous);
+    })));
+  });
+}
+
 /** Shared immutable catalog checks for a trusted source-specific admission.
  * This grants no serving token, business profile, transaction or settlement. */
 export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.prepare")(function* (
@@ -119,15 +151,29 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>,
   ) {
+    const shared = checkedBindings.get(tx)?.find(checked =>
+      checked.application === application && checked.controlDb === capturedPorts.controlDb &&
+      checked.authorityPort === capturedPorts.authority && checked.unique === unique &&
+      checked.deploymentId === captured.deploymentId && checked.scopeId === captured.scopeId &&
+      checked.authority === authority &&
+      checked.clock === clock && checked.schemaVersionId === captured.schemaVersionId &&
+      checked.manifestSha256 === readiness.reference.manifestSha256);
+    if (shared !== undefined) return yield* work(Object.freeze({ tx, authority, clock,
+      schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head }));
     const current = yield* readBindingHead(tx, authority, "share");
     if (Option.isNone(current)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
     const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
     if (Option.isNone(candidate)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
     const applicationEvidence = yield* readApplicationBindingEvidenceInTransaction(application, tx, clock);
     yield* verifyLogicalSchemaBindingInTransaction(readiness, candidate.value.frame, applicationEvidence, tx, authority, clock);
+    const head = Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 });
+    checkedBindings.get(tx)?.push(Object.freeze({ application, controlDb: capturedPorts.controlDb,
+      authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,
+      scopeId: captured.scopeId, authority, clock,
+      schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
+      frame: candidate.value.frame, head }));
     return yield* work(Object.freeze({ tx, authority, clock, schemaVersionId: captured.schemaVersionId, source,
-      frame: candidate.value.frame,
-      head: Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 }) }));
+      frame: candidate.value.frame, head }));
   });
   return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding });
 });

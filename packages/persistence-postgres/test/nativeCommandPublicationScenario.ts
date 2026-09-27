@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { Effect } from "effect";
 import { expect } from "vitest";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
-import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
 import { createAppDeveloperIndexQueryPortV1 } from "../src/sessionJournalStore";
 import { createAppDeveloperIndexDefinitionPortV1 } from "../src/appDeveloperIndexCommitV1";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
@@ -40,7 +40,7 @@ export const prepareNativeRangePublication = Effect.fn("NativeCommand.prepareRan
     { leaseDurationMilliseconds: 60_000 }).activateEffect(activationInput);
   if (activation.status !== "created") throw new Error("Expected native attempt");
   const developerIndexes = createAppDeveloperIndexDefinitionPortV1(native.control.drizzle);
-  const store = createSessionJournalStorePersistenceV1(native.pointCommitAuthority, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+  const store = createSessionJournalStorePersistence(native.pointCommitAuthority, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     indexedQueries: createAppDeveloperIndexQueryPortV1(native.control.drizzle, native.pointCommitAuthority, developerIndexes) });
   const attempt = (yield* store.openAttemptEffect({ selector: selectorFromRelationAnchor(activation.anchor), executionClaim: activation.executionClaim,
     snapshotToken: activation.anchor.snapshotToken, schemaVersionId: native.relation.binding.schemaVersionId }));
@@ -55,7 +55,7 @@ export const prepareNativeRangePublication = Effect.fn("NativeCommand.prepareRan
       fields: { title: auditTitle } }, validator)).toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
   }
   const sealed = yield* store.prepareSealEffect(attempt);
-  const journal = (yield* canonicalizeSessionJournalV2Effect(sealed.journal));
+  const journal = (yield* canonicalizeSessionJournalEffect(sealed.journal));
   const result = (yield* canonicalizeSuccessfulResultV1Effect({ observed: true }));
   yield* store.completeSealEffect(sealed.preparation, journal, result);
   const authority = relationAuthorityFromAnchor(activation.anchor, native.relation.binding.schemaVersionId, activation.executionClaim);

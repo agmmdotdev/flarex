@@ -2,7 +2,7 @@ import { Clock, Effect } from "effect";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
-import type { SessionJournalAttemptV1 } from "../sessionJournalStore";
+import type { SessionJournalAttempt } from "../sessionJournalStore";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
 import type { LogicalPendingDocumentSeed } from "../logicalDocuments/model";
@@ -21,7 +21,7 @@ const refuseNested: Parameters<typeof makeCommerceCommandContext>[4] = () =>
 
 export interface BorrowedLogicalAttemptInput {
   readonly admission: LogicalParticipantAttemptAdmission;
-  readonly attempt: SessionJournalAttemptV1;
+  readonly attempt: SessionJournalAttempt;
   readonly method: string;
   /** Decoded from the canonical journal point table by the journal owner. */
   readonly pendingRows: readonly LogicalPendingDocumentSeed[];

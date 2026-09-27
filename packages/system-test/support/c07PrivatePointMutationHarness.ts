@@ -96,7 +96,7 @@ import type { FlarexMetadataDatabase } from "@flarex/persistence-postgres/intern
 import type { LocatedScopeClockReader } from
   "@flarex/persistence-postgres/internal/system-test/scopeAuthorityResolution";
 import {
-  createSessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
 } from "@flarex/persistence-postgres/internal/system-test/sessionJournalStore";
 import {
   createStoredCommitAuthorityEvidenceLoaderV1,
@@ -339,7 +339,7 @@ export async function executePrivateRegisteredRevisionPointMutationThroughC07V1(
   if (functionMetadata === undefined) {
     throw new Error("FSV03 selected revision omitted its mutation metadata.");
   }
-  const store = createSessionJournalStorePersistenceV1(ports, {
+  const store = createSessionJournalStorePersistence(ports, {
     grantRetentionPolicy: C07_TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid: input.randomUuid,
   });
@@ -637,7 +637,7 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
   if (functionMetadata === undefined) {
     throw new Error("C07 function metadata is missing.");
   }
-  const store = createSessionJournalStorePersistenceV1(ports, {
+  const store = createSessionJournalStorePersistence(ports, {
     grantRetentionPolicy: C07_TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
@@ -832,7 +832,7 @@ function createInitialExecution(
   >,
   loader: ReturnType<typeof createStoredAttemptEvidenceLoaderV1>,
   loading: ReturnType<typeof createPointMutationSessionAttemptLoadingV1>,
-  store: ReturnType<typeof createSessionJournalStorePersistenceV1>,
+  store: ReturnType<typeof createSessionJournalStorePersistence>,
   verifier: ReturnType<typeof createTransactionGrantVerifierV1>,
   functionSnapshot: Readonly<{
     readonly deploymentId: TransactionGrantDeploymentIdV1;

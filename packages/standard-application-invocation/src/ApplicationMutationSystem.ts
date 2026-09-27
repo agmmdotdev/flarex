@@ -73,7 +73,7 @@ import {
   type PointCommitTransactionProofOptionsV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
-  createSessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
   type AppDeveloperIndexQueryPortV1,
 } from "@flarex/persistence-postgres/session-journal-store";
 import { createStoredOccExecutionEvidenceLoaderV1 } from
@@ -681,7 +681,7 @@ function makeSelectionInvoke(
         }),
     },
   );
-  const store = createSessionJournalStorePersistenceV1(
+  const store = createSessionJournalStorePersistence(
     live.sessionAuthority,
     {
       grantRetentionPolicy: live.grantRetentionPolicy,
@@ -770,7 +770,8 @@ function makeSelectionInvoke(
         evidenceLoader: storedCommitAuthority,
         transactionGrantVerifier: live.legacyGrantVerifier,
         applicationMutationGrantVerifier: live.applicationGrantVerifier,
-        functionMetadata: live.legacyFunctionMetadata,
+        ...(live.legacyFunctionMetadata === undefined ? {} :
+          { functionMetadata: live.legacyFunctionMetadata }),
         pointCommit,
         pointCommitFinishing,
         pointMutationAttemptReplacement,

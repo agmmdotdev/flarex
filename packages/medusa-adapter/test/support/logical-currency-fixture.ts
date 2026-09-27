@@ -65,7 +65,8 @@ type LogicalCurrencyResource =
 
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
-  includeUserNameIndex?: boolean; payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
+  includeUserNameIndex?: boolean; includeProductLaunch?: boolean;
+  payloadCollections?: unknown; includeProduct?: boolean; includePricing?: boolean;
   extensions?: readonly LogicalSchemaExtension[]; additionalSources?: readonly LogicalSchemaSource[];
   includeVariantPricingLink?: boolean;
   includeSalesChannel?: boolean;
@@ -129,6 +130,7 @@ export async function logicalCurrencyFixture(
   if (schemaName === undefined) throw new Error("Missing logical Currency target schema");
   const applicationOptions = { runtimeHostIdentity: "flarex.test/logical-currency", compatibilityDate: "2026-09-20",
     ...(options?.includeUserNameIndex === true ? { includeUserNameIndex: true } : {}),
+    ...(options?.includeProductLaunch === true ? { includeProductLaunch: true } : {}),
     ...(options?.fixtureIdentity === undefined ? {} : { fixtureIdentity: options.fixtureIdentity }),
     physicalLocator: { kind: "database_per_scope" as const, databaseKey: "logical_currency_target", schemaName } };
   const application = pair.kind === "postgres"

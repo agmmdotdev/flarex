@@ -9,7 +9,7 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { relationReadinessFixture, enableApplicationPhysicalBuilds, prepareReadinessEvidence, prepareAdditionalRelationRevision, uuidSequence } from "./applicationRelationReadinessFixture";
@@ -27,7 +27,7 @@ import { fxSystemApplicationWriteOwnership } from "../src/applicationWriteOwners
 import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from "../src/applicationActivationSchema";
 import { createPointMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
 import { activatePointMutationSession, pointMutationSessionActivationFixture, TEST_GRANT_RETENTION_POLICY_V1 } from "./transactionSessionActivationTestSupport";
-import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
 import { selectorFromRelationAnchor, relationAuthorityFromAnchor } from "./pointCommitRelationTestSupport";
 import { relationBuildRowId } from "./applicationRelationBuildTestSupport";
 import { issueSetupSeededSyscallValidatorProofV1 } from "./applicationRevisionSyscallValidatorTestSupport";
@@ -60,7 +60,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
       functionPath: TransactionFunctionPathV1Schema.make("functions:write") },
   }));
   if (stale.status !== "created") throw new Error("Expected fresh stale-writer session");
-  const staleStore = createSessionJournalStorePersistenceV1(fixture.pointCommitAuthority, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 });
+  const staleStore = createSessionJournalStorePersistence(fixture.pointCommitAuthority, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 });
   const staleAttempt = await runEffect(staleStore.openAttemptEffect({ selector: selectorFromRelationAnchor(stale.anchor),
     executionClaim: stale.executionClaim, snapshotToken: stale.anchor.snapshotToken, schemaVersionId: fixture.relation.binding.schemaVersionId }));
   const stalePosts = await runEffect(staleStore.resolvePointTableEffect(staleAttempt, "posts"));
@@ -74,7 +74,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   await runEffect(staleStore.runPointOperationEffect(stalePosts, { kind: "delete", documentId: staleInserted.outcome.documentId,
     syscallSequence: CommitSyscallSequenceV1Schema.make(2n) }, staleValidator));
   const stalePrepared = await prepareSessionJournalSeal(staleStore, staleAttempt);
-  const staleJournal = await runEffect(canonicalizeSessionJournalV2Effect(stalePrepared.journal));
+  const staleJournal = await runEffect(canonicalizeSessionJournalEffect(stalePrepared.journal));
   const staleResult = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
   await completeSessionJournalSeal(staleStore, stalePrepared.preparation, staleJournal, staleResult);
   await prepareReadinessEvidence(fixture);
@@ -149,7 +149,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
     applicationExecutionAuthorityCanonicalBytes: admission.executionAuthority.canonicalBytes,
     applicationExecutionAuthoritySha256: admission.executionAuthority.sha256,
   }).where(eq(fxSystemTransactionSessions.sessionId, session.anchor.sessionId));
-  const store = createSessionJournalStorePersistenceV1(fixture.pointCommitAuthority, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 });
+  const store = createSessionJournalStorePersistence(fixture.pointCommitAuthority, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 });
   const attempt = await runEffect(store.openAttemptEffect({ selector: selectorFromRelationAnchor(session.anchor),
     executionClaim: session.executionClaim, snapshotToken: session.anchor.snapshotToken, schemaVersionId: fixture.relation.binding.schemaVersionId }));
   const posts = await runEffect(store.resolvePointTableEffect(attempt, "posts"));
@@ -172,7 +172,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   expect(await runEffect(store.runPointOperationEffect(posts, { kind: "get", documentId,
     syscallSequence: CommitSyscallSequenceV1Schema.make(2n) }, validator))).toMatchObject({ kind: "completed" });
   const prepared = await prepareSessionJournalSeal(store, attempt);
-  const journal = await runEffect(canonicalizeSessionJournalV2Effect(prepared.journal));
+  const journal = await runEffect(canonicalizeSessionJournalEffect(prepared.journal));
   const result = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
   await completeSessionJournalSeal(store, prepared.preparation, journal, result);
   const authority = relationAuthorityFromAnchor(session.anchor, fixture.relation.binding.schemaVersionId, session.executionClaim);

@@ -69,7 +69,9 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     limits: { pageRows: 32, identities: 64, documentBytes: 65_536 },
   }, AppCreationTimeV1Schema.make(1), unique, indexes);
   const productId = "prod_historical_attempt", imageId = "img_historical_attempt";
+  const optionId = "opt_historical_attempt";
   const oldHandle = "historical-before", committedHandle = "historical-after", pendingHandle = "historical-pending";
+  const oldOptionTitle = "Historical size", committedOptionTitle = "Later size";
   const commit = (change: "seed" | "standalone") => transact(tx => Effect.scoped(Effect.gen(function* () {
     const clock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
     const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(error,
@@ -79,17 +81,22 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     const id = yield* lifetime.begin(lifetime.context);
     const product = yield* working.relationalTable(lifetime.context, id, "product");
     const image = yield* working.relationalTable(lifetime.context, id, "image");
+    const option = yield* working.relationalTable(lifetime.context, id, "product_option");
     if (change === "seed") {
       yield* product.write(lifetime.context, "insert", [{ id: productId, handle: oldHandle,
         title: "Historical Product", status: "draft" }]);
       yield* image.write(lifetime.context, "insert", [{ id: imageId, product_id: productId,
         url: "https://example.invalid/historical-before.png", rank: 0 }]);
+      yield* option.write(lifetime.context, "insert", [{ id: optionId, product_id: productId,
+        title: oldOptionTitle }]);
     } else {
       yield* product.write(lifetime.context, "update", [{ id: productId, handle: committedHandle,
         title: "Later standalone title", status: "published" }]);
       yield* image.delete(lifetime.context, [imageId]);
       yield* image.write(lifetime.context, "insert", [{ id: "img_later_attempt", product_id: productId,
         url: "https://example.invalid/later.png", rank: 1 }]);
+      yield* option.write(lifetime.context, "update", [{ id: optionId, product_id: productId,
+        title: committedOptionTitle }]);
     }
     yield* lifetime.seal;
     const closed = yield* working.close();
@@ -129,6 +136,17 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
   }));
   yield* Effect.scoped(Effect.gen(function* () {
     const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(error,
+      { calls: 32, commandBytes: 262_144, commandMs: 60_000 }, {}, {}, "product-historical-compound-unique", "write"),
+    resource => resource.close);
+    const working = yield* make(lifetime, currentClock, { readTransaction: transact, snapshotCommitSeq });
+    const id = yield* lifetime.begin(lifetime.context);
+    const option = yield* working.relationalTable(lifetime.context, id, "product_option");
+    expect(yield* Effect.flip(option.write(lifetime.context, "insert", [{ id: "opt_duplicate_attempt",
+      product_id: productId, title: oldOptionTitle }])))
+      .toMatchObject({ message: "uniqueConflict" });
+  }));
+  yield* Effect.scoped(Effect.gen(function* () {
+    const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(error,
       { calls: 128, commandBytes: 1_048_576, commandMs: 60_000 }, {}, {}, "product-historical", "write"),
     resource => resource.close);
     const working = yield* make(lifetime, currentClock,
@@ -136,6 +154,7 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     const id = yield* lifetime.begin(lifetime.context);
     const product = yield* working.relationalTable(lifetime.context, id, "product");
     const image = yield* working.relationalTable(lifetime.context, id, "image");
+    const option = yield* working.relationalTable(lifetime.context, id, "product_option");
     const point = () => product.find(lifetime.context, { take: 1,
       order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
         { kind: "in", column: "id", values: [productId] }, { kind: "isNull", column: "deleted_at" }] } });
@@ -157,12 +176,17 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     expect(yield* find(committedHandle)).toEqual([]);
     yield* image.write(lifetime.context, "insert", [{ id: "img_pending_attempt", product_id: productId,
       url: "https://example.invalid/pending.png", rank: 2 }]);
+    yield* option.write(lifetime.context, "insert", [{ id: "opt_pending_attempt", product_id: productId,
+      title: "Unseen size" }]);
     expect((yield* images()).map(row => row.id).sort()).toEqual([imageId, "img_pending_attempt"].sort());
     yield* lifetime.seal;
     const closed = yield* working.close();
     expect(closed.scans).toHaveLength(0);
     expect(closed.indexReads.length).toBeGreaterThan(0);
     expect(closed.uniqueReads.some(read => read.owner === null)).toBe(true);
+    expect(closed.uniqueReads.some(read => read.owner === null && unique.some(definition =>
+      definition.uniqueConstraintDefinitionId === read.constraintId &&
+      definition.physicalSpec.orderedFields.length === 2))).toBe(true);
     expect(closed.dependencies.some(row => row.dependency.observed.kind === "present")).toBe(true);
     expect(closed.attempts.some(row => row.tableName === "product")).toBe(true);
   }));

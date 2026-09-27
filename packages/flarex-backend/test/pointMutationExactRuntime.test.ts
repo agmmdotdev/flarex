@@ -425,6 +425,7 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       cause: hostFailure,
     });
     expect(handler).toHaveBeenCalledOnce();
+    await expect(handler.mock.results[0]?.value).resolves.toEqual({ caught: true });
   });
 
   it("keeps one validated fixture equivalent through in-process and generated adapters", async () => {

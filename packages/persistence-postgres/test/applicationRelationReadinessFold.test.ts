@@ -3,7 +3,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { ApplicationActivationSequenceV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { ApplicationActivationSequenceV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { CatalogSchemaVersionSchema } from "flarex-protocol/schema-manifest";
 import { decodeCatalogEdgeDefinitionId } from "flarex-protocol/catalog";
 import { CommitSeqSchema, decodeReplacementScopeIdV1, LegacyV1StorageGenerationSchema, projectScopeIdUuidV1, ScopeEpochSchema, ScopeIdSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
@@ -22,7 +22,7 @@ import type { SplitScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
 import { fxControlApplicationSchemaAuthoritiesV1, fxSystemApplicationPublicationsV1, fxSystemApplicationReadinessV1, fxSystemApplicationTaskCatalogsV1, fxSystemApplicationTaskDefinitionsV1, fxSystemApplicationRelationSemanticReadiness, fxSystemEdgeDefinitionReadiness, fxSystemScopeClocks, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournals } from "../src/schema";
-import { createSessionJournalStorePersistenceV1, SessionJournalSealV1Error, SessionJournalStorageCorruptionV1Error } from "../src/sessionJournalStore";
+import { createSessionJournalStorePersistence, SessionJournalSealV1Error, SessionJournalStorageCorruptionV1Error } from "../src/sessionJournalStore";
 import { createPointMutationExecutionClaimAcquisitionV1, createPointMutationSessionActivationPersistenceV1, createPointMutationSessionAttemptLoadPersistenceV1 } from "../src/transactionSessionActivation";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
 import { createStoredOccExecutionEvidenceLoaderV1 } from "../src/storedOccExecution";
@@ -284,7 +284,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     if (activation.status !== "created") {
       throw new Error("Expected a new exact relation-read attempt.");
     }
-    const store = createSessionJournalStorePersistenceV1(
+    const store = createSessionJournalStorePersistence(
       fixture.pointCommitAuthority,
       {
         grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -477,7 +477,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       writes: [],
     });
     const canonicalJournal = await runEffect(
-      canonicalizeSessionJournalV2Effect(prepared.journal),
+      canonicalizeSessionJournalEffect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -580,7 +580,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     if (activation.status !== "created") {
       throw new Error("Expected a staged relation-read attempt.");
     }
-    const store = createSessionJournalStorePersistenceV1(
+    const store = createSessionJournalStorePersistence(
       ready.fixture.pointCommitAuthority,
       {
         grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -696,7 +696,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       throw new Error("Expected a new natural-conflict attempt.");
     }
     expect(activation.anchor.snapshotToken.commitSeq).toBe(1n);
-    const store = createSessionJournalStorePersistenceV1(
+    const store = createSessionJournalStorePersistence(
       ready.fixture.pointCommitAuthority,
       {
         grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -985,7 +985,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       anchor: { snapshotToken: { commitSeq: 2n } },
       attemptFacet: { kind: "pristineOpen" },
     });
-    const retryStore = createSessionJournalStorePersistenceV1(
+    const retryStore = createSessionJournalStorePersistence(
       ready.fixture.pointCommitAuthority,
       {
         grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -1066,7 +1066,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       throw new Error("Expected a new final-OCC relation attempt.");
     }
     expect(activation.anchor.snapshotToken.commitSeq).toBe(2n);
-    const store = createSessionJournalStorePersistenceV1(
+    const store = createSessionJournalStorePersistence(
       ready.fixture.pointCommitAuthority,
       {
         grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -1136,7 +1136,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     );
     const prepared = await prepareSessionJournalSeal(store, attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV2Effect(prepared.journal),
+      canonicalizeSessionJournalEffect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -2526,7 +2526,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     if (activation.status !== "created") {
       throw new Error("Expected a stale-capability relation attempt.");
     }
-    const store = createSessionJournalStorePersistenceV1(
+    const store = createSessionJournalStorePersistence(
       ready.fixture.pointCommitAuthority,
       {
         grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,

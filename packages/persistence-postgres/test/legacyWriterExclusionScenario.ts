@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { Effect } from "effect";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
@@ -10,7 +10,7 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
   fxSystemCommits, fxSystemIdempotency, fxSystemScopeClocks } from "../src/schema";
 import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from "../src/pointCommitTransaction";
 import { createPointMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
-import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
 import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import { validateApplicationWriteOwnershipForCommit } from "../src/applicationWriteOwnership/Commit";
@@ -36,7 +36,7 @@ async function prepareLegacyWriter(fixture: LegacyWriterFixture, kind: "material
     TransactionGrantDeploymentIdV1Schema.make(fixture.deploymentId), scopeId,
     { evidence: { schemaVersionId: fixture.schemaVersionId, requestKey: TransactionRequestKeyV1Schema.make(`legacy-exclusion:${key}`) } }));
   if (activation.status !== "created") throw new Error("Expected fresh legacy attempt");
-  const store = createSessionJournalStorePersistenceV1(fixture.ports, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 });
+  const store = createSessionJournalStorePersistence(fixture.ports, { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1 });
   const attempt = await runEffect(store.openAttemptEffect({ selector: selectorFromRelationAnchor(activation.anchor),
     executionClaim: activation.executionClaim, snapshotToken: activation.anchor.snapshotToken, schemaVersionId: fixture.schemaVersionId }));
   if (kind !== "readOnly") {
@@ -49,7 +49,7 @@ async function prepareLegacyWriter(fixture: LegacyWriterFixture, kind: "material
       syscallSequence: CommitSyscallSequenceV1Schema.make(2n), documentId: inserted.outcome.documentId }, validator));
   }
   const seal = await prepareSessionJournalSeal(store, attempt);
-  const journal = await runEffect(canonicalizeSessionJournalV2Effect(seal.journal));
+  const journal = await runEffect(canonicalizeSessionJournalEffect(seal.journal));
   const result = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
   await completeSessionJournalSeal(store, seal.preparation, journal, result);
   const authority = relationAuthorityFromAnchor(activation.anchor, fixture.schemaVersionId, activation.executionClaim);

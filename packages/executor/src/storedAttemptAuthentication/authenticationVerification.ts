@@ -25,19 +25,19 @@ import {
 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
-  decodeCanonicalSessionJournalV2Effect,
+  decodeCanonicalSessionJournalEffect,
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
   MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
   MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
   MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
   measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
-  verifyParticipantPointCorrelationV2Effect,
+  verifyParticipantPointCorrelationEffect,
   verifySuccessfulResultEvidenceV1Effect,
   type CanonicalSuccessfulResultV1,
   type LogicalAppWriteV1,
   type LogicalPatchFieldV1,
   type LogicalReadDependencyV1,
-  type SessionJournalV2,
+  type SessionJournal,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -183,7 +183,7 @@ export const verifyCanonicalStoredEvidenceEffect = Effect.fn(
   if (authorityMismatch !== undefined) {
     return yield* Effect.fail(authorityMismatch);
   }
-  const journal = yield* decodeCanonicalSessionJournalV2Effect({
+  const journal = yield* decodeCanonicalSessionJournalEffect({
     canonicalBytes: copyBytes(evidence.root.journalBytes),
     expectedSha256Hex: scalarEvidence.journalSha256Hex,
   }).pipe(
@@ -365,7 +365,7 @@ function storedEnvelopeMismatch(
 
 function journalCounterMismatch(
   evidence: StoredAttemptEvidencePortV1,
-  journal: SessionJournalV2,
+  journal: SessionJournal,
 ): StoredAttemptStorageCorruptionV1Error | undefined {
   let writeSemanticBytes = 0;
   let pointDependencyCount = 0;
@@ -396,7 +396,7 @@ function journalCounterMismatch(
   }
   let participantEffectCount = 0;
   for (const operation of journal.participantOperations) {
-    for (const effect of operation.effects) {
+    for (const effect of operation.sourceContributions.flatMap(source => source.effects)) {
       participantEffectCount += 1;
       if (effect.after !== null) {
         const measured = Result.try({
@@ -471,7 +471,7 @@ const verifyPointCorrelationEffect = Effect.fn(
   "StoredAttemptAuthentication.verifyPointCorrelation",
 )(function* (
   rows: ReadonlyArray<StoredAttemptPointEvidencePortV1>,
-  journal: SessionJournalV2,
+  journal: SessionJournal,
 ): Effect.fn.Return<
   ReadonlyArray<AuthenticatedStoredAttemptPointV1>,
   StoredAttemptStorageCorruptionV1Error
@@ -520,7 +520,7 @@ const verifyPointCorrelationEffect = Effect.fn(
     writesByDocument.set(write.documentId, writes);
   }
   const participantWritten = new Set(journal.participantOperations.flatMap(operation =>
-    operation.effects.map(effect => effect.documentId)));
+    operation.sourceContributions.flatMap(source => source.effects.map(effect => effect.documentId))));
   for (const point of points.values()) {
     if (participantWritten.has(point.documentId)) continue;
     yield* verifyPointWriteChainEffect(
@@ -538,7 +538,7 @@ const verifyPointCorrelationEffect = Effect.fn(
     return Object.freeze({ documentId: point.documentId, tableId: point.tableId,
       observed: point.dependency.observed, overlayKind: point.overlayKind, overlayValueJson });
   }));
-  yield* verifyParticipantPointCorrelationV2Effect(journal, participantPoints).pipe(
+  yield* verifyParticipantPointCorrelationEffect(journal, participantPoints).pipe(
     Effect.mapError(cause => new StoredAttemptStorageCorruptionV1Error({
       reason: "pointEvidenceInvalid", cause,
     })));
@@ -919,7 +919,7 @@ export function dependenciesEqual(
 function captureAuthenticatedState(
   authority: StoredAttemptAuthorityStateV1,
   evidence: StoredAttemptEvidencePortV1,
-  journal: SessionJournalV2,
+  journal: SessionJournal,
   successfulResult: CanonicalSuccessfulResultV1,
   successfulResultValue: CanonicalFlarexRuntimeValueV1,
   points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>,

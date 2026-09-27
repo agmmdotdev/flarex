@@ -104,7 +104,22 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
   if (reconciled.status !== "reconciled") throw new Error("Native candidate did not reconcile");
   expect(reconciled.definitionIds).toContain(definition.indexDefinitionId);
   expect(reconciled.createdCount).toBe(reconciled.definitionIds.length);
-  expect(reconciled.createdCount).toBe(6);
+  const builtDefinitions = yield* Effect.forEach(reconciled.definitionIds,
+    id => locateAppIndexDefinitionByIdEffect(db, scopeId, id));
+  // Currency contributes creation, code, and active-row indexes; the current
+  // two Application tables each contribute creation and title indexes.
+  expect(builtDefinitions.map(row => row?.access.kind === "developer"
+    ? [row.access.tableId, row.physicalSpec.orderedFields[0], row.physicalSpec.predicate ?? null]
+    : [row?.access.tableId, "by_creation_time", null])).toEqual([
+    [definition.access.tableId, "by_creation_time", null],
+    [definition.access.tableId, { kind: "documentPath", path: "code" }, null],
+    [definition.access.tableId, { kind: "documentPath", path: "deleted_at" },
+      { kind: "fieldIsNull", field: "deleted_at" }],
+    [1, "by_creation_time", null], [2, "by_creation_time", null],
+    [1, { kind: "documentPath", path: "title" }, null],
+    [2, { kind: "documentPath", path: "title" }, null],
+  ]);
+  expect(reconciled.createdCount).toBe(7);
   expect(yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, scopeId, schemaVersionId }))
     .toMatchObject({ status: "reconciled", createdCount: 0, replayedCount: reconciled.createdCount });
   let enabled = false;

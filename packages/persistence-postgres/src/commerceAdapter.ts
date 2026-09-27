@@ -27,6 +27,8 @@ export function runCommerceCommand(
 
 export { defineCommerceCommand } from "./commerceTransaction/commands";
 export { makeBorrowedLogicalAttempt } from "./commerceTransaction/borrowedLogicalAttempt";
+export { makeBorrowedWorkflowAttempt } from "./commerceTransaction/borrowedWorkflowAttempt";
+export type { BorrowedWorkflowAttemptInput } from "./commerceTransaction/borrowedWorkflowAttempt";
 export { projectLogicalDocumentJournalContribution } from "./logicalDocuments/journalContribution";
 export type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
 export { serializeLogicalParticipantDependencyEvidence, decodeLogicalParticipantDependencyEvidence } from "./logicalDocuments/journalEvidence";

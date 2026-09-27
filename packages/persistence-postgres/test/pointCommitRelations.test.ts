@@ -10,7 +10,7 @@ import {
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -61,9 +61,9 @@ import {
   fxSystemCommitRelationAdjacencyChanges,
 } from "../src/schema";
 import {
-  createSessionJournalStorePersistenceV1,
-  type SessionJournalAttemptV1,
-  type SessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
+  type SessionJournalAttempt,
+  type SessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import {
   createStoredAttemptEvidenceLoaderV1,
@@ -125,8 +125,8 @@ interface PreparedRelationAttempt<Value> {
 }
 
 interface RelationOperationContext {
-  readonly store: SessionJournalStorePersistenceV1;
-  readonly attempt: SessionJournalAttemptV1;
+  readonly store: SessionJournalStorePersistence;
+  readonly attempt: SessionJournalAttempt;
 }
 
 interface PrepareRelationAttemptOptions {
@@ -597,7 +597,7 @@ describe("C09 point-commit relation maintenance", () => {
     if (activation.status !== "created") {
       throw new Error("Expected a newly created C09 point attempt.");
     }
-    const store = createSessionJournalStorePersistenceV1(scope.ports, {
+    const store = createSessionJournalStorePersistence(scope.ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
     });
@@ -610,7 +610,7 @@ describe("C09 point-commit relation maintenance", () => {
     const value = await operation(Object.freeze({ store, attempt }));
     const prepared = await prepareSessionJournalSeal(store, attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV2Effect(prepared.journal),
+      canonicalizeSessionJournalEffect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),

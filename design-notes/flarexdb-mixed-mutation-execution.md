@@ -1,10 +1,9 @@
 # Mixed Application, Payload And Medusa Mutations
 
-Status: accepted and implemented for the private Application/Product and selected
-Payload Local API slices in isolated test scopes. The [finite Medusa workflow
-preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md)
-is proposed for focused scope agreement; its runtime work, public API and hosted
-activation remain unapproved or deferred. The other shared-storage
+Status: accepted and implemented for the private Application/Product, selected
+Payload Local API and finite Medusa workflow slices in isolated scopes. The
+[workflow preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md)
+owns its bounded native graph; its public API and hosted activation remain deferred. The other shared-storage
 session has completed its active [exact-scope retained-history slice](../roadmaps/shared-logical-storage/56-same-deployment-scope-authority.md)
 and paused at a clean committed handoff; the shared-storage domain still has
 remaining work. The [first focused preflight](../roadmaps/mixed-mutation-core/01-application-product-attempt-preflight.md)
@@ -64,8 +63,8 @@ The first [focused preflight](../roadmaps/mixed-mutation-core/01-application-pro
 approves the Application and Product private attempt after its baseline audit;
 the [second](../roadmaps/mixed-mutation-core/02-payload-local-api-attempt-preflight.md)
 owns the implemented Payload lifecycle under the same root. Each owns its exact
-authority, cutover and validation scope. The proposed [workflow preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md)
-owns the next scope discussion. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
+authority, cutover and validation scope. The [workflow preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md)
+owns the implemented finite private runtime package. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
 tracks remaining gates and work.
 
 The approved private core phase covers attempt participation, snapshot and pending reads,
@@ -109,8 +108,9 @@ or that separate profiles have universally better performance.
 ## Baseline Foundations And Later Contracts
 
 The table records the baseline gaps that motivated the first slice and the
-contracts still needed for broader admission. The implemented Product and
-selected Payload paths use the current journal with one source per admitted operation, one pending point overlay,
+contracts still needed for broader admission. Before the finite workflow package,
+the implemented Product and selected Payload paths used a one-source journal
+operation and one pending point overlay,
 borrowed logical working sets and authenticated source effects under the root.
 Those contracts are proved for their pinned operations, not for an arbitrary
 framework operation or historical text search.
@@ -118,7 +118,7 @@ framework operation or historical text search.
 | Owner | Reusable foundation | Baseline or later-admission gap |
 | --- | --- | --- |
 | [Native session journal](../packages/persistence-postgres/src/sessionJournalStore.ts) and [commit owner](../packages/persistence-postgres/src/pointCommitTransaction.ts) | Attempt identity, snapshot reads, pending point/index state, authenticated sealing, OCC and recovery | Authenticate framework operations and their complete dependencies without granting ordinary Application writes to framework-owned tables |
-| [Logical working set](../packages/persistence-postgres/src/logicalDocuments/workingSet.ts) | Pending documents, indexed queries, unique observations, relational checks and resource accounting; selected Product/Payload borrowed historical reads are implemented | Broader query forms and a multi-source workflow invocation still need exact pending and dependency proofs |
+| [Logical working set](../packages/persistence-postgres/src/logicalDocuments/workingSet.ts) | Pending documents, indexed queries, unique observations, relational checks and resource accounting; selected Product/Payload and finite multi-source workflow borrowed historical reads are implemented in isolated scopes | Broader query forms need their own exact pending and dependency proofs |
 | [Shared index/search definitions and entries](../packages/persistence-postgres/src/logicalDocuments/searchEntries.ts) | Ordered and unique access, current text/JSON search, atomic maintenance and scoped readiness | Establish snapshot candidate selection and complete conflict evidence for each admitted access path; current-search entries alone do not provide historical search |
 | [Shared materialization](../packages/persistence-postgres/src/logicalDocuments/materialization.ts) | Generic row/index/constraint preparation and lowering | Validate one combined mutation contribution across authenticated semantic owners |
 | [Medusa repository context](../packages/medusa-adapter/src/commerce-repository-context.ts) and [Payload adapter](../packages/payload-adapter/src/adapter.ts) | Opaque manager/request propagation and framework translation | Borrow mutation-attempt capabilities instead of independently executing a root command |
@@ -208,7 +208,7 @@ Every admitted read uses the same logical snapshot plus earlier pending changes,
 including changes issued through another admitted domain capability. Relevant
 cross-domain reads still require explicit authorization and query support.
 
-The first private slice uses the current journal with one source per admitted operation as the durable attempt record
+The first private slice used one source per admitted operation in the durable journal
 and its point rows as the single pending view. A borrowed logical operation
 hydrates its disposable working set from the authenticated snapshot and pending
 points, then returns checked effects for atomic journal acceptance. No SQL
@@ -355,6 +355,8 @@ documented and tested. A feature that requires the external result before its
 next database decision generally belongs in a durable workflow.
 
 ## Medusa Workflow Participation
+
+The selected private catalogue-launch parent pins a 30-second borrowed command deadline within the existing trusted logical atomic 10–30-second range and a 256-call budget for its two children within the existing 4,096-call shared ceiling. Both selections enter the profile revision. Other framework profiles retain their default 10-second deadline, and the standalone pricing child retains its 128-call selection. The root attempt lease and shared ceilings do not change. Product, Pricing and Link heads are checked on each short historical read; common activation/readiness projection may be reused only inside that transaction.
 
 The [current native workflow profile](../roadmaps/workflow-foundations/10-medusa-workflow-integration.md)
 and [child composition](../roadmaps/workflow-foundations/15-native-workflow-composition.md)
@@ -644,7 +646,7 @@ Each implementation slice includes meaningful owner/consumer tests, PGlite and
 ordinary-role PostgreSQL lanes, applicable Worker execution, required type/build/
 lint/source guards, both standing reviewers and cleanup. The private Product
 and selected Payload slices are implemented and bounded in their numbered
-preflights. Workflow runtime and whole-core completion remain open, and no
+preflights. The finite workflow runtime is implemented privately; whole-core completion remains open, and no
 performance result is claimed.
 Core completion means the agreed
 private execution contracts, real consumer proofs, measured performance targets
@@ -653,9 +655,10 @@ follow-on work.
 
 ## Decisions For Later Gates
 
-- The selected Payload lifecycle is implemented privately. The proposed finite
-  workflow, source-set and journal-format cutover decisions are in the [third preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md);
-  they require focused scope agreement before runtime work.
+- The selected Payload lifecycle and finite workflow are implemented privately.
+  The [third preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md)
+  owns the workflow's bounded source set and journal-format cutover. Named durable-environment
+  disposition and activation remain separate gates.
 - Which framework query forms have sufficient history and dependency evidence,
   and which must remain unavailable until that evidence exists?
 - Which text/JSON access paths use historical candidate selection, and which
@@ -681,10 +684,10 @@ retries under root budgets, durable outcome resolution before an uncertain
 commit can rerun callbacks, and the existing lock protocol. The same root and
 receipt owner records an exact in-progress operation before native execution;
 duplicates wait or refuse while it is live, and the existing execution claim
-and attempt lease govern abandonment after expiry. The current journal representation and
-selected Product/Payload paths are implemented in their focused private
+and attempt lease govern abandonment after expiry. The selected Product/Payload paths
+were implemented in their focused private
 preflights; named durable-environment activation still requires its explicit
-data disposition. The proposed finite workflow would change that durable
-format and has its own scope and data gates. Later admissions require their
+data disposition. The approved finite workflow package replaces that durable
+format in isolated proof scopes and retains its named-environment data gates. Later admissions require their
 own focused preflights;
 developer APIs remain deferred.

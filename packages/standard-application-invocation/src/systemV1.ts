@@ -71,7 +71,7 @@ import {
   type PointCommitTransactionProofOptionsV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
-  createSessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
   type AppDeveloperIndexQueryPortV1,
 } from
   "@flarex/persistence-postgres/session-journal-store";
@@ -433,7 +433,7 @@ function makeInvoke(
       return yield* outcomeFromResolution(replay, "replayed");
     }
   }
-  const store = createSessionJournalStorePersistenceV1(
+  const store = createSessionJournalStorePersistence(
     live.sessionAuthority,
     {
       grantRetentionPolicy: live.grantRetentionPolicy,

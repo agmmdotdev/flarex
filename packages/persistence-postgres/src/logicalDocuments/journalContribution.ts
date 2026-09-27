@@ -32,7 +32,8 @@ export const projectLogicalDocumentJournalContribution = Effect.fn("LogicalDocum
       noFinal.size !== closed.noFinalRows.length ||
       [...changes.keys()].some(id => !observations.has(id) || noFinal.has(id)) ||
       [...noFinal].some(id => !observations.has(id)) ||
-      closed.attempts.some((attempt, ordinal) => attempt.ordinal !== ordinal || !observations.has(attempt.documentId)))
+      closed.attempts.some((attempt, ordinal) => (ordinal === 0 ? attempt.ordinal < 0 :
+        attempt.ordinal <= closed.attempts[ordinal - 1]!.ordinal) || !observations.has(attempt.documentId)))
       return yield* Effect.fail(invalid());
     const points = closed.dependencies.map(observation => {
       const changed = changes.get(observation.documentId);

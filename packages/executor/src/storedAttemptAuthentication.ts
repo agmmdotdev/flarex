@@ -44,7 +44,7 @@ import {
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
   type CanonicalSuccessfulResultV1,
-  type SessionJournalV2,
+  type SessionJournal,
 } from "flarex-protocol/commit-protocol";
 import {
   type Json,
@@ -662,9 +662,9 @@ export interface StoredAttemptSealIdentityPortV1 {
   readonly finalSyscallSequence: CommitFinalSyscallSequenceV1;
   readonly creationTimeSeed: AppCreationTimeV1;
   readonly nextCreationTime: AppCreationTimeV1;
-  readonly journalFormat: SessionJournalV2["format"];
-  readonly journalProtocolVersion: SessionJournalV2["protocolVersion"];
-  readonly journalValueCodecVersion: SessionJournalV2["valueCodecVersion"];
+  readonly journalFormat: SessionJournal["format"];
+  readonly journalProtocolVersion: SessionJournal["protocolVersion"];
+  readonly journalValueCodecVersion: SessionJournal["valueCodecVersion"];
   readonly journalByteLength: number;
   readonly journalSha256: Uint8Array;
   readonly resultValueCodecVersion: FlarexValueCodecVersion;
@@ -844,7 +844,7 @@ export interface AuthenticatedStoredAttemptStateV1 {
   readonly executionScope?: PointMutationExecutionScopeV1;
   readonly session: StoredAttemptSessionScalarsPortV1;
   readonly sealIdentity: Readonly<StoredAttemptSealIdentityPortV1>;
-  readonly journal: SessionJournalV2;
+  readonly journal: SessionJournal;
   readonly successfulResult: AuthenticatedSuccessfulResultV1;
   readonly points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>;
 }

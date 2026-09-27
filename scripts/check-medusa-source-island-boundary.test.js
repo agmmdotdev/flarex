@@ -18,7 +18,7 @@ const emptyInput = {
 };
 
 describe("Medusa source-island boundary checker", () => {
-  it("admits only the pinned backend Product proof fixture and test dependency", () => {
+  it("admits only the pinned backend Product, Pricing and Link proof fixture and test dependency", () => {
     const promotion = {
       sourceCommit: "test", buildFiles: [], testAliases: [],
       packages: [{ path: "packages/medusa-adapter", name: "@flarex/medusa-adapter",
@@ -26,15 +26,21 @@ describe("Medusa source-island boundary checker", () => {
       files: [
         "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
         "packages/medusa-adapter/test/support/logical-product-fixture.ts",
+        "packages/medusa-adapter/test/support/logical-pricing-fixture.ts",
+        "packages/medusa-adapter/test/support/logical-variant-pricing-link-fixture.ts",
         "packages/medusa-adapter/test/support/native-product-attempt-seed.ts",
         "packages/medusa-adapter/src/product-attempt.ts",
+        "packages/medusa-adapter/src/product-launch-workflow.ts",
       ].map(target => ({ target, targetSha256: "pinned", classification: "authored" })),
     };
     const imports = `
       import "../../../medusa-adapter/test/support/logical-currency-fixture";
       import "../../../medusa-adapter/test/support/logical-product-fixture";
+      import "../../../medusa-adapter/test/support/logical-pricing-fixture";
+      import "../../../medusa-adapter/test/support/logical-variant-pricing-link-fixture";
       import "../../../medusa-adapter/test/support/native-product-attempt-seed";
       import "@flarex/medusa-adapter/internal/product-attempt";
+      import "../../../medusa-adapter/src/product-launch-workflow";
     `;
     expect(analyzeMedusaSourceIslandBoundary({
       ...emptyInput, currencyPromotion: promotion,
@@ -53,10 +59,29 @@ describe("Medusa source-island boundary checker", () => {
       'packages/flarex-backend/package.json: dependencies must not reference Medusa source-island dependency "@flarex/medusa-adapter".',
     );
     expect(production).toContain(
-      'packages/flarex-backend/src/support/nativeProduct.ts:5 must not import unadmitted promoted Currency module "@flarex/medusa-adapter/internal/product-attempt".',
+      'packages/flarex-backend/src/support/nativeProduct.ts:7 must not import unadmitted promoted Currency module "@flarex/medusa-adapter/internal/product-attempt".',
     );
     expect(production).toContain(
       'packages/flarex-backend/src/support/nativeProduct.ts:2 must not cross Currency package ownership through "../../../medusa-adapter/test/support/logical-currency-fixture".',
+    );
+    expect(production).toContain(
+      'packages/flarex-backend/src/support/nativeProduct.ts:4 must not cross Currency package ownership through "../../../medusa-adapter/test/support/logical-pricing-fixture".',
+    );
+    expect(production).toContain(
+      'packages/flarex-backend/src/support/nativeProduct.ts:5 must not cross Currency package ownership through "../../../medusa-adapter/test/support/logical-variant-pricing-link-fixture".',
+    );
+    expect(production).toContain(
+      'packages/flarex-backend/src/support/nativeProduct.ts:8 must not cross Currency package ownership through "../../../medusa-adapter/src/product-launch-workflow".',
+    );
+    const otherFixture = analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: promotion,
+      rootSources: [{ relativePath: "packages/flarex-backend/test/support/otherFixture.ts", text: imports }],
+    }).errors;
+    expect(otherFixture).toContain(
+      'packages/flarex-backend/test/support/otherFixture.ts:4 must not cross Currency package ownership through "../../../medusa-adapter/test/support/logical-pricing-fixture".',
+    );
+    expect(otherFixture).toContain(
+      'packages/flarex-backend/test/support/otherFixture.ts:8 must not cross Currency package ownership through "../../../medusa-adapter/src/product-launch-workflow".',
     );
   });
 

@@ -4,7 +4,7 @@ import { Result, Schema } from "effect";
 
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import {
-  SESSION_JOURNAL_FORMAT_V2,
+  SESSION_JOURNAL_FORMAT,
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
 } from "flarex-protocol/commit-protocol";
@@ -184,7 +184,7 @@ export function buildFreshTransactionAttemptFacetV1(
           scopeUuid: input.scopeUuid,
           sessionId: input.sessionId,
           attemptFence: input.attemptFence,
-          journalFormat: SESSION_JOURNAL_FORMAT_V2,
+          journalFormat: SESSION_JOURNAL_FORMAT,
           state: "open" as const,
           lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
           receiptEvidenceBytes: 0,

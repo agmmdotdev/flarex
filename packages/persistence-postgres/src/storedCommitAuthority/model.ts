@@ -6,7 +6,7 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import type {
   CommitFinalSyscallSequenceV1,
   CommitMaterialWriteEventEvidenceBytesV1,
-  SessionJournalV2,
+  SessionJournal,
 } from "flarex-protocol/commit-protocol";
 import type { JsonObject } from "flarex-protocol/json";
 import type {
@@ -56,9 +56,9 @@ export interface StoredCommitAuthoritySealIdentityV1 {
   readonly finalSyscallSequence: CommitFinalSyscallSequenceV1;
   readonly creationTimeSeed: AppCreationTimeV1;
   readonly nextCreationTime: AppCreationTimeV1;
-  readonly journalFormat: SessionJournalV2["format"];
-  readonly journalProtocolVersion: SessionJournalV2["protocolVersion"];
-  readonly journalValueCodecVersion: SessionJournalV2["valueCodecVersion"];
+  readonly journalFormat: SessionJournal["format"];
+  readonly journalProtocolVersion: SessionJournal["protocolVersion"];
+  readonly journalValueCodecVersion: SessionJournal["valueCodecVersion"];
   readonly journalByteLength: number;
   readonly journalSha256: Uint8Array;
   readonly resultValueCodecVersion: FlarexValueCodecVersion;

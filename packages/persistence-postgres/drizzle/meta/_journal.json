@@ -827,6 +827,13 @@
       "when": 1790491190082,
       "tag": "0117_big_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1790516723500,
+      "tag": "0118_admitted_operation_journal",
+      "breakpoints": true
     }
   ]
 }

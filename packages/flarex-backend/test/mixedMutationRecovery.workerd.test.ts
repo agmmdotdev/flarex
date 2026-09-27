@@ -134,10 +134,13 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         executionClaim: fixture.activation.executionClaim,
       }));
       const secondAdmission = await Effect.runPromise(
-        fixture.store.admitLogicalParticipantEffect(secondHandle, {
-          selection: fixture.prepared,
-          application: fixture.active.selection,
-          methods: ["update", "retrieve", "listByHandle"],
+        fixture.store.admitLogicalParticipantsEffect(secondHandle, {
+          participant: "medusa.product",
+          operationMethods: ["update", "retrieve", "listByHandle"],
+          profileRevision: fixture.productProfileRevision,
+          sources: [{ selection: fixture.prepared,
+            application: fixture.active.selection,
+            methods: ["update", "retrieve", "listByHandle"] }],
         }),
       );
       const pending = fixture.runWorkerd();
@@ -164,6 +167,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
           requestSha256: request.requestSha256,
           participant: request.operation.participant,
           method: request.operation.operation,
+          profileRevision: fixture.productProfileRevision,
         }, () => {
           duplicateInvocations += 1;
           return Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection",
@@ -706,10 +710,13 @@ it("refuses a Product capability from another scope on the same physical target"
       executionClaim: second.activation.executionClaim,
     }));
     const foreignAdmission = await Effect.runPromise(
-      second.store.admitLogicalParticipantEffect(foreignHandle, {
-        selection: second.prepared,
-        application: second.active.selection,
-        methods: ["update", "retrieve", "listByHandle"],
+      second.store.admitLogicalParticipantsEffect(foreignHandle, {
+        participant: "medusa.product",
+        operationMethods: ["update", "retrieve", "listByHandle"],
+        profileRevision: second.productProfileRevision,
+        sources: [{ selection: second.prepared,
+          application: second.active.selection,
+          methods: ["update", "retrieve", "listByHandle"] }],
       }),
     );
     const encoded = Result.getOrThrow(encodeAdmittedFrameworkOperationV1Result({
@@ -724,6 +731,7 @@ it("refuses a Product capability from another scope on the same physical target"
         requestBytes: encoded.bytes,
         requestSha256: createHash("sha256").update(encoded.bytes).digest(),
         participant: "medusa.product", method: "update",
+        profileRevision: first.productProfileRevision,
       }, () => {
         invoked += 1;
         return Effect.fail(new LogicalParticipantInvocationError({ kind: "rejection",

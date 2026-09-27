@@ -37,10 +37,10 @@ import {
   CommitReadDocumentsV1Schema,
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
-  SESSION_JOURNAL_FORMAT_V2,
-  type CanonicalSessionJournalV2,
+  SESSION_JOURNAL_FORMAT,
+  type CanonicalSessionJournal,
   type CanonicalSuccessfulResultV1,
-  type SessionJournalV2,
+  type SessionJournal,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -122,7 +122,7 @@ const RELATION_CONFLICT = Object.freeze({
 });
 const RELATION_REQUEST = Object.freeze({
   format: "flarex.session-journal-syscall" as const,
-  codecVersion: 1 as const,
+  codecVersion: 2 as const,
   kind: "relationIncoming" as const,
   syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
   relationId: decodeCatalogRelationId(31),
@@ -168,12 +168,13 @@ const executionClaimsByJournal = new WeakMap<
 
 describe("C03 executor point-mutation journal boundary", () => {
   const inertParticipant = (participant: string) => ({ participant,
-    admission: { methods: ["read"] }, borrow: () => Effect.die("unused") }) as unknown as
+    admission: { participant, operationMethods: ["read"], profileRevision: "a".repeat(64),
+      sources: [] }, borrow: () => Effect.die("unused") }) as unknown as
     PointMutationJournalAdmittedParticipantV1;
 
   it.each([
     ["duplicate", ["source.one", "source.one"]],
-    ["tooMany", ["source.one", "source.two", "source.three"]],
+    ["tooMany", ["source.one", "source.two", "source.three", "source.four"]],
     ["invalidSelector", [" source.one"]],
   ] as const)("refuses a %s trusted participant set before opening persistence", async (reason, names) => {
     const participants = names.map(inertParticipant);
@@ -922,11 +923,11 @@ interface HarnessOptions {
   ) => Promise<RunSessionJournalRelationIncomingV1Result>;
   readonly prepareSeal?: (persistenceAttempt: unknown) => Promise<Readonly<{
     readonly preparation: unknown;
-    readonly journal: SessionJournalV2;
+    readonly journal: SessionJournal;
   }>>;
   readonly completeSeal?: (
     preparation: unknown,
-    journal: CanonicalSessionJournalV2,
+    journal: CanonicalSessionJournal,
     result: CanonicalSuccessfulResultV1,
   ) => Promise<StoredForSessionAttemptCommitEnvelopeV1>;
 }
@@ -938,7 +939,7 @@ interface JournalHarness {
   readonly indexedOperations: SessionJournalIndexedQueryOperationV1[];
   readonly relationOperations: SessionJournalRelationIncomingOperationV1[];
   readonly completeSealCalls: number;
-  readonly completedJournal: CanonicalSessionJournalV2;
+  readonly completedJournal: CanonicalSessionJournal;
   readonly completedResult: CanonicalSuccessfulResultV1;
 }
 
@@ -948,7 +949,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   const indexedOperations: SessionJournalIndexedQueryOperationV1[] = [];
   const relationOperations: SessionJournalRelationIncomingOperationV1[] = [];
   let completeSealCalls = 0;
-  let completedJournal: CanonicalSessionJournalV2 | undefined;
+  let completedJournal: CanonicalSessionJournal | undefined;
   let completedResult: CanonicalSuccessfulResultV1 | undefined;
   const runPointOperation = async (
     table: unknown,
@@ -960,7 +961,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
       : options.runPointOperation(table, operation);
   };
   const persistence = Object.freeze({
-    admitLogicalParticipantEffect: () => Effect.succeed(Object.freeze({ kind: "test-participant-admission" })),
+    admitLogicalParticipantsEffect: () => Effect.succeed(Object.freeze({ kind: "test-participant-admission" })),
     openAttemptEffect: () => options.openAttemptFailure === undefined
       ? Effect.succeed(persistenceAttempt)
       : Effect.fail(options.openAttemptFailure),
@@ -1062,7 +1063,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
     }),
     completeSealEffect: (
       preparation: unknown,
-      journal: CanonicalSessionJournalV2,
+      journal: CanonicalSessionJournal,
       result: CanonicalSuccessfulResultV1,
     ) => Effect.tryPromise({
       try: async (): Promise<StoredForSessionAttemptCommitEnvelopeV1> => {
@@ -1246,9 +1247,9 @@ function relationIncomingOperation(
   });
 }
 
-function emptyJournal(finalSequence: bigint): SessionJournalV2 {
+function emptyJournal(finalSequence: bigint): SessionJournal {
   return Object.freeze({
-    format: SESSION_JOURNAL_FORMAT_V2,
+    format: SESSION_JOURNAL_FORMAT,
     protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(
@@ -1267,7 +1268,7 @@ function emptyJournal(finalSequence: bigint): SessionJournalV2 {
 }
 
 function storedEnvelope(
-  journal: CanonicalSessionJournalV2,
+  journal: CanonicalSessionJournal,
   result: CanonicalSuccessfulResultV1,
 ): StoredForSessionAttemptCommitEnvelopeV1 {
   return Object.freeze({

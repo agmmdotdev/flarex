@@ -26,7 +26,7 @@ import { createStoredOccExecutionEvidenceLoaderV1 } from
   "../../../persistence-postgres/src/storedOccExecution";
 import { createPointMutationExecutionClaimLivenessV1 } from
   "../../../persistence-postgres/src/transactionExecutionClaimLiveness";
-import { createSessionJournalStorePersistenceV1 } from
+import { createSessionJournalStorePersistence } from
   "../../../persistence-postgres/src/sessionJournalStore";
 import type { LogicalParticipantBorrow } from
   "@flarex/persistence-postgres/session-journal-store";
@@ -84,11 +84,18 @@ import { logicalCurrencyFixture } from
   "../../../medusa-adapter/test/support/logical-currency-fixture";
 import { prepareLogicalProductHost } from
   "../../../medusa-adapter/test/support/logical-product-fixture";
-import { seedNativeProductAttemptGraph, runNativeStandaloneProductUpdate } from
+import { prepareLogicalPricingHost } from
+  "../../../medusa-adapter/test/support/logical-pricing-fixture";
+import { prepareLogicalVariantPricingLinkHost } from
+  "../../../medusa-adapter/test/support/logical-variant-pricing-link-fixture";
+import { seedNativeProductAttemptGraph, runNativeStandaloneProductUpdate,
+  runNativeStandaloneProductMutation, runNativeStandaloneLinkCreate } from
   "../../../medusa-adapter/test/support/native-product-attempt-seed";
 import { executePrivateProductAttemptOperation,
   preparePrivateProductAttempt, preparePrivateProductAttemptEventPolicy } from
   "@flarex/medusa-adapter/internal/product-attempt";
+import { preparePrivateProductLaunchAttempt } from
+  "../../../medusa-adapter/src/product-launch-workflow";
 import { admittedCommerceEventGroup } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
 import { makeBorrowedLogicalAttempt } from
@@ -134,10 +141,14 @@ import {
 export interface MixedMutationProductFixtureHooks {
   readonly beforeNative?: (method: string) => Effect.Effect<void, CommerceTransactionError>;
   readonly afterNativeBeforeAck?: (method: string, result: Json) => Effect.Effect<void, CommerceTransactionError>;
+  readonly afterPayloadBeforeAck?: (method: string, result: Json) => Effect.Effect<void, CmsTransactionError>;
   readonly afterStoreAckBeforeBridgeReply?: (method: string, result: Json) => void;
+  readonly observeWorkflowSql?: (sql: string) => Promise<void> | void;
 }
 type CurrencyFixture = Awaited<ReturnType<typeof logicalCurrencyFixture>>;
 type ProductFixture = Awaited<ReturnType<typeof prepareLogicalProductHost>>;
+type PricingFixture = Awaited<ReturnType<typeof prepareLogicalPricingHost>>;
+type LinkFixture = Awaited<ReturnType<typeof prepareLogicalVariantPricingLinkHost>>;
 type ProductSeed = Awaited<ReturnType<typeof seedNativeProductAttemptGraph>>;
 type PayloadRuntime = Effect.Success<ReturnType<typeof makeMixedPayloadSuccessRuntime>>;
 export type MixedPayloadProfileKind = "success" | "caughtFailure" | "denied" | "promisedId" |
@@ -178,6 +189,8 @@ type CreatedActivation = Extract<Effect.Success<ReturnType<
 export interface MixedMutationProductFixture {
   readonly currency: CurrencyFixture;
   readonly product: ProductFixture;
+  readonly pricing?: PricingFixture;
+  readonly link?: LinkFixture;
   readonly payload?: Readonly<{ profile: PayloadRuntime["profile"];
     runtimeHistory: readonly PayloadRuntime[];
     current: () => PayloadRuntime | undefined }>;
@@ -188,10 +201,12 @@ export interface MixedMutationProductFixture {
   readonly activation: CreatedActivation;
   readonly prepared: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>;
   readonly binding: Effect.Success<ReturnType<typeof preparePrivateProductAttempt>>;
+  readonly productProfileRevision: string;
+  readonly workflowBinding?: Effect.Success<ReturnType<typeof preparePrivateProductLaunchAttempt>>;
   readonly eventPolicy: Effect.Success<ReturnType<typeof preparePrivateProductAttemptEventPolicy>>;
   readonly eventGroup: string;
   readonly journal: Journal;
-  readonly store: ReturnType<typeof createSessionJournalStorePersistenceV1>;
+  readonly store: ReturnType<typeof createSessionJournalStorePersistence>;
   readonly executionClaims: ReturnType<typeof createPointMutationExecutionClaimVaultV1>;
   readonly attempt: Effect.Success<ReturnType<Journal["openAttempt"]>>;
   readonly bound: BoundJournal;
@@ -209,8 +224,12 @@ export interface MixedMutationProductFixture {
   readonly standaloneProductPgConnections: Array<Readonly<{
     primaryTargetPid: number; standalonePid: number;
   }>>;
+  readonly standaloneLinkPgConnections: Array<Readonly<{
+    primaryTargetPid: number; standalonePid: number;
+  }>>;
   readonly nativeInvokeCount: Map<string, number>;
   readonly retryContexts: Array<PointMutationOccRuntimeNeutralRunnerInputV1["context"]>;
+  readonly retryReturnedValues: unknown[];
   readonly sqlByPhase: Map<string, number>;
   readonly hasSqlObserver: boolean;
   readonly bridgeFailures: string[];
@@ -240,15 +259,21 @@ export interface MixedMutationProductFixture {
     Promise<Effect.Success<ReturnType<ReturnType<typeof createStoredPointMutationOccRerunExecutionV1>[
       "executeAuthorizedPointMutationOccRerun"]>>>;
   readonly runStandaloneProductUpdate: (next: Readonly<{ title: string; handle: string }>) => Promise<Json>;
+  readonly runStandaloneProductMutation: (kind: "replaceOptionValues" | "createVariant" |
+    "updateTag" | "createTag" | "removeProductTag", input: Json) => Promise<Json>;
+  readonly runStandaloneLinkCreate: (variantId: string, priceSetId: string) => Promise<Json>;
   readonly runStandalonePayloadCreate: (title: string) => Promise<Json>;
+  readonly retryClosedWorkflow: (value: Json) => Promise<unknown>;
   readonly readCurrentProduct: () => Promise<Json>;
   readonly close: () => Promise<void>;
 }
 
 type MixedMutationProductFixtureInput = Readonly<{
   driver: "pglite" | "postgres"; suffix: string; hooks?: MixedMutationProductFixtureHooks;
-  payloadProfile?: MixedPayloadProfileKind;
-}> & (Readonly<{ resource?: never; fixtureIdentity?: Readonly<{
+}> & (Readonly<{ workflow: true; payloadProfile: MixedPayloadProfileKind;
+  workflowIds?: Readonly<{ variantId: string; priceSetId: string }> }> |
+Readonly<{ workflow?: never; workflowIds?: never; payloadProfile?: MixedPayloadProfileKind }>) &
+ (Readonly<{ resource?: never; fixtureIdentity?: Readonly<{
   deploymentId: string; projectId: string; uuidOffset: number;
 }> }> | Readonly<{ resource: CurrencyFixture["resource"]; fixtureIdentity: Readonly<{
   deploymentId: string; projectId: string; uuidOffset: number;
@@ -261,21 +286,34 @@ export async function createMixedMutationProductFixture(
   const currency = await logicalCurrencyFixture(input.driver, close => cleanup.push(close),
     input.resource === undefined
       ? { includeProduct: true,
+        ...(input.workflow === true ? { includeProductLaunch: true } : {}),
+        ...(input.workflow === true ? { includePricing: true,
+          includeVariantPricingLink: true } : {}),
         ...(input.payloadProfile === undefined ? {} : { payloadCollections: mixedPayloadPostsCollections() }),
         ...(input.fixtureIdentity === undefined ? {} :
         { fixtureIdentity: input.fixtureIdentity }) }
       : { includeProduct: true, resource: input.resource, fixtureIdentity: input.fixtureIdentity,
+        ...(input.workflow === true ? { includeProductLaunch: true } : {}),
+        ...(input.workflow === true ? { includePricing: true,
+          includeVariantPricingLink: true } : {}),
         ...(input.payloadProfile === undefined ? {} : { payloadCollections: mixedPayloadPostsCollections() }) });
   const product = await prepareLogicalProductHost(currency);
-  await Effect.runPromise(product.host.initialize([]));
-  await Effect.runPromise(product.host.close);
-    const { seed, baseline } = await seedNativeProductAttemptGraph(currency, product, input.suffix);
-    const application = currency.application;
-    const active = await Effect.runPromise(application.activation.readActive());
-    const schemaVersionId = application.active.basis.schemaVersionId;
-    const logicalSchemaVersionId = currency.schemaVersionId;
-    const applicationAdmission = await Effect.runPromise(selectApplicationMutationAdmission(
-      active.selection, "users:create", { deploymentId: currency.deploymentId,
+  const pricing = input.workflow === true ? await prepareLogicalPricingHost(currency) : undefined;
+  const link = input.workflow === true ? await prepareLogicalVariantPricingLinkHost(currency) : undefined;
+  for (const member of [product, pricing, link]) {
+    if (member === undefined) continue;
+    await Effect.runPromise(member.host.initialize([]));
+    await Effect.runPromise(member.host.close);
+  }
+  const { seed, baseline } = await seedNativeProductAttemptGraph(currency, product,
+    input.suffix, input.workflow === true ? "launch" : "existing");
+  const application = currency.application;
+  const active = await Effect.runPromise(application.activation.readActive());
+  const schemaVersionId = application.active.basis.schemaVersionId;
+  const logicalSchemaVersionId = currency.schemaVersionId;
+  const applicationAdmission = await Effect.runPromise(selectApplicationMutationAdmission(
+      active.selection, input.workflow === true ? "productLaunch:launch" : "users:create", {
+        deploymentId: currency.deploymentId,
         controlDb: currency.control.drizzle, authority: application.authorityPorts,
         schema: application.schema }));
     const activationInput = await applicationMutationActivationFixture({ deploymentId: currency.deploymentId,
@@ -295,6 +333,9 @@ export async function createMixedMutationProductFixture(
       scopeId: application.authority.scopeId, schemaVersionId: logicalSchemaVersionId },
     product.hostInput.logicalStorage.source));
     const selectedPayload = input.payloadProfile === undefined ? undefined : mixedPayloadProfiles[input.payloadProfile];
+    const payloadProfileRevision = selectedPayload === undefined ? undefined :
+      createHash("sha256").update(
+        `mixed-payload-${selectedPayload.profile.participant}-${input.payloadProfile}`).digest("hex");
     const compiledPayload = selectedPayload === undefined ? undefined :
       await Effect.runPromise(compilePayloadCollections(mixedPayloadPostsCollections()));
     const payloadPrepared = compiledPayload === undefined ? undefined : await Effect.runPromise(
@@ -308,7 +349,29 @@ export async function createMixedMutationProductFixture(
       producerRevision: revision, contractRevision: revision,
       subscribers: [{ id: "mixed-product-proof", revision }],
     }));
-    const store = createSessionJournalStorePersistenceV1(application.sessionAuthority,
+    const workflowBinding = pricing === undefined || link === undefined ? undefined :
+      await Effect.runPromise(preparePrivateProductLaunchAttempt({
+        modules: {
+          product: { module: product.runtime.workflow,
+            logicalStorage: product.hostInput.logicalStorage },
+          pricing: { module: pricing.runtime.workflow,
+            logicalStorage: pricing.hostInput.logicalStorage },
+          link: { module: link.runtime.workflow,
+            logicalStorage: link.hostInput.logicalStorage },
+        },
+        identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
+        revision: createHash("sha256").update("mixed-product-launch-workflow").digest("hex"),
+        subscribers: [{ id: "mixed-product-launch-proof", revision }],
+      }));
+    const workflowSelections: Array<Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>> = [];
+    for (const source of workflowBinding?.sources ?? []) {
+      workflowSelections.push(await Effect.runPromise(prepareLogicalRelationalAdmission({
+        controlDb: currency.control.drizzle, authority: application.authorityPorts,
+      }, application.uniqueConstraintEligibility, { deploymentId: currency.deploymentId,
+        scopeId: application.authority.scopeId, schemaVersionId: logicalSchemaVersionId },
+      source.logicalStorage.source)));
+    }
+    const store = createSessionJournalStorePersistence(application.sessionAuthority,
       { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
         indexedQueries: application.indexedQueries });
     const executionClaims = createPointMutationExecutionClaimVaultV1();
@@ -324,10 +387,11 @@ export async function createMixedMutationProductFixture(
     const sqlByPhase = new Map<string, number>();
     let openTransactionDepth = 0;
     let beginCount = 0, settleCount = 0;
-    currency.observeSql?.(sql => {
+    currency.observeSql?.(async sql => {
       sqlByPhase.set(sqlPhase, (sqlByPhase.get(sqlPhase) ?? 0) + 1);
       if (/^\s*begin\b/i.test(sql)) { openTransactionDepth += 1; beginCount += 1; }
       if (/^\s*(commit|rollback)\b/i.test(sql)) { openTransactionDepth -= 1; settleCount += 1; }
+      if (sqlPhase === "workflow:run") await input.hooks?.observeWorkflowSql?.(sql);
     });
     const serviceTransactionDepth: number[] = [];
     const pgTransactionObservations: Array<Readonly<{
@@ -339,8 +403,13 @@ export async function createMixedMutationProductFixture(
     const standaloneProductPgConnections: Array<Readonly<{
       primaryTargetPid: number; standalonePid: number;
     }>> = [];
+    const standaloneLinkPgConnections: Array<Readonly<{
+      primaryTargetPid: number; standalonePid: number;
+    }>> = [];
     const nativeInvokeCount = new Map<string, number>();
+    let lastBorrowedWorkflowInvoke: ((value: Json) => Promise<unknown>) | undefined;
     const retryContexts: Array<PointMutationOccRuntimeNeutralRunnerInputV1["context"]> = [];
+    const retryReturnedValues: unknown[] = [];
     const payloadRuntimeHistory: PayloadRuntime[] = [];
     const payloadRuntimes = new WeakMap<object, PayloadRuntime>();
     const payloadScopes = new Set<Scope.Scope>();
@@ -365,9 +434,14 @@ export async function createMixedMutationProductFixture(
       issueSetupSeededSyscallValidatorProofV1({ scopeId: application.authority.scopeId,
         schemaVersionId, schemaManifest: applicationAdmission.schema.manifest }), [{
         participant: "medusa.product",
-        admission: { selection: prepared, application: active.selection,
-          methods: ["update", "retrieve", "listByHandle"] },
-        borrow: borrowedInput => makeBorrowedLogicalAttempt(borrowedInput).pipe(
+        admission: { participant: "medusa.product",
+          operationMethods: ["update", "retrieve", "listByHandle"],
+          profileRevision: revision,
+          sources: [{ selection: prepared, application: active.selection,
+            methods: ["update", "retrieve", "listByHandle"] }] },
+        borrow: borrowedInput => makeBorrowedLogicalAttempt({
+          ...borrowedInput, admission: borrowedInput.admissions[0]!,
+        }).pipe(
           Effect.map(borrowed => Object.freeze({
             abort: borrowed.abort,
             currentUsage: borrowed.currentUsage,
@@ -397,18 +471,25 @@ export async function createMixedMutationProductFixture(
                 eventPolicy);
               yield* input.hooks?.afterNativeBeforeAck?.(method, completed.result) ?? Effect.void;
               return Object.freeze({ result: completed.result, changes: completed.changes,
-                eventIntents: completed.eventIntents, workBytes: completed.workBytes,
+                eventIntents: completed.eventIntents.map(intent => Object.freeze({
+                  sourceKey: "medusa.product", intent })),
+                workBytes: completed.workBytes,
                 workCalls: completed.workCalls });
             }).pipe(Effect.mapError(mapProductInvocationFailure)),
           })),
           Effect.mapError(mapProductInvocationFailure)),
       }, ...(payloadPrepared === undefined || selectedPayload === undefined ? [] : [{
         participant: selectedPayload.profile.participant,
-        admission: { selection: payloadPrepared, application: active.selection,
-          methods: ["payload-create", "payload-update", "payload-findByID"] },
+        admission: { participant: selectedPayload.profile.participant,
+          operationMethods: ["payload-create", "payload-update", "payload-findByID"],
+          profileRevision: payloadProfileRevision!,
+          sources: [{ selection: payloadPrepared, application: active.selection,
+            methods: ["payload-create", "payload-update", "payload-findByID"] }] },
         borrow: (borrowedInput: Parameters<LogicalParticipantBorrow>[0]) => Effect.gen(function* () {
           const runtime = yield* ensurePayloadRuntime(borrowedInput.attempt);
-          const cms = yield* makeBorrowedCmsAttempt(borrowedInput);
+          const cms = yield* makeBorrowedCmsAttempt({
+            ...borrowedInput, admission: borrowedInput.admissions[0]!,
+          });
           return Object.freeze({
             abort: cms.abort,
             currentUsage: cms.currentUsage,
@@ -416,11 +497,62 @@ export async function createMixedMutationProductFixture(
               nativeInvokeCount.set(method, (nativeInvokeCount.get(method) ?? 0) + 1);
               const result = yield* cms.withinDeadline(runtime.invoke(cms.context, method, args));
               const closed = yield* cms.close;
-              return Object.freeze({ result, changes: closed.changes, eventIntents: closed.events,
+              yield* input.hooks?.afterPayloadBeforeAck?.(method, result) ?? Effect.void;
+              const sourceKey = compiledPayload?.sourceContract.sourceKey;
+              if (sourceKey === undefined)
+                return yield* Effect.fail(new CmsTransactionError({ reason: "invalidAuthority" }));
+              return Object.freeze({ result, changes: closed.changes,
+                eventIntents: closed.events.map(intent => Object.freeze({
+                  sourceKey, intent })),
                 workBytes: closed.workBytes, workCalls: closed.workCalls });
             }).pipe(Effect.mapError(mapPayloadInvocationFailure)),
           });
         }).pipe(Effect.mapError(mapPayloadInvocationFailure)),
+      }]), ...(workflowBinding === undefined ? [] : [{
+        participant: "medusa.workflow",
+        admission: { participant: "medusa.workflow", operationMethods: ["run"],
+          profileRevision: workflowBinding.profileRevision,
+          sources: workflowBinding.sources.map((source, index) => ({
+            selection: workflowSelections[index]!, application: active.selection,
+            methods: source.methods,
+          })) },
+        borrow: (borrowedInput: Parameters<LogicalParticipantBorrow>[0]) =>
+          workflowBinding.borrow(borrowedInput).pipe(
+            Effect.map(borrowed => {
+              lastBorrowedWorkflowInvoke = value => Effect.runPromise(borrowed.invoke(value));
+              return Object.freeze({
+              abort: borrowed.abort,
+              currentUsage: borrowed.currentUsage,
+              invoke: (method: string, args: Json) => Effect.gen(function* () {
+                if (method !== "run") return yield* Effect.fail(commerceError("invalidAuthority"));
+                if (pgTarget !== undefined) {
+                  const reading = yield* Effect.tryPromise({
+                    try: () => pgTarget.control.query<{ targetBackends: number; openTransactions: number }>(
+                      `select count(*)::int as "targetBackends",
+                              count(*) filter (where xact_start is not null)::int as "openTransactions"
+                         from pg_stat_activity
+                        where datname = current_database() and usename = current_user
+                          and application_name = $1 and pid <> pg_backend_pid()`,
+                      [pgTarget.applicationName]),
+                    catch: cause => commerceError("resourceFailure", cause),
+                  });
+                  const observed = reading.rows[0];
+                  if (observed === undefined || observed.targetBackends < 1 ||
+                    observed.openTransactions !== 0)
+                    return yield* Effect.fail(commerceError("resourceFailure",
+                      new Error(`Workflow callback overlapped target SQL transaction: ${JSON.stringify(observed)}`)));
+                  pgTransactionObservations.push(Object.freeze(observed));
+                }
+                serviceTransactionDepth.push(openTransactionDepth);
+                nativeInvokeCount.set("workflow:run", (nativeInvokeCount.get("workflow:run") ?? 0) + 1);
+                yield* input.hooks?.beforeNative?.("workflow:run") ?? Effect.void;
+                const completed = yield* borrowed.invoke(args);
+                yield* input.hooks?.afterNativeBeforeAck?.("workflow:run", completed.result) ?? Effect.void;
+                return completed;
+              }).pipe(Effect.mapError(mapProductInvocationFailure)),
+              });
+            }),
+            Effect.mapError(mapProductInvocationFailure)),
       }])]);
     const rawSelector = Object.freeze({
       deploymentId: String(activation.anchor.deploymentId),
@@ -468,7 +600,10 @@ export async function createMixedMutationProductFixture(
           if (typeof message.sequence !== "string") throw new Error("Invalid admitted sequence");
           const encoded = Result.getOrThrow(encodeAdmittedFrameworkOperationV1Result(message.frame));
           sqlPhase = encoded.operation.participant === "medusa.product"
-            ? `product:${encoded.operation.operation}` : `payload:${encoded.operation.operation}`;
+            ? `product:${encoded.operation.operation}`
+            : encoded.operation.participant === "medusa.workflow"
+              ? `workflow:${encoded.operation.operation}`
+              : `payload:${encoded.operation.operation}`;
           const admittedInput = {
             syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(message.sequence)),
             operation: encoded.operation, requestBytes: encoded.bytes,
@@ -508,7 +643,9 @@ export async function createMixedMutationProductFixture(
       argumentArraySemanticBytes: runnerInput?.argumentArraySemanticBytes ??
         requirePointMutationArgumentSemanticSizeV1(normalizedArguments.semanticSizeBytes),
       tables: runnerInput?.stableBindings.map(binding => ({ tableId: binding.tableId,
-        logicalName: binding.logicalName })) ?? [{ tableId: 1, logicalName: "users" }],
+        logicalName: binding.logicalName })) ?? (input.workflow === true
+        ? [{ tableId: 1, logicalName: "productLaunch" }, { tableId: 2, logicalName: "users" }]
+        : [{ tableId: 1, logicalName: "users" }]),
       context: { executionId: runnerInput?.context.executionId ?? "mixed-product-1",
         logScopeId: runnerInput?.context.logScopeId ?? "mixed-product-log-1",
         randomSeed: Array.from(runnerInput?.context.randomSeed ?? new Uint8Array(32).fill(5)),
@@ -544,7 +681,38 @@ export async function createMixedMutationProductFixture(
         return { id, updated, pending, listed, created, afterHook, enabled, final };
       },
     } } };`;
-    const applicationSource = source ?? payloadSource ?? productSource;
+    const workflowSource = input.workflow !== true || selectedPayload === undefined ? undefined :
+      `export default { productLaunch: { launch: { isMutation: true,
+      isPublic: true, _handler: async (ctx) => {
+        const id = await ctx.db.insert("productLaunch", {
+          productId: ${JSON.stringify(seed.productId)}, phase: "draft" });
+        const updated = await ctx.privateMixed.call("medusa.product", "update", ${JSON.stringify(seed.updateInput)});
+        const pending = await ctx.privateMixed.call("medusa.product", "retrieve", ${JSON.stringify(seed.retrieveInput)});
+        const workflow = await ctx.privateMixed.call("medusa.workflow", "run", {
+          product_id: ${JSON.stringify(seed.productId)}, tag_id: ${JSON.stringify(seed.tagId)},
+          variant_title: "Launch variant", usd_amount: 50,
+          ${input.workflowIds === undefined ? "" :
+            `variant_id: ${JSON.stringify(input.workflowIds.variantId)},
+             price_set_id: ${JSON.stringify(input.workflowIds.priceSetId)},`}
+        });
+        const created = await ctx.privateMixed.call(${JSON.stringify(selectedPayload.profile.participant)},
+          "payload-create", { collection: "posts", data: { title: pending.title, publishedAt: "2026-01-01" } });
+        const afterHook = await ctx.privateMixed.call(${JSON.stringify(selectedPayload.profile.participant)},
+          "payload-findByID", { collection: "posts", id: created.id });
+        const enabled = await ctx.privateMixed.call(${JSON.stringify(selectedPayload.profile.participant)},
+          "payload-update", { collection: "posts", id: created.id, data: { enabled: true } });
+        const final = await ctx.privateMixed.call(${JSON.stringify(selectedPayload.profile.participant)},
+          "payload-findByID", { collection: "posts", id: created.id });
+        await ctx.db.patch(id, { phase: "launched",
+          variantId: workflow.pricing.variants[0].id,
+          priceSetId: workflow.pricing.priceSets[0].id,
+          priceId: workflow.pricing.priceSets[0].prices[0].id,
+          tagId: workflow.tags[0].id,
+          payloadPostId: final.id });
+        return { id, updated, pending, workflow, created, afterHook, enabled, final };
+      },
+    } } };`;
+    const applicationSource = source ?? workflowSource ?? payloadSource ?? productSource;
     const platformSource = applicationErrorPlatformSourceV1({
       runtimeKernelModulePath: `../${POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1}`,
       captureExportName: "capturePointMutationCoreApplicationErrorDataV1",
@@ -617,8 +785,25 @@ export default { async fetch(_request, env) {
   const payloadAuthority = payloadPrepared === undefined || selectedPayload === undefined ? undefined :
     payloadPrepared.createCommitAuthority(active.selection, selectedPayload.profile.participant,
       ["payload-create", "payload-update", "payload-findByID"]);
+  const workflowAuthorities = workflowBinding === undefined ? [] :
+    workflowSelections.map((selection, index) => selection.createCommitAuthority(
+      active.selection, "medusa.workflow", workflowBinding.sources[index]!.methods));
   const logicalParticipants = Object.freeze([participantAuthority,
-    ...(payloadAuthority === undefined ? [] : [payloadAuthority])]);
+    ...(payloadAuthority === undefined ? [] : [payloadAuthority]), ...workflowAuthorities]);
+  const logicalOperationProfiles = Object.freeze([{
+    participant: "medusa.product", operationMethods: ["update", "retrieve", "listByHandle"],
+    profileRevision: revision, sources: [participantAuthority],
+  }, ...(payloadAuthority === undefined || selectedPayload === undefined ||
+    payloadProfileRevision === undefined ? [] : [{
+    participant: selectedPayload.profile.participant,
+    operationMethods: ["payload-create", "payload-update", "payload-findByID"],
+    profileRevision: payloadProfileRevision, sources: [payloadAuthority],
+  }]), ...(workflowBinding === undefined ? [] : [{
+    participant: "medusa.workflow", operationMethods: ["run"],
+    profileRevision: workflowBinding.profileRevision, sources: workflowAuthorities,
+    operationEvents: { policy: workflowBinding.eventPolicy,
+      selection: workflowBinding.operationEventSelection },
+  }])]);
   const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(application.control.drizzle);
   const uniqueConstraintEligibility = createAppUniqueConstraintSetEligibilityPortV1({
     controlDb: application.control.drizzle, authority: application.authorityPorts,
@@ -630,9 +815,13 @@ export default { async fetch(_request, env) {
     uniqueConstraintEligibility,
     applicationRelations: application.applicationRelations,
     candidateSchemaWriteGuard: application.candidateSchemaWriteGuard,
-    logicalParticipants,
+    logicalOperationProfiles,
     logicalParticipantEvents: [{ authority: participantAuthority,
-      policy: eventPolicy.policy, selection: eventPolicy.selection }],
+      policy: eventPolicy.policy, selection: eventPolicy.selection },
+      ...(workflowBinding === undefined ? [] : workflowBinding.sources.flatMap((source, index) =>
+        source.eventSelection === undefined ? [] : [{ authority: workflowAuthorities[index]!,
+          policy: workflowBinding.eventPolicy, selection: source.eventSelection }])),
+    ],
   });
   let publication: Readonly<{
     executor: ReturnType<typeof createStoredPointCommitExecutorV1>;
@@ -652,8 +841,10 @@ export default { async fetch(_request, env) {
           const raw = await runWorkerd(undefined, runnerInput);
           const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
             result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
-          return (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
+          const value = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
             success.result.result))).value;
+          retryReturnedValues.push(value);
+          return value;
         },
         catch: cause => new ApplicationPointMutationRunnerHostV1Error({ reason: "terminalFailed", cause }),
       }),
@@ -677,6 +868,7 @@ export default { async fetch(_request, env) {
         grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       }),
       logicalParticipants,
+      logicalOperationProfiles,
       pointCommit: publisher,
       pointCommitFinishing: createPointCommitFinishingTransitionPortV1(application.sessionAuthority),
     } as const;
@@ -685,7 +877,7 @@ export default { async fetch(_request, env) {
         ...common,
         pointMutationAttemptReplacement: createPointMutationAttemptReplacementPortV1(
           application.sessionAuthority, { leaseDurationMilliseconds: 60_000,
-            logicalParticipants }),
+            logicalOperationProfiles }),
         pointMutationOccRerun: {
           attemptLoading,
           executionEvidence: createStoredOccExecutionEvidenceLoaderV1(application.sessionAuthority),
@@ -759,11 +951,12 @@ export default { async fetch(_request, env) {
       return current;
     } finally { await Effect.runPromise(read.close); }
   }
-  async function runStandaloneProductUpdate(next: Readonly<{ title: string; handle: string }>): Promise<Json> {
-    const inputData = { ...seed.updateInput,
-      data: { ...seed.updateInput.data, title: next.title, handle: next.handle } };
-    if (currency.resource.kind !== "postgres") return runNativeStandaloneProductUpdate(currency, product,
-      `conflict-${input.suffix}`, inputData);
+  async function runStandaloneCommerceCommand(
+    applicationName: "flarex_product_standalone" | "flarex_link_standalone",
+    observations: Array<Readonly<{ primaryTargetPid: number; standalonePid: number }>>,
+    invoke: (session?: ReturnType<typeof makePostgresRelationalSession>) => Promise<Json>,
+  ): Promise<Json> {
+    if (currency.resource.kind !== "postgres") return invoke();
     const target = currency.resource.target;
     const primary = await target.pool.connect();
     let separate: Awaited<ReturnType<typeof createPostgresPersistence>> | undefined;
@@ -771,40 +964,59 @@ export default { async fetch(_request, env) {
       const identity = (await primary.query<{ schemaName: string; pid: number }>(
         'select current_schema() as "schemaName", pg_backend_pid()::int as pid')).rows[0];
       if (identity === undefined || !/^[a-z_][a-z0-9_]*$/.test(identity.schemaName))
-        throw new Error("Missing Product target PostgreSQL connection identity");
+        throw new Error("Missing standalone target PostgreSQL connection identity");
       const postgresUrl = process.env.FLAREX_POSTGRES_DATABASE_URL;
-      if (postgresUrl === undefined) throw new Error("Missing PostgreSQL URL for standalone Product");
+      if (postgresUrl === undefined) throw new Error("Missing PostgreSQL URL for standalone command");
       separate = await createPostgresPersistence({
         connectionString: postgresUrl,
         poolConfig: { options: `-c search_path=${identity.schemaName}`,
-          application_name: "flarex_product_standalone", max: 1 },
+          application_name: applicationName, max: 1 },
       });
       const session = makePostgresRelationalSession({ drizzle: target.drizzle,
         pool: separate.pool });
-      const result = await runNativeStandaloneProductUpdate(currency, product,
-        `conflict-${input.suffix}`, inputData, session);
+      const result = await invoke(session);
       if (separate.pool.totalCount !== 1 || separate.pool.idleCount !== 1)
-        throw new Error("Standalone Product did not release its single PostgreSQL connection");
+        throw new Error("Standalone command did not release its single PostgreSQL connection");
       const standalone = (await separate.query<{ pid: number; schemaName: string; applicationName: string }>(
         `select pg_backend_pid()::int as pid, current_schema() as "schemaName",
           current_setting('application_name') as "applicationName"`)).rows[0];
       if (standalone === undefined || standalone.pid === identity.pid ||
         standalone.schemaName !== identity.schemaName ||
-        standalone.applicationName !== "flarex_product_standalone")
-        throw new Error("Standalone Product used wrong PostgreSQL connection");
+        standalone.applicationName !== applicationName)
+        throw new Error("Standalone command used wrong PostgreSQL connection");
       const sameTargetBackend = (await primary.query<{ present: boolean }>(
         `select exists(select 1 from pg_stat_activity where pid = $1 and application_name = $2
           and datname = current_database() and usename = current_user) as present`,
-        [standalone.pid, "flarex_product_standalone"])).rows[0]?.present;
+        [standalone.pid, applicationName])).rows[0]?.present;
       if (sameTargetBackend !== true)
-        throw new Error("Standalone Product PostgreSQL backend was not connected");
-      standaloneProductPgConnections.push(Object.freeze({
+        throw new Error("Standalone command PostgreSQL backend was not connected");
+      observations.push(Object.freeze({
         primaryTargetPid: identity.pid, standalonePid: standalone.pid }));
       return result;
     } finally {
       try { await separate?.close(); }
       finally { primary.release(); }
     }
+  }
+  async function runStandaloneProductUpdate(next: Readonly<{ title: string; handle: string }>): Promise<Json> {
+    const inputData = { ...seed.updateInput,
+      data: { ...seed.updateInput.data, title: next.title, handle: next.handle } };
+    return runStandaloneCommerceCommand("flarex_product_standalone", standaloneProductPgConnections,
+      session => runNativeStandaloneProductUpdate(currency, product,
+      `conflict-${input.suffix}`, inputData, session));
+  }
+  async function runStandaloneProductMutation(kind: "replaceOptionValues" | "createVariant" |
+    "updateTag" | "createTag" | "removeProductTag", mutationInput: Json): Promise<Json> {
+    return runStandaloneCommerceCommand("flarex_product_standalone", standaloneProductPgConnections,
+      session => runNativeStandaloneProductMutation(currency,
+      product, `conflict-${input.suffix}-${kind}`, kind, mutationInput, session));
+  }
+  async function runStandaloneLinkCreate(variantId: string, priceSetId: string): Promise<Json> {
+    if (link === undefined) throw new Error("Missing selected Link module");
+    return runStandaloneCommerceCommand("flarex_link_standalone", standaloneLinkPgConnections,
+      session => runNativeStandaloneLinkCreate(currency, link,
+        `conflict-${input.suffix}-link`, { product: { variant_id: variantId },
+          pricing: { price_set_id: priceSetId } }, session));
   }
   async function runStandalonePayloadCreate(title: string): Promise<Json> {
     if (compiledPayload === undefined) throw new Error("Missing selected Payload source");
@@ -879,22 +1091,28 @@ export default { async fetch(_request, env) {
     } finally { primary?.release(); }
   }
   return { currency, product,
+    ...(pricing === undefined ? {} : { pricing }),
+    ...(link === undefined ? {} : { link }),
     ...(selectedPayload === undefined ? {} : { payload: Object.freeze({
       profile: selectedPayload.profile, runtimeHistory: payloadRuntimeHistory,
       current: () => payloadRuntimeHistory.at(-1),
     }) }),
     seed, baseline, application, active, activation, prepared, binding,
+    productProfileRevision: revision,
+    ...(workflowBinding === undefined ? {} : { workflowBinding }),
     schemaVersionId, logicalSchemaVersionId,
     eventPolicy, eventGroup, store, executionClaims, journal, attempt, bound, runAdmitted, selector,
     serviceTransactionDepth, pgTransactionObservations,
-    standalonePayloadPgConnections, standaloneProductPgConnections,
-    nativeInvokeCount, retryContexts, sqlByPhase,
+    standalonePayloadPgConnections, standaloneProductPgConnections, standaloneLinkPgConnections,
+    nativeInvokeCount, retryContexts, retryReturnedValues, sqlByPhase,
     hasSqlObserver, bridgeFailures, runWorkerd,
     participantAuthority, publisherOptions, pointCommitPorts: application.sessionAuthority,
     makePublisher: () => createPointCommitPublisherPortV1(application.sessionAuthority, publisherOptions),
     preparePublication, publish, replayPublication, prepareOccPublication, retryWholeAttempt,
-    runStandaloneProductUpdate,
+    runStandaloneProductUpdate, runStandaloneProductMutation, runStandaloneLinkCreate,
     runStandalonePayloadCreate,
+    retryClosedWorkflow: value => lastBorrowedWorkflowInvoke === undefined
+      ? Promise.reject(new Error("Workflow was never borrowed")) : lastBorrowedWorkflowInvoke(value),
     readCurrentProduct,
     getUpdateRequest: () => updateRequest,
     getAdmittedRequest: (participant: string, method: string) =>
@@ -902,7 +1120,8 @@ export default { async fetch(_request, env) {
     getOpenTransactionDepth: () => openTransactionDepth,
     getTransactionCounts: () => ({ beginCount, settleCount }),
     setSqlPhase: (phase: string) => { sqlPhase = phase; },
-    close: async () => { await Effect.runPromise(closePayloadScopes); currency.observeSql?.(undefined);
+    close: async () => { await Effect.runPromise(closePayloadScopes);
+      currency.observeSql?.(undefined);
       for (const close of cleanup.reverse()) await close(); },
   };
 }

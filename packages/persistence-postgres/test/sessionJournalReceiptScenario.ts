@@ -13,7 +13,7 @@ import type { PointMutationSessionAnchorV1 } from "../src/transactionSessionActi
 import type {
   PinnedPointTableV1,
   SessionJournalPointOperationV1,
-  SessionJournalStorePersistenceV1,
+  SessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import { runSessionJournalPointOperation } from "./effectTestRuntime";
 
@@ -21,7 +21,7 @@ import { runSessionJournalPointOperation } from "./effectTestRuntime";
 export async function sessionJournalReceiptScenario(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   current: {
-    readonly store: SessionJournalStorePersistenceV1;
+    readonly store: SessionJournalStorePersistence;
     readonly table: PinnedPointTableV1;
     readonly anchor: PointMutationSessionAnchorV1;
   },

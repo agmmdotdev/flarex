@@ -154,11 +154,21 @@ export const prepareAtomicCommerceEvents = Effect.fn("AtomicEvents.prepare")(fun
 export function admitParticipantEvents(selection: ParticipantEventSelection | undefined,
   policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>> | undefined,
 ): Result.Result<readonly { readonly name: string; readonly revision: string }[], CommerceTransactionError> {
+  return admitSelectedEvents(selection, policy, true).pipe(Result.map(identities => Object.freeze(
+    identities.map(({ name, revision }) => Object.freeze({ name, revision })))));
+}
+
+function admitSelectedEvents(selection: ParticipantEventSelection | undefined,
+  policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>> | undefined,
+  requiredInternal: true | undefined,
+): Result.Result<readonly { readonly name: string; readonly revision: string; readonly internal: boolean }[], CommerceTransactionError> {
   const identities = [];
   for (const token of selection?.contracts ?? []) {
     const definition = policy?.allowed.get(token);
-    if (definition === undefined || !definition.internal) return Result.fail(commerceError("invalidAuthority"));
-    identities.push(Object.freeze({ name: definition.name, revision: definition.revision }));
+    if (definition === undefined || requiredInternal === true && !definition.internal)
+      return Result.fail(commerceError("invalidAuthority"));
+    identities.push(Object.freeze({ name: definition.name, revision: definition.revision,
+      internal: definition.internal }));
   }
   return Result.succeed(Object.freeze(identities.toSorted((a, b) => compareUtf16Strings(a.name, b.name))));
 }
@@ -202,16 +212,31 @@ export const prepareAdmittedCommerceEventIntents = Effect.fn("AtomicEvents.prepa
 export const validateAdmittedCommerceEventIntents = Effect.fn("AtomicEvents.validateAdmittedIntents")(
   function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
     selection: ParticipantEventSelection, events: readonly CommittedEvent[], group: string) {
-    const identities = yield* Effect.fromResult(admitParticipantEvents(selection, policy));
+    yield* validateSelectedEventIntents(policy, selection, events, group, true);
+  });
+
+/** The outer operation owns its selected event family, including external
+ * workflow events. Each persisted envelope must match its pinned contract. */
+export const validateAdmittedOperationEventIntents = Effect.fn("AtomicEvents.validateOperationIntents")(
+  function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
+    selection: ParticipantEventSelection, events: readonly CommittedEvent[], group: string) {
+    yield* validateSelectedEventIntents(policy, selection, events, group, undefined);
+  });
+
+const validateSelectedEventIntents = Effect.fn("AtomicEvents.validateSelectedIntents")(
+  function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
+    selection: ParticipantEventSelection, events: readonly CommittedEvent[], group: string,
+    requiredInternal: true | undefined) {
+    const identities = yield* Effect.fromResult(admitSelectedEvents(selection, policy, requiredInternal));
     if (events.length > commitEventLimits.messages)
       return yield* Effect.fail(commerceError("unadmittedEvent"));
     for (const candidate of events) {
       const envelope = yield* decodeEnvelope(candidate).pipe(
         Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
       if (envelope.group !== group || envelope.producerRevision !== policy.producerRevision ||
-        !envelope.internal || !jsonEqual(envelope.subscribers, policy.subscribers) ||
+        !jsonEqual(envelope.subscribers, policy.subscribers) ||
         !identities.some(identity => identity.name === envelope.contract &&
-          identity.revision === envelope.contractRevision))
+          identity.revision === envelope.contractRevision && identity.internal === envelope.internal))
         return yield* Effect.fail(commerceError("unadmittedEvent"));
     }
   });

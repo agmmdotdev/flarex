@@ -35,14 +35,20 @@ const mixedProductTestImports = new Map([
     "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
   ["../../../medusa-adapter/test/support/logical-product-fixture",
     "packages/medusa-adapter/test/support/logical-product-fixture.ts"],
+  ["../../../medusa-adapter/test/support/logical-pricing-fixture",
+    "packages/medusa-adapter/test/support/logical-pricing-fixture.ts"],
+  ["../../../medusa-adapter/test/support/logical-variant-pricing-link-fixture",
+    "packages/medusa-adapter/test/support/logical-variant-pricing-link-fixture.ts"],
   ["../../../medusa-adapter/test/support/native-product-attempt-seed",
     "packages/medusa-adapter/test/support/native-product-attempt-seed.ts"],
   ["@flarex/medusa-adapter/internal/product-attempt",
     "packages/medusa-adapter/src/product-attempt.ts"],
+  ["../../../medusa-adapter/src/product-launch-workflow",
+    "packages/medusa-adapter/src/product-launch-workflow.ts"],
 ]);
 
-/** One pinned test fixture composes the real native Product with the private
- * Worker proof. No backend runtime source receives this import authority. */
+/** One pinned test fixture composes real native Product, Pricing and Link
+ * workflows with the private Worker proof. Backend runtime has no authority. */
 /** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
  * @param {string} relativePath
  * @param {string} specifier */

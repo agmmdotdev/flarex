@@ -178,6 +178,7 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly includeUserNameIndex?: boolean;
+  readonly includeProductLaunch?: boolean;
   readonly includeTask?: boolean;
   readonly taskMaximumDurationInSeconds?: number;
   readonly taskRetryMinimumTimeoutInMs?: number;
@@ -447,15 +448,31 @@ async function createApplicationNativeMutationFixture<
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
   });
-  const source = options.analysis?.source ?? await mutationSourceBundle();
+  const source = options.analysis?.source ?? await mutationSourceBundle(options.includeProductLaunch === true);
   const fixtureManifest = {
       format: "flarex.application-manifest",
       version: 1,
       sourceArtifact: source.sourceArtifact,
       schema: {
         version: 1,
-        tables: [{
+        tables: [...(options.includeProductLaunch === true ? [{
           tableId: 1,
+          name: "productLaunch",
+          validator: {
+            type: "object",
+            value: {
+              productId: { fieldType: { type: "string" }, optional: false },
+              phase: { fieldType: { type: "string" }, optional: false },
+              variantId: { fieldType: { type: "string" }, optional: true },
+              priceSetId: { fieldType: { type: "string" }, optional: true },
+              priceId: { fieldType: { type: "string" }, optional: true },
+              tagId: { fieldType: { type: "string" }, optional: true },
+              payloadPostId: { fieldType: { type: "string" }, optional: true },
+            },
+          },
+          placement: { kind: "global" },
+        }] as const : []), {
+          tableId: options.includeProductLaunch === true ? 2 : 1,
           name: "users",
           validator: {
             type: "object",
@@ -470,12 +487,21 @@ async function createApplicationNativeMutationFixture<
         }],
         indexes: options.includeUserNameIndex ? [{
           indexId: 1,
-          tableId: 1,
+          tableId: options.includeProductLaunch === true ? 2 : 1,
           name: "by_name",
           fields: ["name"],
         }] : [],
       },
-      functions: [{
+      functions: [...(options.includeProductLaunch === true ? [{
+        path: "productLaunch:launch",
+        moduleName: "productLaunch",
+        exportName: "launch",
+        kind: "mutation",
+        visibility: "public",
+        args: { type: "any" },
+        returns: null,
+        partition: null,
+      }] as const : []), {
         path: "users:create",
         moduleName: "users",
         exportName: "create",
@@ -1175,18 +1201,23 @@ function resolveTaskPublication(
       });
 }
 
-async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBundle> {
+async function mutationSourceBundle(includeProductLaunch = false): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
     'import { internalMutation } from "flarex/server";',
     'import { action } from "flarex/server";',
     'import * as users from "../functions/users.js";',
+    ...(includeProductLaunch ? ['import * as productLaunch from "../functions/productLaunch.js";'] : []),
     "export default { users: {",
     "  get: query({ handler: users.get }),",
     "  create: mutation({ handler: users.create }),",
     "  createInternal: internalMutation({ handler: users.createInternal }),",
     "  notify: action({ handler: users.notify }),",
+    ...(includeProductLaunch ? [
+      "}, productLaunch: {",
+      "  launch: mutation({ handler: productLaunch.launch }),",
+    ] : []),
     "} };",
     "",
   ].join("\n");
@@ -1221,9 +1252,17 @@ async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBu
     "",
   ].join("\n");
   const schema = "export default {};\n";
+  const launchHandler = [
+    "export async function launch(ctx, args) {",
+    "  return await ctx.db.insert(\"productLaunch\", { productId: args.productId, phase: \"draft\" });",
+    "}",
+    "",
+  ].join("\n");
   const raw = [
     { path: "_flarex/application.js", roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION, source: execution },
     { path: "_flarex/schema.js", roles: SOURCE_ARTIFACT_V2_ROLE_SCHEMA, source: schema },
+    ...(includeProductLaunch ? [{ path: "functions/productLaunch.js",
+      roles: SOURCE_ARTIFACT_V2_ROLE_FUNCTION, source: launchHandler }] : []),
     { path: "functions/users.js", roles: SOURCE_ARTIFACT_V2_ROLE_FUNCTION, source: handler },
   ] as const;
   const modules = Object.freeze(await Promise.all(raw.map(async module => {

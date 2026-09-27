@@ -16,7 +16,7 @@ import {
   type LogicalIndexRangeReadDependencyV1,
   type LogicalApplicationRelationIncomingReadDependencyV1,
   type LogicalReadDependencyV1,
-  type SessionJournalV2,
+  type SessionJournal,
 } from "flarex-protocol/commit-protocol";
 
 import type {
@@ -114,7 +114,7 @@ export type PreparedPointRowIntentV1 =
 export interface PreparedPointCommitStateV1 {
   readonly journalBytes: Uint8Array;
   readonly logicalParticipantOperations: ReadonlyArray<Pick<
-    SessionJournalV2["participantOperations"][number], "participant" | "syscallSequence"
+    SessionJournal["participantOperations"][number], "participant" | "syscallSequence"
   >>;
   readonly authorityPins: VerifiedCommitInputStateV1["authorityPins"];
   readonly sealIdentity: VerifiedCommitInputStateV1["sealIdentity"];

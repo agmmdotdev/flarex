@@ -77,7 +77,7 @@ import {
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
-  SESSION_JOURNAL_FORMAT_V2,
+  SESSION_JOURNAL_FORMAT,
   type ApplicationActivationSequenceV1,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
@@ -2754,7 +2754,7 @@ export const fxSystemTransactionJournals = pgTable(
     attemptFence: bigint("attempt_fence", { mode: "bigint" })
       .$type<TransactionAttemptFence>()
       .notNull(),
-    journalFormat: text("journal_format").$type<typeof SESSION_JOURNAL_FORMAT_V2>().notNull(),
+    journalFormat: text("journal_format").$type<typeof SESSION_JOURNAL_FORMAT>().notNull(),
     state: text("state")
       .$type<"open" | "sealed" | "failed" | "operation_invoking" | "operation_failed" | "relation_conflicted">()
       .notNull(),
@@ -2826,7 +2826,7 @@ export const fxSystemTransactionJournals = pgTable(
       "fx_system_tx_journal_attempt_fence_check",
       sql`${table.attemptFence} >= 1`,
     ),
-    check("fx_system_tx_journal_format_check", sql`${table.journalFormat} = 'flarex.session-journal-v2'`),
+    check("fx_system_tx_journal_format_check", sql`${table.journalFormat} = 'flarex.session-journal'`),
     check(
       "fx_system_tx_journal_state_check",
       sql`${table.state} in ('open', 'sealed', 'failed', 'operation_invoking', 'operation_failed', 'relation_conflicted')`,
@@ -3127,7 +3127,7 @@ export const fxSystemTransactionJournalReceipts = pgTable(
       .$type<TransactionJournalOperationKindV1>()
       .notNull(),
     requestCodecVersion: integer("request_codec_version")
-      .$type<1>()
+      .$type<2>()
       .notNull(),
     requestBytes: bytea("request_bytes").notNull(),
     requestSha256: bytea("request_sha256").notNull(),
@@ -3136,7 +3136,7 @@ export const fxSystemTransactionJournalReceipts = pgTable(
       .$type<TransactionJournalOutcomeKindV1>()
       .notNull(),
     outcomeCodecVersion: integer("outcome_codec_version")
-      .$type<1>()
+      .$type<2>()
       .notNull(),
     outcomeBytes: bytea("outcome_bytes").notNull(),
     outcomeSha256: bytea("outcome_sha256").notNull(),
@@ -3177,7 +3177,7 @@ export const fxSystemTransactionJournalReceipts = pgTable(
     check(
       "fx_system_tx_journal_receipt_request_check",
       sql`
-        ${table.requestCodecVersion} = 1
+        ${table.requestCodecVersion} = 2
         and octet_length(${table.requestBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
         and octet_length(${table.requestSha256}) = 32
         and (${table.participantBindingSha256} is null or octet_length(${table.participantBindingSha256}) = 32)
@@ -3189,7 +3189,7 @@ export const fxSystemTransactionJournalReceipts = pgTable(
         ((${table.operationKind} = 'admittedLogicalOperation' and ${table.outcomeKind} in ('admittedLogicalInvoking', 'admittedLogicalResult', 'admittedLogicalError', 'error'))
           or (${table.operationKind} <> 'admittedLogicalOperation' and ${table.outcomeKind} in
             ('missing', 'present', 'inserted', 'unit', 'indexRangePage', 'relationIncomingPage', 'relationConflict', 'error')))
-        and ${table.outcomeCodecVersion} = 1
+        and ${table.outcomeCodecVersion} = 2
         and octet_length(${table.outcomeBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
         and octet_length(${table.outcomeSha256}) = 32
       `,
@@ -3514,7 +3514,7 @@ export const fxSystemTransactionJournalWriteEvents = pgTable(
     writeKind: text("write_kind")
       .$type<LogicalAppWriteV1["kind"] | "logicalDocument">()
       .notNull(),
-    eventCodecVersion: integer("event_codec_version").$type<1>().notNull(),
+    eventCodecVersion: integer("event_codec_version").$type<2>().notNull(),
     eventBytes: bytea("event_bytes").notNull(),
     eventSha256: bytea("event_sha256").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -3549,7 +3549,7 @@ export const fxSystemTransactionJournalWriteEvents = pgTable(
       "fx_system_tx_journal_event_payload_check",
       sql`
         ${table.writeKind} in ('insert', 'patch', 'replace', 'delete', 'logicalDocument')
-        and ${table.eventCodecVersion} = 1
+        and ${table.eventCodecVersion} = 2
         and octet_length(${table.eventBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1))}
         and octet_length(${table.eventSha256}) = 32
       `,

@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import {
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -42,9 +42,9 @@ import type { LocatedScopeClockReader } from
 import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import {
-  createSessionJournalStorePersistenceV1,
-  type SessionJournalAttemptV1,
-  type SessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
+  type SessionJournalAttempt,
+  type SessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import { createStoredAttemptEvidenceLoaderV1 } from
   "../src/storedAttemptEvidence";
@@ -97,8 +97,8 @@ interface PreparedRelationAttempt<Value> {
 }
 
 interface RelationOperationContext {
-  readonly store: SessionJournalStorePersistenceV1;
-  readonly attempt: SessionJournalAttemptV1;
+  readonly store: SessionJournalStorePersistence;
+  readonly attempt: SessionJournalAttempt;
 }
 
 describePostgres("real PostgreSQL C09 relation commit serialization", () => {
@@ -408,7 +408,7 @@ async function prepareRelationAttempt<Value>(
   if (activation.status !== "created") {
     throw new Error("Expected a newly created PostgreSQL C09 attempt.");
   }
-  const store = createSessionJournalStorePersistenceV1(scope.ports, {
+  const store = createSessionJournalStorePersistence(scope.ports, {
     grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid,
   });
@@ -421,7 +421,7 @@ async function prepareRelationAttempt<Value>(
   const value = await operation(Object.freeze({ store, attempt }));
   const prepared = await prepareSessionJournalSeal(store, attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV2Effect(prepared.journal),
+    canonicalizeSessionJournalEffect(prepared.journal),
   );
   const successfulResult = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),

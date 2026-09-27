@@ -13,8 +13,7 @@ not activated on a named durable environment and exposes no public authoring API
 The [Payload Local API attempt](./02-payload-local-api-attempt-preflight.md) adds
 one pinned native create, update and find-by-ID lifecycle under the same root.
 The [finite Medusa workflow preflight](./03-finite-medusa-workflow-preflight.md)
-proposes the next connected private package; its runtime scope still awaits
-focused agreement.
+owns the implemented finite private workflow profile in isolated scopes.
 Named-environment activation and public authoring APIs remain separate gates.
 Payload's required unique `posts.title` field needs a retained ordered index for
 historical uniqueness checks. Adding that compiler index changes the compiled
@@ -47,9 +46,7 @@ review and Git; explicitly assigned workers make disjoint edits and fixes,
 serializing dependent changes and preserving unrelated work. Spawn every
 subagent, including workers, explorers and both standing reviewers, with model
 `gpt-6-sol` and `reasoning_effort: high`. Reviewers remain read-only.
-The first two numbered preflights own their implemented scopes. The third is a
-proposal and does not grant runtime implementation until its focused scope is
-agreed.
+The three numbered preflights own their implemented private scopes.
 
 The design note owns architecture; this README owns domain status, package order
 and remaining cross-package gates. Create `NN-topic-preflight.md` only when a
@@ -136,7 +133,7 @@ from this roadmap alone.
    no committed rows or event intent. Migrate adapter/request consumers and
    remove their displaced transaction, evidence or lifecycle mechanics while
    retaining independently supported standalone profiles.
-3. **[Finite Medusa workflow](./03-finite-medusa-workflow-preflight.md) (proposed; scope agreement pending).** Admit one ordered private parent with
+3. **[Finite Medusa workflow](./03-finite-medusa-workflow-preflight.md) (implemented private isolated proof).** Admit one ordered private parent with
    the selected native-step Variant/Pricing/Link child and exact promoted
    Product Tag update child. Borrow the existing root across Product, Pricing
    and Link sources without independent settlement or callback replay. Prove

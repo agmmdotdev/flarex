@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type {
-  CanonicalSessionJournalV2,
+  CanonicalSessionJournal,
   CanonicalSuccessfulResultV1,
   StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
@@ -10,9 +10,9 @@ import type {
   PreparedSessionJournalSealResultV1,
   PreparedSessionJournalSealV1,
   RunSessionJournalPointOperationV1Result,
-  SessionJournalAttemptV1,
+  SessionJournalAttempt,
   SessionJournalPointOperationV1,
-  SessionJournalStorePersistenceV1,
+  SessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import { SETUP_SEEDED_SYSCALL_VALIDATOR_PROOF_V1 } from
   "./applicationRevisionSyscallValidatorTestSupport";
@@ -30,7 +30,7 @@ export function runEffectFailure<A, E>(
 }
 
 export function runSessionJournalPointOperation(
-  store: SessionJournalStorePersistenceV1,
+  store: SessionJournalStorePersistence,
   table: PinnedPointTableV1,
   operation: SessionJournalPointOperationV1,
 ): Promise<RunSessionJournalPointOperationV1Result> {
@@ -42,16 +42,16 @@ export function runSessionJournalPointOperation(
 }
 
 export function prepareSessionJournalSeal(
-  store: SessionJournalStorePersistenceV1,
-  attempt: SessionJournalAttemptV1,
+  store: SessionJournalStorePersistence,
+  attempt: SessionJournalAttempt,
 ): Promise<PreparedSessionJournalSealResultV1> {
   return runEffect(store.prepareSealEffect(attempt));
 }
 
 export function completeSessionJournalSeal(
-  store: SessionJournalStorePersistenceV1,
+  store: SessionJournalStorePersistence,
   preparation: PreparedSessionJournalSealV1,
-  journal: CanonicalSessionJournalV2,
+  journal: CanonicalSessionJournal,
   successfulResult: CanonicalSuccessfulResultV1,
 ): Promise<StoredForSessionAttemptCommitEnvelopeV1> {
   return runEffect(

@@ -6,8 +6,8 @@ import {
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect } from "effect";
 import {
-  SESSION_JOURNAL_FORMAT_V2,
-  decodeCanonicalSessionJournalV2Effect,
+  SESSION_JOURNAL_FORMAT,
+  decodeCanonicalSessionJournalEffect,
   type LogicalApplicationRelationIncomingReadDependencyV1,
   type LogicalIndexRangeReadDependencyV1,
 } from "flarex-protocol/commit-protocol";
@@ -43,9 +43,8 @@ import type {
   PointMutationAttemptReplacementCommandV1,
   RunningRelationConflictAttemptReplacementCommandV1,
   RunningRelationConflictRecoveryCommand,
+  RecoveredRunningRelationConflictEvidence,
 } from "../src/pointCommitTransaction";
-import type { RunSessionJournalRelationIncomingV1Result } from
-  "../src/sessionJournalStore";
 import type {
   StoredAttemptEvidenceAuthorityV1,
   StoredAttemptEvidenceV1,
@@ -59,13 +58,7 @@ import type {
 export function runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1(
   authority: StoredOccExecutionEvidenceAuthorityV1,
   evidence: StoredOccExecutionEvidenceV1,
-  result: Pick<
-    Extract<
-      RunSessionJournalRelationIncomingV1Result,
-      { readonly kind: "conflicted" }
-    >,
-    "request" | "conflict"
-  >,
+  result: RecoveredRunningRelationConflictEvidence,
 ): RunningRelationConflictAttemptReplacementCommandV1 {
   if (
     evidence.session.lifecycle !== "running" ||
@@ -189,7 +182,7 @@ export async function pointCommitCommandWithJournalReadDependenciesFromStoredAtt
     evidence,
   );
   const journal = await Effect.runPromise(
-    decodeCanonicalSessionJournalV2Effect({
+    decodeCanonicalSessionJournalEffect({
       canonicalBytes: new Uint8Array(evidence.root.journalBytes),
       expectedSha256Hex: encodeBytesToLowercaseHex(
         evidence.root.journalSha256,
@@ -313,7 +306,7 @@ function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
       finalSyscallSequence: root.lastSyscallSequence,
       creationTimeSeed: root.creationTimeSeed,
       nextCreationTime: root.nextCreationTime,
-      journalFormat: SESSION_JOURNAL_FORMAT_V2,
+      journalFormat: SESSION_JOURNAL_FORMAT,
       journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
       journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
       journalByteLength: root.journalBytes.byteLength,

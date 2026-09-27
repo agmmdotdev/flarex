@@ -7,7 +7,7 @@ import { decodeAppDocumentIdentityV1, appRowIdHexV1ToBytes } from
   "flarex-protocol/app-document-id";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
-import { decodeCanonicalSessionJournalV2Effect } from "flarex-protocol/commit-protocol";
+import { decodeCanonicalSessionJournalEffect } from "flarex-protocol/commit-protocol";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournals } from "../../persistence-postgres/src/schema";
@@ -65,14 +65,16 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
     const sealedRoot = sealedRoots[0];
     if (sealedRoot?.sealedJournalBytes === null || sealedRoot?.sealedJournalBytes === undefined ||
       sealedRoot.sealedJournalSha256 === null) throw new Error("Missing sealed Product journal evidence");
-    const sealedJournal = await Effect.runPromise(decodeCanonicalSessionJournalV2Effect({
+    const sealedJournal = await Effect.runPromise(decodeCanonicalSessionJournalEffect({
       canonicalBytes: sealedRoot.sealedJournalBytes,
       expectedSha256Hex: encodeBytesToLowercaseHex(sealedRoot.sealedJournalSha256),
     }));
     const productReadEvidence = sealedJournal.journal.participantOperations
       .filter(operation => operation.participant === "medusa.product")
-      .map(operation => Result.getOrThrow(decodeLogicalParticipantDependencyEvidence(
-        operation.dependencyEvidence)));
+      .flatMap(operation => operation.sourceContributions)
+      .filter(source => source.sourceKey === "medusa.product")
+      .map(source => Result.getOrThrow(decodeLogicalParticipantDependencyEvidence(
+        source.dependencyEvidence)));
     expect(productReadEvidence).toHaveLength(3);
     expect(productReadEvidence.some(evidence => evidence.indexRanges.length > 0 &&
       evidence.indexRanges.some(range => range.entries.length > 0))).toBe(true);

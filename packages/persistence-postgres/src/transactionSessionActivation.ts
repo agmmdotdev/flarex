@@ -25,7 +25,7 @@ import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import {
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
-  SESSION_JOURNAL_FORMAT_V2,
+  SESSION_JOURNAL_FORMAT,
 } from "flarex-protocol/commit-protocol";
 import {
   isJsonArray,
@@ -2689,7 +2689,7 @@ async function createSession(
     scopeUuid: clock.scopeUuid,
     sessionId: input.candidateSessionId,
     attemptFence: INITIAL_ATTEMPT_FENCE,
-    journalFormat: SESSION_JOURNAL_FORMAT_V2,
+    journalFormat: SESSION_JOURNAL_FORMAT,
     state: "open",
     lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
     receiptEvidenceBytes: 0,

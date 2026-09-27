@@ -4,7 +4,7 @@ import { expect } from "vitest";
 import {
   CommitFinalSyscallSequenceV1Schema,
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import { isJsonObject } from "flarex-protocol/json";
@@ -17,8 +17,8 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import { fxSystemTransactionJournals, fxSystemTransactionJournalWriteEvents } from "../src/schema";
 import type {
   PinnedPointTableV1,
-  SessionJournalAttemptV1,
-  SessionJournalStorePersistenceV1,
+  SessionJournalAttempt,
+  SessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import type { PointMutationSessionAnchorV1 } from "../src/transactionSessionActivation";
 import {
@@ -28,9 +28,9 @@ import {
 
 type Database = PGliteFlarexPersistence | PostgresFlarexPersistence;
 interface Scenario {
-  readonly store: SessionJournalStorePersistenceV1;
+  readonly store: SessionJournalStorePersistence;
   readonly table: PinnedPointTableV1;
-  readonly attempt: SessionJournalAttemptV1;
+  readonly attempt: SessionJournalAttempt;
   readonly anchor: PointMutationSessionAnchorV1;
 }
 
@@ -77,7 +77,7 @@ export async function verifyJournalEventEvidence(database: Database, current: Sc
 /** The surviving root counter remains bound to previously prepared sealed evidence. */
 export async function verifyJournalSealSequence(database: Database, current: Scenario): Promise<void> {
   const prepared = await prepareSessionJournalSeal(current.store, current.attempt);
-  const journal = await runEffect(canonicalizeSessionJournalV2Effect(prepared.journal));
+  const journal = await runEffect(canonicalizeSessionJournalEffect(prepared.journal));
   const result = await runEffect(canonicalizeSuccessfulResultV1Effect(null));
   const envelope = await completeSessionJournalSeal(current.store, prepared.preparation, journal, result);
   const replay = await prepareSessionJournalSeal(current.store, current.attempt);

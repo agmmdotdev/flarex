@@ -27,8 +27,8 @@ import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitA
   withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
   type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptRoot,
   type LogicalParticipantAttemptReadTransaction, type LogicalParticipantCommitAuthority } from "./participantAdmission";
-import type { SessionJournalAttemptV1 } from "../sessionJournalStore";
-import type { AdmittedParticipantOperationV1 } from "flarex-protocol/commit-protocol";
+import type { SessionJournalAttempt } from "../sessionJournalStore";
+import type { AdmittedParticipantOperation, SourceContribution } from "flarex-protocol/commit-protocol";
 
 export class LogicalDocumentSourceAdmissionError extends Data.TaggedError("LogicalDocumentSourceAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" | "documentInvalid" | "resourceFailure" | "unsupportedProfile";
@@ -86,7 +86,7 @@ const attemptStates = new WeakMap<object, LogicalDocumentAttemptAdmissionState>(
 
 export const withLogicalDocumentAttemptAdmissionEffect = Effect.fn("LogicalDocumentAttemptAdmission.with")(
   function* <Value, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
-    attempt: SessionJournalAttemptV1, method: string,
+    attempt: SessionJournalAttempt, method: string,
     work: (state: LogicalDocumentAttemptAdmissionState,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
         Effect.Effect<A, E | LogicalParticipantAdmissionError>) => Effect.Effect<Value, Failure, Requirements>) {
@@ -183,7 +183,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
   });
   const tableIds = new Set(selectedTables.map(table => table.tableId));
   const bindAttemptEffect = Effect.fn("LogicalDocumentAttemptAdmission.bind")(function* (
-    application: ApplicationBindingInput, attempt: SessionJournalAttemptV1, root: LogicalParticipantAttemptRoot,
+    application: ApplicationBindingInput, attempt: SessionJournalAttempt, root: LogicalParticipantAttemptRoot,
     readTransaction: LogicalParticipantAttemptReadTransaction, methods: readonly string[],
   ) {
     if (root.scopeId !== capturedInput.scopeId || root.principalDigest.length === 0 || methods.length === 0 ||
@@ -207,6 +207,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
         .pipe(Effect.mapError(projectAttemptFailure));
     const token = issueLogicalParticipantAttemptAdmission(Object.freeze({ attempt, root: Object.freeze({ ...root }),
       methods: new Set(methods), readTransaction, verifyBinding, tableIds,
+      indexes: selected.indexes, unique: selected.unique,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: pinned.head }));
     attemptStates.set(token, Object.freeze({ root: Object.freeze({ ...root }), clock: pinned.clock,
       schemaVersionId: capturedInput.schemaVersionId, sourceKey: selected.source.key,
@@ -238,15 +239,16 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
       sourceSha256: selected.source.sourceSha256, schemaVersionId: capturedInput.schemaVersionId,
       tableIds, indexes: selected.indexes, unique: selected.unique, search: Object.freeze([]),
       validateDocument: validateCommitDocument,
-      verify: (operation: AdmittedParticipantOperationV1, tx: FlarexMetadataTransaction,
+      verify: (_operation: AdmittedParticipantOperation, contribution: SourceContribution,
+        tx: FlarexMetadataTransaction,
         authority: TrustedScopeAuthority, clock: ScopeClockRecord) => selected.withBinding(
           application, tx, authority, clock, binding => {
             if (authority.scopeId !== capturedInput.scopeId || clock.scopeId !== capturedInput.scopeId ||
               binding.schemaVersionId !== capturedInput.schemaVersionId ||
               binding.frame.payloadContent !== null || binding.frame.payloadLifecycle !== null ||
-              operation.sourceKey !== selected.source.key || operation.sourceSha256Hex !== selected.source.sourceSha256 ||
-              operation.bindingHead.sequence !== binding.head.sequence || operation.bindingHead.sha256 !== binding.head.sha256 ||
-              operation.effects.some(effect => !tableIds.has(effect.tableId)))
+              contribution.sourceKey !== selected.source.key || contribution.sourceSha256Hex !== selected.source.sourceSha256 ||
+              contribution.bindingHead.sequence !== binding.head.sequence || contribution.bindingHead.sha256 !== binding.head.sha256 ||
+              contribution.effects.some(effect => !tableIds.has(effect.tableId)))
               return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
             return Effect.void;
           }).pipe(Effect.mapError(projectAttemptFailure)),

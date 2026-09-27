@@ -6,7 +6,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { CommitSeqSchema, decodeReplacementScopeIdV1, projectScopeIdUuidV1, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -48,7 +48,7 @@ import { getScopeAuthorityProvisioningReceipt } from "../src/scopeAuthorityProvi
 import type { SplitScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
 import { fxSystemScopeClocks } from "../src/schema";
-import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
 import { createPointMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
@@ -183,7 +183,7 @@ export async function prepareSealedRelationAttempt(
   if (activation.status !== "created") {
     throw new Error("Expected one relation-aware mutation attempt.");
   }
-  const store = createSessionJournalStorePersistenceV1(
+  const store = createSessionJournalStorePersistence(
     ready.fixture.pointCommitAuthority,
     {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -216,7 +216,7 @@ export async function prepareSealedRelationAttempt(
   }
   const prepared = await prepareSessionJournalSeal(store, attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV2Effect(prepared.journal),
+    canonicalizeSessionJournalEffect(prepared.journal),
   );
   const successfulResult = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),

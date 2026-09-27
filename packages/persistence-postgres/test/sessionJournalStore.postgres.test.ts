@@ -24,7 +24,7 @@ import {
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -59,12 +59,12 @@ import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import { fxSystemTransactionJournalReceipts } from "../src/schema";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
-  createSessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
   type PinnedPointTableV1,
   type RunSessionJournalPointOperationV1Result,
-  type SessionJournalAttemptV1,
+  type SessionJournalAttempt,
   type SessionJournalPointOperationV1,
-  type SessionJournalStorePersistenceV1,
+  type SessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
@@ -127,8 +127,8 @@ interface JournalScenario {
   readonly tableId: CatalogTableId;
   readonly anchor: PointMutationSessionAnchorV1;
   readonly ports: PointMutationSessionAuthorityResolutionPortsV1;
-  readonly store: SessionJournalStorePersistenceV1;
-  readonly attempt: SessionJournalAttemptV1;
+  readonly store: SessionJournalStorePersistence;
+  readonly attempt: SessionJournalAttempt;
   readonly table: PinnedPointTableV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
 }
@@ -658,7 +658,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       expect(generationCalls).toBe(1);
 
       let replayGenerationCalled = false;
-      const restartedStore = createSessionJournalStorePersistenceV1(
+      const restartedStore = createSessionJournalStorePersistence(
         current.ports,
         {
           grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -924,7 +924,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
 
       const resultPayloadBytes = MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 - 1_024;
       const canonicalJournalPromise = runEffect(
-        canonicalizeSessionJournalV2Effect(prepared.journal),
+        canonicalizeSessionJournalEffect(prepared.journal),
       );
       const successfulResultPromise = runEffect(
         canonicalizeSuccessfulResultV1Effect(
@@ -1068,8 +1068,8 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         concurrent.attempt,
       );
       const [firstJournal, secondJournal, successfulResult] = await Promise.all([
-        runEffect(canonicalizeSessionJournalV2Effect(firstPrepared.journal)),
-        runEffect(canonicalizeSessionJournalV2Effect(secondPrepared.journal)),
+        runEffect(canonicalizeSessionJournalEffect(firstPrepared.journal)),
+        runEffect(canonicalizeSessionJournalEffect(secondPrepared.journal)),
         runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
       ]);
 
@@ -1105,7 +1105,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       await expect(completeSeal(
         concurrent.store,
         replayPrepared.preparation,
-        await runEffect(canonicalizeSessionJournalV2Effect(
+        await runEffect(canonicalizeSessionJournalEffect(
           replayPrepared.journal,
         )),
         successfulResult,
@@ -1122,7 +1122,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         concurrent.attempt,
       );
       const mismatchJournal = await runEffect(
-        canonicalizeSessionJournalV2Effect(mismatchPrepared.journal),
+        canonicalizeSessionJournalEffect(mismatchPrepared.journal),
       );
       await persistence.query(
         `
@@ -1172,7 +1172,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       );
       await expect(runFailure(overBudget.store.completeSealEffect(
         overBudgetPrepared.preparation,
-        await runEffect(canonicalizeSessionJournalV2Effect(
+        await runEffect(canonicalizeSessionJournalEffect(
           overBudgetPrepared.journal,
         )),
         successfulResult,
@@ -1198,7 +1198,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         );
         const prepared = await prepareSeal(rollback.store, rollback.attempt);
         const journal = await runEffect(
-          canonicalizeSessionJournalV2Effect(prepared.journal),
+          canonicalizeSessionJournalEffect(prepared.journal),
         );
         const before = await attemptLeaseAndSealState(
           persistence,
@@ -1265,7 +1265,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       );
       const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
-        canonicalizeSessionJournalV2Effect(prepared.journal),
+        canonicalizeSessionJournalEffect(prepared.journal),
       );
       const successfulResult = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -1376,7 +1376,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const prepared = await prepareSeal(sealed.store, sealed.attempt);
       await completeSeal(sealed.store,
         prepared.preparation,
-        await runEffect(canonicalizeSessionJournalV2Effect(prepared.journal)),
+        await runEffect(canonicalizeSessionJournalEffect(prepared.journal)),
         await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
       );
       const sealedNullableColumns = [
@@ -1473,7 +1473,7 @@ async function scenario(
       { evidence: { schemaVersionId } },
     ),
   );
-  const store = createSessionJournalStorePersistenceV1(ports, {
+  const store = createSessionJournalStorePersistence(ports, {
     grantRetentionPolicy:
       options.grantRetentionPolicy ?? TEST_GRANT_RETENTION_POLICY_V1,
     ...(options.randomUuid === undefined

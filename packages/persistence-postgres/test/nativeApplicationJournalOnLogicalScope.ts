@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import { expect } from "vitest";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect,
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { selectApplicationMutationAdmission } from "../src/applicationMutationAdmission";
 import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
-import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
 import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from
@@ -39,7 +39,7 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
         grantId: `logical-currency-native-journal-${operation}${suffix === undefined ? "" : `-${suffix}`}-grant`,
       })));
     if (activation.status !== "created") throw new Error("Expected native journal attempt");
-    const store = createSessionJournalStorePersistenceV1(application.sessionAuthority,
+    const store = createSessionJournalStorePersistence(application.sessionAuthority,
       { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1, indexedQueries: application.indexedQueries });
     const attempt = yield* store.openAttemptEffect({ selector: selectorFromRelationAnchor(activation.anchor),
       executionClaim: activation.executionClaim, snapshotToken: activation.anchor.snapshotToken, schemaVersionId });
@@ -67,7 +67,7 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
       }
     }
     const sealed = yield* store.prepareSealEffect(attempt);
-    const journal = yield* canonicalizeSessionJournalV2Effect(sealed.journal);
+    const journal = yield* canonicalizeSessionJournalEffect(sealed.journal);
     const result = yield* canonicalizeSuccessfulResultV1Effect({ observed: true });
     yield* store.completeSealEffect(sealed.preparation, journal, result);
     const authority = relationAuthorityFromAnchor(activation.anchor, schemaVersionId, activation.executionClaim);

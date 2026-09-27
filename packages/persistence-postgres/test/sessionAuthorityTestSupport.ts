@@ -269,7 +269,7 @@ export async function insertOpenTransactionJournalFixture(
     `insert into fx_system_tx_journal
       (scope_uuid, session_id, attempt_fence, state, journal_format,
        creation_time_seed, next_creation_time, created_at, updated_at)
-     values ($1::uuid, $2::uuid, $3, 'open', 'flarex.session-journal-v2', $4, $4,
+     values ($1::uuid, $2::uuid, $3, 'open', 'flarex.session-journal', $4, $4,
        $5::timestamptz, $5::timestamptz)`,
     [fixture.scopeUuid, fixture.sessionId, fixture.attemptFence ?? "1", creationTime, createdAt],
   );

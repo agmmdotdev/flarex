@@ -56,14 +56,14 @@ import {
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
-  SESSION_JOURNAL_FORMAT_V2,
-  canonicalizeSessionJournalV2Effect,
+  SESSION_JOURNAL_FORMAT,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
-  type CanonicalSessionJournalV2,
+  type CanonicalSessionJournal,
   type CanonicalSuccessfulResultV1,
   type CommitEnvelopeV1,
   type LogicalReadDependencyV1,
-  type SessionJournalV2,
+  type SessionJournal,
 } from "flarex-protocol/commit-protocol";
 import { decodeAppIndexPhysicalSpecSha256HexV1 } from "flarex-protocol/index-definition";
 import { decodeOrderedIndexKeyCodecVersion } from "flarex-protocol/ordered-index";
@@ -5193,7 +5193,7 @@ describe("C04A stored-attempt authentication", () => {
 });
 
 interface Fixture {
-  readonly journal: CanonicalSessionJournalV2;
+  readonly journal: CanonicalSessionJournal;
   readonly result: CanonicalSuccessfulResultV1;
   readonly envelope: CommitEnvelopeV1;
   readonly evidence: StoredAttemptEvidencePortV1;
@@ -6498,7 +6498,7 @@ async function insertFixture(
     creationTime,
     fields,
   });
-  const journal: SessionJournalV2 = {
+  const journal: SessionJournal = {
     ...emptyJournal(),
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
     readDependencies: [{
@@ -6555,7 +6555,7 @@ async function patchFixture(
     creationTime,
     fields: { name: finalName, stable: true },
   });
-  const journal: SessionJournalV2 = {
+  const journal: SessionJournal = {
     ...emptyJournal(),
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
     readDependencies: [{
@@ -6614,7 +6614,7 @@ async function replaceFixture(
     creationTime,
     fields,
   });
-  const journal: SessionJournalV2 = {
+  const journal: SessionJournal = {
     ...emptyJournal(),
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
     readDependencies: [{
@@ -6665,7 +6665,7 @@ async function deleteFixture(
     "1:00000000-0000-4000-8000-000000000004",
   );
   const identity = decodeAppDocumentIdentityV1(documentId);
-  const journal: SessionJournalV2 = {
+  const journal: SessionJournal = {
     ...emptyJournal(),
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
     readDependencies: [{
@@ -6712,7 +6712,7 @@ async function readFixture(
     "1:00000000-0000-4000-8000-000000000005",
   );
   const identity = decodeAppDocumentIdentityV1(documentId);
-  const journal: SessionJournalV2 = {
+  const journal: SessionJournal = {
     ...emptyJournal(),
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
     readDependencies: [{
@@ -6745,10 +6745,10 @@ async function readFixture(
 }
 
 async function fixtureForJournal(
-  journalValue: SessionJournalV2,
+  journalValue: SessionJournal,
   successfulResult: unknown = { ok: true },
 ): Promise<Fixture> {
-  const journal = await runEffect(canonicalizeSessionJournalV2Effect(
+  const journal = await runEffect(canonicalizeSessionJournalEffect(
     journalValue,
   ));
   const result = await runEffect(
@@ -6845,9 +6845,9 @@ async function fixtureForJournal(
   return { journal, result, envelope, evidence };
 }
 
-function emptyJournal(): SessionJournalV2 {
+function emptyJournal(): SessionJournal {
   return {
-    format: SESSION_JOURNAL_FORMAT_V2,
+    format: SESSION_JOURNAL_FORMAT,
     protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),

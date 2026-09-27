@@ -1,5 +1,5 @@
 import {
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -38,9 +38,9 @@ import { TransactionExecutionClaimOwnerV1Schema } from
 import { createPointMutationExecutionClaimLivenessV1 } from
   "../src/transactionExecutionClaimLiveness";
 import {
-  createSessionJournalStorePersistenceV1,
-  type SessionJournalAttemptV1,
-  type SessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
+  type SessionJournalAttempt,
+  type SessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import {
   createStoredAttemptEvidenceLoaderV1,
@@ -79,8 +79,8 @@ const sharedLocator = Object.freeze({
 
 interface Scenario {
   readonly anchor: PointMutationSessionAnchorV1;
-  readonly attempt: SessionJournalAttemptV1;
-  readonly store: SessionJournalStorePersistenceV1;
+  readonly attempt: SessionJournalAttempt;
+  readonly store: SessionJournalStorePersistence;
   readonly authority: StoredAttemptEvidenceAuthorityV1;
   readonly command: PointCommitFinishingTransitionCommandV1;
   readonly ports: PointMutationSessionAuthorityResolutionPortsV1;
@@ -551,7 +551,7 @@ describe("C05-A point-commit finishing transition", () => {
         { evidence: { schemaVersionId } },
       ),
     );
-    const store = createSessionJournalStorePersistenceV1(ports, {
+    const store = createSessionJournalStorePersistence(ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
     });
@@ -568,7 +568,7 @@ describe("C05-A point-commit finishing transition", () => {
     }));
     const prepared = await runEffect(store.prepareSealEffect(attempt));
     const journal = await runEffect(
-      canonicalizeSessionJournalV2Effect(prepared.journal),
+      canonicalizeSessionJournalEffect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),

@@ -51,8 +51,8 @@ import {
   CommitSyscallSequenceV1Schema,
   CommitFinalSyscallSequenceV1Schema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
-  SESSION_JOURNAL_FORMAT_V2,
-  canonicalizeSessionJournalV2Effect,
+  SESSION_JOURNAL_FORMAT,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import { makeGrantRetentionPolicyV1Result } from "flarex-protocol/grant-retention-policy";
@@ -254,10 +254,10 @@ import {
 } from "../src/appUniqueKeys";
 import {
   createAppDeveloperIndexQueryPortV1,
-  createSessionJournalStorePersistenceV1,
+  createSessionJournalStorePersistence,
   type PinnedPointTableV1,
-  type SessionJournalAttemptV1,
-  type SessionJournalStorePersistenceV1,
+  type SessionJournalAttempt,
+  type SessionJournalStorePersistence,
 } from "../src/sessionJournalStore";
 import {
   createStoredCommitAuthorityEvidenceLoaderV1,
@@ -379,8 +379,8 @@ interface Scenario {
   readonly schemaVersionId: ReturnType<
     typeof CatalogSchemaVersionIdSchema.make
   >;
-  readonly store: SessionJournalStorePersistenceV1;
-  readonly attempt: SessionJournalAttemptV1;
+  readonly store: SessionJournalStorePersistence;
+  readonly attempt: SessionJournalAttempt;
   readonly loader: StoredAttemptFinishingEvidenceLoaderV1;
   readonly authority: StoredAttemptEvidenceAuthorityV1;
 }
@@ -7232,7 +7232,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ),
       ),
     );
-    const store = createSessionJournalStorePersistenceV1(ports, {
+    const store = createSessionJournalStorePersistence(ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
     });
@@ -7476,7 +7476,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     if (activation.status !== "created") {
       throw new Error("Expected a newly created C04B2 scenario.");
     }
-    const store = createSessionJournalStorePersistenceV1(ports, {
+    const store = createSessionJournalStorePersistence(ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
       ...(developerIndexCount > 0
@@ -7733,7 +7733,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     if (activation.status !== "created")
       throw new Error("Expected new indexed reader session.");
-    const store = createSessionJournalStorePersistenceV1(ports, {
+    const store = createSessionJournalStorePersistence(ports, {
       grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       randomUuid: nextUuid,
       indexedQueries: createAppDeveloperIndexQueryPortV1(
@@ -7766,7 +7766,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const prepared = await prepareSeal(store, attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV2Effect(prepared.journal),
+      canonicalizeSessionJournalEffect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -9511,7 +9511,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   async function seal(current: Scenario) {
     const prepared = await prepareSeal(current.store, current.attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV2Effect(prepared.journal),
+      canonicalizeSessionJournalEffect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -9770,7 +9770,7 @@ function commitAuthorityFromStoredEvidence(
       finalSyscallSequence: evidence.root.lastSyscallSequence,
       creationTimeSeed: evidence.root.creationTimeSeed,
       nextCreationTime: evidence.root.nextCreationTime,
-      journalFormat: SESSION_JOURNAL_FORMAT_V2,
+      journalFormat: SESSION_JOURNAL_FORMAT,
       journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
       journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
       journalByteLength: evidence.root.journalBytes.byteLength,

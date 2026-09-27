@@ -24,7 +24,7 @@ import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   ApplicationActivationSequenceV1Schema,
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV2Effect,
+  canonicalizeSessionJournalEffect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -179,7 +179,7 @@ import { resolveLocatedTrustedScopeAuthorityEffect, type ExactTrustedScopeAuthor
   "../src/scopeAuthorityResolution";
 import { lockScopeClockForUpdateInTransactionEffect } from
   "../src/scopeClock";
-import { createSessionJournalStorePersistenceV1 } from
+import { createSessionJournalStorePersistence } from
   "../src/sessionJournalStore";
 import { createStoredOccExecutionEvidenceLoaderV1 } from
   "../src/storedOccExecution";
@@ -1150,7 +1150,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         throw new Error("Expected a new PostgreSQL natural-conflict attempt.");
       }
       expect(activation.anchor.snapshotToken.commitSeq).toBe(1n);
-      const store = createSessionJournalStorePersistenceV1(
+      const store = createSessionJournalStorePersistence(
         fixture.pointCommitAuthority,
         {
           grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -1392,7 +1392,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         anchor: { snapshotToken: { commitSeq: 2n } },
         attemptFacet: { kind: "pristineOpen" },
       });
-      const retryStore = createSessionJournalStorePersistenceV1(
+      const retryStore = createSessionJournalStorePersistence(
         fixture.pointCommitAuthority,
         {
           grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
@@ -1447,7 +1447,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         retryAttempt,
       );
       const canonicalJournal = await runEffect(
-        canonicalizeSessionJournalV2Effect(preparedSeal.journal),
+        canonicalizeSessionJournalEffect(preparedSeal.journal),
       );
       const successfulResult = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -1612,7 +1612,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       if (staleActivation.status !== "created") {
         throw new Error("Expected a PostgreSQL stale-replay attempt.");
       }
-      const staleStore = createSessionJournalStorePersistenceV1(
+      const staleStore = createSessionJournalStorePersistence(
         fixture.pointCommitAuthority,
         {
           grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,

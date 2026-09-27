@@ -6,6 +6,11 @@ import { AppCreationTimeV1Schema, type AppCreationTimeV1 } from "flarex-protocol
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, decodeAppDocumentIdentityV1Result,
   type AppDocumentIdV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
+import { compileAppOrderedIndexBoundsV1, InvalidOrderedIndexRangeV1Error,
+  OrderedIndexCodecV1InputError, OrderedIndexKeyTooLargeError,
+  type OrderedIndexRangeExpressionV1 } from
+  "flarex-protocol/ordered-index";
+import { FlarexValueCodecV1Error } from "flarex-protocol/value";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
@@ -375,7 +380,6 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       // the historical owner and the negative membership witness. The final
       // unique slot is still checked under publication exclusion at settlement.
       const fields = definition.physicalSpec.orderedFields;
-      const [value] = projected.projection.values;
       const predicate = definition.physicalSpec.predicate;
       const index = indexDefinitions.find(candidate => candidate.access.kind === "developer" &&
         candidate.access.tableId === definition.tableId &&
@@ -386,18 +390,30 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         }) && (predicate === undefined ? candidate.physicalSpec.predicate === undefined :
           candidate.physicalSpec.predicate?.kind === "fieldIsNull" &&
           candidate.physicalSpec.predicate.field === predicate.field));
-      if (fields.length !== 1 || value?.kind !== "string" || index === undefined)
+      if (fields.length === 0 || projected.projection.values.length !== fields.length || index === undefined)
         return yield* Effect.fail(error("invalidAuthority"));
-      const where = { [fields[0]!]: value.value,
-        ...(predicate === undefined ? {} : { [predicate.field]: null }) };
-      const selected = yield* Effect.fromResult(selectLogicalIndex([index], definition.tableId, where, error));
-      if (Option.isNone(selected)) return yield* Effect.fail(error("invalidAuthority"));
-      const entries = yield* runRead(tx => readLogicalIndexRange(tx, state.scopeId, selected.value, 2, error,
+      const expressions: OrderedIndexRangeExpressionV1[] = fields.map((_, position) => ({
+        op: "eq", field: index.physicalSpec.orderedFields[position]!,
+        value: projected.projection.values[position]!,
+      }));
+      const bounds = yield* Effect.fromResult(Result.try({
+        try: () => compileAppOrderedIndexBoundsV1({ spec: index.physicalSpec, expressions }),
+        catch: cause => {
+          if (cause instanceof InvalidOrderedIndexRangeV1Error || cause instanceof OrderedIndexCodecV1InputError ||
+            cause instanceof OrderedIndexKeyTooLargeError || cause instanceof FlarexValueCodecV1Error)
+            return error("invalidAuthority", cause);
+          throw cause;
+        },
+      }));
+      const selected = { definition: index, bounds,
+        identity: JSON.stringify([index.indexDefinitionId, bounds.startInclusive ?? null,
+          bounds.endExclusive ?? null]) };
+      const entries = yield* runRead(tx => readLogicalIndexRange(tx, state.scopeId, selected, 2, error,
         testHooks?.observeIndexQuery, state.snapshotCommitSeq));
       if (entries.length > 1 || entries.some(entry => entry.tableId !== definition.tableId))
         return yield* Effect.fail(error("storedCorruption"));
       yield* charge(128 + entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
-      indexReads.set(selected.value.identity, Object.freeze({ definition: index, bounds: selected.value.bounds, entries }));
+      indexReads.set(selected.identity, Object.freeze({ definition: index, bounds: selected.bounds, entries }));
       const entry = entries[0];
       if (entry !== undefined) {
         const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(entry));
