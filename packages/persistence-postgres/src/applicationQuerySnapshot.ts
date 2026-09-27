@@ -143,11 +143,11 @@ import type {
   ScopeClockRecord,
 } from "./scopeClock";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+  type ExactTrustedScopeAuthorityResolutionPorts,
   type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
-  type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import {
   fxSystemApplicationFunctionsV1,
@@ -397,7 +397,7 @@ export type UseApplicationRelationQuerySnapshotError =
 export interface ApplicationQuerySnapshotContext {
   readonly deploymentId: string;
   readonly controlDb: FlarexMetadataDatabase;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   >;
   readonly schema: ApplicationSchemaAuthorityPublisher<unknown>;
@@ -409,7 +409,7 @@ export interface ApplicationQuerySnapshotContext {
 export interface ApplicationRelationQuerySnapshotContext {
   readonly deploymentId: string;
   readonly controlDb: FlarexMetadataDatabase;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   >;
   readonly relations: ApplicationRelationReadPort;
@@ -621,8 +621,8 @@ export const openApplicationQuerySnapshot = Effect.fn(
   });
   if (definitions === null) return yield* failure("open", "schemaMismatch");
   yield* requireExactDefinitions(schema, definitions);
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    context.deploymentId,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: context.deploymentId, scopeId: basis.authority.scopeId },
     context.authority,
   );
   yield* requireSameAuthority(basis.authority, located.authority);
@@ -732,8 +732,8 @@ export const openApplicationRelationQuerySnapshot = Effect.fn(
     context.relations.resolve(capability, resolveInput),
   );
   yield* requireResolvedRelationAuthority(basis, resolved);
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    context.deploymentId,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: context.deploymentId, scopeId: basis.authority.scopeId },
     context.authority,
   );
   yield* requireSameRelationAuthority(

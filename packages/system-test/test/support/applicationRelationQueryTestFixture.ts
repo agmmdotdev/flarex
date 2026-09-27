@@ -241,7 +241,7 @@ export async function proveApplicationRelationQuery(
   const activeHeadObservation = await Effect.runPromise(
     observeScopeSyncActiveHeadV1Effect({
       deploymentId: fixture.deploymentId,
-      authority: fixture.snapshot.authority,
+      authority: fixture.scopeSyncAuthority,
     }).pipe(Effect.provide(ScopeExecutionLive)),
   );
   const syncResult = await Effect.runPromise(Effect.gen(function* () {
@@ -301,7 +301,7 @@ export async function proveApplicationRelationQuery(
   const missingHeadResult = await Effect.runPromise(Effect.result(
     observeScopeSyncActiveHeadV1Effect({
       deploymentId: fixture.deploymentId,
-      authority: fixture.snapshot.authority,
+      authority: fixture.scopeSyncAuthority,
     }).pipe(Effect.provide(ScopeExecutionLive)),
   ));
   const missingHeadFailure = summarizeFailure(missingHeadResult);

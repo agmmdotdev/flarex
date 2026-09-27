@@ -5,10 +5,12 @@ import {
 import { Effect } from "effect";
 
 import {
-  resolveTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+  type ExactTrustedScopeAuthorityResolutionPorts,
+  type TrustedScopeSelection,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
-  type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 
 /**
@@ -27,11 +29,11 @@ export interface ResolvedAppDataSnapshot {
 
 export interface AppDataSnapshotResolver {
   /**
-   * Resolves the current snapshot for a server-authorized deployment. The
-   * caller must not derive deployment identity from untrusted request input.
+   * Resolves the current snapshot for a trusted session or grant selection.
+   * Neither identity may come directly from untrusted request input.
    */
   readonly resolveCurrent: (
-    deploymentId: string,
+    selection: TrustedScopeSelection,
   ) => Effect.Effect<
     ResolvedAppDataSnapshot,
     TrustedScopeAuthorityError
@@ -44,18 +46,19 @@ export interface AppDataSnapshotResolver {
  * supplies the token, generation, and fence together.
  */
 export function createAppDataSnapshotResolver(
-  ports: TrustedScopeAuthorityResolutionPorts,
+  ports: ExactTrustedScopeAuthorityResolutionPorts,
 ): AppDataSnapshotResolver {
+  const authorityPorts = captureExactTrustedScopeAuthorityResolutionPorts(ports);
   return Object.freeze({
     resolveCurrent: Effect.fn("AppDataSnapshot.resolveCurrent")(function* (
-      deploymentId: string,
+      selection: TrustedScopeSelection,
     ): Effect.fn.Return<
       ResolvedAppDataSnapshot,
       TrustedScopeAuthorityError
     > {
-      const authority = yield* resolveTrustedScopeAuthorityEffect(
-        deploymentId,
-        ports,
+      const { authority } = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        selection,
+        authorityPorts,
       );
       const snapshotToken = Object.freeze(
         SnapshotTokenSchema.make({

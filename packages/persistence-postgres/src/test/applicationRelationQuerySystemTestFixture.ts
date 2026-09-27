@@ -173,7 +173,7 @@ import {
 } from "../schema";
 import { getScopeAuthorityProvisioningReceipt } from
   "../scopeAuthorityProvisioningReceipt";
-import type { LocatedScopeClockReader } from
+import type { LocatedScopeClockReader, TrustedScopeAuthorityResolutionPorts } from
   "../scopeAuthorityResolution";
 import type { SplitScopePhysicalLocator } from
   "../scopeMetadataTypes";
@@ -210,6 +210,7 @@ export interface ApplicationRelationQueryCoreStateSnapshot {
 
 export interface ApplicationRelationQuerySystemTestFixture {
   readonly deploymentId: string;
+  readonly scopeSyncAuthority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly activation: Pick<
     ApplicationRelationActivationRepository<unknown, unknown>,
     "readActive"
@@ -1388,6 +1389,7 @@ async function createFixture(
   let snapshotChangeApplied = false;
   return Object.freeze({
     deploymentId: input.deploymentId,
+    scopeSyncAuthority: authorityPorts,
     activation: Object.freeze({
       readActive: () => activation.readActive(),
     }),

@@ -1,6 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import type { fxAppRowRevisions } from "@flarex/persistence-postgres/internal/system-test/schema";
+import {
+  fxSystemScopeClocks,
+  type fxAppRowRevisions,
+} from "@flarex/persistence-postgres/internal/system-test/schema";
 import { decodeCanonicalAppDocumentEvidenceV1 } from "flarex-protocol/app-document";
 import {
   createApplicationRelationalCorePGliteSystemTestFixture,
@@ -55,6 +58,8 @@ import { decodeAppDocumentIdentityV1 } from
   "flarex-protocol/app-document-id";
 import {
   CommitSeqSchema,
+  ScopeEpochSchema,
+  ScopeIdSchema,
   projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import {
@@ -79,6 +84,7 @@ import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 const MUTATION_PATH = TransactionFunctionPathV1Schema.make("relations:mutate");
 
 export interface ApplicationRelationalCoreProof {
+  readonly exactQueryScopeUnderSharedDeployment: boolean;
   readonly analysisWorkerLoads: number;
   readonly missingRelationPortWorkerLoads: number;
   readonly missingRelationPortFailedClosed: boolean;
@@ -391,7 +397,10 @@ export async function proveApplicationRelationalCore(
          from fx_app_edge_adjacency_version
         order by direction, last_changed_commit_seq`,
     );
+    const exactQueryScopeUnderSharedDeployment =
+      await proveExactQueryScopeUnderSharedDeployment(fixture);
     return Object.freeze({
+      exactQueryScopeUnderSharedDeployment,
       analysisWorkerLoads: analysisLoader.loads,
       missingRelationPortWorkerLoads: missingRelationPortLoader.loads,
       missingRelationPortFailedClosed,
@@ -442,6 +451,42 @@ export async function proveApplicationRelationalCore(
       standardQueryLoader.dispose(),
     ]);
   }
+}
+
+async function proveExactQueryScopeUnderSharedDeployment(
+  fixture: ApplicationRelationalCoreSystemTestFixture,
+): Promise<boolean> {
+  // The active selection was issued while the deployment had one scope. Adding
+  // another must not make its subsequent query resolve an arbitrary shop.
+  const active = await runSystemTestEffectV1(fixture.activation.readActive());
+  const otherScopeId = ScopeIdSchema.make(
+    "scope_40000000-0000-4000-8000-000000000091",
+  );
+  const originalScope = await fixture.control.getScopeMetadata(
+    fixture.authority.scopeId,
+  );
+  if (originalScope === null) throw new Error("Original scope metadata disappeared.");
+  await fixture.control.insertScopeMetadata({
+    scopeId: otherScopeId,
+    deploymentId: fixture.deploymentId,
+    physicalLocator: originalScope.physicalLocator,
+  });
+  await fixture.target.drizzle.insert(fxSystemScopeClocks).values({
+    scopeId: otherScopeId,
+    storageGeneration: fixture.authority.storageGeneration,
+    epoch: ScopeEpochSchema.make(
+      "epoch_40000000-0000-4000-8000-000000000092",
+    ),
+  });
+  const opened = await runSystemTestEffectV1(Effect.scoped(
+    openApplicationQuerySnapshot(
+      active.selection,
+      "relations:incoming",
+      ordinaryQueryBudget(),
+      ordinaryQuerySnapshotContext(fixture),
+    ).pipe(Effect.provide(ScopeExecutionLive)),
+  ));
+  return opened.metadata.snapshotToken.scopeId === fixture.authority.scopeId;
 }
 
 async function proveOrdinaryRelationDependency(

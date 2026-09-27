@@ -1,10 +1,13 @@
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
+  ScopeEpochSchema,
+  ScopeIdSchema,
   StorageGenerationFenceSchema,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
 import { eq, sql } from "drizzle-orm";
+import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { createAppDataSnapshotResolver } from "../src/appDataSnapshot";
@@ -13,7 +16,8 @@ import {
   type PostgresFlarexPersistence,
 } from "../src/postgres";
 import { fxSystemScopeClocks } from "../src/schema";
-import type { TrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
+import { insertInitialScopeClockInTransactionResult } from "../src/scopeClockInitialization";
+import type { ExactTrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   postgresUrl,
@@ -54,9 +58,9 @@ describePostgres("real Postgres app-data snapshot resolution", () => {
         sharedResolutionPorts(persistence),
       );
 
-      const first = await runEffect(resolver.resolveCurrent(
-        provisioned.scope.deploymentId,
-      ));
+      const first = await runEffect(resolver.resolveCurrent({
+        deploymentId: provisioned.scope.deploymentId, scopeId: provisioned.scope.scopeId,
+      }));
 
       expect(first).toEqual({
         snapshotToken: {
@@ -78,19 +82,49 @@ describePostgres("real Postgres app-data snapshot resolution", () => {
         provisioned.scope.scopeId,
         secondCommitSeq,
       );
-      const second = await runEffect(resolver.resolveCurrent(
-        provisioned.scope.deploymentId,
-      ));
+      const second = await runEffect(resolver.resolveCurrent({
+        deploymentId: provisioned.scope.deploymentId, scopeId: provisioned.scope.scopeId,
+      }));
 
       expect(first.snapshotToken.commitSeq).toBe(firstCommitSeq);
       expect(second.snapshotToken.commitSeq).toBe(secondCommitSeq);
+    });
+  });
+
+  it("resolves exact snapshots for two shops sharing one deployment", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const first = await createPostgresSharedScopeAuthorityProvisioner(persistence, {
+        physicalLocator: sharedLocator,
+        randomUuid: uuidSequence(
+          "31000000-0000-4000-8000-000000000011",
+          "31000000-0000-4000-8000-000000000012",
+        ),
+      }).ensure({ deploymentId: "deployment_snapshot_two_shops", projectId: "project_snapshot_two_shops" });
+      const secondScopeId = ScopeIdSchema.make("scope_31000000-0000-4000-8000-000000000013");
+      const secondEpoch = ScopeEpochSchema.make("epoch_31000000-0000-4000-8000-000000000014");
+      await persistence.insertScopeMetadata({
+        scopeId: secondScopeId, deploymentId: first.scope.deploymentId, physicalLocator: sharedLocator,
+      });
+      Result.getOrThrow(await insertInitialScopeClockInTransactionResult(persistence.drizzle,
+        { scopeId: secondScopeId, initialEpoch: secondEpoch }));
+      await updateClock(persistence, first.scope.scopeId, 7n);
+      await updateClock(persistence, secondScopeId, 9n);
+      const resolver = createAppDataSnapshotResolver(sharedResolutionPorts(persistence));
+      const [one, two] = await Promise.all([
+        runEffect(resolver.resolveCurrent({ deploymentId: first.scope.deploymentId, scopeId: first.scope.scopeId })),
+        runEffect(resolver.resolveCurrent({ deploymentId: first.scope.deploymentId, scopeId: secondScopeId })),
+      ]);
+      expect(one.snapshotToken).toMatchObject({ scopeId: first.scope.scopeId, commitSeq: 7n });
+      expect(two.snapshotToken).toMatchObject({ scopeId: secondScopeId, commitSeq: 9n });
+      await expect(runEffect(resolver.resolveCurrent({ deploymentId: "wrong_deployment", scopeId: secondScopeId })))
+        .rejects.toMatchObject({ failure: { reason: "scopeDeploymentMismatch", scopeId: secondScopeId } });
     });
   });
 });
 
 function sharedResolutionPorts(
   persistence: PostgresFlarexPersistence,
-): TrustedScopeAuthorityResolutionPorts {
+): ExactTrustedScopeAuthorityResolutionPorts {
   return {
     scopeMetadata: persistence,
     provisioningReceipts: {
@@ -104,7 +138,7 @@ function sharedResolutionPorts(
         getCurrentClock: (scopeId) => persistence.getScopeClock(scopeId),
       }),
     },
-  } satisfies TrustedScopeAuthorityResolutionPorts;
+  } satisfies ExactTrustedScopeAuthorityResolutionPorts;
 }
 
 async function updateClock(

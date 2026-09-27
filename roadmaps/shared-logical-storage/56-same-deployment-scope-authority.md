@@ -2,10 +2,10 @@
 
 Status: the control catalog permits multiple scopes under one deployment, its
 deployment-only lookup refuses ambiguity, and the trusted relational command
-host selects an exact scope. Framework binding, Application readiness and
-point-mutation entry points still use deployment-only selection and therefore
-refuse a multi-scope deployment. Full Application/Payload/Medusa same-deployment
-isolation is not yet claimed.
+host and Application snapshot/query readers select an exact scope. Framework
+binding, Application activation/readiness and point-mutation entry points still
+use deployment-only selection and therefore refuse a multi-scope deployment.
+Full Application/Payload/Medusa same-deployment isolation is not yet claimed.
 
 ## Preflight and selected contract
 
@@ -33,6 +33,22 @@ host callers supply their trusted scope. The migration drops only the obsolete
 unique constraint and creates a nonunique deployment index; it neither rewrites
 nor deletes existing scope rows. Existing one-scope deployments remain valid.
 
+The Application data-snapshot resolver now requires a trusted deployment/scope
+selection and reads that exact catalog row and clock. A deployment-only caller
+must migrate to an authenticated session or grant selection; there is no
+fallback to the first scope. Application query and relation-query snapshots
+already receive a nominal active selection containing scope authority, so they
+revalidate that exact scope instead of querying by deployment again. This
+breaks the private snapshot context's authority-port type and the exported
+data-snapshot resolver input. A two-scope catalog/clock witness verifies
+independent tokens and wrong-deployment refusal. A connected Application query
+opens from an already authenticated active selection after a second scope is
+added to its deployment, on both storage drivers; deployment-only revalidation
+would refuse that query. The existing relation-query system also exercises
+the exact revalidation. These consumers
+do not create the active selection, so activation/readiness remains the next
+functional gate before same-deployment Application serving is possible.
+
 ## Alternatives and remaining gate
 
 - Keeping one scope per deployment while storing many deployments in generic
@@ -44,8 +60,8 @@ nor deletes existing scope rows. Existing one-scope deployments remain valid.
 
 Move the remaining deployment-only runtime owners together with their real
 caller-supplied authority: framework data binding and its readiness inputs,
-Application snapshot/readiness/activation and point mutation, followed by
-Medusa/Payload commands. Their present deployment-only resolver must continue
+Application readiness/activation and point mutation, followed by Medusa/Payload
+commands. Their present deployment-only resolver must continue
 to refuse ambiguity until migrated, and then be removed with its mock ports
 and fixtures. The normal provisioning path also still creates or reuses one
 scope per deployment; a multi-shop provisioning identity and idempotent

@@ -7,6 +7,7 @@ import {
   type ScopeId,
 } from "flarex-protocol/storage-authority";
 import { eq } from "drizzle-orm";
+import { Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -18,10 +19,11 @@ import {
   createPGliteSharedScopeAuthorityProvisioner,
 } from "../src/pglite";
 import { fxSystemScopeClocks } from "../src/schema";
+import { insertInitialScopeClockInTransactionResult } from "../src/scopeClockInitialization";
 import {
   TrustedScopeAuthorityResolutionError,
   type LocatedScopeClockReader,
-  type TrustedScopeAuthorityResolutionPorts,
+  type ExactTrustedScopeAuthorityResolutionPorts,
 } from "../src/scopeAuthorityResolution";
 import type { ScopeClockRecord } from "../src/scopeClock";
 import type { ScopeMetadataRecord } from "../src/scopeMetadata";
@@ -66,9 +68,9 @@ describe("app-data snapshot resolution", () => {
       sharedResolutionPorts(persistence),
     );
 
-    const resolved = await runEffect(resolver.resolveCurrent(
-      "deployment_snapshot_empty",
-    ));
+    const resolved = await runEffect(resolver.resolveCurrent({
+      deploymentId: "deployment_snapshot_empty", scopeId: provisioned.scope.scopeId,
+    }));
 
     expect(resolved).toEqual({
       snapshotToken: {
@@ -116,8 +118,8 @@ describe("app-data snapshot resolution", () => {
     );
 
     const [firstSnapshot, secondSnapshot] = await Promise.all([
-      runEffect(resolver.resolveCurrent(first.scope.deploymentId)),
-      runEffect(resolver.resolveCurrent(second.scope.deploymentId)),
+      runEffect(resolver.resolveCurrent({ deploymentId: first.scope.deploymentId, scopeId: first.scope.scopeId })),
+      runEffect(resolver.resolveCurrent({ deploymentId: second.scope.deploymentId, scopeId: second.scope.scopeId })),
     ]);
 
     expect(firstSnapshot.snapshotToken).toMatchObject({
@@ -131,6 +133,38 @@ describe("app-data snapshot resolution", () => {
     expect(firstSnapshot.snapshotToken.scopeId).not.toBe(
       secondSnapshot.snapshotToken.scopeId,
     );
+  });
+
+  it("selects two scopes in one deployment and refuses a mismatched deployment", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const first = await createPGliteSharedScopeAuthorityProvisioner(persistence, {
+      physicalLocator: sharedLocator,
+      randomUuid: uuidSequence(
+        "30000000-0000-4000-8000-000000000031",
+        "30000000-0000-4000-8000-000000000032",
+      ),
+    }).ensure({ deploymentId: "deployment_snapshot_shops", projectId: "project_snapshot_shops" });
+    const secondScopeId = ScopeIdSchema.make("scope_30000000-0000-4000-8000-000000000033");
+    const secondEpoch = ScopeEpochSchema.make("epoch_30000000-0000-4000-8000-000000000034");
+    await persistence.insertScopeMetadata({
+      scopeId: secondScopeId, deploymentId: first.scope.deploymentId, physicalLocator: sharedLocator,
+    });
+    Result.getOrThrow(await insertInitialScopeClockInTransactionResult(persistence.drizzle,
+      { scopeId: secondScopeId, initialEpoch: secondEpoch }));
+    await persistence.drizzle.update(fxSystemScopeClocks)
+      .set({ lastCommitSeq: CommitSeqSchema.make(37n) })
+      .where(eq(fxSystemScopeClocks.scopeId, secondScopeId));
+
+    const resolver = createAppDataSnapshotResolver(sharedResolutionPorts(persistence));
+    const [firstSnapshot, secondSnapshot] = await Promise.all([
+      runEffect(resolver.resolveCurrent({ deploymentId: first.scope.deploymentId, scopeId: first.scope.scopeId })),
+      runEffect(resolver.resolveCurrent({ deploymentId: first.scope.deploymentId, scopeId: secondScopeId })),
+    ]);
+    expect(firstSnapshot.snapshotToken).toMatchObject({ scopeId: first.scope.scopeId, commitSeq: 0n });
+    expect(secondSnapshot.snapshotToken).toMatchObject({ scopeId: secondScopeId, commitSeq: 37n });
+    await expect(runEffect(resolver.resolveCurrent({ deploymentId: "wrong_deployment", scopeId: secondScopeId })))
+      .rejects.toMatchObject({ failure: { reason: "scopeDeploymentMismatch", scopeId: secondScopeId } });
   });
 
   it("projects one located data-plane clock without leaking resolver authority", async () => {
@@ -149,7 +183,7 @@ describe("app-data snapshot resolution", () => {
     );
 
     const resolved = await runEffect(
-      resolver.resolveCurrent("deployment_snapshot"),
+      resolver.resolveCurrent({ deploymentId: "deployment_snapshot", scopeId }),
     );
 
     expect(resolved).toEqual({
@@ -191,7 +225,7 @@ describe("app-data snapshot resolution", () => {
     );
 
     await expect(
-      runEffect(resolver.resolveCurrent("deployment_missing")),
+      runEffect(resolver.resolveCurrent({ deploymentId: "deployment_missing", scopeId })),
     ).rejects.toMatchObject({
       name: "TrustedScopeAuthorityResolutionError",
       failure: {
@@ -203,15 +237,13 @@ describe("app-data snapshot resolution", () => {
 });
 
 interface SharedResolutionPersistence {
-  getScopeMetadataByDeploymentId(
-    deploymentId: string,
-  ): Promise<ScopeMetadataRecord | null>;
+  getScopeMetadata(scopeId: ScopeId): Promise<ScopeMetadataRecord | null>;
   getScopeClock(resolvedScopeId: ScopeId): Promise<ScopeClockRecord | null>;
 }
 
 function sharedResolutionPorts(
   persistence: SharedResolutionPersistence,
-): TrustedScopeAuthorityResolutionPorts {
+): ExactTrustedScopeAuthorityResolutionPorts {
   return {
     scopeMetadata: persistence,
     provisioningReceipts: {
@@ -226,7 +258,7 @@ function sharedResolutionPorts(
           persistence.getScopeClock(resolvedScopeId),
       }),
     },
-  } satisfies TrustedScopeAuthorityResolutionPorts;
+  } satisfies ExactTrustedScopeAuthorityResolutionPorts;
 }
 
 interface FixtureOptions {
@@ -238,7 +270,7 @@ interface FixtureOptions {
 
 function fixturePorts(
   options: FixtureOptions = {},
-): TrustedScopeAuthorityResolutionPorts {
+): ExactTrustedScopeAuthorityResolutionPorts {
   const scope = "scope" in options ? options.scope : scopeMetadata();
   const getCurrentClock =
     options.getCurrentClock ??
@@ -250,7 +282,7 @@ function fixturePorts(
 
   return {
     scopeMetadata: {
-      getScopeMetadataByDeploymentId: async (_deploymentId) => scope ?? null,
+      getScopeMetadata: async (_scopeId) => scope ?? null,
     },
     provisioningReceipts: {
       getScopeAuthorityProvisioningReceipt: async (_scopeId) => null,
@@ -258,7 +290,7 @@ function fixturePorts(
     scopeClockTargets: {
       resolve: async (_physicalLocator: ScopePhysicalLocator) => target,
     },
-  } satisfies TrustedScopeAuthorityResolutionPorts;
+  } satisfies ExactTrustedScopeAuthorityResolutionPorts;
 }
 
 function scopeMetadata(): ScopeMetadataRecord {
