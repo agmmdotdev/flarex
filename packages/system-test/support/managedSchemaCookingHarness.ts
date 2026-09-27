@@ -317,10 +317,10 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     const input = { deploymentId: fixture.deploymentId, schemaVersionId: schema.schemaVersionId };
     const ports = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
     await runSystemTestEffectV1(ensureAppUniqueConstraintSetClosureV1Effect(fixture.control.drizzle, input));
-    await runSystemTestEffectV1(reconcileAppUniqueConstraintSetBuildV1Effect(ports, input));
+    await runSystemTestEffectV1(reconcileAppUniqueConstraintSetBuildV1Effect(ports, { ...input, scopeId: fixture.authority.scopeId }));
     let enabled = false;
     for (let step = 0; step < 16; step++) {
-      const result = await runSystemTestEffectV1(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, pageSize: 1 }));
+      const result = await runSystemTestEffectV1(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, scopeId: fixture.authority.scopeId, pageSize: 1 }));
       if (result.lifecycle === "enabled") { enabled = true; break; }
     }
     if (!enabled) throw new Error("Empty candidate unique build did not enable.");
@@ -333,7 +333,7 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     }
     const eligibility = await runSystemTestEffectV1(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(fixture.uniqueConstraintEligibility, { ...input, scopeId: fixture.authority.scopeId }));
     if (eligibility.status !== "not_ready") throw new Error("Stale candidate unique set remained eligible after A published duplicates.");
-    const blocked = await runSystemTestEffectV1(Effect.result(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, pageSize: 1 })));
+    const blocked = await runSystemTestEffectV1(Effect.result(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, scopeId: fixture.authority.scopeId, pageSize: 1 })));
     if (Result.isSuccess(blocked) || blocked.failure._tag !== "AppUniqueKeyConflictError") throw new Error("Candidate catch-up did not reject A's current duplicate.");
     const beforeRepair = await runSystemTestEffectV1(fixture.activation.readActive());
     if (beforeRepair.basis.revisionId !== fixture.active.basis.revisionId) throw new Error("A lost authority while B uniqueness was blocked.");
@@ -352,7 +352,7 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
     if (activeWrite.disposition !== "published") throw new Error("B could not maintain its activated unique constraint.");
     const afterWrite = await runSystemTestEffectV1(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(fixture.uniqueConstraintEligibility, { ...input, scopeId: fixture.authority.scopeId }));
     if (afterWrite.status !== "eligible") throw new Error(`B publication lost unique coverage: ${JSON.stringify(afterWrite)}`);
-    const builder = await runSystemTestEffectV1(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, pageSize: 1 }));
+    const builder = await runSystemTestEffectV1(advanceAppUniqueConstraintSetBackfillV1Effect(ports, { ...input, scopeId: fixture.authority.scopeId, pageSize: 1 }));
     if (builder.status !== "replayed" || builder.scanned !== 0) throw new Error("Active unique build incorrectly entered catch-up.");
     const afterMaintainedWrite = await fixture.target.query<{ build: string; certified: boolean }>(
       "select to_jsonb(b)::text build, maintenance_bytes is not null certified from fx_system_unique_constraint_build b order by unique_constraint_definition_id");
@@ -385,7 +385,7 @@ export async function proveManagedSchemaCandidateUniqueAfterActiveWrite(
       const nextSchema = await fixture.publishManagedSchemaCandidate(next.manifest);
       const plan = await runSystemTestEffectV1(prepareFlarexManagedSchemaDeployment({ candidatePublication: next.publication }).pipe(Effect.provide(planningLayer)));
       if (version === "A") {
-        const validation = { deploymentId: fixture.deploymentId, schemaVersionId: nextSchema.schemaVersionId };
+        const validation = { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, schemaVersionId: nextSchema.schemaVersionId };
         await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(fixture.candidateValidation, validation));
         await settleReadyCandidateValidation(fixture, validation, "unique maintenance A");
         const original = await readUniqueBuild();
@@ -539,6 +539,7 @@ export async function proveManagedSchemaCandidateIndexCoverageBoundaries(
     };
     const input = {
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.authority.scopeId,
       indexDefinitionId: definition.indexDefinitionId,
       pageSize: 1,
     };
@@ -866,6 +867,7 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
       fixture,
       {
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.authority.scopeId,
         schemaVersionId: candidateSchema.schemaVersionId,
       },
       "candidate index coverage",
@@ -915,6 +917,7 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
     };
     const buildInput = {
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.authority.scopeId,
       indexDefinitionId: definition.indexDefinitionId,
       pageSize: 1,
     };
@@ -1108,7 +1111,7 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
       const headBefore = await runSystemTestEffectV1(fixture.activation.readActive());
       const activationInput = { revisionId: next.publication.revisionId, expectedActiveHead: headBefore.expectedActiveHead };
       if (version === "A") {
-        const validation = { deploymentId: fixture.deploymentId, schemaVersionId: nextSchema.schemaVersionId };
+        const validation = { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, schemaVersionId: nextSchema.schemaVersionId };
         await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(fixture.candidateValidation, validation));
         await settleReadyCandidateValidation(fixture, validation, "maintenance A");
         // B's developer index is outgoing-only: incoming A readiness cannot
@@ -1298,6 +1301,7 @@ export async function proveManagedSchemaBlockedPlanDoesNotApply(
         scenario.fixture.candidateValidation,
         {
           deploymentId: scenario.fixture.deploymentId,
+          scopeId: scenario.fixture.authority.scopeId,
           schemaVersionId: schema.schemaVersionId,
         },
       ),
@@ -1416,6 +1420,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
 
     const validationInput = {
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       schemaVersionId: schemaB.schemaVersionId,
     } as const;
     const copiedApply = await runSystemTestEffectV1(Effect.result(
@@ -1798,6 +1803,7 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
 
     const validationInput = {
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       schemaVersionId: schemaC.schemaVersionId,
     } as const;
     await Effect.runPromise(installAppSchemaCandidateValidationEffect(
@@ -2066,6 +2072,7 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
 
     const validationInput = {
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       schemaVersionId: schemaD.schemaVersionId,
     } as const;
     await Effect.runPromise(installAppSchemaCandidateValidationEffect(
@@ -2332,6 +2339,7 @@ export async function proveManagedSchemaCookingSchemaE(
 
     const validationInput = {
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       schemaVersionId: schemaE.schemaVersionId,
     } as const;
     await Effect.runPromise(installAppSchemaCandidateValidationEffect(
@@ -2539,6 +2547,7 @@ export async function proveManagedSchemaCookingSchemaF(
     );
     const schemaEInput = Object.freeze({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       schemaVersionId: schemaE.schemaVersionId,
     });
     const installedE = await runSystemTestEffectV1(
@@ -2579,6 +2588,7 @@ export async function proveManagedSchemaCookingSchemaF(
     }
     const schemaFInput = Object.freeze({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       schemaVersionId: schemaF.schemaVersionId,
     });
 
@@ -2857,6 +2867,7 @@ export async function proveManagedSchemaCookingSchemaG(
     );
     const schemaFInput = Object.freeze({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       schemaVersionId: schemaF.schemaVersionId,
     });
     await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(
@@ -2909,6 +2920,7 @@ export async function proveManagedSchemaCookingSchemaG(
     }
     const schemaGInput = Object.freeze({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       schemaVersionId: schemaG.schemaVersionId,
     });
     await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(
@@ -3071,8 +3083,9 @@ export async function proveManagedSchemaCookingSchemaG(
       finalCounts.outbox !== beforeStaleAttempt.outbox + 1 ||
       finalStorage.rowRevisions !== storageBeforeStaleAttempt.rowRevisions + 1 ||
       finalStorage.currentRows !== storageBeforeStaleAttempt.currentRows ||
+      // The retry changes slug and details; the by_name and creation-time keys stay fixed.
       finalStorage.indexRevisions !==
-        storageBeforeStaleAttempt.indexRevisions + 2 ||
+        storageBeforeStaleAttempt.indexRevisions ||
       finalStorage.indexCurrent !== storageBeforeStaleAttempt.indexCurrent ||
       finalStorage.uniqueKeys !== storageBeforeStaleAttempt.uniqueKeys ||
       lifecycleCounts.candidateHeads !== 1 ||
@@ -3612,6 +3625,7 @@ async function advanceUntilCandidateFailure(
   fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
   input: Readonly<{
     readonly deploymentId: string;
+    readonly scopeId: string;
     readonly schemaVersionId: CatalogSchemaVersionId;
   }>,
   label = "schema B",
@@ -3635,6 +3649,7 @@ async function settleReadyCandidateValidation(
   fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
   input: Readonly<{
     readonly deploymentId: string;
+    readonly scopeId: string;
     readonly schemaVersionId: CatalogSchemaVersionId;
   }>,
   label = "schema B",

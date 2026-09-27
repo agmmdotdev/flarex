@@ -82,6 +82,7 @@ describe("C08 developer ordered-index build", () => {
       fixture.ports,
       {
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.scopeId,
         indexDefinitionId: fixture.intrinsicDefinitionId,
         pageSize: 1,
       },
@@ -475,7 +476,7 @@ async function makeFixture(
   } as const;
   const reconciliation = await runEffect(reconcilePublishedIndexBuildsV1Effect(
     ports,
-    { deploymentId, schemaVersionId },
+    { deploymentId, scopeId, schemaVersionId },
   ));
   if (reconciliation.status !== "reconciled") {
     throw new Error("Developer index fixture did not reconcile definitions.");
@@ -557,6 +558,7 @@ async function insertRow(
 function buildInput(fixture: Fixture, pageSize: number) {
   return {
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
     indexDefinitionId: fixture.indexDefinitionId,
     pageSize,
   };

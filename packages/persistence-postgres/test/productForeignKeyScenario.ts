@@ -52,7 +52,7 @@ export const productForeignKeyScenario: (
     provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => null },
     scopeClockTargets: { resolve: async () => target } };
   const ports = { controlDb: db, authority };
-  const reconciled = yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, schemaVersionId });
+  const reconciled = yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, scopeId, schemaVersionId });
   if (reconciled.status !== "reconciled") throw new Error("Product index reconciliation refused");
   for (const indexDefinitionId of reconciled.definitionIds) {
     const definition = yield* locateAppIndexDefinitionByIdEffect(db, scopeId, indexDefinitionId);
@@ -60,8 +60,8 @@ export const productForeignKeyScenario: (
     let enabled = false;
     for (let step = 0; step < 20; step++) {
       const result = definition.access.kind === "by_creation_time"
-        ? yield* buildIntrinsicCreationTimeIndexV1Effect(ports, { deploymentId, indexDefinitionId, pageSize: 10 })
-        : yield* buildAppDeveloperOrderedIndexV1Effect(ports, { deploymentId, indexDefinitionId, pageSize: 10 });
+        ? yield* buildIntrinsicCreationTimeIndexV1Effect(ports, { deploymentId, scopeId, indexDefinitionId, pageSize: 10 })
+        : yield* buildAppDeveloperOrderedIndexV1Effect(ports, { deploymentId, scopeId, indexDefinitionId, pageSize: 10 });
       if (result.lifecycle === "enabled") { enabled = true; break; }
     }
     expect(enabled).toBe(true);
@@ -74,12 +74,12 @@ export const productForeignKeyScenario: (
       const closure = yield* prepareAppUniqueConstraintSetClosureV1Effect(tx, { deploymentId, schemaVersionId });
       yield* closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure);
     }), cause => new Error("Product unique closure transaction", { cause }));
-  const unique = yield* reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, { deploymentId, schemaVersionId });
+  const unique = yield* reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, { deploymentId, scopeId, schemaVersionId });
   expect(unique.status).toBe("reconciled");
   let uniqueEnabled = false;
   for (let step = 0; step < 128; step++) {
     const advanced = yield* advanceAppUniqueConstraintSetBackfillV1Effect(uniquePorts,
-      { deploymentId, schemaVersionId, pageSize: 10 });
+      { deploymentId, scopeId, schemaVersionId, pageSize: 10 });
     if (advanced.lifecycle === "enabled" && advanced.uniqueConstraintDefinitionId === null) { uniqueEnabled = true; break; }
   }
   expect(uniqueEnabled).toBe(true);

@@ -33,7 +33,7 @@ import type {
   ScopeId,
   StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
-import { FlarexDbV1StorageGenerationSchema } from
+import { FlarexDbV1StorageGenerationSchema, ScopeIdSchema } from
   "flarex-protocol/storage-authority";
 
 import {
@@ -46,6 +46,7 @@ import {
 } from "./appIndexDefinitions";
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { getScopeMetadata } from "./scopeMetadata";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
@@ -60,7 +61,7 @@ import {
   lockScopeClockForUpdateInTransactionEffect,
 } from "./scopeClock";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
@@ -84,7 +85,8 @@ import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "./transactionSessionActivation";
 
-const INPUT_KEYS = Object.freeze(["deploymentId", "schemaVersionId"]);
+const INPUT_KEYS = Object.freeze(["deploymentId", "scopeId", "schemaVersionId"]);
+const decodeScopeIdResult = Schema.decodeUnknownResult(Schema.toType(ScopeIdSchema));
 const decodeSchemaVersionIdResult = Schema.decodeUnknownResult(
   CatalogSchemaVersionIdSchema,
 );
@@ -95,6 +97,7 @@ export const MAX_RECONCILED_DEFINITIONS = 256;
 
 export interface ReconcilePublishedIndexBuildsV1Input {
   readonly deploymentId: string;
+  readonly scopeId: ScopeId;
   readonly schemaVersionId: CatalogSchemaVersionId;
 }
 
@@ -168,6 +171,7 @@ export class InvalidIndexBuildReconciliationInputV1Error
     readonly reason:
       | "invalidInputShape"
       | "invalidDeploymentId"
+      | "invalidScopeId"
       | "invalidSchemaVersionId";
   }> {}
 
@@ -329,9 +333,9 @@ export const reconcilePublishedIndexBuildsV1Effect = Effect.fn(
     });
   }
 
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    ports.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
   );
   const settled = yield* runReconciliationTransaction(
     located.target,
@@ -392,8 +396,14 @@ function decodeInputResult(
         reason: "invalidSchemaVersionId",
       })
     ));
+    const scopeId = yield* decodeScopeIdResult(input.scopeId).pipe(
+      Result.mapError(() => new InvalidIndexBuildReconciliationInputV1Error({
+        reason: "invalidScopeId",
+      })),
+    );
     return Object.freeze({
       deploymentId: input.deploymentId,
+      scopeId,
       schemaVersionId,
     });
   });
@@ -431,7 +441,7 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   "IndexBuildReconciliation.loadPublishedRequirements",
 )(function* (
   db: FlarexMetadataDatabase,
-  input: ReconcilePublishedIndexBuildsV1Input,
+  input: Pick<ReconcilePublishedIndexBuildsV1Input, "deploymentId" | "schemaVersionId">,
 ): Effect.fn.Return<
   PublishedPhysicalRequirementSnapshotV1 | null,
   | ReadSchemaVersionArtifactError
@@ -553,7 +563,7 @@ interface IndexRequirements {
 }
 
 const readCandidateIndexRequirements = Effect.fn("IndexBuildReconciliation.readCandidateRequirements")(function* (
-  db: FlarexMetadataDatabase, input: ReconcilePublishedIndexBuildsV1Input,
+  db: FlarexMetadataDatabase, input: Pick<ReconcilePublishedIndexBuildsV1Input, "deploymentId" | "schemaVersionId">,
 ) {
   const fail = (reason: IndexBuildReconciliationCatalogV1Error["reason"], detail: string, cause?: unknown) =>
     new IndexBuildReconciliationCatalogV1Error({ ...input, reason, detail, ...(cause === undefined ? {} : { cause }) });
@@ -588,7 +598,7 @@ const readCandidateIndexRequirements = Effect.fn("IndexBuildReconciliation.readC
 });
 
 function projectExactRequirementsResult(
-  input: ReconcilePublishedIndexBuildsV1Input,
+  input: Pick<ReconcilePublishedIndexBuildsV1Input, "deploymentId" | "schemaVersionId">,
   requirements: IndexRequirements,
   definitions: ReadonlyArray<AppIndexDefinitionRecord>,
   bindings: ReadonlyArray<AppSchemaVersionIndexBindingRecord>,

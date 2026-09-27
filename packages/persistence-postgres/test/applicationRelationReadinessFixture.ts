@@ -685,6 +685,7 @@ export async function prepareReadinessEvidence(
   await settleCandidateValidation(
     fixture.candidateValidation,
     fixture.deploymentId,
+    fixture.authority.scopeId,
     fixture.relation.binding.schemaVersionId,
   );
   await enableApplicationPhysicalBuilds(
@@ -695,7 +696,7 @@ export async function prepareReadinessEvidence(
     fixture.relation.binding.schemaVersionId,
   );
   const uniquePorts = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
-  const uniqueInput = { deploymentId: fixture.deploymentId, schemaVersionId: fixture.relation.binding.schemaVersionId };
+  const uniqueInput = { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, schemaVersionId: fixture.relation.binding.schemaVersionId };
   const closure = await runEffect(readAppUniqueConstraintSetClosureV1Effect(fixture.control.drizzle, uniqueInput.deploymentId, uniqueInput.schemaVersionId));
   if (closure !== null && closure.members.length !== 0) {
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput));
@@ -890,6 +891,7 @@ export async function prepareLegacyRevisionInRelationFixture(
   await settleCandidateValidation(
     fixture.candidateValidation,
     fixture.deploymentId,
+    fixture.authority.scopeId,
     schema.schemaVersionId,
   );
   await enableApplicationPhysicalBuilds(
@@ -929,9 +931,10 @@ export async function closeEmptyUniqueConstraintSet(
 export async function settleCandidateValidation(
   candidateValidation: ReturnType<typeof createAppSchemaCandidateValidationPort>,
   deploymentId: string,
+  scopeId: ApplicationAnalysisAuthority["scopeId"],
   schemaVersionId: CatalogSchemaVersionId,
 ): Promise<void> {
-  const input = Object.freeze({ deploymentId, schemaVersionId });
+  const input = Object.freeze({ deploymentId, scopeId, schemaVersionId });
   await runEffect(installAppSchemaCandidateValidationEffect(
     candidateValidation,
     input,
@@ -963,6 +966,7 @@ export async function enableApplicationPhysicalBuilds(
   const ports = Object.freeze({ controlDb, authority });
   await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
     deploymentId,
+    scopeId,
     schemaVersionId,
   }));
   const requirements = await runEffect(
@@ -986,6 +990,7 @@ export async function enableApplicationPhysicalBuilds(
     for (let step = 0; step < 16; step += 1) {
       const input = Object.freeze({
         deploymentId,
+        scopeId,
         indexDefinitionId: definition.indexDefinitionId,
         pageSize: 16,
       });

@@ -1711,6 +1711,7 @@ async function enableApplicationPhysicalBuilds(
   const ports = Object.freeze({ controlDb, authority });
   await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
     deploymentId,
+    scopeId,
     schemaVersionId,
   }));
   const requirements = await runEffect(
@@ -1734,6 +1735,7 @@ async function enableApplicationPhysicalBuilds(
     for (let step = 0; step < 16; step += 1) {
       const buildInput = Object.freeze({
         deploymentId,
+        scopeId,
         indexDefinitionId: definition.indexDefinitionId,
         pageSize: 16,
       });

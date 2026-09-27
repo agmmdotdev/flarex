@@ -2744,6 +2744,7 @@ async function enablePostgresApplicationPhysicalBuilds(
   });
   await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
     schemaVersionId,
   }));
   const requirements = await runEffect(
@@ -2770,6 +2771,7 @@ async function enablePostgresApplicationPhysicalBuilds(
     for (let step = 0; step < 16; step += 1) {
       const input = Object.freeze({
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.scopeId,
         indexDefinitionId: definition.indexDefinitionId,
         pageSize: 16,
       });

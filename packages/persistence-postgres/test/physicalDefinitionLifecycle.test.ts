@@ -426,7 +426,7 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
     });
     await expect(runEffectFailure(advanceAppUniqueConstraintSetBackfillV1Effect(
       { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts },
-      { deploymentId: fixture.deploymentId, schemaVersionId: fixture.active.basis.schemaVersionId, pageSize: 1 },
+      { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, schemaVersionId: fixture.active.basis.schemaVersionId, pageSize: 1 },
     ))).resolves.toMatchObject({ _tag: "AppUniqueConstraintSetBuildStateV1Error", reason: "physicalDefinitionInactive" });
     await expect(runEffectFailure(finalizePhysicalDefinitionRetirementEffect(
       prepared,

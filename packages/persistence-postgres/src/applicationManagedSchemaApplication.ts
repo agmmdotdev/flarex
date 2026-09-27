@@ -2,6 +2,7 @@ import type { AppSchemaEvolutionPlanV1 } from
   "@flarex/managed-schema/planning";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Data, Effect } from "effect";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import {
   locateAppIndexDefinitionByIdEffect,
@@ -24,6 +25,7 @@ import {
   ensureAppUniqueConstraintSetClosureV1Effect,
 } from "./appUniqueConstraintSetClosureV1";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { getScopeMetadata } from "./scopeMetadata";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
@@ -43,7 +45,7 @@ import {
   type ApplicationActivationRepository,
 } from "./applicationActivation";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import {
@@ -133,7 +135,7 @@ export class ApplicationManagedSchemaActivationOwnerError
 export type ApplicationManagedSchemaApplicationOwnerError =
   | ApplicationManagedSchemaActivationOwnerError
   | Effect.Error<ReturnType<
-      typeof resolveLocatedTrustedScopeAuthorityEffect
+      typeof resolveLocatedTrustedScopeAuthorityByIdEffect
     >>
   | Effect.Error<ReturnType<
       typeof advanceAppSchemaCandidateValidationEffect
@@ -241,15 +243,19 @@ export const readApplicationManagedSchemaActiveCandidateEffect = Effect.fn(
     null,
   | ApplicationManagedSchemaApplicationError
   | ApplicationManagedSchemaActivationOwnerError
-  | Effect.Error<ReturnType<typeof resolveLocatedTrustedScopeAuthorityEffect>>
+  | Effect.Error<ReturnType<typeof resolveLocatedTrustedScopeAuthorityByIdEffect>>
 > {
-  const { state } = yield* requireLocatedState(port);
+  const { state } = yield* requireLocatedState(port, input.plan.authority.scopeId);
   const active = yield* state.activation.readActive().pipe(
     Effect.mapError(cause => new ApplicationManagedSchemaActivationOwnerError({
       operation: "readActive",
       cause,
     })),
   );
+  if (active.basis.authority.scopeId !== input.plan.authority.scopeId ||
+    input.candidatePublication.scopeId !== input.plan.authority.scopeId) {
+    return yield* applicationFailure("activation", "activeAuthorityChanged");
+  }
   if (active.basis.revisionId !== input.candidatePublication.revisionId) {
     return null;
   }
@@ -281,7 +287,7 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
   | ApplicationManagedSchemaApplicationError
   | ApplicationManagedSchemaApplicationOwnerError
 > {
-  const { state, located } = yield* requireLocatedState(port);
+  const { state, located } = yield* requireLocatedState(port, input.plan.authority.scopeId);
   if (input.candidatePublication.scopeId !== input.plan.authority.scopeId ||
     input.plan.authority.candidateSchemaVersionId.length === 0) {
     return yield* applicationFailure(
@@ -297,6 +303,7 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
   }
   const validationInput = Object.freeze({
     deploymentId: state.deploymentId,
+    scopeId: located.authority.scopeId,
     schemaVersionId: input.plan.authority.candidateSchemaVersionId,
   });
   const candidateInstallation = yield*
@@ -363,6 +370,7 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
     }
     const buildInput = Object.freeze({
       deploymentId: state.deploymentId,
+      scopeId: located.authority.scopeId,
       indexDefinitionId: requirement.indexDefinitionId,
       pageSize: MAX_APP_ORDERED_INDEX_BUILD_PAGE_SIZE_V1,
     });
@@ -390,7 +398,10 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
 
   const closure = yield* ensureAppUniqueConstraintSetClosureV1Effect(
     state.controlDb,
-    validationInput,
+    {
+      deploymentId: validationInput.deploymentId,
+      schemaVersionId: validationInput.schemaVersionId,
+    },
   );
   if (closure.closure.definitionCount > 0) {
     const reconciled = yield* reconcileAppUniqueConstraintSetBuildV1Effect(
@@ -418,7 +429,8 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
       cause,
     })),
   );
-  if (active.basis.schemaVersionId !==
+  if (active.basis.authority.scopeId !== input.plan.authority.scopeId ||
+    active.basis.schemaVersionId !==
       input.plan.authority.activeSchemaVersionId ||
     encodeBytesToLowercaseHex(active.basis.schemaManifestSha256) !==
       input.plan.authority.activeManifestSha256Hex) {
@@ -452,20 +464,21 @@ const requireLocatedState = Effect.fn(
   "ApplicationManagedSchemaApplication.requireLocatedState",
 )(function* (
   port: ApplicationManagedSchemaApplicationPort,
+  scopeId: ScopeId,
 ): Effect.fn.Return<
   Readonly<{
     readonly state: PortState;
     readonly located: Effect.Success<ReturnType<
-      typeof resolveLocatedTrustedScopeAuthorityEffect
+      typeof resolveLocatedTrustedScopeAuthorityByIdEffect
     >>;
   }>,
   | ApplicationManagedSchemaApplicationError
-  | Effect.Error<ReturnType<typeof resolveLocatedTrustedScopeAuthorityEffect>>
+  | Effect.Error<ReturnType<typeof resolveLocatedTrustedScopeAuthorityByIdEffect>>
 > {
   const state = yield* requireState(port);
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    state.deploymentId,
-    state.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: state.deploymentId, scopeId },
+    { ...state.authority, scopeMetadata: { getScopeMetadata: selectedScopeId => getScopeMetadata(state.controlDb, selectedScopeId) } },
   );
   if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, state.targetDb)) {
     return yield* applicationFailure(

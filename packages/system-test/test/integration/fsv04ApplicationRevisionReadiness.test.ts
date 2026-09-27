@@ -124,6 +124,7 @@ describe("FSV04 application revision readiness - PGlite", () => {
     await closeReadinessUniqueConstraintSetV1(
       persistence,
       registered.deploymentId,
+      registered.scopeId,
       registered.registered.schemaVersionId,
     );
     const context = readinessContext(

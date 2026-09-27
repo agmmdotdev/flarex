@@ -846,6 +846,7 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
   yield* prepareReadinessUniqueConstraintSetEffectV1(
     lane.persistence,
     registered.deploymentId,
+    registered.scopeId,
     registered.registered.schemaVersionId,
   ).pipe(
     Effect.mapError(cause => new Fsv05ReadyRevisionFixtureV1Error({
@@ -882,6 +883,7 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
     },
     {
       deploymentId: registered.deploymentId,
+      scopeId: registered.scopeId,
       schemaVersionId: registered.registered.schemaVersionId,
     },
   );
@@ -912,6 +914,7 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
       } as const;
       const input = {
         deploymentId: registered.deploymentId,
+        scopeId: registered.scopeId,
         indexDefinitionId,
         pageSize: 4,
       } as const;

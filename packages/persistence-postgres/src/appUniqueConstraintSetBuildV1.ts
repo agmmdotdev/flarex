@@ -124,7 +124,6 @@ import {
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
-  resolveLocatedTrustedScopeAuthorityEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
@@ -141,18 +140,21 @@ import {
 } from "./transactionSessionAttemptKernel";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "./transactionSessionActivation";
 
-const INPUT_KEYS = Object.freeze(["deploymentId", "schemaVersionId"] as const);
+const INPUT_KEYS = Object.freeze(["deploymentId", "scopeId", "schemaVersionId"] as const);
 const BACKFILL_INPUT_KEYS = Object.freeze([
   "deploymentId",
+  "scopeId",
   "schemaVersionId",
   "pageSize",
 ] as const);
 const decodeSchemaVersionIdResult = Schema.decodeUnknownResult(
   CatalogSchemaVersionIdSchema,
 );
+const decodeScopeIdResult = Schema.decodeUnknownResult(Schema.toType(ScopeIdSchema));
 
 export interface ReconcileAppUniqueConstraintSetBuildV1Input {
   readonly deploymentId: string;
+  readonly scopeId: ScopeId;
   readonly schemaVersionId: CatalogSchemaVersionId;
 }
 
@@ -590,6 +592,7 @@ export type ReconcileAppUniqueConstraintSetBuildV1Result =
       readonly status: "absent";
       readonly reason: "setNotClosed";
       readonly deploymentId: string;
+      readonly scopeId: ScopeId;
       readonly schemaVersionId: CatalogSchemaVersionId;
     }>
   | Readonly<{
@@ -626,7 +629,7 @@ export class InvalidAppUniqueConstraintSetBuildInputV1Error extends Data.TaggedE
   "InvalidAppUniqueConstraintSetBuildInputV1Error",
 )<{
   readonly reason:
-    "invalidInputShape" | "invalidDeploymentId" | "invalidSchemaVersionId";
+    "invalidInputShape" | "invalidDeploymentId" | "invalidScopeId" | "invalidSchemaVersionId";
 }> {}
 
 export class AppUniqueConstraintSetBuildStaleAuthorityV1Error extends Data.TaggedError(
@@ -864,9 +867,9 @@ export const reconcileAppUniqueConstraintSetBuildV1Effect = Effect.fn(
     });
   }
   const snapshot = buildSnapshot(decoded, locatedClosure);
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    ports.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
   );
   return yield* runReconciliationTransaction(
     located.target,
@@ -892,9 +895,9 @@ export const advanceAppUniqueConstraintSetBackfillV1Effect = Effect.fn(
     decoded.deploymentId,
     decoded.schemaVersionId,
   );
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    ports.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
   );
   if (locatedClosure === null) {
     return yield* Effect.fail(
@@ -978,9 +981,9 @@ export const reclaimSupersededAppUniqueConstraintSetBuildEffect = Effect.fn(
       }),
     );
   }
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    state.ports.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...state.ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.ports.controlDb, scopeId) } },
   );
   const snapshot = yield* prepareReclamationSnapshot(
     state.ports,
@@ -1064,6 +1067,7 @@ export const installAppSchemaCandidateWithWorkspaceReclamationEffect =
               buildSnapshot(
                 {
                   deploymentId: decoded.deploymentId,
+                  scopeId: decoded.scopeId,
                   schemaVersionId: displacedSchemaVersionId,
                 },
                 displacedClosure,
@@ -1109,8 +1113,14 @@ function decodeInputResult(input: unknown) {
           }),
       ),
     );
+    const scopeId = yield* decodeScopeIdResult(input.scopeId).pipe(
+      Result.mapError(() => new InvalidAppUniqueConstraintSetBuildInputV1Error({
+        reason: "invalidScopeId",
+      })),
+    );
     return Object.freeze({
       deploymentId: input.deploymentId,
+      scopeId,
       schemaVersionId,
     });
   });
@@ -1127,6 +1137,7 @@ function decodeBackfillInputResult(input: unknown) {
     }
     const decoded = yield* decodeInputResult({
       deploymentId: input.deploymentId,
+      scopeId: input.scopeId,
       schemaVersionId: input.schemaVersionId,
     });
     const pageSize = input.pageSize;

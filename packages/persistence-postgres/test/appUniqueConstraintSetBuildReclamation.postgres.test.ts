@@ -273,7 +273,7 @@ function buildInput(
   fixture: ApplicationNativeMutationPostgresFixture,
   schemaVersionId: ApplicationNativeMutationPostgresFixture["active"]["basis"]["schemaVersionId"],
 ) {
-  return Object.freeze({ deploymentId: fixture.deploymentId, schemaVersionId });
+  return Object.freeze({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, schemaVersionId });
 }
 
 async function closeCandidateSet(
@@ -285,7 +285,8 @@ async function closeCandidateSet(
   const binding = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
     fixture.control.drizzle,
     {
-      ...buildInput(fixture, schemaVersionId),
+      deploymentId: fixture.deploymentId,
+      schemaVersionId,
       tableId: CatalogTableIdSchema.make(1),
       descriptor: SchemaManifestAppIndexDescriptorSchema.make(`by_${fieldName}`),
       physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
@@ -304,7 +305,7 @@ async function closeCandidateSet(
   const prepared = await runEffect(
     prepareAppUniqueConstraintSetClosureV1Effect(
       fixture.control.drizzle,
-      buildInput(fixture, schemaVersionId),
+      { deploymentId: fixture.deploymentId, schemaVersionId },
     ),
   );
   await fixture.control.drizzle.transaction(tx => runEffect(

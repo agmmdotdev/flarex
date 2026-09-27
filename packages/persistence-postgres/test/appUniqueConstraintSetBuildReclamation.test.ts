@@ -708,8 +708,16 @@ function buildInput(
 ) {
   return Object.freeze({
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.authority.scopeId,
     schemaVersionId,
   });
+}
+
+function catalogInput(
+  fixture: ApplicationNativeMutationPGliteFixture,
+  schemaVersionId: ApplicationNativeMutationPGliteFixture["active"]["basis"]["schemaVersionId"],
+) {
+  return Object.freeze({ deploymentId: fixture.deploymentId, schemaVersionId });
 }
 
 async function closeCandidateSet(
@@ -721,7 +729,7 @@ async function closeCandidateSet(
   const binding = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
     fixture.control.drizzle,
     {
-      ...buildInput(fixture, schemaVersionId),
+      ...catalogInput(fixture, schemaVersionId),
       tableId: CatalogTableIdSchema.make(1),
       descriptor: SchemaManifestAppIndexDescriptorSchema.make(`by_${fieldName}`),
       physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
@@ -740,7 +748,7 @@ async function closeCandidateSet(
   const prepared = await runEffect(
     prepareAppUniqueConstraintSetClosureV1Effect(
       fixture.control.drizzle,
-      buildInput(fixture, schemaVersionId),
+      catalogInput(fixture, schemaVersionId),
     ),
   );
   await fixture.control.drizzle.transaction(tx => runEffect(

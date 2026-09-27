@@ -37,6 +37,12 @@ describePostgres("real PostgreSQL S03-D3 reconciliation", () => {
         "show server_version",
       );
       expect(version.rows[0]?.server_version).toMatch(/^18\./);
+      const peerScopeId = ScopeIdSchema.make("scope_s03_d3_pg_peer");
+      await persistence.insertScopeMetadata({
+        deploymentId: fixture.input.deploymentId,
+        scopeId: peerScopeId,
+        physicalLocator: LOCATOR,
+      });
 
       const concurrent = await Promise.all(Array.from(
         { length: 12 },
@@ -48,6 +54,11 @@ describePostgres("real PostgreSQL S03-D3 reconciliation", () => {
       expect(concurrent.filter((result) =>
         result.status === "reconciled" && result.disposition === "replayed"
       )).toHaveLength(11);
+      const peerBuilds = await persistence.query(
+        "select index_definition_id from fx_system_index_build_state where scope_id = $1",
+        [peerScopeId],
+      );
+      expect(peerBuilds.rows).toHaveLength(0);
 
       await persistence.query(
         `update fx_system_scope_clock
@@ -163,7 +174,7 @@ async function fixtureFor(persistence: PostgresFlarexPersistence) {
   );
   return {
     scopeId,
-    input: { deploymentId, schemaVersionId },
+    input: { deploymentId, scopeId, schemaVersionId },
     ports: {
       controlDb: persistence.drizzle,
       authority: {

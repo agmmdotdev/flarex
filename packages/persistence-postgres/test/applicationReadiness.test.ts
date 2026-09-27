@@ -501,7 +501,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     await settleCandidateValidation(fixture, schemaVersionId);
     await enablePhysicalBuilds(fixture, schemaVersionId);
     const uniquePorts = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
-    const uniqueInput = { deploymentId: fixture.input.deploymentId, schemaVersionId };
+    const uniqueInput = { deploymentId: fixture.input.deploymentId, scopeId: fixture.input.scopeId, schemaVersionId };
     await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput));
     let enabled = false;
     for (let step = 0; step < 8; step += 1) {
@@ -786,7 +786,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       transitionFence: 1n,
     });
     const buildPorts = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
-    const buildInput = { deploymentId: fixture.input.deploymentId, indexDefinitionId: definition.indexDefinitionId, pageSize: 1 };
+    const buildInput = { deploymentId: fixture.input.deploymentId, scopeId: fixture.input.scopeId, indexDefinitionId: definition.indexDefinitionId, pageSize: 1 };
     await expect(runEffect(buildIntrinsicCreationTimeIndexV1Effect(buildPorts, buildInput)))
       .rejects.toMatchObject({ reason: "unsupportedLifecycle" });
     expect(await runEffect(fixture.repository.settle(fixture.input)))
@@ -4329,6 +4329,7 @@ async function enablePhysicalBuilds(
   });
   await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
     deploymentId: fixture.input.deploymentId,
+    scopeId: fixture.input.scopeId,
     schemaVersionId,
   }));
   const requirements = await runEffect(
@@ -4353,6 +4354,7 @@ async function enablePhysicalBuilds(
     for (let step = 0; step < 16; step += 1) {
       const input = Object.freeze({
         deploymentId: fixture.input.deploymentId,
+        scopeId: fixture.input.scopeId,
         indexDefinitionId: definition.indexDefinitionId,
         pageSize: 16,
       });
@@ -4521,6 +4523,7 @@ async function settleCandidateValidation(
 ): Promise<void> {
   const input = {
     deploymentId: fixture.input.deploymentId,
+    scopeId: fixture.input.scopeId,
     schemaVersionId,
   } as const;
   await runEffect(installAppSchemaCandidateValidationEffect(

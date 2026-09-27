@@ -274,6 +274,7 @@ async function makeFixture(persistence: PostgresFlarexPersistence, decimals?: re
   const reconciliation = await runEffect(
     reconcilePublishedIndexBuildsV1Effect(ports, {
       deploymentId,
+      scopeId,
       schemaVersionId,
     }),
   );
@@ -304,6 +305,7 @@ async function makeFixture(persistence: PostgresFlarexPersistence, decimals?: re
     indexDefinitionId,
     input: Object.freeze({
       deploymentId,
+      scopeId,
       indexDefinitionId,
       pageSize: 16,
     }),

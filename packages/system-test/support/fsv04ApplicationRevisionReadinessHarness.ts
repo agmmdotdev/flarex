@@ -9,6 +9,7 @@ import {
   probeDeclarativeV2ColdMaterializationV1,
 } from "flarex-backend/internal/declarative-v2-cold-materialization-probe-v1";
 import { Data, Effect, Exit, Result } from "effect";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 import {
   encodeDeclarativeV2PhysicalFrameV1,
 } from "flarex-protocol/internal/declarative-v2-physical-v1";
@@ -172,6 +173,7 @@ export async function proveFsv04ApplicationRevisionReadinessV1(
   await closeReadinessUniqueConstraintSetV1(
     lane.persistence,
     registered.deploymentId,
+    registered.scopeId,
     registered.registered.schemaVersionId,
   );
   const target = lane.makeReadinessTarget();
@@ -204,6 +206,7 @@ export async function proveFsv04ApplicationRevisionReadinessV1(
     pendingCandidatePort,
     {
       deploymentId: registered.deploymentId,
+      scopeId: registered.scopeId,
       schemaVersionId: registered.registered.schemaVersionId,
     },
   ));
@@ -252,6 +255,7 @@ export async function proveFsv04ApplicationRevisionReadinessV1(
           authority: authorityPorts(lane.persistence, target),
         }, {
           deploymentId: registered.deploymentId,
+          scopeId: registered.scopeId,
           indexDefinitionId,
           pageSize: 4,
         }),
@@ -573,12 +577,14 @@ export function readinessContext(
 export async function closeReadinessUniqueConstraintSetV1(
   persistence: Persistence,
   deploymentId: string,
+  scopeId: ScopeId,
   schemaVersionId: CatalogSchemaVersionId,
 ): Promise<void> {
   return Effect.runPromise(
     closeReadinessUniqueConstraintSetEffectV1(
       persistence,
       deploymentId,
+      scopeId,
       schemaVersionId,
     ),
   );
@@ -589,6 +595,7 @@ export const closeReadinessUniqueConstraintSetEffectV1 = Effect.fn(
 )(function* (
   persistence: Persistence,
   deploymentId: string,
+  scopeId: ScopeId,
   schemaVersionId: CatalogSchemaVersionId,
 ): Effect.fn.Return<void, ReadinessUniqueConstraintSetSetupV1Error> {
   const prepared = yield*
@@ -613,12 +620,14 @@ export const closeReadinessUniqueConstraintSetEffectV1 = Effect.fn(
 export async function prepareReadinessUniqueConstraintSetV1(
   persistence: Persistence,
   deploymentId: string,
+  scopeId: ScopeId,
   schemaVersionId: CatalogSchemaVersionId,
 ): Promise<void> {
   return Effect.runPromise(
     prepareReadinessUniqueConstraintSetEffectV1(
       persistence,
       deploymentId,
+      scopeId,
       schemaVersionId,
     ),
   );
@@ -627,12 +636,14 @@ export async function prepareReadinessUniqueConstraintSetV1(
 export const prepareReadinessUniqueConstraintSetEffectV1: (
   persistence: Persistence,
   deploymentId: string,
+  scopeId: ScopeId,
   schemaVersionId: CatalogSchemaVersionId,
 ) => Effect.Effect<void, ReadinessUniqueConstraintSetSetupV1Error> = Effect.fn(
   "SystemTest.prepareReadinessUniqueConstraintSetV1",
 )(function* (
   persistence: Persistence,
   deploymentId: string,
+  scopeId: ScopeId,
   schemaVersionId: CatalogSchemaVersionId,
 ): Effect.fn.Return<void, ReadinessUniqueConstraintSetSetupV1Error> {
   const artifact = yield* readSchemaVersionArtifactByIdEffect(
@@ -699,13 +710,14 @@ export const prepareReadinessUniqueConstraintSetEffectV1: (
   yield* closeReadinessUniqueConstraintSetEffectV1(
     persistence,
     deploymentId,
+    scopeId,
     schemaVersionId,
   );
   const ports = uniqueConstraintBuildPorts(persistence);
   const reconciled = yield*
     reconcileAppUniqueConstraintSetBuildV1Effect(
       ports,
-      { deploymentId, schemaVersionId },
+      { deploymentId, scopeId, schemaVersionId },
     ).pipe(Effect.mapError(cause => uniqueConstraintSetupError(
       "reconcileBuild",
       cause,
@@ -722,7 +734,7 @@ export const prepareReadinessUniqueConstraintSetEffectV1: (
     const advanced = yield*
       advanceAppUniqueConstraintSetBackfillV1Effect(
         ports,
-        { deploymentId, schemaVersionId, pageSize: 16 },
+        { deploymentId, scopeId, schemaVersionId, pageSize: 16 },
       ).pipe(Effect.mapError(cause => uniqueConstraintSetupError(
         "advanceBackfill",
         cause,

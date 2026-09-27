@@ -34,6 +34,7 @@ import {
 import { type CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import {
   projectScopeIdUuidV1Result,
+  ScopeIdSchema,
   type CommitSeq,
   type ScopeId,
   type ScopeEpochUuidV1,
@@ -70,6 +71,7 @@ import {
   CommitFeedSqlErrorV1,
 } from "./commitFeed";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { getScopeMetadata } from "./scopeMetadata";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   decodeIndexBuildStateRowResult,
@@ -83,7 +85,7 @@ import {
   type LockScopeClockForUpdateError,
 } from "./scopeClock";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
@@ -103,6 +105,7 @@ import {
 
 const INPUT_KEYS = Object.freeze([
   "deploymentId",
+  "scopeId",
   "indexDefinitionId",
   "pageSize",
 ] as const);
@@ -113,6 +116,7 @@ export const MAX_INTRINSIC_INDEX_BUILD_PAGE_SIZE_V1 =
 const decodeDefinitionIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogIndexDefinitionIdSchema),
 );
+const decodeScopeIdResult = Schema.decodeUnknownResult(Schema.toType(ScopeIdSchema));
 
 export interface LocateIntrinsicCreationTimeIndexV1Input {
   readonly deploymentId: string;
@@ -160,6 +164,7 @@ export function createIntrinsicCreationTimeIndexDefinitionPortV1(
 
 export interface BuildAppOrderedIndexV1Input {
   readonly deploymentId: string;
+  readonly scopeId: ScopeId;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly pageSize: number;
 }
@@ -218,6 +223,7 @@ export class InvalidIntrinsicCreationTimeIndexBuildInputV1Error extends Data.Tag
   readonly reason:
     | "invalidInputShape"
     | "invalidDeploymentId"
+    | "invalidScopeId"
     | "invalidIndexDefinitionId"
     | "invalidPageSize";
 }> {}
@@ -275,6 +281,7 @@ export class InvalidAppDeveloperOrderedIndexBuildInputV1Error extends Data.Tagge
   readonly reason:
     | "invalidInputShape"
     | "invalidDeploymentId"
+    | "invalidScopeId"
     | "invalidIndexDefinitionId"
     | "invalidPageSize";
 }> {}
@@ -417,6 +424,7 @@ type BuildTransactionErrorV1 =
 
 interface DecodedBuildInputV1 {
   readonly deploymentId: string;
+  readonly scopeId: ScopeId;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly pageSize: number;
 }
@@ -469,9 +477,9 @@ export const buildIntrinsicCreationTimeIndexV1Effect = Effect.fn(
         new InvalidIntrinsicCreationTimeIndexBuildInputV1Error({ reason }),
     ),
   );
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    ports.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
   );
   const definition = yield* locateAppIndexDefinitionByIdEffect(
     ports.controlDb,
@@ -528,9 +536,9 @@ export const buildAppDeveloperOrderedIndexV1Effect = Effect.fn(
         new InvalidAppDeveloperOrderedIndexBuildInputV1Error({ reason }),
     ),
   );
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    ports.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...ports.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(ports.controlDb, scopeId) } },
   );
   const definition = yield* locateAppIndexDefinitionByIdEffect(
     ports.controlDb,
@@ -573,6 +581,7 @@ export const buildAppDeveloperOrderedIndexV1Effect = Effect.fn(
 type InvalidAppOrderedIndexBuildInputReasonV1 =
   | "invalidInputShape"
   | "invalidDeploymentId"
+  | "invalidScopeId"
   | "invalidIndexDefinitionId"
   | "invalidPageSize";
 
@@ -593,6 +602,9 @@ function decodeBuildInputResult<E>(
     const indexDefinitionId = yield* decodeDefinitionIdResult(
       input.indexDefinitionId,
     ).pipe(Result.mapError(() => invalid("invalidIndexDefinitionId")));
+    const scopeId = yield* decodeScopeIdResult(input.scopeId).pipe(
+      Result.mapError(() => invalid("invalidScopeId")),
+    );
     if (
       !isPositiveSafeInteger(input.pageSize) ||
       input.pageSize > MAX_APP_ORDERED_INDEX_BUILD_PAGE_SIZE_V1
@@ -601,6 +613,7 @@ function decodeBuildInputResult<E>(
     }
     return Object.freeze({
       deploymentId: input.deploymentId,
+      scopeId,
       indexDefinitionId,
       pageSize: input.pageSize,
     });

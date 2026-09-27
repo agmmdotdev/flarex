@@ -241,13 +241,13 @@ describe("C08-B1 closed unique-set build foundation", () => {
 
   it("reads an enabled unique set by exact scope after another shop joins its deployment", async () => {
     const fixture = await closedFixture("eligibility_peer_scope");
-    await reconcile(fixture);
-    await advanceToEnabled(fixture, 16);
     await fixture.persistence.insertScopeMetadata({
       deploymentId: fixture.deploymentId,
       scopeId: ScopeIdSchema.make("scope_unique_eligibility_peer"),
       physicalLocator: LOCATOR,
     });
+    await reconcile(fixture);
+    await advanceToEnabled(fixture, 16);
 
     expect(await runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
       eligibilityPort(fixture),
@@ -476,7 +476,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     const preparedClosure = await runEffect(
       prepareAppUniqueConstraintSetClosureV1Effect(
         fixture.persistence.drizzle,
-        input(fixture),
+        closureInput(fixture),
       ),
     );
     const closed = await fixture.persistence.drizzle.transaction((tx) =>
@@ -494,7 +494,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     const replayPrepared = await runEffect(
       prepareAppUniqueConstraintSetClosureV1Effect(
         fixture.persistence.drizzle,
-        input(fixture),
+        closureInput(fixture),
       ),
     );
     await expect(fixture.persistence.drizzle.transaction((tx) =>
@@ -523,7 +523,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
     const prepared = await runEffect(
       prepareAppUniqueConstraintSetClosureV1Effect(
         fixture.persistence.drizzle,
-        input(fixture),
+        closureInput(fixture),
       ),
     );
     await ensureBinding(
@@ -537,7 +537,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
 
     const exact = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
       fixture.persistence.drizzle,
-      input(fixture),
+      closureInput(fixture),
     ));
     await expect(fixture.persistence.drizzle.transaction(async (tx) => {
       await runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, exact));
@@ -831,6 +831,7 @@ describe("C08-B1 closed unique-set build foundation", () => {
       status: "absent",
       reason: "setNotClosed",
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
       schemaVersionId: fixture.schemaVersionId,
     });
   });
@@ -1355,7 +1356,7 @@ async function closedFixture(suffix: string): Promise<Fixture> {
 async function closeSet(fixture: Fixture) {
   const prepared = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
     fixture.persistence.drizzle,
-    input(fixture),
+    closureInput(fixture),
   ));
   await fixture.persistence.drizzle.transaction((tx) =>
     runEffect(closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared))
@@ -1438,6 +1439,14 @@ function eligibilityPort(
 }
 
 function input(fixture: Fixture) {
+  return Object.freeze({
+    deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
+    schemaVersionId: fixture.schemaVersionId,
+  });
+}
+
+function closureInput(fixture: Fixture) {
   return Object.freeze({
     deploymentId: fixture.deploymentId,
     schemaVersionId: fixture.schemaVersionId,

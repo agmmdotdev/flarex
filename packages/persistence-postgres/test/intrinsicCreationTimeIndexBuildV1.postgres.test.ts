@@ -290,6 +290,7 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
   await runEffect(
     reconcilePublishedIndexBuildsV1Effect(ports, {
       deploymentId,
+      scopeId,
       schemaVersionId,
     }),
   );
@@ -297,6 +298,7 @@ async function makeFixture(persistence: PostgresFlarexPersistence) {
     ports,
     input: Object.freeze({
       deploymentId,
+      scopeId,
       indexDefinitionId: decodeCatalogIndexDefinitionId(1),
       pageSize: 16,
     }),

@@ -53,7 +53,7 @@ describe("S03-D3 durable index-build reconciliation", () => {
       });
       try {
         const exit = await Effect.runPromiseExit(reconcilePublishedIndexBuildsV1Effect(ports(fixture), {
-          deploymentId: fixture.deploymentId, schemaVersionId: fixture.schemaVersionId,
+          deploymentId: fixture.deploymentId, scopeId: fixture.scopeId, schemaVersionId: fixture.schemaVersionId,
         }));
         expect(exit._tag).toBe("Failure");
         if (exit._tag !== "Failure") throw new Error("Expected digest refusal");
@@ -103,6 +103,23 @@ describe("S03-D3 durable index-build reconciliation", () => {
       schemaVersionId: fixture.schemaVersionId,
       reason: "noPhysicalDefinitions",
     });
+  });
+
+  it("reconciles one shop after a peer joins the deployment", async () => {
+    const fixture = await publishedFixture("shared_deployment_peer");
+    const peerScopeId = ScopeIdSchema.make("scope_index_build_peer");
+    await fixture.persistence.insertScopeMetadata({
+      deploymentId: fixture.deploymentId,
+      scopeId: peerScopeId,
+      physicalLocator: LOCATOR,
+    });
+
+    await expect(reconcile(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
+      status: "reconciled",
+      scopeId: fixture.scopeId,
+    });
+    expect(await buildRows(fixture.persistence, fixture.scopeId)).toHaveLength(2);
+    expect(await buildRows(fixture.persistence, peerScopeId)).toHaveLength(0);
   });
 
   it("creates every exact requirement, replays, repairs partial state, and preserves progressed rows", async () => {
@@ -509,6 +526,7 @@ function ports(
 function input(fixture: Fixture, schemaVersionId: string) {
   return {
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
     schemaVersionId: CatalogSchemaVersionIdSchema.make(schemaVersionId),
   };
 }

@@ -51,7 +51,7 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
       return definitions;
     }), cause => new Error("Joint catalog transaction", { cause })));
   const ports = { controlDb: control.drizzle, authority: authorityPorts };
-  const reconciled = (yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, schemaVersionId }));
+  const reconciled = (yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, scopeId: authority.scopeId, schemaVersionId }));
   if (reconciled.status !== "reconciled") throw new Error("Incomplete joint index requirements");
   const bindingTarget = (yield* makeFrameworkSchemaTarget({ database: target.drizzle, deploymentId,
     canonicalPhysicalDatabaseIdentity: "logical-binding-target", physicalLocator: fixture.active.basis.authority.physicalLocator }));
@@ -71,17 +71,17 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
     let enabled = false;
     for (let step = 0; step < 20; step++) {
       const result = definition.access.kind === "by_creation_time"
-        ? (yield* buildIntrinsicCreationTimeIndexV1Effect(ports, { deploymentId, indexDefinitionId, pageSize: 10 }))
-        : (yield* buildAppDeveloperOrderedIndexV1Effect(ports, { deploymentId, indexDefinitionId, pageSize: 10 }));
+        ? (yield* buildIntrinsicCreationTimeIndexV1Effect(ports, { deploymentId, scopeId: authority.scopeId, indexDefinitionId, pageSize: 10 }))
+        : (yield* buildAppDeveloperOrderedIndexV1Effect(ports, { deploymentId, scopeId: authority.scopeId, indexDefinitionId, pageSize: 10 }));
       if (result.lifecycle === "enabled") { enabled = true; break; }
     }
     expect(enabled).toBe(true);
   }
-  const uniqueSet = yield* reconcileAppUniqueConstraintSetBuildV1Effect(ports, { deploymentId, schemaVersionId });
+  const uniqueSet = yield* reconcileAppUniqueConstraintSetBuildV1Effect(ports, { deploymentId, scopeId: authority.scopeId, schemaVersionId });
   if (uniqueSet.status !== "reconciled") throw new Error("Joint unique set was not declared");
   let uniqueEnabled = false;
   for (let step = 0; step < (uniqueSet.definitionCount + 1) * 4; step++) {
-    const result = (yield* advanceAppUniqueConstraintSetBackfillV1Effect(ports, { deploymentId, schemaVersionId, pageSize: 10 }));
+    const result = (yield* advanceAppUniqueConstraintSetBackfillV1Effect(ports, { deploymentId, scopeId: authority.scopeId, schemaVersionId, pageSize: 10 }));
     if (result.lifecycle === "enabled" && result.uniqueConstraintDefinitionId === null) { uniqueEnabled = true; break; }
   }
   expect(uniqueEnabled).toBe(true);

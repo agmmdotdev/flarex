@@ -94,23 +94,23 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
     eq(fxControlSchemaVersionIndexBindings.schemaVersionId, schemaVersionId),
     eq(fxControlSchemaVersionIndexBindings.indexDefinitionId, definition.indexDefinitionId),
   )), cause => new Error("Arrange missing required binding", { cause })));
-  expect(yield* Effect.result(reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, schemaVersionId })))
+  expect(yield* Effect.result(reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, scopeId, schemaVersionId })))
     .toMatchObject({ _tag: "Failure", failure: { reason: "publishedProjectionIncomplete" } });
   expect(yield* runDrizzleStatementEffect(db.select().from(fxSystemIndexBuildStates),
     cause => new Error("Read refused build declarations", { cause }))).toHaveLength(0);
   yield* transact(tx => ensureLogicalStorageDefinitions(tx, deploymentId, schemaVersionId));
-  const reconciled = yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, schemaVersionId });
+  const reconciled = yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, scopeId, schemaVersionId });
   expect(reconciled.status).toBe("reconciled");
   if (reconciled.status !== "reconciled") throw new Error("Native candidate did not reconcile");
   expect(reconciled.definitionIds).toContain(definition.indexDefinitionId);
   expect(reconciled.createdCount).toBe(reconciled.definitionIds.length);
   expect(reconciled.createdCount).toBe(6);
-  expect(yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, schemaVersionId }))
+  expect(yield* reconcilePublishedIndexBuildsV1Effect(ports, { deploymentId, scopeId, schemaVersionId }))
     .toMatchObject({ status: "reconciled", createdCount: 0, replayedCount: reconciled.createdCount });
   let enabled = false;
   let changedDuringBuild = false;
   for (let step = 0; step < 16; step++) {
-    const result = yield* buildAppDeveloperOrderedIndexV1Effect(ports, { deploymentId, indexDefinitionId: definition.indexDefinitionId, pageSize: 1 });
+    const result = yield* buildAppDeveloperOrderedIndexV1Effect(ports, { deploymentId, scopeId, indexDefinitionId: definition.indexDefinitionId, pageSize: 1 });
     if (result.lifecycle === "validating" && !changedDuringBuild) {
       // Move both sides of the predicate after backfill. Validation must delete
       // the old active position and create the newly active position before enable.
@@ -131,15 +131,15 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
     let complete = false;
     for (let step = 0; step < 20; step++) {
       const result = other.access.kind === "by_creation_time"
-        ? yield* buildIntrinsicCreationTimeIndexV1Effect(ports, { deploymentId, indexDefinitionId, pageSize: 1 })
-        : yield* buildAppDeveloperOrderedIndexV1Effect(ports, { deploymentId, indexDefinitionId, pageSize: 1 });
+        ? yield* buildIntrinsicCreationTimeIndexV1Effect(ports, { deploymentId, scopeId, indexDefinitionId, pageSize: 1 })
+        : yield* buildAppDeveloperOrderedIndexV1Effect(ports, { deploymentId, scopeId, indexDefinitionId, pageSize: 1 });
       if (result.lifecycle === "enabled") { complete = true; break; }
     }
     expect(complete).toBe(true);
   }
   const uniqueTarget = createLocatedAppUniqueConstraintSetBuildTargetV1(db, { kind: "shared_database", databaseKey: "test", schemaName: "public" });
   const uniquePorts = { controlDb: db, authority: { ...ports.authority, scopeClockTargets: { resolve: async () => uniqueTarget } } };
-  const uniqueInput = { deploymentId, schemaVersionId };
+  const uniqueInput = { deploymentId, scopeId, schemaVersionId };
   expect(yield* reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput))
     .toMatchObject({ status: "reconciled", disposition: "created", definitionCount: 2 });
   expect(yield* reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput))

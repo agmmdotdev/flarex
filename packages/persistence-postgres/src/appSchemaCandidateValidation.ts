@@ -59,6 +59,7 @@ import {
   projectScopeIdUuidV1Result,
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
+  ScopeIdSchema,
   type CommitSeq,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
@@ -94,7 +95,6 @@ import {
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
-  resolveLocatedTrustedScopeAuthorityEffect,
   type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
@@ -122,7 +122,8 @@ import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from
   "./transactionSessionActivation";
 
-const INPUT_KEYS = Object.freeze(["deploymentId", "schemaVersionId"] as const);
+const INPUT_KEYS = Object.freeze(["deploymentId", "scopeId", "schemaVersionId"] as const);
+const decodeScopeIdResult = Schema.decodeUnknownResult(Schema.toType(ScopeIdSchema));
 const PORT_KEYS = Object.freeze(["controlDb", "authority"] as const);
 const WRITE_GUARD_DEPENDENCY_KEYS = Object.freeze([
   "candidateValidation",
@@ -178,6 +179,7 @@ const FLAREXDB_V1_STORAGE_GENERATION =
 
 export interface AppSchemaCandidateValidationInput {
   readonly deploymentId: string;
+  readonly scopeId: ScopeId;
   readonly schemaVersionId: CatalogSchemaVersionId;
 }
 
@@ -1004,9 +1006,9 @@ export const prepareAppSchemaCandidateValidationInstallEffect = Effect.fn(
   );
   const decoded = yield* Effect.fromResult(decodeInputResult(input, "install"));
   const snapshot = yield* loadCandidateSnapshot(controlDb, decoded, "install");
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(controlDb, scopeId) } },
   );
   const prepared = Object.freeze({
     [preparedCandidateInstallBrand]: true as const,
@@ -1108,13 +1110,13 @@ export const loadAppSchemaCandidateValidationEffect = Effect.fn(
   LoadAppSchemaCandidateValidationResult,
   LoadAppSchemaCandidateValidationError
 > {
-  const { authority } = yield* Effect.fromResult(
+  const { authority, controlDb } = yield* Effect.fromResult(
     requirePortStateResult(port, "load"),
   );
   const decoded = yield* Effect.fromResult(decodeInputResult(input, "load"));
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(controlDb, scopeId) } },
   );
   return yield* runLocatedTransaction(located.target, "load", (tx) =>
     loadInTransaction(tx, located.authority, decoded));
@@ -1140,9 +1142,9 @@ export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
       reason: "corruption",
     }));
   }
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    input.deploymentId,
-    state.candidateValidation.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: input.deploymentId, scopeId: input.scopeId },
+    { ...state.candidateValidation.authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.candidateValidation.controlDb, scopeId) } },
   ).pipe(Effect.mapError(mapCandidateWriteGuardError));
   if (located.authority.scopeId !== input.scopeId) {
     return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
@@ -1163,6 +1165,7 @@ export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
       state.candidateValidation.controlDb,
       Object.freeze({
         deploymentId: input.deploymentId,
+        scopeId: input.scopeId,
         schemaVersionId: head.schemaVersionId,
       }),
       "advance",
@@ -1339,9 +1342,9 @@ export const advanceAppSchemaCandidateValidationEffect = Effect.fn(
   );
   const decoded = yield* Effect.fromResult(decodeInputResult(input, "advance"));
   const snapshot = yield* loadCandidateSnapshot(controlDb, decoded, "advance");
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(controlDb, scopeId) } },
   );
   return yield* runLocatedTransaction(located.target, "advance", (tx) =>
     advanceInTransaction(
@@ -1367,9 +1370,9 @@ export const settleAppSchemaCandidateValidationEffect = Effect.fn(
   );
   const decoded = yield* Effect.fromResult(decodeInputResult(input, "settle"));
   const snapshot = yield* loadCandidateSnapshot(controlDb, decoded, "settle");
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    decoded.deploymentId,
-    authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: decoded.deploymentId, scopeId: decoded.scopeId },
+    { ...authority, scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(controlDb, scopeId) } },
   );
   return yield* runLocatedTransaction(located.target, "settle", (tx) =>
     settleInTransaction(
@@ -1397,8 +1400,12 @@ function decodeInputResult(
     const schemaVersionId = yield* decodeSchemaVersionIdResult(
       input.schemaVersionId,
     ).pipe(Result.mapError(() => operationError(operation, "corruption")));
+    const scopeId = yield* decodeScopeIdResult(input.scopeId).pipe(
+      Result.mapError(() => operationError(operation, "corruption")),
+    );
     return Object.freeze({
       deploymentId: input.deploymentId,
+      scopeId,
       schemaVersionId,
     });
   });

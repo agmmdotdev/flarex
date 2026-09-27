@@ -187,7 +187,7 @@ export async function logicalCurrencyFixture(
       }), cause => new Error("Logical Currency catalog transaction", { cause }));
     const ports = { controlDb: control.drizzle, authority: application.authorityPorts };
     const reconciled = yield* reconcilePublishedIndexBuildsV1Effect(ports,
-      { deploymentId: application.deploymentId, schemaVersionId });
+      { deploymentId: application.deploymentId, scopeId: application.authority.scopeId, schemaVersionId });
     if (reconciled.status !== "reconciled") throw new Error("Incomplete logical Currency indexes");
     for (const indexDefinitionId of reconciled.definitionIds) {
       const index = yield* locateAppIndexDefinitionByIdEffect(control.drizzle,
@@ -197,22 +197,22 @@ export async function logicalCurrencyFixture(
       for (let step = 0; step < 20; step++) {
         const build = index.access.kind === "by_creation_time"
           ? yield* buildIntrinsicCreationTimeIndexV1Effect(ports,
-            { deploymentId: application.deploymentId, indexDefinitionId, pageSize: 10 })
+            { deploymentId: application.deploymentId, scopeId: application.authority.scopeId, indexDefinitionId, pageSize: 10 })
           : yield* buildAppDeveloperOrderedIndexV1Effect(ports,
-            { deploymentId: application.deploymentId, indexDefinitionId, pageSize: 10 });
+            { deploymentId: application.deploymentId, scopeId: application.authority.scopeId, indexDefinitionId, pageSize: 10 });
         if (build.lifecycle === "enabled") { enabled = true; break; }
       }
       if (!enabled) throw new Error("Logical Currency index did not become ready");
     }
     const uniqueSet = yield* reconcileAppUniqueConstraintSetBuildV1Effect(ports,
-      { deploymentId: application.deploymentId, schemaVersionId });
+      { deploymentId: application.deploymentId, scopeId: application.authority.scopeId, schemaVersionId });
     if (uniqueSet.status !== "reconciled") throw new Error("Logical Currency unique set was not declared");
     let uniqueEnabled = false;
     // Each definition needs finite build transitions; the fixture must not
     // misclassify a larger composed schema as an incomplete core build.
     for (let step = 0; step < (uniqueSet.definitionCount + 1) * 4; step++) {
       const build = yield* advanceAppUniqueConstraintSetBackfillV1Effect(ports,
-        { deploymentId: application.deploymentId, schemaVersionId, pageSize: 16 });
+        { deploymentId: application.deploymentId, scopeId: application.authority.scopeId, schemaVersionId, pageSize: 16 });
       if (build.lifecycle === "enabled" && build.uniqueConstraintDefinitionId === null) { uniqueEnabled = true; break; }
     }
     if (!uniqueEnabled) throw new Error("Logical Currency unique set did not become ready");

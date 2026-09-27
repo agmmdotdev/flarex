@@ -3,9 +3,11 @@
 Status: the control catalog permits multiple scopes under one deployment, its
 deployment-only lookup refuses ambiguity, and the trusted relational command
 host, Application snapshot/query readers, framework data-binding host,
-Application readiness/activation and the selected point-mutation lifecycle
-resolve an exact scope. Some binding and index/unique build inputs still use
-deployment-only selection and therefore refuse a multi-scope deployment.
+Application readiness/activation, the selected point-mutation lifecycle,
+managed-schema candidate validation/planning/application, and ordered-index
+and unique-set builds resolve an exact scope. Some other binding/readiness
+inputs and framework command paths still use deployment-only selection and
+therefore refuse a multi-scope deployment.
 Full Application/Payload/Medusa same-deployment isolation is not yet claimed.
 
 ## Preflight and selected contract
@@ -56,7 +58,7 @@ and fixture inputs moved together. A two-shop binding witness reaches the
 selected shop's missing binding head while a peer without provisioning fails
 for that peer's receipt, on PGlite and ordinary-role PostgreSQL. This proves
 selection before binding admission, not complete two-shop serving: other
-index/unique build and data-plane entry points still depend on
+data-plane entry points still depend on
 deployment-only owners and fail closed until those owners migrate.
 
 Application readiness, relation-readiness fold and both activation modes now
@@ -88,11 +90,21 @@ scope-local discovery;
 the old deployment-only lookup is deliberately ambiguous in those witnesses.
 They are bounded lifecycle proofs, not full cross-framework serving or capacity.
 
-The point-mutation authority port still carries a deployment lookup for named
-unmigrated candidate-validation and unique/index build consumers that share its
-composition. Those operations remain fail-closed for a multi-scope deployment.
-Remove that method from the point-mutation port when those consumers select
-exact scope; do not add a fallback or let it choose a first scope.
+Managed-schema planning selects the candidate publication's pinned scope and
+compares it with the active selection. Candidate validation, index
+reconciliation, ordered-index backfill, unique-set reconciliation/backfill and
+workspace reclamation accept an explicit private scope ID and verify the exact
+control-catalog row, placement and clock before target writes. The managed
+apply owner passes its pinned plan scope through those steps. Catalog-only
+definition and closure reads remain deployment-scoped; they do not select a
+data-plane scope. PGlite and ordinary-role PostgreSQL witnesses add a peer
+scope before candidate progression and index/unique builds, and the connected
+managed-schema and Medusa Currency consumers exercise the migrated inputs.
+This breaks private builder inputs and their fixture callers; it changes no
+durable format. The shared point-mutation port still carries a deployment
+lookup for other named consumers that have not moved, including relation-build
+and physical-definition lifecycle owners. Remove that method once those
+consumers use exact selection; do not add a fallback or choose a first scope.
 
 ## Alternatives and remaining gate
 
@@ -104,8 +116,9 @@ exact scope; do not add a fallback or let it choose a first scope.
 - Copying scope checks into Medusa or Payload would duplicate core authority.
 
 Move the remaining deployment-only runtime owners together with their real
-caller-supplied authority: binding's other readiness inputs and index/unique
-build operations, followed by Medusa/Payload commands. Their
+caller-supplied authority: binding's other readiness inputs, relation-build
+and physical-definition lifecycle operations, followed by Medusa/Payload
+commands. Their
 present deployment-only resolver must continue
 to refuse ambiguity until migrated, and then be removed with its mock ports
 and fixtures. The normal provisioning path also still creates or reuses one

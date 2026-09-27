@@ -4910,6 +4910,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         };
         buildInput = {
           deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
           indexDefinitionId: definition.indexDefinitionId,
           pageSize: 1,
         };

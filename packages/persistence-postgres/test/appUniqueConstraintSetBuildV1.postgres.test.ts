@@ -73,13 +73,13 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
     await withTemporaryPostgresPersistence(async persistence => {
       const fixture = await fixtureFor(persistence);
       await closeFixtureSet(fixture);
-      await reconcile(fixture);
-      await advanceUntilEnabled(fixture);
       await persistence.insertScopeMetadata({
         deploymentId: fixture.input.deploymentId,
         scopeId: ScopeIdSchema.make("scope_unique_eligibility_peer_postgres"),
         physicalLocator: LOCATOR,
       });
+      await reconcile(fixture);
+      await advanceUntilEnabled(fixture);
       const port = createAppUniqueConstraintSetEligibilityPortV1(
         fixture.ports,
         createAppUniqueConstraintDefinitionPortV1(persistence.drizzle),
@@ -190,7 +190,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
 
       const prepared = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
         persistence.drizzle,
-        fixture.input,
+        closureInput(fixture),
       ));
       const closures = await Promise.all(Array.from({ length: 8 }, () =>
         persistence.drizzle.transaction((tx) => runEffect(
@@ -264,7 +264,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       });
       const prepared = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
         persistence.drizzle,
-        fixture.input,
+        closureInput(fixture),
       ));
       await persistence.drizzle.transaction((tx) => runEffect(
         closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared),
@@ -394,7 +394,7 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       const prepared = await runEffect(
         prepareAppUniqueConstraintSetClosureV1Effect(
           persistence.drizzle,
-          fixture.input,
+          closureInput(fixture),
         ),
       );
       await persistence.drizzle.transaction(tx => runEffect(
@@ -725,7 +725,7 @@ async function fixtureFor(persistence: PostgresFlarexPersistence, uniqueSpec?: A
     persistence,
     LOCATOR,
   );
-  const input = Object.freeze({ deploymentId, schemaVersionId });
+  const input = Object.freeze({ deploymentId, scopeId, schemaVersionId });
   const ports = {
     controlDb: persistence.drizzle,
     authority: {
@@ -752,6 +752,13 @@ async function fixtureFor(persistence: PostgresFlarexPersistence, uniqueSpec?: A
   });
 }
 
+function closureInput(fixture: Awaited<ReturnType<typeof fixtureFor>>) {
+  return Object.freeze({
+    deploymentId: fixture.input.deploymentId,
+    schemaVersionId: fixture.input.schemaVersionId,
+  });
+}
+
 function reconcile(fixture: Awaited<ReturnType<typeof fixtureFor>>) {
   return runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
     fixture.ports,
@@ -764,7 +771,7 @@ async function closeFixtureSet(
 ) {
   const prepared = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
     fixture.persistence.drizzle,
-    fixture.input,
+    closureInput(fixture),
   ));
   await fixture.persistence.drizzle.transaction(tx => runEffect(
     closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared),

@@ -1657,6 +1657,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     await settleCandidateValidation(
       ready.fixture.candidateValidation,
       ready.fixture.deploymentId,
+      ready.fixture.authority.scopeId,
       ready.fixture.relation.binding.schemaVersionId,
     );
     const retainedLegacyB2 = await runEffect(

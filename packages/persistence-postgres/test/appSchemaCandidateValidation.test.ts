@@ -64,6 +64,22 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("M03-A app-schema candidate validation", () => {
+  it("advances the selected shop when another scope shares its deployment", async () => {
+    const fixture = await fixtureFor("shared_deployment_peer");
+    await fixture.persistence.insertScopeMetadata({
+      deploymentId: fixture.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_candidate_validation_peer"),
+      physicalLocator: LOCATOR,
+    });
+
+    await expect(install(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
+      head: { scopeId: fixture.scopeId },
+    });
+    await expect(advance(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
+      head: { scopeId: fixture.scopeId },
+    });
+  });
+
   it("projects exact missing, progress, receipt, failure, and replacement readiness", async () => {
     const fixture = await fixtureFor("readiness");
     const validation = port(fixture);
@@ -1227,7 +1243,7 @@ function input(
   fixture: Fixture,
   schemaVersionId: Fixture["schemaVersionId"],
 ) {
-  return Object.freeze({ deploymentId: fixture.deploymentId, schemaVersionId });
+  return Object.freeze({ deploymentId: fixture.deploymentId, scopeId: fixture.scopeId, schemaVersionId });
 }
 
 function readinessInput(

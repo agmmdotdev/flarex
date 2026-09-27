@@ -301,6 +301,7 @@ async function makeFixture(
   await runEffect(
     reconcilePublishedIndexBuildsV1Effect(ports, {
       deploymentId,
+      scopeId,
       schemaVersionId,
     }),
   );
@@ -469,6 +470,7 @@ async function insertWithOnlineIndexMaintenance(
 function buildInput(fixture: Fixture, pageSize: number) {
   return {
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
     indexDefinitionId: fixture.indexDefinitionId,
     pageSize,
   };

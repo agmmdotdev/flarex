@@ -1619,6 +1619,7 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       } as const;
       const buildInput = {
         deploymentId: scope.deploymentId,
+        scopeId: scope.scopeId,
         indexDefinitionId: definition.indexDefinitionId,
         pageSize: 1,
       } as const;
@@ -5140,6 +5141,7 @@ async function enableIntrinsicIndexForPostgres(
   await runEffect(
     reconcilePublishedIndexBuildsV1Effect(ports, {
       deploymentId: scope.deploymentId,
+      scopeId: scope.scopeId,
       schemaVersionId: scope.schemaVersionId,
     }),
   );
@@ -5147,6 +5149,7 @@ async function enableIntrinsicIndexForPostgres(
     const advanced = await runEffect(
       buildIntrinsicCreationTimeIndexV1Effect(ports, {
         deploymentId: scope.deploymentId,
+        scopeId: scope.scopeId,
         indexDefinitionId: decodeCatalogIndexDefinitionId(1),
         pageSize: 8,
       }),
@@ -5184,6 +5187,7 @@ async function prepareDeveloperIndexForPostgres(
       },
       {
         deploymentId: scope.deploymentId,
+        scopeId: scope.scopeId,
         schemaVersionId: scope.schemaVersionId,
       },
     ),
@@ -5268,13 +5272,14 @@ async function prepareUniqueConstraintForPostgres(
     },
   };
   await runEffect(
-    reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts, input),
+    reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts, { ...input, scopeId: scope.scopeId }),
   );
   let enabled = false;
   for (let step = 0; step < 16; step += 1) {
     const advanced = await runEffect(
       advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, {
         ...input,
+        scopeId: scope.scopeId,
         pageSize: 16,
       }),
     );

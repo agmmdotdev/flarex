@@ -621,6 +621,7 @@ async function createApplicationNativeMutationFixture<
   await settleCandidateValidation(
     candidateValidation,
     deploymentId,
+    authority.scopeId,
     schemaVersionId,
   );
   const ready = await Effect.runPromise(readiness.settle({
@@ -1006,6 +1007,7 @@ async function enablePhysicalBuilds(
   const ports = Object.freeze({ controlDb: control.drizzle, authority });
   await Effect.runPromise(reconcilePublishedIndexBuildsV1Effect(ports, {
     deploymentId,
+    scopeId,
     schemaVersionId,
   }));
   const requirements = await Effect.runPromise(
@@ -1027,6 +1029,7 @@ async function enablePhysicalBuilds(
     for (let step = 0; step < 16; step += 1) {
       const input = {
         deploymentId,
+        scopeId,
         indexDefinitionId: definition.indexDefinitionId,
         pageSize: 16,
       } as const;
@@ -1066,9 +1069,10 @@ async function settleCandidateValidation(
     typeof createAppSchemaCandidateValidationPort
   >,
   deploymentId: string,
+  scopeId: ApplicationAnalysisAuthority["scopeId"],
   schemaVersionId: CatalogSchemaVersionId,
 ): Promise<void> {
-  const input = { deploymentId, schemaVersionId } as const;
+  const input = { deploymentId, scopeId, schemaVersionId } as const;
   await Effect.runPromise(installAppSchemaCandidateValidationEffect(
     candidateValidation,
     input,

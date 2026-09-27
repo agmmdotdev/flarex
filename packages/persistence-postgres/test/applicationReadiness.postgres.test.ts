@@ -444,7 +444,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       });
       await enablePhysicalBuilds(fixture, schemaVersionId);
       const uniquePorts = { controlDb: control.drizzle, authority: fixture.authorityPorts };
-      const uniqueInput = { deploymentId: fixture.input.deploymentId, schemaVersionId };
+      const uniqueInput = { deploymentId: fixture.input.deploymentId, scopeId: fixture.input.scopeId, schemaVersionId };
       await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput));
       let enabled = false;
       for (let step = 0; step < 8; step += 1) {
@@ -735,6 +735,7 @@ async function prepareReadinessAuthorities(
   ));
   const input = {
     deploymentId: fixture.input.deploymentId,
+    scopeId: fixture.input.scopeId,
     schemaVersionId,
   } as const;
   await runEffect(installAppSchemaCandidateValidationEffect(
@@ -766,6 +767,7 @@ async function enablePhysicalBuilds(
   });
   await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
     deploymentId: fixture.input.deploymentId,
+    scopeId: fixture.input.scopeId,
     schemaVersionId,
   }));
   const requirements = await runEffect(
@@ -783,6 +785,7 @@ async function enablePhysicalBuilds(
         ports,
         {
           deploymentId: fixture.input.deploymentId,
+          scopeId: fixture.input.scopeId,
           indexDefinitionId: definition.indexDefinitionId,
           pageSize: 16,
         },

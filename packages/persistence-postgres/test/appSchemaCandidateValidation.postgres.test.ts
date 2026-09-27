@@ -52,6 +52,11 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
   it("serializes concurrent replacements behind the scope clock", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       const fixture = await fixtureFor(persistence, "concurrency");
+      await persistence.insertScopeMetadata({
+        deploymentId: fixture.deploymentId,
+        scopeId: ScopeIdSchema.make("scope_m03_pg_peer"),
+        physicalLocator: LOCATOR,
+      });
       await runEffect(installAppSchemaCandidateValidationEffect(
         port(fixture),
         input(fixture, fixture.schemaVersionId),
@@ -394,7 +399,7 @@ function portDependencies(fixture: Fixture) {
 }
 
 function input(fixture: Fixture, schemaVersionId: Fixture["schemaVersionId"]) {
-  return Object.freeze({ deploymentId: fixture.deploymentId, schemaVersionId });
+  return Object.freeze({ deploymentId: fixture.deploymentId, scopeId: fixture.scopeId, schemaVersionId });
 }
 
 function install(fixture: Fixture, schemaVersionId: Fixture["schemaVersionId"]) {
