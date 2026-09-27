@@ -136,8 +136,8 @@ approves a separate, private admitted Application and Product logical attempt
 for one authenticated scope and placement. It borrows the native journal and
 one pending view, runs selected real Product operations under their own domain
 authority, and settles one result and event intent with the Application writes.
-This profile is under implementation and has no public developer API or named
-environment activation. Existing Application, standalone framework and named
+This profile is implemented in isolated test scopes and has no public developer
+API or named-environment activation. Existing Application, standalone framework and named
 command profiles remain available to their actual callers.
 
 Explicit cross-domain atomic commands are an accepted target after the
@@ -303,7 +303,7 @@ work continues.
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted first Flarex/Cloudflare coordination adapter | One deterministic instance per scope, durable SQLite cursor/query/dependency state and Postgres catch-up composed around the separately owned portable Query Sync Engine semantics. |
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization | Add only after measurement and a gap-free freshness protocol. |
-| Private admitted mixed Application and Product attempt | Approved, in progress | One authenticated scope/placement, selected Product update and reads, one journal-backed pending view and final outcome. Its proof and activation gates are owned by the mixed-core roadmap. |
+| Private admitted mixed Application and Product attempt | Implemented private isolated proof | One authenticated scope/placement, selected Product update and reads, one journal-backed pending view and final outcome. Named-environment activation remains gated by the mixed-core roadmap. |
 | Generic or public atomic `ctx.db + ctx.cms + ctx.commerce` | Deferred | The private Product admission grants no general or public composition. Payload, workflow and developer API gates remain separate; cross-placement follow-up uses committed steps and durable coordination. |
 
 Replacement strategy is selected from shipped-state evidence:

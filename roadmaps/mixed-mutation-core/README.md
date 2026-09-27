@@ -10,6 +10,8 @@ specific scope, decisions, affected contracts and remaining gates. The implement
 [first Application and Product attempt](./01-application-product-attempt-preflight.md)
 uses the real Worker, Product service and shared journal/commit owners. It is
 not activated on a named durable environment and exposes no public authoring API.
+The [Payload Local API attempt](./02-payload-local-api-attempt-preflight.md) is
+the proposed next slice; it has no runtime implementation approval.
 
 The other shared-storage session has reviewed, validated and committed its
 active [exact-scope retained-history slice](../shared-logical-storage/56-same-deployment-scope-authority.md)
@@ -116,7 +118,7 @@ from this roadmap alone.
    lock behavior for that method. Refactor owner contracts and migrate affected
    native/framework callers together, removing displaced duplicate paths.
    Remaining storage work is imported only if this exact proof needs it.
-2. **Payload Local API lifecycle.** Admit selected real Local API CRUD with
+2. **[Payload Local API lifecycle](./02-payload-local-api-attempt-preflight.md) (proposed).** Admit selected real Local API create, update and find-by-ID with
    access, validation, nested same-request calls and a database-only hook into
    the same attempt. Define hook location, permitted capabilities, first-failure
    order, rollback-only and retry behavior before admission. Prove pending
