@@ -9,7 +9,7 @@ import { makePostgresFrameworkMigrationFixtureTarget } from "./frameworkMigratio
 import { makeCatalogControlSessionStarter } from "../src/catalogControlSession";
 import { makePostgresCatalogControlSessionDriver } from "../src/postgresCatalogControlSession";
 import { makeFrameworkSchemaArtifactRepository } from "../src/frameworkSchema/artifact/repository";
-import { exerciseBindingLifecycle } from "./frameworkDataBindingTestSupport";
+import { exerciseBindingLifecycle, exerciseExactBindingScope } from "./frameworkDataBindingTestSupport";
 import {
   exercisePhysicalBindings,
   exerciseBindingAvailabilityLimit,
@@ -25,6 +25,23 @@ describe.skipIf(postgresUrl === null)(
   "native private data bindings",
   { timeout: 180_000 },
   () => {
+    it("selects the exact binding scope when a deployment contains two shops", async () => {
+      await withTemporaryPostgresPersistencePair(async (control, target) => {
+        const schema = await target.query<{ schema: string }>("select current_schema() as schema");
+        const schemaName = schema.rows[0]?.schema;
+        if (schemaName === undefined) throw new Error("Missing target schema");
+        const fixture = await createApplicationNativeMutationPostgresFixture({
+          runtimeHostIdentity: "flarex.test/binding-host", compatibilityDate: "2026-09-05",
+          physicalLocator: { kind: "database_per_scope", databaseKey: "application_native_mutation_target", schemaName },
+        }, { control, target });
+        const migrationTarget = await makePostgresFrameworkMigrationFixtureTarget({
+          persistence: target, deploymentId: fixture.deploymentId,
+          canonicalPhysicalDatabaseIdentity: "native-binding-fixture",
+          physicalLocator: fixture.active.basis.authority.physicalLocator,
+        });
+        await exerciseExactBindingScope(fixture, migrationTarget.schema);
+      });
+    });
     it("proves the same binding lifecycle and physical evidence under an ordinary role", async () => {
       await withTemporaryPostgresPersistencePair(async (control, target) => {
         const schema = await target.query<{ schema: string }>(

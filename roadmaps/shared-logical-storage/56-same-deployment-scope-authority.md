@@ -2,9 +2,10 @@
 
 Status: the control catalog permits multiple scopes under one deployment, its
 deployment-only lookup refuses ambiguity, and the trusted relational command
-host and Application snapshot/query readers select an exact scope. Framework
-binding, Application activation/readiness and point-mutation entry points still
-use deployment-only selection and therefore refuse a multi-scope deployment.
+host, Application snapshot/query readers and framework data-binding host select
+an exact scope. Application activation/readiness, some binding readiness inputs,
+and point-mutation entry points still use deployment-only selection and therefore
+refuse a multi-scope deployment.
 Full Application/Payload/Medusa same-deployment isolation is not yet claimed.
 
 ## Preflight and selected contract
@@ -49,6 +50,16 @@ the exact revalidation. These consumers
 do not create the active selection, so activation/readiness remains the next
 functional gate before same-deployment Application serving is possible.
 
+The framework data-binding host now takes the trusted deployment/scope pair at
+construction and resolves only that exact scope through the common authority
+reader. Its private `deploymentId` input was replaced with `selection`; callers
+and fixture inputs moved together. A two-shop binding witness reaches the
+selected shop's missing binding head while a peer without provisioning fails
+for that peer's receipt, on PGlite and ordinary-role PostgreSQL. This proves
+selection before binding admission, not complete two-shop serving: the host's
+Application active selection and logical index/unique readiness still depend
+on deployment-only owners and fail closed until those owners migrate.
+
 ## Alternatives and remaining gate
 
 - Keeping one scope per deployment while storing many deployments in generic
@@ -59,7 +70,8 @@ functional gate before same-deployment Application serving is possible.
 - Copying scope checks into Medusa or Payload would duplicate core authority.
 
 Move the remaining deployment-only runtime owners together with their real
-caller-supplied authority: framework data binding and its readiness inputs,
+caller-supplied authority: framework binding's Application selection and
+readiness inputs,
 Application readiness/activation and point mutation, followed by Medusa/Payload
 commands. Their present deployment-only resolver must continue
 to refuse ambiguity until migrated, and then be removed with its mock ports

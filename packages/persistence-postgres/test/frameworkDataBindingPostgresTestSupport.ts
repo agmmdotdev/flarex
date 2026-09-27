@@ -13,7 +13,7 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { ApplicationNativeMutationPostgresFixture } from "./fixtures/applicationNativeMutationTestFixture";
 import { composeApplicationNativeMutationReadiness } from "./fixtures/applicationNativeMutationTestFixture";
 import { getScopeAuthorityProvisioningReceipt } from "../src/scopeAuthorityProvisioningReceipt";
-import type { TrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
+import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
 import {
   LOCATED_READ_COMMITTED_RUNNER_V1,
   isLocatedReadCommittedAttemptTargetV1,
@@ -49,7 +49,8 @@ export async function reopenBindingHost(
   runnerOptions: PostgresLocatedReadCommittedRunnerOptionsV1 = {},
   afterAcceptance?: () => Effect.Effect<void>,
 ) {
-  const authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> =
+  const authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
+    ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> =
     {
       scopeMetadata: control,
       provisioningReceipts: {
@@ -112,7 +113,7 @@ export async function reopenBindingHost(
   return runEffect(
     makeDataBindingHost({
       database: target.drizzle,
-      deploymentId: frame.application.deploymentId,
+      selection: { deploymentId: frame.application.deploymentId, scopeId: ScopeIdSchema.make(frame.application.scopeId) },
       target: schemaTarget,
       authority,
       application,

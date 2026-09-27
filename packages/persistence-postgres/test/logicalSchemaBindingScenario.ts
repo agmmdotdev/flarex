@@ -55,7 +55,8 @@ export const logicalSchemaBindingScenario = Effect.fn("LogicalSchemaBinding.scen
   if (reconciled.status !== "reconciled") throw new Error("Incomplete joint index requirements");
   const bindingTarget = (yield* makeFrameworkSchemaTarget({ database: target.drizzle, deploymentId,
     canonicalPhysicalDatabaseIdentity: "logical-binding-target", physicalLocator: fixture.active.basis.authority.physicalLocator }));
-  const input = { database: target.drizzle, deploymentId, target: bindingTarget, authority: authorityPorts,
+  const input = { database: target.drizzle,
+    selection: { deploymentId, scopeId: fixture.authority.scopeId }, target: bindingTarget, authority: authorityPorts,
     application: fixture.activation, logicalStorage: { controlDb: control.drizzle, schemaVersionId, unique: fixture.uniqueConstraintEligibility } };
   const host = (yield* makeDataBindingHost(input));
   const reference = (yield* host.readApplicationReference());

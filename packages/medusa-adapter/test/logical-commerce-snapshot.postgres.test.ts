@@ -286,7 +286,8 @@ describe.skipIf(postgresUrl === null)("logical commerce snapshots and publicatio
     "rejects a %s change before a logical Currency read reaches native work", async transition => {
       const entered = await Effect.runPromise(Deferred.make<void>());
       const release = await Effect.runPromise(Deferred.make<void>());
-      const bindingBase = { database: fixture.persistence.drizzle, deploymentId: fixture.deploymentId,
+      const bindingBase = { database: fixture.persistence.drizzle,
+        selection: { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId },
         target: fixture.bindingTarget, authority: fixture.application.authorityPorts,
         application: fixture.application.activation };
       const bindingInput = { ...bindingBase,

@@ -61,10 +61,14 @@ export async function payloadCollectionsScenario(persistence: PGliteFlarexPersis
   expect(fixture.relation.binding.tables.map(table => table.logicalName)).toEqual(["news", "news_items"]);
   const { profile, availability, table } = await installPayloadPreferenceFixture(persistence, target, fixture.deploymentId);
   const frame = { ...contentCandidate.frame, payloadLifecycle: { ...installationBindingReference(availability), profiles: [profile.profile] } };
-  const bindingInput = { database: persistence.drizzle, target, deploymentId: fixture.deploymentId,
+  const bindingInput = { database: persistence.drizzle, target,
+    deploymentId: fixture.deploymentId,
     authority: fixture.authorityPorts, application: fixture.relationActivation };
+  const exactBindingInput = { database: bindingInput.database, target: bindingInput.target,
+    selection: { deploymentId: bindingInput.deploymentId, scopeId: fixture.authority.scopeId },
+    authority: bindingInput.authority, application: bindingInput.application };
   for (const profiles of [undefined, { ...payloadProfiles }]) {
-    const forged = await runEffect(makeDataBindingHost({ ...bindingInput, ...(profiles === undefined ? {} : { payloadProfiles: profiles }) }));
+    const forged = await runEffect(makeDataBindingHost({ ...exactBindingInput, ...(profiles === undefined ? {} : { payloadProfiles: profiles }) }));
     expect(await runEffectFailure(forged.prepare(frame))).toMatchObject({ reason: "unsupportedProfile" });
   }
   const beforeBinding = await runEffect(bindings.withCurrent(readAdmittedDataBinding));

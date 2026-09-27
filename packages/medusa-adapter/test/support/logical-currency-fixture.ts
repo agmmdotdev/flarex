@@ -220,7 +220,8 @@ export async function logicalCurrencyFixture(
       deploymentId: application.deploymentId, canonicalPhysicalDatabaseIdentity: "logical-currency-target",
       physicalLocator: application.active.basis.authority.physicalLocator });
     const bindings = yield* makeDataBindingHost({ database: target.drizzle,
-      deploymentId: application.deploymentId, target: bindingTarget, authority: application.authorityPorts,
+      selection: { deploymentId: application.deploymentId, scopeId: application.authority.scopeId },
+      target: bindingTarget, authority: application.authorityPorts,
       application: application.activation, logicalStorage: { controlDb: control.drizzle, schemaVersionId,
         unique: application.uniqueConstraintEligibility } });
     const reference = yield* bindings.readApplicationReference();

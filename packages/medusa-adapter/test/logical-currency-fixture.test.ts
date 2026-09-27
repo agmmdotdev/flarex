@@ -37,7 +37,8 @@ describe("native Currency on the selected shared logical schema", () => {
     const cleanup: Array<() => Promise<void>> = [];
     try {
       const fixture = await logicalCurrencyFixture("pglite", close => cleanup.push(close));
-      const bindingBase = { database: fixture.persistence.drizzle, deploymentId: fixture.deploymentId,
+      const bindingBase = { database: fixture.persistence.drizzle,
+        selection: { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId },
         target: fixture.bindingTarget, authority: fixture.application.authorityPorts,
         application: fixture.application.activation };
       const input = { ...bindingBase,

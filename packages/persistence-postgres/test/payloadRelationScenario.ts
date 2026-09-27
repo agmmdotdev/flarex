@@ -305,7 +305,8 @@ export async function payloadRelationScenario(input: {
             changing = activator.activate({ revisionId: preparedRevision.publication.revisionId, expectedActiveHead: beforeActive.expectedActiveHead });
           } else {
             const retainedCandidate = await runEffect(bindings.prepare(beforeBinding.frame));
-            const rebinder = await runEffect(makeDataBindingHost({ database: db, deploymentId: fixture.deploymentId, target: preferenceTarget,
+            const rebinder = await runEffect(makeDataBindingHost({ database: db, target: preferenceTarget,
+              selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
               authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles,
               testOnly: { afterAcceptance: () => Effect.promise(holdChange) } }));
             changing = rebinder.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `race-binding-${first}`, retainedCandidate.sha256, beforeBinding.head));

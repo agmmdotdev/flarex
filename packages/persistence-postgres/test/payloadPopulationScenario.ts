@@ -213,7 +213,8 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
           } else {
             if (hostInput.payloadPreferenceTarget === undefined) throw new Error("Missing preference target");
             const candidate = await runEffect(bindings.prepare(beforeBinding.frame));
-            const rebinder = await runEffect(makeDataBindingHost({ database: persistence.drizzle, deploymentId: fixture.deploymentId,
+            const rebinder = await runEffect(makeDataBindingHost({ database: persistence.drizzle,
+              selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
               target: hostInput.payloadPreferenceTarget, authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles,
               testOnly: { afterAcceptance: () => Effect.promise(holdChange) } }));
             changing = rebinder.activate(dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, `population-binding-${first}`, candidate.sha256, beforeBinding.head));

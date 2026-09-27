@@ -1,6 +1,7 @@
 import { Effect, Result } from "effect";
 import { and, eq, sql } from "drizzle-orm";
 import { expect } from "vitest";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import {
   makeDataBindingHost,
   dataBindingActivationRequest,
@@ -37,13 +38,35 @@ export function bindingInput<
 ) {
   return {
     database: fixture.target.drizzle,
-    deploymentId: fixture.deploymentId,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
     target,
     authority: fixture.authorityPorts,
     application: fixture.activation,
   } satisfies DataBindingHostInput<
     Effect.Error<ReturnType<typeof fixture.activation.readActive>>
   >;
+}
+
+/** A second shop makes deployment-only lookup ambiguous; the binding host must
+ * still resolve the selected first scope before observing any binding head. */
+export async function exerciseExactBindingScope<
+  Persistence extends ApplicationNativeMutationPersistence,
+>(fixture: ApplicationNativeMutationFixture<Persistence>, target: FrameworkSchemaTarget) {
+  const peerScopeId = ScopeIdSchema.make("scope_binding_peer");
+  await fixture.control.insertScopeMetadata({
+    scopeId: peerScopeId,
+    deploymentId: fixture.deploymentId,
+    physicalLocator: fixture.active.basis.authority.physicalLocator,
+  });
+  const input = bindingInput(fixture, target);
+  const selected = await runEffect(makeDataBindingHost(input));
+  expect(await runEffectFailure(selected.withCurrent(readAdmittedDataBinding)))
+    .toMatchObject({ reason: "missingDependency" });
+  const peer = await runEffect(makeDataBindingHost({ ...input,
+    selection: { deploymentId: fixture.deploymentId, scopeId: peerScopeId },
+  }));
+  expect(await runEffectFailure(peer.withCurrent(readAdmittedDataBinding)))
+    .toMatchObject({ failure: { reason: "splitProvisioningReceiptMissing", scopeId: peerScopeId } });
 }
 
 /** Same deterministic contract on both drivers; native races are separate. One Application setup per scenario group. */

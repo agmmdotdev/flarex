@@ -27,7 +27,8 @@ export async function frameworkContentBindingScenario(persistence: PGliteFlarexP
     physicalLocator: active.basis.authority.physicalLocator,
   };
   const target = await runEffect(makeFrameworkSchemaTarget({ ...targetInput, database: persistence.drizzle }));
-  const input = { database: persistence.drizzle, deploymentId: fixture.deploymentId,
+  const input = { database: persistence.drizzle,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
     target, authority: fixture.authorityPorts, application: fixture.relationActivation };
   const host = await runEffect(makeDataBindingHost(input));
   const reference = await runEffect(host.readApplicationReference());

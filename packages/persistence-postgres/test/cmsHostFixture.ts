@@ -36,7 +36,8 @@ export async function cmsHostFixture(persistence: PGliteFlarexPersistence | Post
   const targetInput = { deploymentId: fixture.deploymentId, canonicalPhysicalDatabaseIdentity: "cms-host-fixture", physicalLocator: active.basis.authority.physicalLocator };
   const target = await runEffect(makeFrameworkSchemaTarget({ ...targetInput, database: persistence.drizzle }));
   const payloadProfiles = await runEffect(compiled === undefined ? makePayloadConformanceProfiles() : makePayloadContentProfiles(compiled));
-  const bindings = await runEffect(makeDataBindingHost({ database: persistence.drizzle, deploymentId: fixture.deploymentId, target,
+  const bindings = await runEffect(makeDataBindingHost({ database: persistence.drizzle,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId }, target,
     authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles }));
   const reference = await runEffect(bindings.readApplicationReference());
   const policy = fixture.relation.binding;

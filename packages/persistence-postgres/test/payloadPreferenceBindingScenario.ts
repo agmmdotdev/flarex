@@ -75,11 +75,13 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   const frame = { ...contentCandidate.frame, payloadLifecycle: lifecycle };
   const before = await runEffect(bindings.withCurrent(readAdmittedDataBinding));
   const candidate = await runEffect(bindings.prepare(frame));
-  const unprofiled = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target, deploymentId: fixture.deploymentId,
+  const unprofiled = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
     authority: fixture.authorityPorts, application: fixture.relationActivation }));
   expect(await runEffectFailure(unprofiled.prepare(frame))).toMatchObject({ reason: "unsupportedProfile" });
   const forgedProfiles: PayloadContentProfiles = Object.freeze({ ...payloadProfiles });
-  const forged = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target, deploymentId: fixture.deploymentId,
+  const forged = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
     authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles: forgedProfiles }));
   expect(await runEffectFailure(forged.prepare(frame))).toMatchObject({ reason: "unsupportedProfile" });
   const request = dataBindingActivationRequest(reference.scopeId, reference.storageGeneration, "activate-preferences", candidate.sha256, before.head);
@@ -87,7 +89,8 @@ export async function payloadPreferenceBindingScenario(persistence: PGliteFlarex
   await runEffect(bindings.activate(request));
   expect((await runEffect(bindings.withCurrent(readAdmittedDataBinding))).frame).toEqual(frame);
   expect(await runEffectFailure(forged.withCurrent(readAdmittedDataBinding))).toMatchObject({ reason: "unsupportedProfile" });
-  const cold = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target, deploymentId: fixture.deploymentId,
+  const cold = await runEffect(makeDataBindingHost({ database: persistence.drizzle, target,
+    selection: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId },
     authority: fixture.authorityPorts, application: fixture.relationActivation, payloadProfiles }));
   expect((await runEffect(cold.withCurrent(readAdmittedDataBinding))).frame).toEqual(frame);
   for (const changed of [{ ...frame, payloadContent: null }, { ...frame, payloadLifecycle: { ...lifecycle, profiles: [] } },

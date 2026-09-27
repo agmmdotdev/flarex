@@ -14,8 +14,10 @@ import {
 import { readApplicationBindingProjectionInTransaction, readApplicationBindingEvidenceInTransaction } from "../../applicationBindingProjection";
 import { verifyLogicalSchemaBindingInTransaction, type PreparedLogicalStorage } from "./logicalSchema";
 import {
-  captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+  type ExactTrustedScopeAuthorityResolutionPorts,
+  type TrustedScopeSelection,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityResolutionPorts,
 } from "../../scopeAuthorityResolution";
@@ -97,7 +99,7 @@ type LogicalStoragePreparationFailure = Effect.Error<ReturnType<typeof prepareLo
 export type DataBindingFailure<ApplicationFailure> =
   | ApplicationFailure
   | DataBindingError
-  | Effect.Error<ReturnType<typeof resolveLocatedTrustedScopeAuthorityEffect>>
+  | Effect.Error<ReturnType<typeof resolveLocatedTrustedScopeAuthorityByIdEffect>>
   | Effect.Error<ReturnType<typeof lockScopeClockForUpdateInTransactionEffect>>
   | Effect.Error<
       ReturnType<typeof readApplicationBindingProjectionInTransaction>
@@ -149,9 +151,10 @@ export interface DataBindingHostInput<ApplicationFailure> {
   readonly commerceProfiles?: readonly import("../../commerceTransaction/profile").CommerceProfile[];
   readonly payloadProfiles?: PayloadContentProfiles;
   readonly database: FlarexMetadataDatabase;
-  readonly deploymentId: string;
+  readonly selection: TrustedScopeSelection;
   readonly target: FrameworkSchemaTarget;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
+    TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly application: ApplicationBindingSelectionReader<ApplicationFailure>;
   readonly testOnly?: Readonly<{
     profiles?: DataBindingTestProfiles;
@@ -171,10 +174,11 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
     !hasFrameworkSchemaTargetDatabase(input.target, input.database)
   )
     return yield* Effect.fail(bindingError("invalidAuthority"));
+  const selection = Object.freeze({ ...input.selection });
   const snapshot = frameworkSchemaTargetSnapshot(input.target);
   if (
     snapshot === undefined ||
-    snapshot.namespace.frame.deploymentId !== input.deploymentId
+    snapshot.namespace.frame.deploymentId !== selection.deploymentId
   )
     return yield* Effect.fail(bindingError("placementMismatch"));
   const database = input.database;
@@ -183,8 +187,8 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
   const target = input.target;
   const commerceProfiles = yield* captureCommerceBindingProfiles(input.commerceProfiles ?? []);
   const payloadProfiles = input.payloadProfiles;
-  const deploymentId = input.deploymentId;
-  const authorityPorts = captureTrustedScopeAuthorityResolutionPorts(
+  const deploymentId = selection.deploymentId;
+  const authorityPorts = captureExactTrustedScopeAuthorityResolutionPorts(
     input.authority,
   );
   const application = input.application;
@@ -193,8 +197,8 @@ export const makeDataBindingHost = Effect.fn("DataBindingHost.make")(function* <
   const afterAcceptance = input.testOnly?.afterAcceptance;
 
   const resolve = Effect.fn("DataBindingHost.resolve")(function* () {
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-      deploymentId,
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      selection,
       authorityPorts,
     );
     if (

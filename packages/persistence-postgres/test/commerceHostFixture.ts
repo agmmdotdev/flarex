@@ -64,7 +64,8 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
     identityAndAccessPolicy: { profile: "commerce-test" }, commands };
   const local = localPolicy === undefined ? undefined : await runEffect(makeLocalCommerceHost(hostInput, localPolicy(descriptor)));
   const host = local?.host ?? await runEffect(makeCommerceHost(hostInput));
-  const bindingsInput = { database: persistence.drizzle, target: base.target, deploymentId: base.fixture.deploymentId,
+  const bindingsInput = { database: persistence.drizzle, target: base.target,
+    selection: { deploymentId: base.fixture.deploymentId, scopeId: base.fixture.authority.scopeId },
     authority: base.fixture.authorityPorts, application: base.fixture.relationActivation, commerceProfiles: [...existing?.bindingsInput.commerceProfiles ?? [], prepared.profile] };
   const bindings = await runEffect(makeDataBindingHost(bindingsInput));
   const commerce = await runEffect(makeCommerceBinding(availability, [prepared.profile]));
