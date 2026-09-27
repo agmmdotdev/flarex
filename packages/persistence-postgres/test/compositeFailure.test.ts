@@ -7,6 +7,7 @@ import { LogicalRelationalAdmissionError } from "../src/logicalDocuments/relatio
 import { LogicalStorageDefinitionError } from "../src/logicalStorageDefinitions";
 import { IndexBuildStatePersistenceError } from "../src/indexBuildStates";
 import { DataBindingError } from "../src/frameworkSchema/binding/errors";
+import { TrustedScopeAuthorityPortError, TrustedScopeAuthorityResolutionError } from "../src/scopeAuthorityResolution";
 
 it("retains publication corruption and resource categories through both root boundaries", () => {
   const cases = [
@@ -31,6 +32,7 @@ it("retains selected-source provider outages as resource failures", () => {
     new LogicalStorageDefinitionError({ reason: "resourceFailure", cause: provider }),
     new IndexBuildStatePersistenceError("readRequiredIndexBuildStates", provider),
     new DataBindingError({ reason: "resourceFailure", cause: provider }),
+    new TrustedScopeAuthorityPortError({ operation: "scopeMetadataRead", cause: provider }),
   ]) {
     const failure = projectCompositeFailure(cause);
     expect(failure).toMatchObject({ _tag: "CompositeCommandError", reason: "resourceFailure" });
@@ -38,6 +40,9 @@ it("retains selected-source provider outages as resource failures", () => {
   }
   expect(projectCompositeFailure(new DataBindingError({ reason: "invalidAuthority" })))
     .toMatchObject({ reason: "invalidAuthority" });
+  expect(projectCompositeFailure(new TrustedScopeAuthorityResolutionError({
+    reason: "scopeMetadataMissing", deploymentId: "missing-deployment",
+  }))).toMatchObject({ reason: "invalidAuthority" });
 });
 
 it("retains unsupported source profiles through the composite boundary", () => {

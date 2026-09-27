@@ -24,6 +24,7 @@ import { LogicalSchemaAdmissionEvidenceError } from "../logicalSchemaAdmissionEv
 import { SchemaVersionArtifactPersistenceError } from "../schemaVersionArtifacts";
 import { StableTableIdentityPersistenceError } from "../stableTableCatalog";
 import { DataBindingError } from "../frameworkSchema/binding/errors";
+import { TrustedScopeAuthorityPortError } from "../scopeAuthorityResolution";
 
 export class CompositeCommandError extends Data.TaggedError("CompositeCommandError")<{
   readonly reason: RequestFailureReason | "unsupportedProfile" | "storedCorruption" | "requestConflict" | "resultUnavailable" | "decisionUncertain" | "resourceFailure";
@@ -42,7 +43,7 @@ export function projectCompositeFailure(cause: unknown): CompositeFailure {
     cause instanceof LogicalSchemaAdmissionEvidenceError || cause instanceof IndexMaintenanceError ||
     cause instanceof DataBindingError || cause instanceof LogicalDocumentSourceAdmissionError) &&
     cause.reason === "resourceFailure") return compositeError("resourceFailure", cause);
-  if (cause instanceof AppUniqueConstraintSetClosureResourceError || cause instanceof AppUniqueConstraintSetClosurePersistenceV1Error ||
+  if (cause instanceof TrustedScopeAuthorityPortError || cause instanceof AppUniqueConstraintSetClosureResourceError || cause instanceof AppUniqueConstraintSetClosurePersistenceV1Error ||
     cause instanceof AppUniqueConstraintSetBuildIntegrationV1Error || cause instanceof AppUniqueConstraintCatalogPersistenceError ||
     cause instanceof AppIndexDefinitionReadPersistenceError || cause instanceof AppSchemaVersionIndexBindingPersistenceError ||
     cause instanceof IndexBuildStatePersistenceError || cause instanceof StableTableIdentityPersistenceError ||

@@ -20,6 +20,7 @@ import { postgresFailureCode } from "../../persistence-postgres/test/postgresFai
 import { prepareNativeApplicationJournalOnLogicalScope } from
   "../../persistence-postgres/test/nativeApplicationJournalOnLogicalScope";
 import { PointCommitConflictV1Error } from "../../persistence-postgres/src/pointCommitTransaction";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 const causedBy = (value: unknown, expected: Error): boolean => {
   for (let depth = 0; depth < 8; depth++) {
@@ -42,6 +43,12 @@ describe("selected logical Currency announcement", () => {
       const cleanup: Array<() => Promise<void>> = [];
       try {
         const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close));
+        const peerScopeId = ScopeIdSchema.make(`scope_currency_announcement_peer_${driver}`);
+        await fixture.control.insertScopeMetadata({
+          deploymentId: fixture.deploymentId,
+          scopeId: peerScopeId,
+          physicalLocator: fixture.application.active.basis.authority.physicalLocator,
+        });
         await Effect.runPromise(Effect.scoped(Effect.fn("LogicalCurrencyAnnouncement.scenario")(function* () {
           const acquireHost = <Failure>(hostInput: CurrencyAnnouncementHostInput<Failure>,
             hooks?: CurrencyAnnouncementTestHooks) => Effect.acquireRelease(
@@ -57,12 +64,18 @@ describe("selected logical Currency announcement", () => {
           const input = { hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
             database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,
             session: fixture.session, deploymentId: fixture.deploymentId,
+            scopeId: fixture.application.authority.scopeId,
             authority: fixture.application.authorityPorts, application: fixture.application.activation,
             identityAndAccessPolicy: { profile: "logical-currency-announcement" }, materialization: {},
             expectedContentIdentity: compiled.contentIdentity, currency: fixture.hostInput.logicalStorage,
             applicationSource: fixture.applicationSource, payloadSource: compiled.sourceContract,
             currencyCommand: currencyAnnouncementWrite, cmsCommand, applicationTable: "users" };
           const before = yield* Effect.promise(() => logicalCurrencyInventory(fixture));
+          const peerFailure = yield* Effect.flip(makeCurrencyAnnouncementHost({ ...input, scopeId: peerScopeId }));
+          expect(peerFailure)
+            .toMatchObject({ reason: "invalidAuthority",
+              cause: { failure: { reason: "splitProvisioningReceiptMissing", scopeId: peerScopeId } } });
+          expect(yield* Effect.promise(() => logicalCurrencyInventory(fixture))).toEqual(before);
           const host = yield* (acquireHost(input));
 
           const args = { currency: { code: "zzz", name: "Joint announcement", symbol: "Z", symbol_native: "Z" },
@@ -321,6 +334,7 @@ describe("selected logical Currency announcement", () => {
           const input = { hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
             database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,
             session: fixture.session, deploymentId: fixture.deploymentId,
+            scopeId: fixture.application.authority.scopeId,
             authority: fixture.application.authorityPorts, application: fixture.application.activation,
             identityAndAccessPolicy: { profile: "logical-native-payload-announcement" }, materialization: {},
             expectedContentIdentity: compiled.contentIdentity, currency: fixture.hostInput.logicalStorage,

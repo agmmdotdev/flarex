@@ -6,7 +6,8 @@ host, Application snapshot/query readers, framework data-binding host,
 Application readiness/activation, the selected point-mutation lifecycle,
 managed-schema candidate validation/planning/application, and ordered-index
 and unique-set builds, relation builds, and physical-definition lifecycle
-subjects resolve an exact scope. Some other binding/readiness inputs and
+subjects, plus the private three-source Currency announcement host, resolve an
+exact scope. Some other binding/readiness inputs and
 framework command paths still use deployment-only selection and
 therefore refuse a multi-scope deployment.
 Full Application/Payload/Medusa same-deployment isolation is not yet claimed.
@@ -118,6 +119,20 @@ clock is refused. Affected private input and fixture callers moved together.
 Deployment-only selection remains for named runtime hosts and provisioning
 paths; remove that resolver only after their callers receive exact authority.
 
+The private Currency announcement host now receives a scope selected by its
+trusted composition owner and resolves it through the control catalog before
+preparing Application, Payload and logical Currency admissions. Each command
+attempt and uncertain-outcome retry revalidates that same scope. Its PGlite
+and ordinary-role PostgreSQL witnesses add an unprovisioned peer under the
+same deployment: preparation refuses that peer for its missing provisioning
+receipt, while the selected host commits and replays its three-source command
+through one publication. A control-catalog read failure is a resource failure;
+a resolved authority mismatch remains an invalid-authority failure. This
+breaks only the private host input and its two
+fixture callers; neither request data nor durable outcome format changes.
+Standalone commerce, CMS and atomic command hosts retain their named exact-
+selection cutover gates.
+
 ## Alternatives and remaining gate
 
 - Keeping one scope per deployment while storing many deployments in generic
@@ -128,8 +143,8 @@ paths; remove that resolver only after their callers receive exact authority.
 - Copying scope checks into Medusa or Payload would duplicate core authority.
 
 Move the remaining deployment-only runtime owners together with their real
-caller-supplied authority: binding's other readiness inputs and Medusa/Payload
-command hosts. Their present deployment-only resolver must continue to refuse
+caller-supplied authority: binding's other readiness inputs and standalone
+Medusa/Payload command hosts. Their present deployment-only resolver must continue to refuse
 ambiguity until migrated, and then be removed with its mock ports and fixtures.
 The normal provisioning path also still creates or reuses one
 scope per deployment; a multi-shop provisioning identity and idempotent

@@ -917,7 +917,7 @@
     {
       "target": "packages/medusa-adapter/test/currency-announcement.test.ts",
       "classification": "authored",
-      "targetSha256": "43c0749fb5a7edb250a460404c1999963faa457a01302963e65e7cb670beb9d0"
+      "targetSha256": "207f084968a4018665eabb7377b1cfb3f802fab1b6a3136d1b8d3a6ce0e5af1e"
     },
     {
       "target": "packages/medusa-adapter/test/currency-input.json",
@@ -4346,7 +4346,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-cross-source-admission.test.ts",
       "classification": "authored",
-      "targetSha256": "f8e3c969e9cccd75cb18f9c1b4dc4cd5822978716132d12e2cd64c57be463332"
+      "targetSha256": "cbb6e58dc43318367a17fb8caa553622e375a18ddf583a297a0b113654ea4188"
     },
     {
       "target": "packages/medusa-adapter/test/logical-commerce-snapshot.postgres.test.ts",

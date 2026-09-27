@@ -30,8 +30,10 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import { chargeHostPreparation, retainPreparedHost, type PreparedHostRuntime } from "../preparedHostRuntime";
 import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
-import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect,
+import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import { getScopeMetadata } from "../scopeMetadata";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
@@ -49,6 +51,8 @@ export interface CurrencyAnnouncementHostInput<Failure> {
   readonly controlDatabase: FlarexMetadataDatabase;
   readonly session: RelationalSession;
   readonly deploymentId: string;
+  /** Selected by the trusted host owner, never by command arguments. */
+  readonly scopeId: ScopeId;
   readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly application: ApplicationBindingSelectionReader<Failure>;
   readonly identityAndAccessPolicy: Json;
@@ -69,6 +73,7 @@ const captureLogicalHostInput = <Failure>(input: CurrencyAnnouncementHostInput<F
     controlDatabase: input.controlDatabase,
     session: input.session,
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     application: input.application,
     applicationTable: input.applicationTable,
     bindingMatches: hasApplicationBindingComposition(input.application, input.authority),
@@ -98,7 +103,7 @@ export const makeCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.make
 
 const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.composeLogical")(
   function* <Failure>(input: ReturnType<typeof captureLogicalHostInput<Failure>>) {
-    const { database, controlDatabase, session, deploymentId, application, applicationTable } = input;
+    const { database, controlDatabase, session, deploymentId, scopeId, application, applicationTable } = input;
     const { authority, currencySelectionInput, applicationSourceInput, payloadSourceInput,
       accessPolicyInput, expectedContent, materialization, testHooks, currencyCommand, cmsCommand } = input;
     if (currencyCommand?.name !== "currencyAnnouncementWrite" || currencyCommand.mode !== "write" ||
@@ -116,7 +121,10 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
     const identity = yield* canonicalizeSuccessfulResultV1Effect(accessPolicy);
     const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(
       yield* hashCurrencyAnnouncement(identity.canonicalBytes));
-    const locatedAtPreparation = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
+    const exactAuthority = { ...authority,
+      scopeMetadata: { getScopeMetadata: (selected: ScopeId) => getScopeMetadata(controlDatabase, selected) } };
+    const locatedAtPreparation = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      { deploymentId, scopeId }, exactAuthority);
     const coordinates = { deploymentId, scopeId: locatedAtPreparation.authority.scopeId,
       schemaVersionId: selection.schemaVersionId };
     const preparedApplication = yield* prepareLogicalApplicationSourceAdmission(selection.ports,
@@ -132,7 +140,8 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
     const run = Effect.fn("CurrencyAnnouncement.runLogical")(function* (requestKey: string, args: Json) {
       const request = yield* captureCurrencyAnnouncementRequest(requestKey, args);
       const attempt = Effect.fn("CurrencyAnnouncement.attemptLogical")(function* (recoverOnly: boolean) {
-        const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
+        const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+          { deploymentId, scopeId }, exactAuthority);
         if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
           return yield* Effect.fail(compositeError("invalidAuthority"));
         const active = yield* prepareApplicationBindingSelection(application);
