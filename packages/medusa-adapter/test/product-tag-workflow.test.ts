@@ -5,6 +5,7 @@ import { expireEventClaims, makeEventRetriesDue, corruptEventCount, replaceEvent
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result, Schema } from "effect";
 import { createStep, createWorkflow, WorkflowResponse, type WorkflowData } from "@medusajs/workflows-sdk";
 import type { Json } from "flarex-protocol/json";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { prepareProductTagWorkflow, type ProductTagWorkflowHooks } from "../src/product-tag-workflow";
 import { currencyCommands, currencyWorkflowModule } from "../src/currency-service";
 import { captureProductSchema } from "../src/product-schema";
@@ -617,4 +618,46 @@ describe("native Medusa Product-tag workflow and committed events", () => {
     expect(await explainSparseEventDirectory(fixture.currency.persistence, observed, latest)).toContain("fx_commit_event_directory_idx");
     expect(await inventory()).toEqual(before);
   }, 30_000);
+
+  it("delivers only the trusted scope after a second shop enters the deployment", async () => {
+    const workflow = await assemble(undefined, "selected-event-scope");
+    const priorCommit = (await inventory()).logical.commits.at(-1)?.commitSeq ?? 0n;
+    const peerScopeId = ScopeIdSchema.make(`scope_event_delivery_peer_${driver}`);
+    await fixture.currency.control.insertScopeMetadata({
+      deploymentId: fixture.currency.deploymentId,
+      scopeId: peerScopeId,
+      physicalLocator: fixture.currency.application.active.basis.authority.physicalLocator,
+    });
+    const key = workflow.host.newRequestKey();
+    await runEffect(workflow.host.run(key, args("selected-event-scope")));
+
+    const peer = await runEffect(makeCommitEventStore({ ...fixture.currency.hostInput, scopeId: peerScopeId }));
+    expect(await runEffectFailure(peer.nextCommit(priorCommit))).toMatchObject({
+      reason: "invalidAuthority",
+      cause: { failure: { reason: "splitProvisioningReceiptMissing", scopeId: peerScopeId } },
+    });
+    const failedMessages: CommitEventMessage[] = [];
+    const peerPump = await runEffect(makeCommitEventPump({ ...fixture.currency.hostInput, scopeId: peerScopeId }, handlers(failedMessages)));
+    expect(await runEffectFailure(peerPump.runNext(priorCommit))).toMatchObject({ reason: "invalidAuthority" });
+    expect(failedMessages).toEqual([]);
+
+    const messages: CommitEventMessage[] = [];
+    const pump = await runEffect(makeCommitEventPump(fixture.currency.hostInput, handlers(messages)));
+    const delivered = await runEffect(pump.runNext(priorCommit));
+    expect(delivered.delivered).toBe(4);
+    expect(messages.filter(message => message.envelope.group === key)).toHaveLength(4);
+    expect(await runEffect(pump.runNext(priorCommit))).toMatchObject({ delivered: 0 });
+    expect(messages).toHaveLength(4);
+
+    const unavailable = await runEffect(makeCommitEventStore({ ...fixture.currency.hostInput,
+      authority: { ...fixture.currency.hostInput.authority,
+        scopeMetadata: { getScopeMetadata: async () => { throw new Error("Catalog unavailable"); } } } }));
+    expect(await runEffectFailure(unavailable.nextCommit(priorCommit))).toMatchObject({ reason: "resourceFailure" });
+    const missingTarget = await runEffect(makeCommitEventStore({ ...fixture.currency.hostInput,
+      authority: { ...fixture.currency.hostInput.authority,
+        scopeClockTargets: { resolve: async () => { throw new Error("Target unavailable"); } } } }));
+    expect(await runEffectFailure(missingTarget.nextCommit(priorCommit))).toMatchObject({
+      reason: "resourceFailure", cause: { failure: { reason: "scopeClockTargetResolutionFailed" } },
+    });
+  }, 60_000);
 });

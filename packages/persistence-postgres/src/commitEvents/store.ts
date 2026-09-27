@@ -1,11 +1,13 @@
 import { and, asc, eq, gt, lte, or, sql } from "drizzle-orm";
 import { Effect, Option, Schema } from "effect";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import { projectScopeIdUuidV1Result, projectScopeEpochUuidV1Result, MAX_PERSISTED_SIGNED_INT64_V1, type CommitSeq } from "flarex-protocol/storage-authority";
+import { projectScopeIdUuidV1Result, projectScopeEpochUuidV1Result, MAX_PERSISTED_SIGNED_INT64_V1, type CommitSeq, type ScopeId } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { FlarexMetadataDatabase } from "../deployments";
 import { capturePrivateJsonData } from "../privateJsonData";
-import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect, type TrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect,
+  TrustedScopeAuthorityPortError, TrustedScopeAuthorityResolutionError,
+  type ExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1, type LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { hasRelationalSessionDatabase, runRelationalSession, type RelationalSession } from "../relationalTransaction/session";
 import { lockScopeClockForShareInTransactionEffect } from "../scopeClock";
@@ -22,7 +24,8 @@ export interface CommitEventStoreInput {
   readonly database: FlarexMetadataDatabase;
   readonly session: RelationalSession;
   readonly deploymentId: string;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+  readonly scopeId: ScopeId;
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly observeQuery?: (query: CommitEventQuery) => void;
 }
 type Delivery = typeof fxSystemCommitEventDeliveries.$inferSelect;
@@ -40,16 +43,19 @@ const sameDelivery = (row: Delivery) => and(sameCommit(fxSystemCommitEventDelive
 
 /** Dynamic scope host. Claims retain data only; every operation reacquires authority and a short session. */
 export const makeCommitEventStore = Effect.fn("CommitEvents.makeStore")(function* (input: CommitEventStoreInput) {
-  const { database, session, deploymentId, observeQuery } = input;
+  const { database, session, deploymentId, scopeId, observeQuery } = input;
   if (!hasRelationalSessionDatabase(session, database)) return yield* Effect.fail(eventError("invalidAuthority"));
-  const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
+  const authority = captureExactTrustedScopeAuthorityResolutionPorts(input.authority);
   const claims = new WeakMap<object, Delivery>();
   const verifiedFamilies = new WeakMap<object, { readonly pins: Pick<Delivery, "scopeUuid" | "epochUuid" | "commitSeq">;
     readonly events: readonly (typeof fxSystemCommitEvents.$inferSelect)["envelope"][];
     cursor?: { readonly ordinal: number; readonly subscriberId: string } }>();
   const transact = Effect.fn("CommitEvents.transaction")(function* <A>(work: (tx: FlarexMetadataTransaction,
     pins: Pick<Delivery, "scopeUuid" | "epochUuid">, now: Date, lastCommitSeq: CommitSeq) => Effect.Effect<A, CommitEventError>) {
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority).pipe(
+      Effect.mapError(cause => eventError(cause instanceof TrustedScopeAuthorityPortError ||
+        (cause instanceof TrustedScopeAuthorityResolutionError && cause.failure.reason === "scopeClockTargetResolutionFailed")
+        ? "resourceFailure" : "invalidAuthority", cause)));
     if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(eventError("invalidAuthority"));
     const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(located.authority.scopeId)).pipe(Effect.mapError(cause => eventError("invalidAuthority", cause)));
     return yield* runRelationalSession(session, "command", tx => Effect.gen(function* () {

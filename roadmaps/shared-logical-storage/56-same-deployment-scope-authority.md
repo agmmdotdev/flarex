@@ -7,8 +7,8 @@ Application readiness/activation, the selected point-mutation lifecycle,
 managed-schema candidate validation/planning/application, and ordered-index
 and unique-set builds, relation builds, and physical-definition lifecycle
 subjects, plus the private three-source Currency announcement host and the
-standalone and atomic commerce command hosts, and the CMS command host resolve
-an exact scope. Some other binding/readiness inputs and framework command paths
+standalone and atomic commerce command hosts, the CMS command host, and
+commit-event delivery resolve an exact scope. Some other binding/readiness inputs and framework command paths
 still use deployment-only selection and therefore refuse a multi-scope deployment.
 Full Application/Payload/Medusa same-deployment isolation is not yet claimed.
 
@@ -151,8 +151,14 @@ A PGlite and ordinary-role PostgreSQL Local API witness inserts an
 unprovisioned peer under the same deployment, refuses its host, then creates,
 reads and replays a selected-scope document through a newly bound Payload host.
 This proves the selected CMS command path, not peer provisioning or complete
-multi-shop Payload serving. Commit-event delivery retains its own exact-selection
-cutover gate.
+multi-shop Payload serving. The private commit-event store and repair pump now
+require a trusted `(deploymentId, scopeId)` selection and revalidate that exact
+scope before each short transaction. An unprovisioned peer in the same deployment
+cannot discover, claim, or deliver the selected scope's events; metadata-read
+and target-location outages are resource failures. The selected native Product-tag event path
+still delivers and replays after the peer is added. The shared test fixture
+retains both metadata reader ports for its named retained-history maintenance
+consumer until that owner's exact-selection cutover.
 
 ## Alternatives and remaining gate
 
@@ -164,8 +170,8 @@ cutover gate.
 - Copying scope checks into Medusa or Payload would duplicate core authority.
 
 Move the remaining deployment-only runtime owners together with their real
-caller-supplied authority: binding's other readiness inputs, commit-event
-delivery, and retained-history maintenance. Their present deployment-only
+caller-supplied authority: binding's other readiness inputs and retained-history
+maintenance. Their present deployment-only
 resolver must continue to refuse ambiguity until migrated, and then be removed
 with its mock ports and fixtures.
 The normal provisioning path also still creates or reuses one
