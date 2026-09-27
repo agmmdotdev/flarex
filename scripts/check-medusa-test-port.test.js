@@ -14,14 +14,16 @@ describe("maintained Medusa test ports", () => {
     const original = readFileSync(new URL("../third_party/medusa/upstream/packages/core/types/src/pricing/service.ts", import.meta.url), "utf8");
     const selected = readFileSync(new URL("../packages/medusa-adapter/src/pricing-service.ts", import.meta.url), "utf8");
     expect(() => verifyPricingWorkflowSelection(original, selected)).not.toThrow();
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace('methods: { createPriceSets, createPriceLists }', 'methods: {}'))).toThrow();
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace('methods: { createPriceSets, createPriceLists }', 'methods: { createPriceSets, createPriceLists, calculatePrices }'))).toThrow();
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace('methods: { createPriceSets, createPriceLists }', 'methods: { createPriceLists }'))).toThrow();
-    expect(() => verifyPricingWorkflowSelection(original, selected.replace('methods: { createPriceSets, createPriceLists }', 'methods: { createPriceSets }'))).toThrow();
+    const methods = 'methods: { createPriceSets, createPriceLists, createPricePreferences }';
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: {}'))).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists, createPricePreferences, calculatePrices }'))).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceLists, createPricePreferences }'))).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPricePreferences }'))).toThrow();
+    expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods, 'methods: { createPriceSets, createPriceLists }'))).toThrow();
     for (const override of ['...{ methods: { calculatePrices } }', '["methods"]: { calculatePrices }',
       'get methods() { return { calculatePrices }; }', 'methods']) {
-      expect(() => verifyPricingWorkflowSelection(original, selected.replace('methods: { createPriceSets, createPriceLists }',
-        `methods: { createPriceSets, createPriceLists }, ${override}`))).toThrow();
+      expect(() => verifyPricingWorkflowSelection(original, selected.replace(methods,
+        `${methods}, ${override}`))).toThrow();
     }
   });
   it("preserves all selected Pricing statements and the actual rule-bearing seed", () => {

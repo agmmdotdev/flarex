@@ -64,9 +64,10 @@ export function prepareScalarRepository(table: SchemaTable, modelName: string, w
           : { kind: "database", countAt: "afterPopulation" },
       } satisfies ReadPlan;
     });
-    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
+    const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner,
+      sharedEvents = commerceMutationEvents(owner)) => {
       const bridge = commerceRepositoryContext(root, owner);
-      const events = commerceMutationEvents(owner);
+      const events = sharedEvents;
       const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
       const find = Effect.fn("ScalarRepository.find")(function* (ctx: CommerceCommandContext, input: unknown, withCount: boolean) {
         const value = yield* Effect.fromResult(captureCommerceInput(input, ctx.resources));

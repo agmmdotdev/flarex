@@ -59,6 +59,9 @@ remain distinct from logical schema evolution.
   native calculated-PriceSet read and a finite persisted PriceList sale/override,
   status and date matrix have dual-driver proofs; full calculated-query
   acceptance remains gated.
+  Selected native PricePreference creation now supplies the indexed calculated
+  tax preference with module events and replay; update/upsert/delete remain gated
+  under [PricePreference creation](./57-native-price-preference-create-cutover.md).
   The connected [Currency cutover](./10-currency-storage-cutover.md) is in progress;
   its native and atomic consumers use shared storage. A selected-source private
   announcement now combines native Currency, Payload and Application writes in

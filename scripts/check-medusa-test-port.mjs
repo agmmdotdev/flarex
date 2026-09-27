@@ -50,7 +50,7 @@ export function verifyPricingWorkflowSelection(source, target) {
   const declaration = contract.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === "IPricingModuleService");
   if (declaration === undefined || !ts.isInterfaceDeclaration(declaration)) throw new Error("Missing native Pricing interface");
   const methods = new Set(declaration.members.filter(ts.isMethodSignature).map(member => member.name.getText(contract)));
-  if (!methods.has("createPriceSets") || !methods.has("createPriceLists"))
+  if (!methods.has("createPriceSets") || !methods.has("createPriceLists") || !methods.has("createPricePreferences"))
     throw new Error("Missing native Pricing creation methods");
   const adapter = ts.createSourceFile("adapter.ts", target, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
   /** @type {ts.CallExpression[]} */
@@ -71,12 +71,12 @@ export function verifyPricingWorkflowSelection(source, target) {
   const selected = input !== undefined && ts.isObjectLiteralExpression(input)
     ? input.properties.filter(ts.isPropertyAssignment).filter(property => property.name.getText(adapter) === "methods") : [];
   const initializer = selected[0]?.initializer;
-  if (selections.length !== 1 || selected.length !== 1 || initializer === undefined ||
-    !ts.isObjectLiteralExpression(initializer) || initializer.properties.length !== 2 ||
-    initializer.properties.some(property => !ts.isShorthandPropertyAssignment(property)) ||
-    new Set(initializer.properties.map(property => property.name.getText(adapter))).size !== 2 ||
-    !initializer.properties.some(property => property.name.getText(adapter) === "createPriceSets") ||
-    !initializer.properties.some(property => property.name.getText(adapter) === "createPriceLists"))
+  const selectedMethods = initializer !== undefined && ts.isObjectLiteralExpression(initializer)
+    ? initializer.properties.map(property => ts.isShorthandPropertyAssignment(property) ? property.name.text : null) : [];
+  if (selections.length !== 1 || selected.length !== 1 || selectedMethods.length !== 3 ||
+    selectedMethods.includes(null) || new Set(selectedMethods).size !== 3 ||
+    !selectedMethods.includes("createPriceSets") || !selectedMethods.includes("createPriceLists") ||
+    !selectedMethods.includes("createPricePreferences"))
     throw new Error("Unadmitted native Pricing workflow selection");
 }
 

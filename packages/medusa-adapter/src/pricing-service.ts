@@ -18,11 +18,12 @@ import { defineWorkflowModule, defineWorkflowMethod } from "./workflow/module";
 import { moduleAliases } from "./local-graph/module";
 import { decodeGraphCount } from "./local-graph/query";
 import type { GraphModuleDefinition } from "./local-graph/model";
-import { PriceSetsInput, PriceListsInput, PricingId, decodePriceSetCreate, decodePriceListCreate, decodePriceSetRead, decodePriceSetRetrieve } from "./pricing-input";
+import { PriceSetsInput, PriceListsInput, PricePreferencesInput, PricingId, decodePriceSetCreate, decodePriceListCreate, decodePricePreferenceCreate, decodePriceSetRead, decodePriceSetRetrieve } from "./pricing-input";
 import { decodePricingCalculation } from "./pricing-calculation";
 import { pricingLogicalCreateEventPolicy } from "./pricing-events";
 const decodeCreateArguments = commerceDecoder(Schema.Tuple([PriceSetsInput]), "invalidInput");
 const decodeCreateListArguments = commerceDecoder(Schema.Tuple([PriceListsInput]), "invalidInput");
+const decodeCreatePreferenceArguments = commerceDecoder(Schema.Tuple([PricePreferencesInput]), "invalidInput");
 
 export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(function* () {
   const metadata = yield* capturePricingMetadata();
@@ -51,6 +52,7 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
         const container = { ...dependencies, [Modules.EVENT_BUS]: binding.eventBus };
         const native = new PricingModuleService(container, { scope: "internal" });
         return { service: { createPriceSets: native.createPriceSets.bind(native), createPriceLists: native.createPriceLists.bind(native),
+          createPricePreferences: native.createPricePreferences.bind(native),
           listPriceSets: native.listPriceSets.bind(native),
           retrievePriceSet: native.retrievePriceSet.bind(native), listAndCountPriceSets: native.listAndCountPriceSets.bind(native),
           calculatePrices: native.calculatePrices.bind(native) }, context };
@@ -70,6 +72,8 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
         return { ...fields, prices: prices.map(price => ({ ...price })),
           ...(rules === undefined ? {} : { rules: { region_id: [...rules.region_id] } }) };
       }) as PricingTypes.CreatePriceListDTO[], context));
+    const createPreference = commands.write("pricingCreatePreference", prepare(decodePricePreferenceCreate),
+      ({ service, context }, data) => service.createPricePreferences(data.map(preference => ({ ...preference })), context));
     const list = commands.read("pricingList", prepare(decodePriceSetRead), ({ service, context }, args) => service.listPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
     const count = commands.read("pricingCount", prepare(decodePriceSetRead), ({ service, context }, args) => service.listAndCountPriceSets(args.filters as FilterablePriceSetProps | undefined, args.config as FindConfig<PriceSetDTO> | undefined, context));
     const retrieve = commands.read("pricingRetrieve", prepare(decodePriceSetRetrieve), ({ service, context }, args) => service.retrievePriceSet(args.id, args.config as FindConfig<PriceSetDTO> | undefined, context));
@@ -91,10 +95,18 @@ export const makeLocalPricingCommands = Effect.fn("PricingAdapter.commands")(fun
       moduleEvents: ["price_list", "price", "price_list_rule"].map(objectName =>
         buildModuleResourceEventName({ prefix: Modules.PRICING, objectName, action: "created" })),
     });
-    const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description,
-      methods: { createPriceSets, createPriceLists }, graph,
-      logical: { ...pricingLogicalCreateEventPolicy(), commands: [create, createList, list, count, retrieve, calculate] },
+    const createPricePreferences = yield* defineWorkflowMethod({ command: createPreference,
+      arguments: decodeCreatePreferenceArguments, encode: ([preferences]) => preferences,
+      output: commerceDecoder(Schema.Array(Schema.StructWithRest(Schema.Struct({ id: PricingId }),
+        [Schema.Record(Schema.String, Schema.Json)])).check(Schema.isLengthBetween(1, 4)), "storedCorruption"),
+      moduleEvents: [buildModuleResourceEventName({ prefix: Modules.PRICING,
+        objectName: "price_preference", action: "created" })],
     });
-    return { create, createList, list, count, retrieve, calculate, commands: [create, createList, list, count, retrieve, calculate], graph, workflow, withService: module.use };
+    const workflow = yield* defineWorkflowModule({ name: Modules.PRICING, source: module.description,
+      methods: { createPriceSets, createPriceLists, createPricePreferences }, graph,
+      logical: { ...pricingLogicalCreateEventPolicy(), commands: [create, createList, createPreference, list, count, retrieve, calculate] },
+    });
+    return { create, createList, createPreference, list, count, retrieve, calculate,
+      commands: [create, createList, createPreference, list, count, retrieve, calculate], graph, workflow, withService: module.use };
   }));
 });

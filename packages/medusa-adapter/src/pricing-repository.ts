@@ -23,6 +23,7 @@ import type { capturePricingMetadata } from "./pricing-schema";
 import { relationPaths } from "./local-graph/module";
 import { calculateLogicalPrices } from "./pricing-calculation";
 import { readCommerceRelationRows } from "./commerce-relations";
+import { prepareScalarRepository } from "./scalar-repository";
 
 const Numeric = Schema.Union([Schema.String, Schema.Number]);
 const Rule = Schema.Struct({ id: Schema.optionalKey(PricingId), attribute: Schema.String, value: Schema.String,
@@ -107,6 +108,9 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     }
     const [set, price, rule, list, listRule] = entities;
     if (!set || !price || !rule || !list || !listRule) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const preferenceTable = metadata.tables.find(table => table.name === "price_preference");
+    if (preferenceTable === undefined) return yield* Result.fail(commerceError("unsupportedProfile"));
+    const preferenceScalar = yield* prepareScalarRepository(preferenceTable, "PricePreference", where);
     const setTable = metadata.tables.find(table => table.name === set.table.name);
     const priceTable = metadata.tables.find(table => table.name === price.table.name);
     if (!setTable || !priceTable) return yield* Result.fail(commerceError("unsupportedProfile"));
@@ -182,6 +186,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
     });
     const bind = (root: CommerceCommandContext, owner: CommercePromiseOwner) => {
       const bridge = commerceRepositoryContext(root, owner), events = commerceMutationEvents(owner);
+      const preferenceCreate = preferenceScalar.bind(root, owner, events).repository.create;
       const refuse = () => owner.run(root.refuse(commerceError("unsupportedProfile")));
       const mutationEvents: CommerceModuleEvents = { createEventSubscriber: events.createSubscriber, registerEventSubscriber: events.registerSubscriber,
         dispatchMutationEvent: (event, args, shared, subscriber) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
@@ -273,6 +278,7 @@ export function preparePricingRepository(metadata: Effect.Success<ReturnType<typ
         }))),
       };
       const preferenceRepository: DAL.RepositoryService = { ...denied, serialize: repository.serialize,
+        create: preferenceCreate,
         find: (input, shared) => bridge.execute(shared, ctx => bridge.checked(ctx, Effect.gen(function* () {
           const query = yield* Effect.fromResult(decodePreferenceFind(yield* Effect.fromResult(captureCommerceInput(input, ctx.resources))));
           const pairs = [...new Map(query.where.$or.map(member =>

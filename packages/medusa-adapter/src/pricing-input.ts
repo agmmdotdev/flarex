@@ -28,6 +28,12 @@ const PriceListInput = Schema.Struct({ id: Schema.optionalKey(PricingId), title:
 });
 export const PriceListsInput = Schema.Array(PriceListInput).check(Schema.isLengthBetween(1, 4));
 export const decodePriceListCreate = commerceDecoder(PriceListsInput, "invalidInput");
+export const PricePreferencesInput = Schema.Array(Schema.Struct({
+  attribute: Text,
+  value: Text,
+  is_tax_inclusive: Schema.optionalKey(Schema.Boolean),
+})).check(Schema.isLengthBetween(1, 4));
+export const decodePricePreferenceCreate = commerceDecoder(PricePreferencesInput, "invalidInput");
 export const PriceSetFilters = Schema.Struct({ id: Schema.optionalKey(Schema.Union([PricingId, Schema.Array(PricingId).check(Schema.isMaxLength(256))])) });
 export const PriceSetConfig = Schema.Struct({
   select: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
