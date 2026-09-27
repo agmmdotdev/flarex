@@ -428,9 +428,14 @@ function finishingConflictCauseIsBound(
         dependency.tableId === conflictCause.tableId &&
         dependency.indexDefinitionId === conflictCause.indexDefinitionId
       )
-    : prepared.plan.relationDependencies.some((dependency) =>
+    : conflictCause.kind === "appRelationIncoming"
+    ? prepared.plan.relationDependencies.some((dependency) =>
         dependency.edgeDefinitionId === conflictCause.edgeDefinitionId &&
         dependency.targetRowId === conflictCause.targetRowId
+      )
+    : prepared.plan.logicalParticipantOperations.some((participant) =>
+        participant.participant === conflictCause.participant &&
+        participant.syscallSequence === conflictCause.syscallSequence
       );
 }
 

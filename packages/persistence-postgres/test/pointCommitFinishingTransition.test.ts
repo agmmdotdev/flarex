@@ -1,5 +1,5 @@
 import {
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -568,7 +568,7 @@ describe("C05-A point-commit finishing transition", () => {
     }));
     const prepared = await runEffect(store.prepareSealEffect(attempt));
     const journal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),

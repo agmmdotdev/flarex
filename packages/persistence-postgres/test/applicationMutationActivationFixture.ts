@@ -2,8 +2,10 @@ import { Effect } from "effect";
 import { copyBytesToArrayBuffer, encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1, prepareApplicationMutationGrantV1,
   assembleApplicationMutationGrantJwsV1, createApplicationMutationGrantVerifierNamespaceV1, verifyApplicationMutationGrantV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
+import type { ApplicationMutationGrantVerificationKeyV1 } from "flarex-protocol/internal/application-mutation-grant-v1";
 import type { CanonicalApplicationMutationExecutionAuthorityV1 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
+import { canonicalizePointMutationRequestV1 } from "flarex-protocol/point-mutation-start";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { TransactionGrantDeploymentIdV1Schema, TransactionGrantKeyIdV1Schema, TransactionGrantTimestampV1Schema,
   canonicalizeTransactionGrantIdentityAccessPolicyV1, transactionGrantIdentityAccessPolicySha256BytesV1FromHex } from "flarex-protocol/transaction-grant";
@@ -24,7 +26,9 @@ export async function applicationMutationActivationFixture(input: Readonly<{
   executionAuthority: CanonicalApplicationMutationExecutionAuthorityV1;
   requestKey: string;
   grantId: string;
-}>): Promise<PreparedApplicationMutationSessionActivationV1> {
+}>): Promise<PreparedApplicationMutationSessionActivationV1 & Readonly<{
+  verificationKey: ApplicationMutationGrantVerificationKeyV1;
+}>> {
   const now = Date.now();
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(input.deploymentId);
   const policyVersion = TransactionPolicyVersionV1Schema.make("policy_point_mutation_v1");
@@ -33,8 +37,11 @@ export async function applicationMutationActivationFixture(input: Readonly<{
   const validatedArgsJson = Object.freeze({ body: "hello" });
   const args = await canonicalizeFlarexValueJsonV1(validatedArgsJson);
   const validatedArgsSha256 = TransactionArgumentsSha256V1Schema.make(args.sha256);
-  const requestSha256 = TransactionRequestSha256V1Schema.make(new Uint8Array(32).fill(0x41));
   const requestKey = TransactionRequestKeyV1Schema.make(input.requestKey);
+  const functionPath = TransactionFunctionPathV1Schema.make(input.executionAuthority.authority.runtimeTarget.function.path);
+  const requestSha256 = TransactionRequestSha256V1Schema.make((await canonicalizePointMutationRequestV1({
+    deploymentId, functionPath, validatedArgsSha256, requestKey,
+  })).sha256);
   const kid = TransactionGrantKeyIdV1Schema.make("application-key-1");
   const segments = await runEffect(prepareApplicationMutationGrantV1({ kid, deploymentId,
     grantId: TransactionAuthorizationGrantIdV1Schema.make(input.grantId), executionAuthority: input.executionAuthority,
@@ -47,17 +54,20 @@ export async function applicationMutationActivationFixture(input: Readonly<{
   if (!("privateKey" in keys) || !("publicKey" in keys)) throw new Error("Expected Ed25519 key pair");
   const authorizationGrant = assembleApplicationMutationGrantJwsV1(segments,
     new Uint8Array(await globalThis.crypto.subtle.sign("Ed25519", keys.privateKey, copyBytesToArrayBuffer(segments.signingInput))));
+  const verificationKey = Object.freeze({ kid, purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
+    state: "active" as const, issuedAtInclusiveEpochMilliseconds: now - 60 * 60_000,
+    publicKey: keys.publicKey });
   const verifiedGrant = await runEffect(verifyApplicationMutationGrantV1(authorizationGrant,
     createApplicationMutationGrantVerifierNamespaceV1({ deploymentId, grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
-      trustedNowEpochMilliseconds: Effect.succeed(now), keys: [{ kid, purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
-        state: "active", issuedAtInclusiveEpochMilliseconds: now - 60 * 60_000, publicKey: keys.publicKey }] })));
+      trustedNowEpochMilliseconds: Effect.succeed(now), keys: [verificationKey] })));
   const authority = input.executionAuthority.authority;
-  return { deploymentId, scopeId: decodeReplacementScopeIdV1(authority.runtimeTarget.scopeId), activeSelection: input.selection,
+  const prepared: PreparedApplicationMutationSessionActivationV1 = { deploymentId, scopeId: decodeReplacementScopeIdV1(authority.runtimeTarget.scopeId), activeSelection: input.selection,
     evidence: { executionAuthority: authority, verifiedGrant,
-      functionPath: TransactionFunctionPathV1Schema.make(authority.runtimeTarget.function.path),
+      functionPath,
       functionKind: TransactionFunctionKindV1Schema.make("mutation"), schemaVersionId: decodeCatalogSchemaVersionId(authority.schemaVersionId),
       policyVersion, identityAccessPolicySha256: transactionGrantIdentityAccessPolicySha256BytesV1FromHex(policy.sha256Hex),
       validatedArgsJson, validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
       validatedArgsCanonicalBytes: CanonicalTransactionArgumentsBytesV1Schema.make(args.canonicalBytes),
       validatedArgsSha256, requestKey, requestSha256 } };
+  return Object.freeze({ ...prepared, verificationKey });
 }

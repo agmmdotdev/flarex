@@ -67,5 +67,5 @@ export const makeLocalProductCommands = Effect.fn("ProductAdapter.commands")(fun
           eventName: metadata.product.updatedEvent,
           metadata: { source: Modules.PRODUCT, object: metadata.product.eventObject, action: CommonEvents.UPDATED }, eventLimit: productReferenceReplacementEventLimit },
       }));
-  return { commands, withService, graph, workflow, logicalPolicy };
+  return { metadata, commands, withService, graph, workflow, logicalPolicy };
 });

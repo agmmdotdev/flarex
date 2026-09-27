@@ -9,8 +9,8 @@ import {
   CommitEnvelopeV1Schema,
   CommitSyscallSequenceV1Schema,
   CommitFinalSyscallSequenceV1Schema,
-  SESSION_JOURNAL_FORMAT_V1,
-  canonicalizeSessionJournalV1Effect,
+  SESSION_JOURNAL_FORMAT_V2,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -241,7 +241,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       });
       const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
-        canonicalizeSessionJournalV1Effect(prepared.journal),
+        canonicalizeSessionJournalV2Effect(prepared.journal),
       );
       const result = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -453,7 +453,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       const racing = await scenario(persistence, "seal_load_race");
       const prepared = await prepareSeal(racing.store, racing.attempt);
       const journal = await runEffect(
-        canonicalizeSessionJournalV1Effect(prepared.journal),
+        canonicalizeSessionJournalV2Effect(prepared.journal),
       );
       const result = await runEffect(
         canonicalizeSuccessfulResultV1Effect(null),
@@ -513,7 +513,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       const current = await scenario(persistence, "commit_authority_rr");
       const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
-        canonicalizeSessionJournalV1Effect(prepared.journal),
+        canonicalizeSessionJournalV2Effect(prepared.journal),
       );
       const result = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3567,7 +3567,7 @@ async function preparePostgresO08CCompanionPublication(
   }));
   const prepared = await prepareSeal(store, attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV1Effect(prepared.journal),
+    canonicalizeSessionJournalV2Effect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: false }),
@@ -3867,7 +3867,7 @@ async function assertNoOpenExecutionEvidenceTransaction(
         fx_system_snapshot_lease,
         fx_system_tx_journal,
         fx_system_tx_execution_claim,
-        fx_system_tx_journal_latest_receipt,
+        fx_system_tx_journal_receipt,
         fx_system_tx_journal_point,
         fx_system_tx_journal_write_event,
         fx_control_schema_version,
@@ -3887,7 +3887,7 @@ async function assertNoOpenExecutionEvidenceTransaction(
 async function sealScenario(current: Scenario) {
   const prepared = await prepareSeal(current.store, current.attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV1Effect(prepared.journal),
+    canonicalizeSessionJournalV2Effect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3986,7 +3986,7 @@ async function expectFreshO08B1Attempt(
             and lease.attempt_fence = session.attempt_fence) as lease_count,
         journal.state as root_state,
         journal.last_syscall_sequence::text,
-        (select count(*)::text from fx_system_tx_journal_latest_receipt receipt
+        (select count(*)::text from fx_system_tx_journal_receipt receipt
           where receipt.scope_uuid = session.scope_uuid
             and receipt.session_id = session.session_id
             and receipt.attempt_fence = session.attempt_fence)
@@ -4023,7 +4023,7 @@ async function expectFreshO08B1Attempt(
     async (client) => {
       for (const { table, index } of [
         {
-          table: "fx_system_tx_journal_latest_receipt",
+          table: "fx_system_tx_journal_receipt",
           index: "fx_system_tx_journal_receipt_pk",
         },
         {
@@ -4141,7 +4141,7 @@ function commitAuthorityFromStoredEvidence(
       finalSyscallSequence: evidence.root.lastSyscallSequence,
       creationTimeSeed: evidence.root.creationTimeSeed,
       nextCreationTime: evidence.root.nextCreationTime,
-      journalFormat: SESSION_JOURNAL_FORMAT_V1,
+      journalFormat: SESSION_JOURNAL_FORMAT_V2,
       journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
       journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
       journalByteLength: evidence.root.journalBytes.byteLength,
@@ -4164,6 +4164,9 @@ function commitAuthorityFromStoredEvidence(
       writeSemanticBytes: evidence.root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
         evidence.root.materialWriteEventEvidenceBytes,
+      receiptEvidenceBytes: evidence.root.receiptEvidenceBytes,
+      participantWorkBytes: evidence.root.participantWorkBytes,
+      participantWorkCalls: evidence.root.participantWorkCalls,
     }),
   });
 }
@@ -4770,7 +4773,7 @@ async function o08DispositionPostgresState(
         (select count(*)::text from fx_system_tx_journal journal
           where journal.scope_uuid = session.scope_uuid
             and journal.session_id = session.session_id) as journals,
-        (select count(*)::text from fx_system_tx_journal_latest_receipt receipt
+        (select count(*)::text from fx_system_tx_journal_receipt receipt
           where receipt.scope_uuid = session.scope_uuid
             and receipt.session_id = session.session_id) as receipts,
         (select count(*)::text from fx_system_tx_journal_point point

@@ -6,7 +6,7 @@ import {
 } from "flarex-protocol/app-document-id";
 import {
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -45,7 +45,7 @@ import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import {
   fxSystemSnapshotLeases,
-  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
@@ -663,7 +663,7 @@ describe("O08-A exact-attempt replacement", () => {
     });
     const prepared = await prepareSessionJournalSeal(store, attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -779,7 +779,7 @@ describe("O08-A exact-attempt replacement", () => {
         root.point_dependency_count as point_count,
         root.write_operations, root.write_semantic_bytes as write_bytes,
         root.material_write_event_evidence_bytes as event_bytes,
-        (select count(*)::text from fx_system_tx_journal_latest_receipt r
+        (select count(*)::text from fx_system_tx_journal_receipt r
           where r.scope_uuid = session.scope_uuid
             and r.session_id = session.session_id) as receipt_count,
         (select count(*)::text from fx_system_tx_journal_point p
@@ -849,13 +849,13 @@ describe("O08-A exact-attempt replacement", () => {
           eq(fxSystemTransactionJournals.sessionId, current.anchor.sessionId),
         ));
       const receipts = await tx.select()
-        .from(fxSystemTransactionJournalLatestReceipts).where(and(
+        .from(fxSystemTransactionJournalReceipts).where(and(
           eq(
-            fxSystemTransactionJournalLatestReceipts.scopeUuid,
+            fxSystemTransactionJournalReceipts.scopeUuid,
             current.command.sealIdentity.scopeUuid,
           ),
           eq(
-            fxSystemTransactionJournalLatestReceipts.sessionId,
+            fxSystemTransactionJournalReceipts.sessionId,
             current.anchor.sessionId,
           ),
         ));
@@ -919,7 +919,7 @@ describe("O08-A exact-attempt replacement", () => {
         attemptFence,
       });
       if (receipts.length > 0) {
-        await tx.insert(fxSystemTransactionJournalLatestReceipts).values(
+        await tx.insert(fxSystemTransactionJournalReceipts).values(
           receipts.map((receipt) => ({ ...receipt, attemptFence })),
         );
       }

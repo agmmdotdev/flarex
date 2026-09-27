@@ -173,6 +173,8 @@ export interface ApplicationDocumentMaterializationCommand extends ApplicationDo
   };
   readonly rowIntents: ReadonlyArray<PreparedPointCommitRowIntentV1>;
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
+  /** Trusted, separately authenticated logical-source revision for native rows. */
+  readonly sourceSchemaVersionByTable?: ReadonlyMap<CatalogTableId, CatalogSchemaVersionId>;
 }
 
 export type ApplicationDocumentMaterializationClock = {

@@ -450,7 +450,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const activated = await activate(context);
     await persistence.query(
       `
-        insert into fx_system_tx_journal_latest_receipt (
+        insert into fx_system_tx_journal_receipt (
           scope_uuid,
           session_id,
           attempt_fence,

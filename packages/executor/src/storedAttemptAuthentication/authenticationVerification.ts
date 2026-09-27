@@ -25,22 +25,24 @@ import {
 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
-  decodeCanonicalSessionJournalV1Effect,
+  decodeCanonicalSessionJournalV2Effect,
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
   MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
   MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
   MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
   measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
+  verifyParticipantPointCorrelationV2Effect,
   verifySuccessfulResultEvidenceV1Effect,
   type CanonicalSuccessfulResultV1,
   type LogicalAppWriteV1,
   type LogicalPatchFieldV1,
   type LogicalReadDependencyV1,
-  type SessionJournalV1,
+  type SessionJournalV2,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
 import {
   encodeCanonicalJson,
+  isJsonObject,
   type Json,
 } from "flarex-protocol/json";
 import { CatalogSchemaVersionIdSchema } from
@@ -181,7 +183,7 @@ export const verifyCanonicalStoredEvidenceEffect = Effect.fn(
   if (authorityMismatch !== undefined) {
     return yield* Effect.fail(authorityMismatch);
   }
-  const journal = yield* decodeCanonicalSessionJournalV1Effect({
+  const journal = yield* decodeCanonicalSessionJournalV2Effect({
     canonicalBytes: copyBytes(evidence.root.journalBytes),
     expectedSha256Hex: scalarEvidence.journalSha256Hex,
   }).pipe(
@@ -363,7 +365,7 @@ function storedEnvelopeMismatch(
 
 function journalCounterMismatch(
   evidence: StoredAttemptEvidencePortV1,
-  journal: SessionJournalV1,
+  journal: SessionJournalV2,
 ): StoredAttemptStorageCorruptionV1Error | undefined {
   let writeSemanticBytes = 0;
   let pointDependencyCount = 0;
@@ -390,6 +392,23 @@ function journalCounterMismatch(
   for (const write of journal.writes) {
     if (write.kind !== "delete") {
       writeSemanticBytes += write.resultingDocumentSemanticBytes;
+    }
+  }
+  let participantEffectCount = 0;
+  for (const operation of journal.participantOperations) {
+    for (const effect of operation.effects) {
+      participantEffectCount += 1;
+      if (effect.after !== null) {
+        const measured = Result.try({
+          try: () => normalizeFlarexValueJsonV1(effect.after, "appDocument").semanticSizeBytes,
+          catch: () => new StoredAttemptStorageCorruptionV1Error({ reason: "journalCounterMismatch" }),
+        });
+        const measurementFailure = Result.match(measured, {
+          onFailure: failure => failure,
+          onSuccess: bytes => { writeSemanticBytes += bytes; return undefined; },
+        });
+        if (measurementFailure !== undefined) return measurementFailure;
+      }
     }
   }
   return Result.match(indexRangeDependencyEvidenceBytes, {
@@ -420,8 +439,11 @@ function journalCounterMismatch(
           MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 ||
         evidence.root.relationBaseOccurrences >
           MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1 ||
-        journal.writes.length !== evidence.root.writeOperations ||
+        journal.writes.length + participantEffectCount !== evidence.root.writeOperations ||
         writeSemanticBytes !== evidence.root.writeSemanticBytes ||
+        journal.operationUsage.receiptEvidenceBytes !== evidence.root.receiptEvidenceBytes ||
+        journal.operationUsage.participantWorkBytes !== evidence.root.participantWorkBytes ||
+        journal.operationUsage.participantWorkCalls !== evidence.root.participantWorkCalls ||
         evidence.points.length !== evidence.root.pointDependencyCount
         ? new StoredAttemptStorageCorruptionV1Error({
             reason: "journalCounterMismatch",
@@ -449,7 +471,7 @@ const verifyPointCorrelationEffect = Effect.fn(
   "StoredAttemptAuthentication.verifyPointCorrelation",
 )(function* (
   rows: ReadonlyArray<StoredAttemptPointEvidencePortV1>,
-  journal: SessionJournalV1,
+  journal: SessionJournalV2,
 ): Effect.fn.Return<
   ReadonlyArray<AuthenticatedStoredAttemptPointV1>,
   StoredAttemptStorageCorruptionV1Error
@@ -497,12 +519,29 @@ const verifyPointCorrelationEffect = Effect.fn(
     writes.push(write);
     writesByDocument.set(write.documentId, writes);
   }
+  const participantWritten = new Set(journal.participantOperations.flatMap(operation =>
+    operation.effects.map(effect => effect.documentId)));
   for (const point of points.values()) {
+    if (participantWritten.has(point.documentId)) continue;
     yield* verifyPointWriteChainEffect(
       point,
       writesByDocument.get(point.documentId) ?? [],
     );
   }
+  const participantPoints = yield* Effect.forEach(points.values(), point => Effect.gen(function* () {
+    const overlayValueJson = point.overlayValue === null ? null : yield* Effect.try({
+      try: () => normalizeFlarexValueV1(point.overlayValue).valueJson,
+      catch: cause => new StoredAttemptStorageCorruptionV1Error({ reason: "pointEvidenceInvalid", cause }),
+    });
+    if (overlayValueJson !== null && !isJsonObject(overlayValueJson))
+      return yield* corruptionEffect("overlayDocumentNotObject");
+    return Object.freeze({ documentId: point.documentId, tableId: point.tableId,
+      observed: point.dependency.observed, overlayKind: point.overlayKind, overlayValueJson });
+  }));
+  yield* verifyParticipantPointCorrelationV2Effect(journal, participantPoints).pipe(
+    Effect.mapError(cause => new StoredAttemptStorageCorruptionV1Error({
+      reason: "pointEvidenceInvalid", cause,
+    })));
   return Object.freeze([...points.values()]);
 });
 
@@ -880,7 +919,7 @@ export function dependenciesEqual(
 function captureAuthenticatedState(
   authority: StoredAttemptAuthorityStateV1,
   evidence: StoredAttemptEvidencePortV1,
-  journal: SessionJournalV1,
+  journal: SessionJournalV2,
   successfulResult: CanonicalSuccessfulResultV1,
   successfulResultValue: CanonicalFlarexRuntimeValueV1,
   points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>,
@@ -928,6 +967,9 @@ function captureAuthenticatedState(
       writeSemanticBytes: root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
         root.materialWriteEventEvidenceBytes,
+      receiptEvidenceBytes: root.receiptEvidenceBytes,
+      participantWorkBytes: root.participantWorkBytes,
+      participantWorkCalls: root.participantWorkCalls,
     }),
     journal: structuredClone(journal),
     successfulResult: Object.freeze({

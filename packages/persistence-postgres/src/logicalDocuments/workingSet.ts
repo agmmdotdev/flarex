@@ -9,7 +9,7 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import { readBoundedCurrentAppRowsInTransactionEffect, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
+import { readAppRowAtSnapshotInTransactionEffect, readBoundedCurrentAppRowsInTransactionEffect, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
   MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES,
   InvalidAppRowReadInputError, AppRowReadPersistenceError,
   type AppRowRevisionV1 } from "../appRows";
@@ -36,6 +36,7 @@ import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
 import { fxSystemScopeClocks } from "../schema";
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { BoundedRequestContext, PresentedTransactionId, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import type { LogicalDocumentWorkingSetInput, LogicalRelationalStore } from "./model";
 const decodeRelationalChange = Schema.decodeUnknownResult(Schema.Literals(["insert", "upsert", "update", "delete", "softDelete", "restore"]));
@@ -54,6 +55,7 @@ interface PendingDocument {
   current: CanonicalFlarexValueV1 | null;
   deletedValue?: CanonicalFlarexValueV1;
   readonly attempts: number[];
+  seeded?: true;
 }
 export type LogicalDocumentChange = ApplicationDocumentObservation & (
   | Readonly<{ kind: "live"; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1 }>
@@ -135,7 +137,8 @@ export interface LogicalDocuments<Failure> {
 
 export interface LogicalDocumentReadTestHooks<Failure> {
   readonly beforeRead?: (selection: "point" | "batch" | "scan" | "index") => Effect.Effect<void, Failure>;
-  readonly observeQuery?: Parameters<typeof readBoundedCurrentAppRowsInTransactionEffect>[2];
+  readonly observeQuery?: (query: Readonly<{ readonly name: "currentCapture" | "snapshotRevision";
+    readonly sql: string; readonly params: ReadonlyArray<unknown> }>) => void;
   readonly observeIndexQuery?: Parameters<typeof readLogicalIndexRange>[5];
 }
 
@@ -148,6 +151,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   indexInput: readonly LocatedAppIndexDefinitionV1[],
   testHooks?: LogicalDocumentReadTestHooks<Failure>,
 ) {
+  const runRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
+    configuration.tx === undefined ? configuration.readTransaction(work) : work(configuration.tx);
   const state = Object.freeze({ ...configuration, limits: Object.freeze({ ...configuration.limits }),
     relationalCapabilities: configuration.relationalCapabilities === undefined ? undefined : Object.freeze(structuredClone(configuration.relationalCapabilities)),
     tables: Object.freeze(configuration.tables.map(table => Object.freeze({ ...table,
@@ -165,8 +170,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   }
   const { lifetime, tables, limits, error } = state;
   const transactionTime = yield* Effect.cached(Effect.gen(function* () {
-    const result = yield* runDrizzleStatementEffect(state.tx.select({ timestamp: sql<unknown>`current_timestamp` })
-      .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, state.scopeId)), cause => error("statementFailure", cause));
+    const result = yield* runRead(tx => runDrizzleStatementEffect(tx.select({ timestamp: sql<unknown>`current_timestamp` })
+      .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, state.scopeId)), cause => error("statementFailure", cause)));
     const value = databaseTimestampFromUnknown(result[0]?.timestamp);
     if (value === null) return yield* Effect.fail(error("storedCorruption"));
     return value.toISOString();
@@ -208,7 +213,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const charge = (bytes: number) => Effect.fromResult(lifetime.charge(bytes));
   const observe = Effect.fn("LogicalDocuments.observe")(function* (
     tableId: CatalogTableId, rowId: AppRowIdHexV1, base: AppRowRevisionV1 | null,
-    readAt = scanned.get(tableId) ?? state.clock.lastCommitSeq,
+    readAt = scanned.get(tableId) ?? state.snapshotCommitSeq ?? state.clock.lastCommitSeq,
   ) {
     const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
     if (dependencies.has(documentId)) return;
@@ -248,14 +253,41 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     if (closed) return yield* Effect.fail(error("closed"));
     const table = yield* Effect.fromResult(tableForId(tableId));
     if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead(rowIds !== undefined ? "batch" : rowId !== undefined ? "point" : "scan");
-    const capture = yield* readBoundedCurrentAppRowsInTransactionEffect(state.tx, {
+    if (state.snapshotCommitSeq !== undefined) {
+      const snapshotCommitSeq = state.snapshotCommitSeq;
+      // A historical full-table scan requires a retained candidate source. An
+      // indexed or exact point selection can use the retained row revisions.
+      const selected = rowIds ?? (rowId === undefined ? undefined : [rowId]);
+      if (selected === undefined) return yield* Effect.fail(error("invalidInput"));
+      if (selected.length > Math.min(MAX_BOUNDED_APP_ROW_READ_IDENTITIES, limits.identities - dependencies.size))
+        return yield* Effect.fail(error("limitExceeded"));
+      let loadedBytes = 0;
+      for (const selectedRowId of selected) {
+        const base = yield* runRead(tx => readAppRowAtSnapshotInTransactionEffect(tx, {
+          scopeId: state.scopeId, tableId, rowId: selectedRowId, snapshotCommitSeq,
+        }, testHooks?.observeQuery)).pipe(Effect.mapError(cause => error(cause instanceof AppRowReadPersistenceError
+          ? "statementFailure" : "storedCorruption", cause)));
+        const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId: selectedRowId });
+        yield* observe(tableId, selectedRowId, base.kind === "missing" ? null : base, snapshotCommitSeq);
+        if (base.kind === "missing" || dependencies.has(documentId) && rows.has(documentId)) continue;
+        loadedBytes += base.kind === "live" ? base.document.canonicalBytes.byteLength : 0;
+        if (loadedBytes > Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()) ||
+          base.kind === "live" && base.document.canonicalBytes.byteLength > limits.documentBytes)
+          return yield* Effect.fail(error("limitExceeded"));
+        yield* charge(128 + (base.kind === "live" ? base.document.canonicalBytes.byteLength : 0));
+        rows.set(documentId, { tableId, tableName: table.logicalName, rowId: selectedRowId, documentId, base,
+          creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [] });
+      }
+      return;
+    }
+    const capture = yield* runRead(tx => readBoundedCurrentAppRowsInTransactionEffect(tx, {
       scopeId: state.scopeId, tableId, minimumCommitSeq: state.clock.lastCommitSeq,
       maximumIdentities: Math.min(MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
         rowIds === undefined ? limits.identities : limits.identities - dependencies.size), maximumDocumentBytes: limits.documentBytes,
       maximumTotalValueBytes: Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()),
       ...(rowId === undefined ? {} : { rowId }),
       ...(rowIds === undefined ? {} : { rowIds }),
-    }, testHooks?.observeQuery).pipe(Effect.mapError(cause => error(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
+    }, testHooks?.observeQuery)).pipe(Effect.mapError(cause => error(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
       ? "limitExceeded" : cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause)));
     const loaded = capture.rows;
     for (const base of loaded) {
@@ -283,6 +315,44 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       scanned.set(tableId, capture.commitSeq);
     }
   });
+  if (state.pendingRows !== undefined) {
+    if (state.snapshotCommitSeq === undefined || state.pendingRows.length > limits.identities)
+      return yield* Effect.fail(error("invalidAuthority"));
+    const seen = new Set<string>();
+    for (const seed of state.pendingRows) {
+      const documentId = appDocumentIdV1FromRowIdentity(seed);
+      if (seen.has(documentId)) return yield* Effect.fail(error("storedCorruption"));
+      seen.add(documentId);
+      yield* readBase(seed.tableId, seed.rowId);
+      const observation = dependencies.get(documentId)?.dependency.observed;
+      const expected = seed.observed;
+      const sameObservation = observation?.kind === expected.kind &&
+        (observation.kind === "present" && expected.kind === "present"
+          ? observation.revisionCommitSeq === expected.revisionCommitSeq
+          : observation.kind === "missing" && expected.kind === "missing" &&
+            observation.basis.kind === expected.basis.kind &&
+            (observation.basis.kind === "tombstone" && expected.basis.kind === "tombstone"
+              ? observation.basis.revisionCommitSeq === expected.basis.revisionCommitSeq : true));
+      if (!sameObservation) return yield* Effect.fail(error("storedCorruption"));
+      const table = yield* Effect.fromResult(tableForId(seed.tableId));
+      const existing = rows.get(documentId);
+      if (seed.overlay.kind === "live") {
+        if (!isJsonObject(seed.overlay.document.valueJson) ||
+          seed.overlay.document.valueJson._id !== documentId ||
+          seed.overlay.document.valueJson._creationTime !== seed.overlay.creationTime)
+          return yield* Effect.fail(error("storedCorruption"));
+        yield* charge(128 + seed.overlay.document.canonicalBytes.byteLength);
+      } else yield* charge(128);
+      const seedCreationTime = seed.overlay.kind === "live" ? seed.overlay.creationTime : existing?.creationTime;
+      // An insert followed by delete has a missing snapshot dependency and no
+      // current row. Retain its absence witness without inventing row time.
+      if (seedCreationTime === undefined && seed.overlay.kind === "deleted" && expected.kind === "missing") continue;
+      if (seedCreationTime === undefined) return yield* Effect.fail(error("storedCorruption"));
+      rows.set(documentId, { tableId: seed.tableId, tableName: table.logicalName, rowId: seed.rowId,
+        documentId, base: existing?.base ?? null, creationTime: seedCreationTime,
+        current: seed.overlay.kind === "live" ? seed.overlay.document : null, attempts: [], seeded: true });
+    }
+  }
   const locate = Effect.fn("LogicalDocuments.locate")(function* (inputId: string, tableName?: string) {
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(inputId).pipe(Result.mapError(cause => error("invalidInput", cause))));
     yield* Effect.fromResult(tableForId(identity.tableId));
@@ -300,8 +370,52 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     if (projected.kind !== "claim" || readKey === null) return null;
     const cached = uniqueReads.get(readKey);
     if (cached !== undefined) return cached.owner === null ? null : appDocumentIdV1FromRowIdentity(cached.owner);
-    const slot = yield* readAppUniqueKeySlotInTransactionEffect(state.tx, { scopeId: state.scopeId,
-      constraintId: definition.uniqueConstraintDefinitionId, key: projected.projection }).pipe(Effect.mapError(cause =>
+    if (state.snapshotCommitSeq !== undefined) {
+      // Unique slots are current-only. A matching retained ordered index gives
+      // the historical owner and the negative membership witness. The final
+      // unique slot is still checked under publication exclusion at settlement.
+      const fields = definition.physicalSpec.orderedFields;
+      const [value] = projected.projection.values;
+      const predicate = definition.physicalSpec.predicate;
+      const index = indexDefinitions.find(candidate => candidate.access.kind === "developer" &&
+        candidate.access.tableId === definition.tableId &&
+        candidate.physicalSpec.orderedFields.length >= fields.length &&
+        fields.every((field, position) => {
+          const member = candidate.physicalSpec.orderedFields[position];
+          return member?.kind === "documentPath" && member.path === field && member.valueFormat === undefined;
+        }) && (predicate === undefined ? candidate.physicalSpec.predicate === undefined :
+          candidate.physicalSpec.predicate?.kind === "fieldIsNull" &&
+          candidate.physicalSpec.predicate.field === predicate.field));
+      if (fields.length !== 1 || value?.kind !== "string" || index === undefined)
+        return yield* Effect.fail(error("invalidAuthority"));
+      const where = { [fields[0]!]: value.value,
+        ...(predicate === undefined ? {} : { [predicate.field]: null }) };
+      const selected = yield* Effect.fromResult(selectLogicalIndex([index], definition.tableId, where, error));
+      if (Option.isNone(selected)) return yield* Effect.fail(error("invalidAuthority"));
+      const entries = yield* runRead(tx => readLogicalIndexRange(tx, state.scopeId, selected.value, 2, error,
+        testHooks?.observeIndexQuery, state.snapshotCommitSeq));
+      if (entries.length > 1 || entries.some(entry => entry.tableId !== definition.tableId))
+        return yield* Effect.fail(error("storedCorruption"));
+      yield* charge(128 + entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
+      indexReads.set(selected.value.identity, Object.freeze({ definition: index, bounds: selected.value.bounds, entries }));
+      const entry = entries[0];
+      if (entry !== undefined) {
+        const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(entry));
+        if (owned?.base?.kind !== "live" || owned.base.commitSeq < entry.commitSeq)
+          return yield* Effect.fail(error("writeConflict"));
+        const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
+          .pipe(Result.mapError(cause => error("storedCorruption", cause))));
+        if (base.kind !== "claim" || base.localeKey !== projected.localeKey ||
+          base.encodedKey !== projected.encodedKey) return yield* Effect.fail(error("storedCorruption"));
+      }
+      yield* charge(128 + projected.canonicalKeyBytes.byteLength);
+      uniqueReads.set(readKey, Object.freeze({ constraintId: definition.uniqueConstraintDefinitionId,
+        key: projected.projection, owner: entry === undefined ? null :
+          Object.freeze({ tableId: entry.tableId, rowId: entry.rowId }) }));
+      return entry === undefined ? null : appDocumentIdV1FromRowIdentity(entry);
+    }
+    const slot = yield* runRead(tx => readAppUniqueKeySlotInTransactionEffect(tx, { scopeId: state.scopeId,
+      constraintId: definition.uniqueConstraintDefinitionId, key: projected.projection })).pipe(Effect.mapError(cause =>
       error(cause instanceof AppUniqueKeyPersistenceError ? "statementFailure" : cause instanceof AppUniqueKeyHashError ? "resourceFailure" : "storedCorruption", cause)));
     if (Option.isSome(slot)) {
       const owner = slot.value;
@@ -448,7 +562,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
           let read = indexReads.get(selection.identity);
           if (read === undefined) {
             if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-            const entries = yield* readLogicalIndexRange(state.tx, state.scopeId, selection, limits.identities, error, testHooks?.observeIndexQuery);
+            const entries = yield* runRead(tx => readLogicalIndexRange(tx, state.scopeId, selection, limits.identities, error,
+              testHooks?.observeIndexQuery, state.snapshotCommitSeq));
             yield* charge(128 + entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
             if (entries.some(entry => entry.tableId !== table.tableId) || new Set(entries.map(entry => entry.rowId)).size !== entries.length) {
               return yield* Effect.fail(error("storedCorruption"));
@@ -466,7 +581,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
             indexReads.set(selection.identity, read);
           }
           const members = new Set(read.entries.map(entry => appDocumentIdV1FromRowIdentity(entry)));
-          candidates = [...rows.values()].filter(row => row.tableId === table.tableId && (members.has(row.documentId) || row.attempts.length > 0));
+          candidates = [...rows.values()].filter(row => row.tableId === table.tableId && (members.has(row.documentId) || row.seeded === true || row.attempts.length > 0));
         }
       } else {
         const document = yield* canonicalizeFlarexValueV1Effect(where, "appDocument")
@@ -480,7 +595,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         if (!scanned.has(table.tableId) || uniqueReads.has(readKey)) {
           const ownerId = yield* locateUnique(definition, projected);
           candidates = [...rows.values()].filter(row => row.tableId === table.tableId &&
-            (row.documentId === ownerId || row.attempts.length > 0));
+            (row.documentId === ownerId || row.seeded === true || row.attempts.length > 0));
         }
       }
     }
@@ -511,6 +626,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
     const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error));
+    if (state.snapshotCommitSeq !== undefined && (query.search !== null || query.json !== null))
+      return yield* Effect.fail(error("invalidInput"));
     if (complete && query.selections === null && query.search === null && query.json === null)
       return yield* Effect.fail(error("invalidInput"));
     const selected = new Map<AppDocumentIdV1, PendingDocument>();
@@ -543,7 +660,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         // The JSON path may be broad while a scalar equality path is small.
         // Probe one extra member before charging or recording a read; only a
         // complete candidate path can become a transaction dependency.
-        entries = yield* readLogicalJsonContainsRange(state.tx, state.scopeId,
+        entries = yield* runRead(tx => readLogicalJsonContainsRange(tx, state.scopeId,
           definition, jsonPattern.column, jsonPattern.value, limits.identities,
           (reason, cause) => reason === "limitExceeded"
             ? { kind: "overflow" as const } : { kind: "failure" as const, value: error(reason, cause) })
@@ -551,10 +668,10 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
             onSuccess: matches => Effect.succeed(matches),
             onFailure: failure => failure.kind === "failure" ? Effect.fail(failure.value)
               : query.selections === null ? Effect.fail(error("limitExceeded")) : Effect.succeed(undefined),
-          }));
+          })));
       } else if (searchPatterns !== null) {
-        entries = yield* readLogicalSearchRange(state.tx, state.scopeId, definition,
-          searchPatterns, limits.identities, error);
+        entries = yield* runRead(tx => readLogicalSearchRange(tx, state.scopeId, definition,
+          searchPatterns, limits.identities, error));
       }
       if (entries !== undefined) {
         usedSearchCandidates = true;
@@ -650,7 +767,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       if (inspected.matches) matched.set(row.documentId, { row, key, document });
     });
     let examined = 0;
-    for (const row of rows.values()) if (row.tableId === table.tableId && row.attempts.length > 0) {
+    for (const row of rows.values()) if (row.tableId === table.tableId && (row.seeded === true || row.attempts.length > 0)) {
       if (++examined > limits.identities) return yield* Effect.fail(error("limitExceeded"));
       yield* charge(64);
       yield* add(row);
@@ -664,8 +781,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       // Batch residual filtering while charging the actual hidden lookahead.
       const limit = Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, Math.max(16, needed - matched.size), remaining);
       if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-      const page = yield* readLogicalIndexPage(state.tx, state.scopeId, { ...selection, ...(after === undefined ? {} : { after }) },
-        limit, error, testHooks?.observeIndexQuery);
+      const page = yield* runRead(tx => readLogicalIndexPage(tx, state.scopeId, { ...selection, ...(after === undefined ? {} : { after }) },
+        limit, error, testHooks?.observeIndexQuery, state.snapshotCommitSeq));
       examined += page.entries.length + (page.isDone ? 0 : 1);
       if (examined > limits.identities) return yield* Effect.fail(error("limitExceeded"));
       yield* charge(128 + page.entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));

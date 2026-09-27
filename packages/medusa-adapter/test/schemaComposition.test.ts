@@ -33,6 +33,7 @@ import { currencyInitialization } from "../../medusa-adapter/src/currency-contra
 import { relationalValueAdmissionScenario } from "../../persistence-postgres/test/relationalValueAdmissionScenario";
 import { ensureLogicalStorageDefinitions } from "../../persistence-postgres/src/logicalStorageDefinitions";
 import { productForeignKeyScenario } from "../../persistence-postgres/test/productForeignKeyScenario";
+import { productHistoricalWorkingSetScenario } from "../../persistence-postgres/test/productHistoricalWorkingSetScenario";
 
 const deploymentId = "shared-candidate";
 const authority = {
@@ -278,12 +279,16 @@ async function witness(
     expect(productIndexes).toHaveLength(61);
     expect(productIndexes.filter(index => index.descriptor === "strong-reference/handle")).toHaveLength(1);
     expect(definitions.requirements.unique.filter(unique => productTableIds.has(unique.tableId))).toHaveLength(24);
-    if (proveForeignKeys) await Effect.runPromise(productForeignKeyScenario(persistence.drizzle, deploymentId,
-      authority.scopeId, identity.schemaVersionId, productDefinition.schema,
-      stored.tableBindings.filter(binding => binding.table.namespace === "medusa" &&
+    if (proveForeignKeys) {
+      const productBindings = stored.tableBindings.filter(binding => binding.table.namespace === "medusa" &&
         binding.table.logicalName.startsWith("commerce.product/")).map(binding => ({
         localName: binding.table.logicalName.slice("commerce.product/".length), tableId: binding.tableId,
-      }))));
+      }));
+      await Effect.runPromise(productForeignKeyScenario(persistence.drizzle, deploymentId,
+        authority.scopeId, identity.schemaVersionId, productDefinition.schema, productBindings));
+      await Effect.runPromise(productHistoricalWorkingSetScenario(persistence.drizzle, deploymentId,
+        authority.scopeId, identity.schemaVersionId, productDefinition.schema, productBindings));
+    }
     expect((await persistence.drizzle.select().from(fxControlIndexDefinitions)).length).toBeGreaterThan(60);
     expect((await persistence.drizzle.select().from(fxControlUniqueConstraintDefinitions)).length).toBeGreaterThanOrEqual(24);
     expect((await persistence.query("select tablename as name from pg_tables where schemaname = current_schema() order by tablename")).rows)

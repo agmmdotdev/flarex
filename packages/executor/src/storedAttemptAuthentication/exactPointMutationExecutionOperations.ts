@@ -43,6 +43,7 @@ import type {
   PointMutationJournalV1,
 } from "../pointMutationJournal";
 import type {
+  PointMutationAdmittedFrameworkOperationV1Error,
   PointMutationJournalResultRejectedV1Error,
 } from "../pointMutationJournalRpc";
 import type {
@@ -136,6 +137,7 @@ export type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointMutationOccUserCodeV1Error
   | PointMutationJournalBoundaryV1Error
   | PointMutationJournalResultRejectedV1Error
+  | PointMutationAdmittedFrameworkOperationV1Error
   | PointMutationExactRuntimeRunnerHostV1Error
   | ApplicationPointMutationRunnerHostV1Error
   | CommitProtocolV1Error
@@ -168,8 +170,8 @@ type PointMutationOccRunnerOutcome =
     }>;
 
 export interface ExactPointMutationExecutionOperationDependenciesV1 {
-  readonly functionMetadata:
-    PinnedPointMutationFunctionMetadataReaderPortV1;
+  readonly functionMetadata?:
+    PinnedPointMutationFunctionMetadataReaderPortV1 | undefined;
   readonly contextFactory: PointMutationOccExecutionContextFactoryV1;
   readonly attemptLoading: Pick<
     PointMutationSessionAttemptLoadingV1,
@@ -295,6 +297,11 @@ export function makeExactPointMutationExecutionOperationsV1(
         input.verificationState,
       ) && input.verifiedEvidence.executionAuthorityGeneration ===
         "legacy_dynamic_worker_v1") {
+        if (functionMetadata === undefined) {
+          return yield* Effect.fail(new PointMutationOccExecutionAuthorityCorruptionV1Error({
+            reason: "runtimePinInvalid",
+          }));
+        }
         const metadataUnknown = yield* functionMetadata.load(
           capturePinnedFunctionSelector(input.verificationState),
         );
@@ -516,11 +523,16 @@ function capturePointMutationOccExecutionContext(
   );
 }
 
-function bindPointMutationOccJournal(
+export function bindPointMutationOccJournal(
   journal: PointMutationJournalV1,
   attempt: PointMutationJournalAttemptV1,
 ): PointMutationOccBoundJournalV1 {
+  const admitted = journal.runAdmittedOperation;
   return Object.freeze({
+    ...(admitted === undefined ? {} : {
+      runAdmittedOperation: (input: Parameters<NonNullable<PointMutationJournalV1["runAdmittedOperation"]>>[1]) =>
+        admitted(attempt, input),
+    }),
     resolvePointTable: (tableName: unknown) =>
       journal.resolvePointTable(attempt, tableName),
     runPointOperation: (

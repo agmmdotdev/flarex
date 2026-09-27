@@ -133,6 +133,8 @@
     }
   },
   "devDependencies": {
+    "@flarex/medusa-adapter": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
     "miniflare": "catalog:",

@@ -67,6 +67,11 @@ import { ScopePublicationReferenceCapacityError, ScopePublicationReferenceConstr
 
 export type PointCommitConflictCauseV1 =
   | Readonly<{
+      readonly kind: "logicalParticipant";
+      readonly participant: string;
+      readonly syscallSequence: bigint;
+    }>
+  | Readonly<{
       readonly kind: "appRowPoint";
       readonly documentId: AppDocumentIdV1;
     }>
@@ -221,6 +226,7 @@ export type PointCommitSqlOperationV1 =
   | "deleteExecutionClaim"
   | "loadRowHeads"
   | "validateIndexRanges"
+  | "validateParticipantEvidence"
   | "validateRelationDependencies"
   | "lockIntrinsicIndexBuild"
   | "lockDeveloperIndexBuilds"

@@ -32,6 +32,8 @@ export class StoredAttemptNotPlannableV1Error extends Data.TaggedError(
     | "open"
     | "sealed"
     | "failed"
+    | "operation_failed"
+    | "operation_invoking"
     | "relation_conflicted";
 }> {}
 

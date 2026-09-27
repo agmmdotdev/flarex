@@ -1,8 +1,8 @@
 import { Effect } from "effect";
-import type { ScopeId } from "flarex-protocol/storage-authority";
+import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import type { OrderedIndexBoundsV1 } from "flarex-protocol/ordered-index";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
-import { scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError,
+import { scanAppIndexAtSnapshotInTransactionEffect, scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError,
   MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeEntryV1, type AppIndexEntryTransaction,
   type AppIndexRangeCursorV1 } from "../appIndexEntries";
 import type { LogicalDocumentFailure } from "./model";
@@ -23,8 +23,11 @@ export const readLogicalIndexPage = Effect.fn("LogicalDocuments.readIndexPage")(
   selection: Pick<LogicalIndexPageRead, "definition" | "bounds" | "after">,
   limit: number, error: LogicalDocumentFailure<Failure>,
   observer?: Parameters<typeof scanCurrentAppIndexInTransactionEffect>[2],
+  snapshotCommitSeq?: CommitSeq,
 ) {
-  return yield* scanCurrentAppIndexInTransactionEffect(tx, { scopeId, ...selection, limit }, observer)
+  return yield* (snapshotCommitSeq === undefined
+    ? scanCurrentAppIndexInTransactionEffect(tx, { scopeId, ...selection, limit }, observer)
+    : scanAppIndexAtSnapshotInTransactionEffect(tx, { scopeId, ...selection, limit, snapshotCommitSeq }, observer))
     .pipe(Effect.mapError(cause => error(cause instanceof AppIndexEntryReadPersistenceError ? "statementFailure" :
       cause instanceof AppIndexEntryHashError ? "resourceFailure" : "storedCorruption", cause)));
 });
@@ -35,6 +38,7 @@ export const readLogicalIndexRange = Effect.fn("LogicalDocuments.readIndexRange"
   selection: Pick<LogicalIndexRead, "definition" | "bounds">,
   limit: number, error: LogicalDocumentFailure<Failure>,
   observer?: Parameters<typeof scanCurrentAppIndexInTransactionEffect>[2],
+  snapshotCommitSeq?: CommitSeq,
 ) {
   if (!Number.isSafeInteger(limit) || limit < 1) return yield* Effect.fail(error("invalidInput"));
   const entries: AppIndexRangeEntryV1[] = [];
@@ -42,7 +46,7 @@ export const readLogicalIndexRange = Effect.fn("LogicalDocuments.readIndexRange"
   while (true) {
     const page = yield* readLogicalIndexPage(tx, scopeId,
       { ...selection, ...(after === undefined ? {} : { after }) },
-      Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, limit - entries.length), error, observer);
+      Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, limit - entries.length), error, observer, snapshotCommitSeq);
     entries.push(...page.entries);
     if (page.isDone) return Object.freeze(entries);
     if (entries.length >= limit) return yield* Effect.fail(error("limitExceeded"));

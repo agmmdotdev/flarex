@@ -2,12 +2,14 @@
 
 ## Status And Scope
 
-Status: proposed private core execution goal. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
+Status: the first Application and Product slice is implemented as a private,
+isolated-scope execution profile. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
 owns architecture and open contract questions. This roadmap owns current status,
 sequencing and finite delivery gates. Numbered slice preflights own their
-specific scope, decisions, affected contracts and remaining gates. The proposed
+specific scope, decisions, affected contracts and remaining gates. The implemented
 [first Application and Product attempt](./01-application-product-attempt-preflight.md)
-is pending scope agreement. Recording it does not approve runtime implementation.
+uses the real Worker, Product service and shared journal/commit owners. It is
+not activated on a named durable environment and exposes no public authoring API.
 
 The other shared-storage session has reviewed, validated and committed its
 active [exact-scope retained-history slice](../shared-logical-storage/56-same-deployment-scope-authority.md)
@@ -34,8 +36,8 @@ For this owner-authorized session, the root coordinates planning, discussion,
 review and Git; explicitly assigned workers make disjoint edits and fixes,
 serializing dependent changes and preserving unrelated work. Spawn every
 subagent, including workers, explorers and both standing reviewers, with model
-`gpt-6-sol` and `reasoning_effort: high`. Reviewers remain read-only. This
-arrangement does not grant runtime implementation approval.
+`gpt-6-sol` and `reasoning_effort: high`. Reviewers remain read-only.
+The first numbered preflight grants the scoped runtime implementation work.
 
 The design note owns architecture; this README owns domain status, package order
 and remaining cross-package gates. Create `NN-topic-preflight.md` only when a
@@ -48,8 +50,8 @@ changes. Do not create duplicate plan, status or checkpoint-log documents.
 - The [accepted database design](../../design-notes/flarex-db-accepted-design.md)
   governs current Postgres authority, execution profiles and trust boundaries.
   The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
-  proposes changes to execution, locking and recovery; it changes an accepted
-  contract only after focused scope agreement.
+  records the approved private admitted mixed profile for the first slice.
+  Its remaining proposals need their own focused scope agreement.
 - [Shared logical storage](../shared-logical-storage/README.md) owns logical
   data/index/relation storage, its unfinished cutovers and structural retirement.
   [Shared transaction core](../shared-transaction-core/README.md) owns existing
@@ -141,6 +143,14 @@ from this roadmap alone.
    Finish with an audit of profile boundaries, durable formats, retained callers,
    exports, tests and documentation. This audit confirms cleanup already done
    per slice; it is not a delayed retirement package.
+
+The first Product proof currently repeats checked-read, source-binding and
+attempt-authority SQL across native service operations. That is a known query
+cost, not a measured PostgreSQL latency or capacity result. Package 4 must
+attribute statements and sequential round trips on a representative
+ordinary-role PostgreSQL workload before setting targets or batching those
+checks at their owning layer; the first package retains their correctness
+checks.
 
 The first preflight may revise package boundaries when a real call graph or
 durable obligation requires it, but it must preserve a connected consumer proof

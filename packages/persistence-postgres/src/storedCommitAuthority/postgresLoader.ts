@@ -46,7 +46,7 @@ import {
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
   fxSystemTransactionExecutionClaims,
-  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalRelationIncomingDependencies,
@@ -708,10 +708,10 @@ async function selectAttemptChildExistenceRows(
   const query = tx
     .select({
       receiptExists: sql<boolean>`exists(
-      select 1 from ${fxSystemTransactionJournalLatestReceipts}
-      where ${fxSystemTransactionJournalLatestReceipts.scopeUuid} = ${scopeUuid}
-        and ${fxSystemTransactionJournalLatestReceipts.sessionId} = ${sessionId}
-        and ${fxSystemTransactionJournalLatestReceipts.attemptFence} =
+      select 1 from ${fxSystemTransactionJournalReceipts}
+      where ${fxSystemTransactionJournalReceipts.scopeUuid} = ${scopeUuid}
+        and ${fxSystemTransactionJournalReceipts.sessionId} = ${sessionId}
+        and ${fxSystemTransactionJournalReceipts.attemptFence} =
           ${attemptFence}
     )`,
       pointExists: sql<boolean>`exists(
@@ -845,6 +845,7 @@ const rootScalarFields = {
   scopeUuid: fxSystemTransactionJournals.scopeUuid,
   sessionId: fxSystemTransactionJournals.sessionId,
   attemptFence: fxSystemTransactionJournals.attemptFence,
+  journalFormat: fxSystemTransactionJournals.journalFormat,
   state: fxSystemTransactionJournals.state,
   lastSyscallSequence: fxSystemTransactionJournals.lastSyscallSequence,
   creationTimeSeed: fxSystemTransactionJournals.creationTimeSeed,
@@ -866,6 +867,9 @@ const rootScalarFields = {
   writeSemanticBytes: fxSystemTransactionJournals.writeSemanticBytes,
   materialWriteEventEvidenceBytes:
     fxSystemTransactionJournals.materialWriteEventEvidenceBytes,
+  receiptEvidenceBytes: fxSystemTransactionJournals.receiptEvidenceBytes,
+  participantWorkBytes: fxSystemTransactionJournals.participantWorkBytes,
+  participantWorkCalls: fxSystemTransactionJournals.participantWorkCalls,
   failureDimension: fxSystemTransactionJournals.failureDimension,
   sealedJournalByteLengthText: sql<string | null>`
     case when ${fxSystemTransactionJournals.sealedJournalBytes} is null

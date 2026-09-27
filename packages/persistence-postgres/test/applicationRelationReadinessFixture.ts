@@ -6,7 +6,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { CommitSeqSchema, decodeReplacementScopeIdV1, projectScopeIdUuidV1, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -216,7 +216,7 @@ export async function prepareSealedRelationAttempt(
   }
   const prepared = await prepareSessionJournalSeal(store, attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV1Effect(prepared.journal),
+    canonicalizeSessionJournalV2Effect(prepared.journal),
   );
   const successfulResult = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),

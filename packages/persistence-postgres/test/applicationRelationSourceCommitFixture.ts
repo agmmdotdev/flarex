@@ -5,7 +5,7 @@ import { makeApplicationSchemaAuthorityPublisher } from "../src/applicationSchem
 import { createApplicationRelationSchemaAuthorityPort } from "../src/applicationRelationSchemaAuthority";
 import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1, type AppDocumentIdV1, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { type CommitSeq, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { ApplicationRelationBindingPublication } from "../src/applicationRelationBinding";
@@ -108,7 +108,7 @@ export async function publishExactRelationSourceCommit(
     syscallSequence: CommitSyscallSequenceV1Schema.make(includeTarget ? 2n : 1n), fields }, validator));
   expect(inserted).toMatchObject({ kind: "completed", outcome: { kind: "inserted", documentId: sourceId } });
   const seal = await prepareSessionJournalSeal(store, attempt);
-  const journal = await runEffect(canonicalizeSessionJournalV1Effect(seal.journal));
+  const journal = await runEffect(canonicalizeSessionJournalV2Effect(seal.journal));
   const result = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
   await completeSessionJournalSeal(store, seal.preparation, journal, result);
   const authority = relationAuthorityFromAnchor(activation.anchor, publication.binding.schemaVersionId, activation.executionClaim);

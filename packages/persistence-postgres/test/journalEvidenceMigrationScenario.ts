@@ -4,7 +4,7 @@ import {
   injectMigrationFailure, restoreMigrationFile, writeJournalThrough, type DrizzleCopyFixture,
 } from "./migrationFixtureSupport";
 import {
-  insertOpenTransactionJournalFixture, insertSessionTestScope, insertTransactionSessionFixture,
+  insertLegacyOpenTransactionJournalFixture, insertSessionTestScope, insertTransactionSessionFixture,
   transactionSessionFixture, transactionSessionIdAt,
 } from "./sessionAuthorityTestSupport";
 
@@ -20,7 +20,7 @@ export async function verifyJournalEvidenceMigration(
   for (const [index, state] of states.entries()) {
     const session = transactionSessionFixture(transactionSessionIdAt(9300 + index));
     await insertTransactionSessionFixture(persistence, session);
-    await insertOpenTransactionJournalFixture(persistence, session);
+    await insertLegacyOpenTransactionJournalFixture(persistence, session);
     if (state === "sealed") {
       await persistence.query(`
         update fx_system_tx_journal set state = 'sealed', last_syscall_sequence = 7,

@@ -44,7 +44,7 @@ import {
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
   type CanonicalSuccessfulResultV1,
-  type SessionJournalV1,
+  type SessionJournalV2,
 } from "flarex-protocol/commit-protocol";
 import {
   type Json,
@@ -99,6 +99,7 @@ import type {
 } from "./pointMutationJournal";
 import type {
   PointMutationJournalResultRejectedV1Error,
+  PointMutationAdmittedFrameworkOperationV1Error,
 } from "./pointMutationJournalRpc";
 import type {
   PointMutationExactRuntimeRunnerHostV1Error,
@@ -411,6 +412,9 @@ export interface PointMutationOccExecutionContextV1 {
 }
 
 export interface PointMutationOccBoundJournalV1 {
+  readonly runAdmittedOperation?: (
+    input: Parameters<NonNullable<PointMutationJournalV1["runAdmittedOperation"]>>[1],
+  ) => ReturnType<NonNullable<PointMutationJournalV1["runAdmittedOperation"]>>;
   readonly resolvePointTable: (
     tableName: unknown,
   ) => ReturnType<PointMutationJournalV1["resolvePointTable"]>;
@@ -481,6 +485,7 @@ export type PointMutationOccRuntimeNeutralRunnerV1Error =
   | PointMutationOccUserCodeV1Error
   | PointMutationJournalBoundaryV1Error
   | PointMutationJournalResultRejectedV1Error
+  | PointMutationAdmittedFrameworkOperationV1Error
   | PointMutationExactRuntimeRunnerHostV1Error
   | ApplicationPointMutationRunnerHostV1Error;
 
@@ -632,6 +637,9 @@ interface StoredAttemptSealedRootPortV1 {
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
     CommitMaterialWriteEventEvidenceBytesV1;
+  readonly receiptEvidenceBytes: number;
+  readonly participantWorkBytes: number;
+  readonly participantWorkCalls: number;
   readonly journalBytes: Uint8Array;
   readonly journalSha256: Uint8Array;
   readonly resultValueCodecVersion: FlarexValueCodecVersion;
@@ -654,9 +662,9 @@ export interface StoredAttemptSealIdentityPortV1 {
   readonly finalSyscallSequence: CommitFinalSyscallSequenceV1;
   readonly creationTimeSeed: AppCreationTimeV1;
   readonly nextCreationTime: AppCreationTimeV1;
-  readonly journalFormat: SessionJournalV1["format"];
-  readonly journalProtocolVersion: SessionJournalV1["protocolVersion"];
-  readonly journalValueCodecVersion: SessionJournalV1["valueCodecVersion"];
+  readonly journalFormat: SessionJournalV2["format"];
+  readonly journalProtocolVersion: SessionJournalV2["protocolVersion"];
+  readonly journalValueCodecVersion: SessionJournalV2["valueCodecVersion"];
   readonly journalByteLength: number;
   readonly journalSha256: Uint8Array;
   readonly resultValueCodecVersion: FlarexValueCodecVersion;
@@ -676,6 +684,9 @@ export interface StoredAttemptSealIdentityPortV1 {
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
     CommitMaterialWriteEventEvidenceBytesV1;
+  readonly receiptEvidenceBytes: number;
+  readonly participantWorkBytes: number;
+  readonly participantWorkCalls: number;
 }
 
 export interface StoredAttemptPointEvidencePortV1 {
@@ -730,6 +741,8 @@ export type StoredAttemptEvidenceLoadResultPortV1 =
         | "open"
         | "sealed"
         | "failed"
+        | "operation_failed"
+        | "operation_invoking"
         | "relation_conflicted";
     }>
   | Readonly<{
@@ -831,7 +844,7 @@ export interface AuthenticatedStoredAttemptStateV1 {
   readonly executionScope?: PointMutationExecutionScopeV1;
   readonly session: StoredAttemptSessionScalarsPortV1;
   readonly sealIdentity: Readonly<StoredAttemptSealIdentityPortV1>;
-  readonly journal: SessionJournalV1;
+  readonly journal: SessionJournalV2;
   readonly successfulResult: AuthenticatedSuccessfulResultV1;
   readonly points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>;
 }
@@ -912,35 +925,35 @@ export interface StoredPointCommitPlanningV1
   ) => boolean;
 }
 
-export interface StoredPointCommitRollbackProofConfigV1
-  extends StoredCommitAuthorityAuthenticationConfigV1 {
+export type StoredPointCommitRollbackProofConfigV1 =
+  StoredCommitAuthorityAuthenticationConfigV1 & {
   readonly pointCommit: PointCommitRollbackProofPortV1;
-}
+};
 
-export interface StoredPointCommitPublisherConfigV1
-  extends StoredCommitAuthorityAuthenticationConfigV1 {
+export type StoredPointCommitPublisherConfigV1 =
+  StoredCommitAuthorityAuthenticationConfigV1 & {
   readonly pointCommit: PointCommitPublisherPortV1;
-}
+};
 
-export interface StoredPointCommitFinishingTransitionConfigV1
-  extends StoredPointCommitPublisherConfigV1 {
+export type StoredPointCommitFinishingTransitionConfigV1 =
+  StoredPointCommitPublisherConfigV1 & {
   readonly pointCommitFinishing: PointCommitFinishingTransitionPortV1;
-}
+};
 
-export interface StoredPointCommitExecutorConfigV1
-  extends StoredPointCommitFinishingTransitionConfigV1 {
+export type StoredPointCommitExecutorConfigV1 =
+  StoredPointCommitFinishingTransitionConfigV1 & {
   readonly pointCommit:
     PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1;
-}
+};
 
-export interface StoredPointMutationAttemptReplacementConfigV1
-  extends StoredPointCommitExecutorConfigV1 {
+export type StoredPointMutationAttemptReplacementConfigV1 =
+  StoredPointCommitExecutorConfigV1 & {
   readonly pointMutationAttemptReplacement:
     PointMutationAttemptReplacementPortV1;
-}
+};
 
-export interface StoredPointMutationOccRerunAuthorizationConfigV1
-  extends StoredPointMutationAttemptReplacementConfigV1 {
+export type StoredPointMutationOccRerunAuthorizationConfigV1 =
+  StoredPointMutationAttemptReplacementConfigV1 & {
   readonly pointCommit:
     PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1;
   readonly pointMutationAttemptReplacement:
@@ -949,10 +962,10 @@ export interface StoredPointMutationOccRerunAuthorizationConfigV1
   readonly pointMutationOccRerun: Readonly<{
     readonly attemptLoading: PointMutationSessionAttemptLoadingV1;
   }>;
-}
+};
 
-export interface StoredPointMutationOccRerunExecutionConfigV1
-  extends StoredPointMutationOccRerunAuthorizationConfigV1 {
+export type StoredPointMutationOccRerunExecutionConfigV1 =
+  StoredPointMutationOccRerunAuthorizationConfigV1 & {
   readonly pointMutationOccRerun: Readonly<{
     readonly attemptLoading: PointMutationSessionAttemptLoadingV1;
     readonly executionEvidence: StoredOccExecutionEvidenceLoaderV1;
@@ -963,15 +976,15 @@ export interface StoredPointMutationOccRerunExecutionConfigV1
     readonly liveness: PointMutationExecutionClaimLivenessV1;
     readonly heartbeatIntervalMilliseconds: number;
   }>;
-}
+};
 
-export interface StoredPointMutationCrashRedispatchConfigV1
-  extends StoredPointMutationOccRerunExecutionConfigV1 {
+export type StoredPointMutationCrashRedispatchConfigV1 =
+  StoredPointMutationOccRerunExecutionConfigV1 & {
   readonly pointMutationRedispatch: Readonly<{
     readonly acquisition: PointMutationExecutionClaimDispatchAcquisitionV1;
     readonly disposition: PointMutationSessionAttemptDispositionV1;
   }>;
-}
+};
 
 export type PointCommitRollbackV1Error =
   | InvalidPreparedPointCommitV1Error
@@ -1487,12 +1500,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
       reason: "missingExecutionClaimVault",
     });
   }
-  const grantKernel = commitAuthority === undefined
+  const grantKernel = commitAuthority?.transactionGrantVerifier === undefined
     ? undefined
     : findTransactionGrantVerificationKernelV1(
       commitAuthority.transactionGrantVerifier,
     );
-  if (commitAuthority !== undefined && grantKernel === undefined) {
+  if (commitAuthority?.transactionGrantVerifier !== undefined && grantKernel === undefined) {
     throw new StoredCommitAuthorityConfigurationV1Error({
       reason: "unregisteredTransactionGrantVerifier",
     });
@@ -1513,11 +1526,14 @@ function createStoredPointMutationCapabilityRuntimeV1(
   if (stage === "authentication") {
     return base;
   }
-  if (commitAuthority === undefined || grantKernel === undefined) {
+  if (commitAuthority === undefined) {
     throw new StoredPointMutationCapabilityConfigurationV1Defect({
       stage,
       missing: "commitAuthority",
     });
+  }
+  if (grantKernel === undefined && commitAuthority.applicationMutationGrantVerifier === undefined) {
+    throw new StoredCommitAuthorityConfigurationV1Error({ reason: "missingGrantVerifier" });
   }
 
   const pointCommitDescriptor = Object.getOwnPropertyDescriptor(

@@ -152,7 +152,7 @@ export const inspectLogicalCommerceActivity = Effect.fn("LogicalCommerce.inspect
 
 /** Both live call evidence and closed aggregate evidence use the same projection.
  * Neither view carries a storage or settlement capability. */
-const projectLogicalCommerceActivity = Effect.fn("LogicalCommerce.projectActivity")(function* (
+export const projectLogicalCommerceActivity = Effect.fn("LogicalCommerce.projectActivity")(function* (
   names: ReadonlyMap<number, string>,
   activity: Pick<LogicalDocumentChanges, "attempts" | "lifecycle" | "observedRows" | "setNull" | "referenceReplacements">,
 ) {

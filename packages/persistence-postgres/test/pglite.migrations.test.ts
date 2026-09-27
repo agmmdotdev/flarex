@@ -18,7 +18,7 @@ import { createPGlitePersistence } from "../src/pglite";
 import { seedTaskComputeDeliverySchemaV1 } from
   "./taskComputeDeliverySchemaV1TestSupport";
 import {
-  insertOpenTransactionJournalFixture,
+  insertLegacyOpenTransactionJournalFixture,
   insertSessionTestScope,
   insertTransactionSessionFixture,
   transactionSessionFixture,
@@ -167,7 +167,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_tx_execution_claim",
       "fx_system_tx_journal",
       "fx_system_tx_journal_index_range",
-      "fx_system_tx_journal_latest_receipt",
+      "fx_system_tx_journal_receipt",
       "fx_system_tx_journal_point",
       "fx_system_tx_journal_relation_incoming",
       "fx_system_tx_journal_write_event",
@@ -661,7 +661,7 @@ describe("createPGlitePersistence", () => {
       await insertSessionTestScope(previous);
       const session = transactionSessionFixture(transactionSessionIdAt(76));
       await insertTransactionSessionFixture(previous, session);
-      await insertOpenTransactionJournalFixture(previous, session);
+      await insertLegacyOpenTransactionJournalFixture(previous, session);
       await previous.query(
         `
         insert into fx_system_tx_journal_relation_incoming

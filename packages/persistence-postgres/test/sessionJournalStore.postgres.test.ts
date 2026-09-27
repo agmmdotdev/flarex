@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { asc, eq } from "drizzle-orm";
 
 import {
   appRowIdHexV1ToBytes,
@@ -23,7 +24,7 @@ import {
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -55,6 +56,7 @@ import {
   type PostgresFlarexPersistence,
 } from "../src/postgres";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
+import { fxSystemTransactionJournalReceipts } from "../src/schema";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   createSessionJournalStorePersistenceV1,
@@ -102,7 +104,7 @@ import {
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
 import {
-  insertOpenTransactionJournalFixture,
+  insertLegacyOpenTransactionJournalFixture,
   insertSessionTestScope,
   insertTransactionSessionFixture,
   transactionSessionFixture,
@@ -441,7 +443,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             transactionSessionIdAt(176),
           );
           await insertTransactionSessionFixture(previous, session);
-          await insertOpenTransactionJournalFixture(previous, session);
+          await insertLegacyOpenTransactionJournalFixture(previous, session);
           await previous.query(`
             insert into fx_system_tx_journal_relation_incoming
               (scope_uuid, session_id, attempt_fence, edge_definition_id,
@@ -547,7 +549,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
     });
   }, 120_000);
 
-  it("serializes same-sequence and ordered adjacent-sequence races into one latest receipt", async () => {
+  it("serializes same-sequence and ordered adjacent-sequence races with one retained receipt per sequence", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const same = await scenario(persistence, "same_sequence");
       const sameRequest = Object.freeze({
@@ -573,8 +575,8 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       }
       await expect(journalCounts(persistence, same.anchor.sessionId))
         .resolves.toEqual({ roots: 1, receipts: 1, points: 1, events: 0 });
-      await expect(latestReceiptSequence(persistence, same.anchor.sessionId))
-        .resolves.toBe("1");
+      await expect(retainedReceiptSequences(persistence, same.anchor.sessionId))
+        .resolves.toEqual(["1"]);
 
       const entered = deferred<void>();
       const release = deferred<void>();
@@ -622,10 +624,10 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       }
 
       await expect(journalCounts(persistence, adjacent.anchor.sessionId))
-        .resolves.toEqual({ roots: 1, receipts: 1, points: 2, events: 0 });
+        .resolves.toEqual({ roots: 1, receipts: 2, points: 2, events: 0 });
       await expect(
-        latestReceiptSequence(persistence, adjacent.anchor.sessionId),
-      ).resolves.toBe("2");
+        retainedReceiptSequences(persistence, adjacent.anchor.sessionId),
+      ).resolves.toEqual(["1", "2"]);
     });
   }, 120_000);
 
@@ -890,7 +892,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         await evidenceLocker.query("set local lock_timeout = '2s'");
         await evidenceLocker.query(`
           lock table
-            fx_system_tx_journal_latest_receipt,
+            fx_system_tx_journal_receipt,
             fx_system_tx_journal_point,
             fx_system_tx_journal_write_event
           in access exclusive mode nowait
@@ -922,7 +924,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
 
       const resultPayloadBytes = MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 - 1_024;
       const canonicalJournalPromise = runEffect(
-        canonicalizeSessionJournalV1Effect(prepared.journal),
+        canonicalizeSessionJournalV2Effect(prepared.journal),
       );
       const successfulResultPromise = runEffect(
         canonicalizeSuccessfulResultV1Effect(
@@ -1066,8 +1068,8 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         concurrent.attempt,
       );
       const [firstJournal, secondJournal, successfulResult] = await Promise.all([
-        runEffect(canonicalizeSessionJournalV1Effect(firstPrepared.journal)),
-        runEffect(canonicalizeSessionJournalV1Effect(secondPrepared.journal)),
+        runEffect(canonicalizeSessionJournalV2Effect(firstPrepared.journal)),
+        runEffect(canonicalizeSessionJournalV2Effect(secondPrepared.journal)),
         runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
       ]);
 
@@ -1103,7 +1105,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       await expect(completeSeal(
         concurrent.store,
         replayPrepared.preparation,
-        await runEffect(canonicalizeSessionJournalV1Effect(
+        await runEffect(canonicalizeSessionJournalV2Effect(
           replayPrepared.journal,
         )),
         successfulResult,
@@ -1120,7 +1122,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         concurrent.attempt,
       );
       const mismatchJournal = await runEffect(
-        canonicalizeSessionJournalV1Effect(mismatchPrepared.journal),
+        canonicalizeSessionJournalV2Effect(mismatchPrepared.journal),
       );
       await persistence.query(
         `
@@ -1170,7 +1172,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       );
       await expect(runFailure(overBudget.store.completeSealEffect(
         overBudgetPrepared.preparation,
-        await runEffect(canonicalizeSessionJournalV1Effect(
+        await runEffect(canonicalizeSessionJournalV2Effect(
           overBudgetPrepared.journal,
         )),
         successfulResult,
@@ -1196,7 +1198,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         );
         const prepared = await prepareSeal(rollback.store, rollback.attempt);
         const journal = await runEffect(
-          canonicalizeSessionJournalV1Effect(prepared.journal),
+          canonicalizeSessionJournalV2Effect(prepared.journal),
         );
         const before = await attemptLeaseAndSealState(
           persistence,
@@ -1263,7 +1265,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       );
       const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
-        canonicalizeSessionJournalV1Effect(prepared.journal),
+        canonicalizeSessionJournalV2Effect(prepared.journal),
       );
       const successfulResult = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -1374,7 +1376,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const prepared = await prepareSeal(sealed.store, sealed.attempt);
       await completeSeal(sealed.store,
         prepared.preparation,
-        await runEffect(canonicalizeSessionJournalV1Effect(prepared.journal)),
+        await runEffect(canonicalizeSessionJournalV2Effect(prepared.journal)),
         await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
       );
       const sealedNullableColumns = [
@@ -1723,7 +1725,7 @@ async function journalCounts(
     `select
        (select count(*)::int from fx_system_tx_journal
          where session_id = $1) as roots,
-       (select count(*)::int from fx_system_tx_journal_latest_receipt
+       (select count(*)::int from fx_system_tx_journal_receipt
          where session_id = $1) as receipts,
        (select count(*)::int from fx_system_tx_journal_point
          where session_id = $1) as points,
@@ -1736,21 +1738,17 @@ async function journalCounts(
   return row;
 }
 
-async function latestReceiptSequence(
+async function retainedReceiptSequences(
   persistence: PostgresFlarexPersistence,
   sessionId: PointMutationSessionAnchorV1["sessionId"],
-): Promise<string> {
-  const result = await persistence.query<{
-    last_syscall_sequence: string;
-  }>(
-    `select last_syscall_sequence::text
-     from fx_system_tx_journal_latest_receipt
-     where session_id = $1`,
-    [sessionId],
-  );
-  const row = result.rows[0];
-  if (row === undefined) throw new Error("Missing latest journal receipt.");
-  return row.last_syscall_sequence;
+): Promise<readonly string[]> {
+  const rows = await persistence.drizzle.select({
+    lastSyscallSequence: fxSystemTransactionJournalReceipts.lastSyscallSequence,
+  }).from(fxSystemTransactionJournalReceipts)
+    .where(eq(fxSystemTransactionJournalReceipts.sessionId, sessionId))
+    .orderBy(asc(fxSystemTransactionJournalReceipts.lastSyscallSequence));
+  if (rows.length === 0) throw new Error("Missing retained journal receipts.");
+  return rows.map(row => String(row.lastSyscallSequence));
 }
 
 async function attemptCleanupState(
@@ -1761,7 +1759,7 @@ async function attemptCleanupState(
     `select
        (select count(*)::int from fx_system_tx_journal
          where session_id = $1) as roots,
-       (select count(*)::int from fx_system_tx_journal_latest_receipt
+       (select count(*)::int from fx_system_tx_journal_receipt
          where session_id = $1) as receipts,
        (select count(*)::int from fx_system_tx_journal_point
          where session_id = $1) as points,
@@ -1820,7 +1818,7 @@ async function journalLookupPlans(
     );
     const receiptPlan = await explain(
       planner,
-      `select outcome_kind from fx_system_tx_journal_latest_receipt
+      `select outcome_kind from fx_system_tx_journal_receipt
        where scope_uuid = $1::uuid
          and session_id = $2::uuid
          and attempt_fence = $3::bigint`,

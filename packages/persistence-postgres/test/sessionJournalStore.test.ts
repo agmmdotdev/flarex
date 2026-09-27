@@ -19,13 +19,14 @@ import {
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
   MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
   MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_FAILED_RECEIPT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
   MAX_COMMIT_READ_DOCUMENTS_V1,
   MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -124,7 +125,12 @@ import {
   type SessionJournalStorePersistenceOptionsV1,
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
-import { fxSystemIndexBuildStates, fxSystemScopeClocks } from "../src/schema";
+import {
+  fxSystemIndexBuildStates,
+  fxSystemScopeClocks,
+  fxSystemTransactionJournalReceipts,
+  fxSystemTransactionJournals,
+} from "../src/schema";
 import { sessionJournalReceiptScenario } from "./sessionJournalReceiptScenario";
 import { verifyJournalEventEvidence, verifyJournalSealSequence } from "./journalEvidenceScenario";
 import {
@@ -1096,7 +1102,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       maximum: MAX_COMMIT_READ_DOCUMENTS_V1,
     });
     await persistence.query(
-      `update fx_system_tx_journal_latest_receipt
+      `update fx_system_tx_journal_receipt
           set outcome_bytes = $2, outcome_sha256 = $3
         where session_id = $1`,
       [
@@ -1150,7 +1156,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     for (const malformedPage of malformedPages) {
       const evidence = await canonicalizeFlarexValueV1(malformedPage);
       await persistence.query(
-        `update fx_system_tx_journal_latest_receipt
+        `update fx_system_tx_journal_receipt
             set outcome_bytes = $2, outcome_sha256 = $3
           where session_id = $1`,
         [
@@ -2049,7 +2055,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     await sessionJournalReceiptScenario(persistence, await scenario("receipt_upsert"));
   });
 
-  it("keeps one durable latest receipt across replay, mismatch, gap, and stale delivery", async () => {
+  it("retains every accepted receipt for exact replay and mismatch checks", async () => {
     const current = await scenario("latest_receipt");
     const firstDocumentId = documentId(current.tableId, 101);
     const secondDocumentId = documentId(current.tableId, 102);
@@ -2105,27 +2111,37 @@ describe("C03 Postgres SessionJournalStore", () => {
     await expect(
       runPointOperation(current.store, current.table, firstRequest),
     ).resolves.toMatchObject({
+      kind: "completed",
+      delivery: "replayed",
+      outcome: { kind: "missing", document: null },
+    });
+    await expect(runPointOperation(current.store, current.table, {
+      kind: "get",
+      syscallSequence: syscallSequence(1n),
+      documentId: secondDocumentId,
+    })).resolves.toMatchObject({
       kind: "sequenceRejected",
-      issue: { reason: "staleSequence", actual: 1n, lastAccepted: 2n },
+      issue: { reason: "requestMismatch", syscallSequence: 1n },
     });
 
     const counts = await journalCounts(current.anchor.sessionId);
-    expect(counts).toMatchObject({ roots: 1, receipts: 1, points: 2 });
+    expect(counts).toMatchObject({ roots: 1, receipts: 2, points: 2 });
     const receipt = await persistence.query<{
       last_syscall_sequence: string;
       operation_kind: string;
     }>(
       `
         select last_syscall_sequence::text, operation_kind
-        from fx_system_tx_journal_latest_receipt
+        from fx_system_tx_journal_receipt
         where session_id = $1
+        order by last_syscall_sequence
       `,
       [current.anchor.sessionId],
     );
-    expect(receipt.rows).toEqual([{
-      last_syscall_sequence: "2",
-      operation_kind: "get",
-    }]);
+    expect(receipt.rows).toEqual([
+      { last_syscall_sequence: "1", operation_kind: "get" },
+      { last_syscall_sequence: "2", operation_kind: "get" },
+    ]);
   });
 
   it("preserves an unexpected replay evidence rejection as a defect after rollback", async () => {
@@ -2475,7 +2491,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       next_creation_time: nextCreationTime(secondCreationTime),
     });
     expect(await journalCounts(current.anchor.sessionId)).toMatchObject({
-      receipts: 1,
+      receipts: 10,
       points: 2,
       events: 5,
     });
@@ -2846,6 +2862,17 @@ describe("C03 Postgres SessionJournalStore", () => {
       kind: "completed",
       outcome: { kind: "missing" },
     });
+    const [beforeReceipt] = await persistence.drizzle.select()
+      .from(fxSystemTransactionJournalReceipts)
+      .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+        current.anchor.sessionId));
+    const [beforeRoot] = await persistence.drizzle.select()
+      .from(fxSystemTransactionJournals)
+      .where(eq(fxSystemTransactionJournals.sessionId,
+        current.anchor.sessionId));
+    if (beforeReceipt === undefined || beforeRoot === undefined) {
+      throw new Error("Missing open-root receipt evidence");
+    }
     await replaceLatestOutcomeEvidence(current.anchor.sessionId, {
       kind: "error",
       reason: "limitExceeded",
@@ -2853,6 +2880,18 @@ describe("C03 Postgres SessionJournalStore", () => {
       observed: MAX_COMMIT_READ_DOCUMENTS_V1 + 1,
       maximum: MAX_COMMIT_READ_DOCUMENTS_V1,
     });
+    const [changedReceipt] = await persistence.drizzle.select()
+      .from(fxSystemTransactionJournalReceipts)
+      .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+        current.anchor.sessionId));
+    if (changedReceipt === undefined) throw new Error("Missing changed receipt evidence");
+    // Keep accounting self-consistent so replay and seal reach the state/receipt
+    // contradiction rather than stopping at the earlier byte-counter check.
+    await persistence.drizzle.update(fxSystemTransactionJournals).set({
+      receiptEvidenceBytes: beforeRoot.receiptEvidenceBytes -
+        beforeReceipt.outcomeBytes.byteLength + changedReceipt.outcomeBytes.byteLength,
+    }).where(eq(fxSystemTransactionJournals.sessionId,
+      current.anchor.sessionId));
 
     await expect(runPointOperation(current.store, current.table,
       request,
@@ -2861,88 +2900,68 @@ describe("C03 Postgres SessionJournalStore", () => {
       .toMatchObject({ reason: "journalReceiptStateMismatch" });
   });
 
-  it("accepts an exact 64 MiB material-event total when the final journal still fits", async () => {
-    const operationCount = 64;
-    const removalFieldCount = 1_023;
-    const minimumRemovalFieldBytes = removalFieldPrefixBytes(
-      removalFieldCount,
-    );
-    const probe = await scenario("event_evidence_exact_probe", {
+  it("stops remove-heavy writes at the cumulative receipt cap before mutating an event", async () => {
+    // The retained request and outcome history reaches its independent 64 MiB
+    // bound before these writes can fill the material-event budget. The seeded
+    // +1 material case below preserves that independent boundary witness.
+    const current = await scenario("event_evidence_receipt_cap", {
       seedFields: { name: "zero" },
     });
-    const probeDocumentId = requireSeededDocumentId(probe);
-    for (let index = 1; index <= operationCount; index += 1) {
-      await expect(runPointOperation(probe.store, probe.table, {
+    const documentId = requireSeededDocumentId(current);
+    let completed = 0;
+    let refused: SessionJournalPointOperationV1 | undefined;
+    let overlayBeforeRefusal: string | undefined;
+    for (let index = 1; index <= 64; index += 1) {
+      const request = Object.freeze({
         kind: "patch",
         syscallSequence: syscallSequence(BigInt(index)),
-        documentId: probeDocumentId,
+        documentId,
         patch: patchWithRemovalFields(
-          removalFieldCount,
-          minimumRemovalFieldBytes,
+          1_023,
+          removalFieldCapacityBytes(1_023),
           `v${index.toString().padStart(3, "0")}`,
         ),
-      })).resolves.toMatchObject({ kind: "completed" });
+      } satisfies SessionJournalPointOperationV1);
+      const overlayBefore = index === 1 ? undefined :
+        await pointOverlayJson(current.anchor.sessionId);
+      const result = await runPointOperation(current.store, current.table, request);
+      if (result.kind === "rejected") {
+        expect(result).toMatchObject({ delivery: "executed", issue: {
+          reason: "limitExceeded", dimension: "receiptEvidenceBytes",
+          maximum: MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
+        } });
+        refused = request;
+        overlayBeforeRefusal = overlayBefore;
+        break;
+      }
+      expect(result.kind).toBe("completed");
+      completed += 1;
     }
-    const probeLengths = await eventEvidenceByteLengths(
-      probe.anchor.sessionId,
-    );
-    expect(probeLengths).toHaveLength(operationCount);
-    const fixedEvidenceBytes = probeLengths.reduce(
-      (total, length) => total + length - minimumRemovalFieldBytes,
-      0,
-    );
-    const removableFieldBytes =
-      MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1 -
-      fixedEvidenceBytes;
-    const baseFieldBytes = Math.floor(removableFieldBytes / operationCount);
-    const finalFieldBytes = removableFieldBytes -
-      baseFieldBytes * (operationCount - 1);
-    expect(baseFieldBytes).toBeGreaterThan(0);
-    expect(finalFieldBytes).toBeGreaterThanOrEqual(baseFieldBytes);
-    expect(finalFieldBytes).toBeLessThanOrEqual(
-      removalFieldCapacityBytes(removalFieldCount),
-    );
-
-    const exact = await scenario("event_evidence_exact", {
-      seedFields: { name: "zero" },
-    });
-    const exactDocumentId = requireSeededDocumentId(exact);
-    for (let index = 1; index <= operationCount; index += 1) {
-      const fieldBytes = index === operationCount
-        ? finalFieldBytes
-        : baseFieldBytes;
-      await expect(runPointOperation(exact.store, exact.table, {
-        kind: "patch",
-        syscallSequence: syscallSequence(BigInt(index)),
-        documentId: exactDocumentId,
-        patch: patchWithRemovalFields(
-          removalFieldCount,
-          fieldBytes,
-          `v${index.toString().padStart(3, "0")}`,
-        ),
-      })).resolves.toMatchObject({ kind: "completed" });
+    if (refused === undefined || overlayBeforeRefusal === undefined) {
+      throw new Error("Expected the retained receipt budget to stop the writes");
     }
-
-    const exactLengths = await eventEvidenceByteLengths(
-      exact.anchor.sessionId,
-    );
-    expect(exactLengths.reduce((total, length) => total + length, 0)).toBe(
+    const roots = await persistence.drizzle.select()
+      .from(fxSystemTransactionJournals)
+      .where(eq(fxSystemTransactionJournals.sessionId,
+        current.anchor.sessionId));
+    expect(roots[0]).toMatchObject({ state: "failed",
+      failureDimension: "receiptEvidenceBytes", writeOperations: completed });
+    expect(roots[0]?.materialWriteEventEvidenceBytes).toBeLessThan(
       MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
     );
-    expect(await journalRoot(exact.anchor.sessionId)).toMatchObject({
-      state: "open",
-      write_operations: operationCount,
-      material_write_event_evidence_bytes:
-        MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
-    });
-
-    const prepared = await prepareSeal(exact.store, exact.attempt);
-    const canonicalJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
-    );
-    expect(canonicalJournal.canonicalBytes.byteLength).toBeLessThanOrEqual(
+    expect(roots[0]?.receiptEvidenceBytes).toBeGreaterThan(
       MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
     );
+    expect(roots[0]?.receiptEvidenceBytes).toBeLessThanOrEqual(
+      MAX_COMMIT_FAILED_RECEIPT_EVIDENCE_BYTES_V1,
+    );
+    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({
+      receipts: completed + 1, points: 1, events: completed,
+    });
+    expect(await pointOverlayJson(current.anchor.sessionId)).toBe(overlayBeforeRefusal);
+    await expect(runPointOperation(current.store, current.table, refused))
+      .resolves.toMatchObject({ kind: "rejected", delivery: "replayed",
+        issue: { reason: "limitExceeded", dimension: "receiptEvidenceBytes" } });
   }, 180_000);
 
   it("sticks an exact +1 remove-heavy event failure without mutating its point or event rows", async () => {
@@ -3007,7 +3026,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       failure_dimension: "materialWriteEventEvidenceBytes",
     });
     expect(await journalCounts(current.anchor.sessionId)).toMatchObject({
-      receipts: 1,
+      receipts: 2,
       points: 1,
       events: 1,
     });
@@ -3079,7 +3098,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     await persistence.query(
       `
-        update fx_system_tx_journal_latest_receipt
+        update fx_system_tx_journal_receipt
         set request_sha256 = $2
         where session_id = $1
       `,
@@ -3265,7 +3284,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     expect(await journalCounts(current.anchor.sessionId)).toMatchObject({
       roots: 1,
-      receipts: 1,
+      receipts: 2,
       points: 1,
       events: 1,
       sessions: 1,
@@ -3298,7 +3317,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const documentId = requireInsertedDocumentId(inserted);
     const stale = await prepareSeal(current.store, current.attempt);
     const staleJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(stale.journal),
+      canonicalizeSessionJournalV2Effect(stale.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3326,7 +3345,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     }
     Reflect.set(callerVisibleWrite.fieldsValueJson, "name", "caller-mutated");
     const callerMutatedJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(callerMutablePreparation.journal),
+      canonicalizeSessionJournalV2Effect(callerMutablePreparation.journal),
     );
     await expect(completeSeal(current.store,
       callerMutablePreparation.preparation,
@@ -3340,7 +3359,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       current.attempt,
     );
     const malformedJournal = structuredClone(await runEffect(
-      canonicalizeSessionJournalV1Effect(malformedJournalPreparation.journal),
+      canonicalizeSessionJournalV2Effect(malformedJournalPreparation.journal),
     ));
     Reflect.set(malformedJournal.journal, "format", "invalid");
     await expect(completeSeal(current.store,
@@ -3355,7 +3374,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       current.attempt,
     );
     const journalForMalformedResult = await runEffect(
-      canonicalizeSessionJournalV1Effect(
+      canonicalizeSessionJournalV2Effect(
         malformedResultPreparation.journal,
       ),
     );
@@ -3373,7 +3392,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       current.attempt,
     );
     const journalForMalformedResultValue = await runEffect(
-      canonicalizeSessionJournalV1Effect(
+      canonicalizeSessionJournalV2Effect(
         malformedResultValuePreparation.journal,
       ),
     );
@@ -3389,7 +3408,7 @@ describe("C03 Postgres SessionJournalStore", () => {
 
     const prepared = await prepareSeal(current.store, current.attempt);
     const canonicalJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const mutableSuccessfulResult = structuredClone(successfulResult);
     const envelopePromise = completeSeal(current.store,
@@ -3430,7 +3449,7 @@ describe("C03 Postgres SessionJournalStore", () => {
 
     const replayPreparation = await prepareSeal(current.store, current.attempt);
     const replayJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(replayPreparation.journal),
+      canonicalizeSessionJournalV2Effect(replayPreparation.journal),
     );
     await expect(completeSeal(current.store,
       replayPreparation.preparation,
@@ -3444,7 +3463,7 @@ describe("C03 Postgres SessionJournalStore", () => {
 
     const mismatchedReplay = await prepareSeal(current.store, current.attempt);
     const mismatchedJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(mismatchedReplay.journal),
+      canonicalizeSessionJournalV2Effect(mismatchedReplay.journal),
     );
     await persistence.query(
       `
@@ -3486,7 +3505,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     await completeSeal(
       current.store,
       prepared.preparation,
-      await runEffect(canonicalizeSessionJournalV1Effect(prepared.journal)),
+      await runEffect(canonicalizeSessionJournalV2Effect(prepared.journal)),
       await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),
     );
     const before = await attemptLeaseAndClaimState(
@@ -3539,7 +3558,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     const prepared = await prepareSeal(current.store, current.attempt);
     const canonicalJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3586,7 +3605,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     const prepared = await prepareSeal(current.store, current.attempt);
     const canonicalJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3616,7 +3635,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       const current = await scenario(`seal_atomic_rollback_${phase}`);
       const prepared = await prepareSeal(current.store, current.attempt);
       const canonicalJournal = await runEffect(
-        canonicalizeSessionJournalV1Effect(prepared.journal),
+        canonicalizeSessionJournalV2Effect(prepared.journal),
       );
       const successfulResult = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ phase }),
@@ -3679,7 +3698,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     const prepared = await prepareSeal(current.store, current.attempt);
     const canonicalJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3729,7 +3748,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     const prepared = await prepareSeal(sealed.store, sealed.attempt);
     const canonicalJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -3974,7 +3993,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         select
           (select count(*)::int from fx_system_tx_journal
             where session_id = $1) as roots,
-          (select count(*)::int from fx_system_tx_journal_latest_receipt
+          (select count(*)::int from fx_system_tx_journal_receipt
             where session_id = $1) as receipts,
           (select count(*)::int from fx_system_tx_journal_point
             where session_id = $1) as points,
@@ -3999,7 +4018,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const evidence = await canonicalizeFlarexValueV1(outcome);
     await persistence.query(
       `
-        update fx_system_tx_journal_latest_receipt
+        update fx_system_tx_journal_receipt
         set outcome_bytes = $2,
             outcome_sha256 = $3,
             outcome_kind = $4
@@ -4403,13 +4422,6 @@ function patchWithRemovalFields(
     throw new Error("Removal-field byte distribution was incomplete.");
   }
   return patch;
-}
-
-function removalFieldPrefixBytes(fieldCount: number): number {
-  return removalFieldPrefixes(fieldCount).reduce(
-    (total, prefix) => total + prefix.length,
-    0,
-  );
 }
 
 function removalFieldCapacityBytes(fieldCount: number): number {

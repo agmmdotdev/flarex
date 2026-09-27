@@ -16,6 +16,7 @@ import {
   type LogicalIndexRangeReadDependencyV1,
   type LogicalApplicationRelationIncomingReadDependencyV1,
   type LogicalReadDependencyV1,
+  type SessionJournalV2,
 } from "flarex-protocol/commit-protocol";
 
 import type {
@@ -112,6 +113,9 @@ export type PreparedPointRowIntentV1 =
 
 export interface PreparedPointCommitStateV1 {
   readonly journalBytes: Uint8Array;
+  readonly logicalParticipantOperations: ReadonlyArray<Pick<
+    SessionJournalV2["participantOperations"][number], "participant" | "syscallSequence"
+  >>;
   readonly authorityPins: VerifiedCommitInputStateV1["authorityPins"];
   readonly sealIdentity: VerifiedCommitInputStateV1["sealIdentity"];
   readonly dependencies: ReadonlyArray<PreparedPointDependencyV1>;
@@ -255,6 +259,8 @@ export function planPointCommitStateV1(
     const journalBytes = copyBytes(source.journalBytes);
     return Object.freeze({
       get journalBytes(): Uint8Array { return copyBytes(journalBytes); },
+      logicalParticipantOperations: Object.freeze(source.journal.participantOperations.map(operation =>
+        Object.freeze({ participant: operation.participant, syscallSequence: operation.syscallSequence }))),
       authorityPins: captureAuthorityPins(source.authorityPins),
       sealIdentity: captureSealIdentity(source.sealIdentity),
       dependencies,

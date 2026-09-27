@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import {
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -421,7 +421,7 @@ async function prepareRelationAttempt<Value>(
   const value = await operation(Object.freeze({ store, attempt }));
   const prepared = await prepareSessionJournalSeal(store, attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV1Effect(prepared.journal),
+    canonicalizeSessionJournalV2Effect(prepared.journal),
   );
   const successfulResult = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),

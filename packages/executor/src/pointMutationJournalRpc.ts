@@ -4,7 +4,15 @@ import type {
 } from "@flarex/persistence-postgres/session-journal-store";
 import { ApplicationTableWriteDeniedError } from "@flarex/persistence-postgres/session-journal-store";
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
-import { Cause, Data, Effect, Exit } from "effect";
+import { Cause, Data, Effect, Exit, Schema } from "effect";
+import {
+  CommitSyscallSequenceV1Schema,
+} from "flarex-protocol/commit-protocol";
+import {
+  encodeAdmittedFrameworkOperationV1Result,
+} from "flarex-protocol/internal/admitted-framework-operation-v1";
+import type { Json } from "flarex-protocol/json";
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
 } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
@@ -16,6 +24,8 @@ import type {
   PointMutationJournalIndexV1,
   PointMutationJournalTableV1,
 } from "./pointMutationJournal";
+import { PointMutationJournalAdmittedOperationRejectedV1Error,
+  PointMutationJournalParticipantRejectedV1Error } from "./pointMutationJournal";
 import type {
   PointMutationOccBoundJournalV1,
 } from "./storedAttemptAuthentication";
@@ -34,7 +44,65 @@ export class PointMutationJournalResultRejectedV1Error
 
 export type PointMutationJournalRpcBoundaryV1Error =
   | PointMutationJournalBoundaryV1Error
-  | PointMutationJournalResultRejectedV1Error;
+  | PointMutationJournalResultRejectedV1Error
+  | PointMutationAdmittedFrameworkOperationV1Error;
+
+export class PointMutationAdmittedFrameworkOperationV1Error
+  extends Data.TaggedError("PointMutationAdmittedFrameworkOperationV1Error")<{
+    readonly reason: "invalidRequest" | "unavailable" | "participantRejected";
+    readonly cause?: unknown;
+  }> {}
+
+const decodeAdmittedSequence = Schema.decodeUnknownResult(
+  Schema.toType(CommitSyscallSequenceV1Schema),
+);
+
+const runAdmittedFrameworkOperationEffect = Effect.fn(
+  "PointMutationJournalRpc.runAdmittedFrameworkOperation",
+)(function* (
+  journal: PointMutationOccBoundJournalV1,
+  sequence: unknown,
+  candidate: unknown,
+): Effect.fn.Return<Json, PointMutationJournalRpcBoundaryV1Error> {
+  const syscallSequence = yield* Effect.fromResult(
+    decodeAdmittedSequence(sequence),
+  ).pipe(Effect.mapError((cause) =>
+    new PointMutationAdmittedFrameworkOperationV1Error({
+      reason: "invalidRequest",
+      cause,
+    })
+  ));
+  const admitted = journal.runAdmittedOperation;
+  if (admitted === undefined) {
+    return yield* new PointMutationAdmittedFrameworkOperationV1Error({
+      reason: "unavailable",
+    });
+  }
+  const encoded = yield* Effect.fromResult(
+    encodeAdmittedFrameworkOperationV1Result(candidate),
+  ).pipe(Effect.mapError((cause) =>
+    new PointMutationAdmittedFrameworkOperationV1Error({
+      reason: "invalidRequest",
+      cause,
+    })
+  ));
+  const digest = new Uint8Array(yield* Effect.tryPromise({
+    try: () => crypto.subtle.digest("SHA-256", copyBytesToArrayBuffer(encoded.bytes)),
+    catch: cause => new PointMutationAdmittedFrameworkOperationV1Error({
+      reason: "unavailable", cause,
+    }),
+  }));
+  return yield* admitted(Object.freeze({
+    syscallSequence,
+    operation: encoded.operation,
+    requestBytes: encoded.bytes,
+    requestSha256: digest,
+  })).pipe(Effect.mapError(cause => cause instanceof PointMutationJournalParticipantRejectedV1Error
+    ? new PointMutationAdmittedFrameworkOperationV1Error({ reason: "participantRejected", cause })
+    : cause instanceof PointMutationJournalAdmittedOperationRejectedV1Error &&
+      cause.result.kind === "stateRejected" && cause.result.issue.reason === "operationPending"
+      ? new PointMutationAdmittedFrameworkOperationV1Error({ reason: "unavailable", cause }) : cause));
+});
 
 export interface PointMutationJournalRpcTableMethodsV1 {
   readonly runPointOperation: (
@@ -63,6 +131,10 @@ export interface PointMutationJournalRpcParentMethodsV1 {
   readonly resolvePointTable: (
     tableName: unknown,
   ) => Promise<PointMutationJournalRpcTableTargetV1>;
+  readonly runAdmittedFrameworkOperation: (
+    syscallSequence: unknown,
+    operation: unknown,
+  ) => Promise<Json>;
 }
 
 export type PointMutationJournalRpcParentTargetV1 =
@@ -128,6 +200,18 @@ class PointMutationJournalRpcParentTarget
       tableName,
     )).then(
       table => new PointMutationJournalRpcTableTarget(this.#state, table),
+    );
+  }
+
+  runAdmittedFrameworkOperation(
+    syscallSequence: unknown,
+    operation: unknown,
+  ): Promise<Json> {
+    return this.#state.run(() =>
+      this.#state.runAdmittedFrameworkOperation(
+        syscallSequence,
+        operation,
+      )
     );
   }
 }
@@ -252,6 +336,17 @@ class PointMutationJournalRpcSessionStateV1 {
     this.journal = journal;
   }
 
+  runAdmittedFrameworkOperation(
+    sequence: unknown,
+    candidate: unknown,
+  ): Effect.Effect<Json, PointMutationJournalRpcBoundaryV1Error> {
+    return runAdmittedFrameworkOperationEffect(
+      this.journal,
+      sequence,
+      candidate,
+    );
+  }
+
   run<A>(
     makeEffect: () => Effect.Effect<
       A,
@@ -261,7 +356,6 @@ class PointMutationJournalRpcSessionStateV1 {
   ): Promise<A> {
     return this.#run(makeEffect, false);
   }
-
   runPointOperation<A>(
     makeEffect: () => Effect.Effect<
       A,

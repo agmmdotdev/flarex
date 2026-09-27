@@ -115,7 +115,7 @@ const PROCESS_LOCAL_CAPABILITY: true = true;
 export interface StoredPointCommitPlanningOperationDependenciesV1 {
   readonly base: StoredAttemptAuthenticationV1;
   readonly configuration: StoredCommitAuthorityAuthenticationConfigV1;
-  readonly grantKernel: TransactionGrantVerificationKernelV1;
+  readonly grantKernel: TransactionGrantVerificationKernelV1 | undefined;
   readonly applicationGrantKernel?:
     ApplicationMutationGrantVerificationKernelV1 | undefined;
   readonly developerIndexMaintenance: boolean;
@@ -185,9 +185,10 @@ export function makeStoredPointCommitPlanningOperationsV1(
     let functionMetadata: PointMutationTargetFunctionMetadataV1 | undefined;
     if (verifiedEvidence.executionAuthorityGeneration ===
       "legacy_dynamic_worker_v1") {
-      if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+      if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt) ||
+        configuration.functionMetadata === undefined) {
         return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
-          reason: "sessionEvidenceInvalid",
+          reason: "functionMetadataMissing",
         }));
       }
       const metadataUnknown = yield* configuration.functionMetadata.load(
@@ -232,6 +233,7 @@ export function makeStoredPointCommitPlanningOperationsV1(
           points: state.storedAttempt.points,
           successfulResult: state.storedAttempt.successfulResult,
           schemaManifest: state.schemaManifest,
+          logicalParticipants: configuration.logicalParticipants ?? [],
           functionValidationAuthority: state.functionValidationAuthority,
         });
         const handle: VerifiedCommitInputV1 = Object.freeze({

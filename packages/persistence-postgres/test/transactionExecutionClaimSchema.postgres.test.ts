@@ -18,6 +18,7 @@ import {
 } from "./postgresHelpers";
 import {
   insertOpenTransactionJournalFixture,
+  insertLegacyOpenTransactionJournalFixture,
   insertSessionTestScope,
   insertSnapshotLeaseFixture,
   insertTransactionSessionFixture,
@@ -57,7 +58,7 @@ describePostgres("real Postgres B2b1 exact-attempt claim schema", () => {
             previous,
             snapshotLeaseFixture(sessionId),
           );
-          await insertOpenTransactionJournalFixture(previous, {
+          await insertLegacyOpenTransactionJournalFixture(previous, {
             scopeUuid: SESSION_TEST_SCOPE_UUID,
             sessionId,
           });

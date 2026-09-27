@@ -4,7 +4,7 @@ import { expect } from "vitest";
 import {
   CommitFinalSyscallSequenceV1Schema,
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import { isJsonObject } from "flarex-protocol/json";
@@ -61,7 +61,8 @@ export async function verifyJournalEventEvidence(database: Database, current: Sc
       writeKind: original.writeKind, syscallSequence: original.syscallSequence, ...mutation,
     }).where(where);
     expect(await runEffectFailure(current.store.prepareSealEffect(current.attempt)))
-      .toMatchObject({ reason: "logicalWriteEventInvalid" });
+      .toMatchObject({ reason: mutation.syscallSequence === undefined
+        ? "logicalWriteEventInvalid" : "writeSequenceBeyondJournalFinalSequence" });
     const [root] = await database.drizzle.select().from(fxSystemTransactionJournals)
       .where(eq(fxSystemTransactionJournals.sessionId, current.anchor.sessionId));
     expect(root?.state).toBe("open");
@@ -76,7 +77,7 @@ export async function verifyJournalEventEvidence(database: Database, current: Sc
 /** The surviving root counter remains bound to previously prepared sealed evidence. */
 export async function verifyJournalSealSequence(database: Database, current: Scenario): Promise<void> {
   const prepared = await prepareSessionJournalSeal(current.store, current.attempt);
-  const journal = await runEffect(canonicalizeSessionJournalV1Effect(prepared.journal));
+  const journal = await runEffect(canonicalizeSessionJournalV2Effect(prepared.journal));
   const result = await runEffect(canonicalizeSuccessfulResultV1Effect(null));
   const envelope = await completeSessionJournalSeal(current.store, prepared.preparation, journal, result);
   const replay = await prepareSessionJournalSeal(current.store, current.attempt);

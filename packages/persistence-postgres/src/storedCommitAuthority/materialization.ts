@@ -2230,6 +2230,9 @@ function classifyOpenOccExecutionRoot(
     root.writeOperations,
     root.writeSemanticBytes,
     root.materialWriteEventEvidenceBytes,
+    root.receiptEvidenceBytes,
+    root.participantWorkBytes,
+    root.participantWorkCalls,
   ];
   if (
     root.scopeUuid !== expected.scopeUuid ||
@@ -2263,7 +2266,8 @@ function classifyOpenOccExecutionRoot(
     root.sealedResultBytes === null &&
     root.sealedResultSha256 === null &&
     root.sealedAt === null;
-  if (root.state === "open" || root.state === "relation_conflicted") {
+  if (root.state === "open" || root.state === "relation_conflicted" ||
+    root.state === "operation_invoking" || root.state === "operation_failed") {
     if (root.failureDimension !== null || !hasNoSealedEvidence) {
       return "corrupt";
     }
@@ -2300,7 +2304,9 @@ function isJournalFailureDimension(
     value === "relationBaseOccurrences" ||
     value === "writeOperations" ||
     value === "writeSemanticBytes" ||
-    value === "materialWriteEventEvidenceBytes"
+    value === "materialWriteEventEvidenceBytes" ||
+    value === "operationCalls" ||
+    value === "receiptEvidenceBytes"
   );
 }
 
@@ -2361,7 +2367,10 @@ function sameSealIdentity(
     expected.writeOperations === root.writeOperations &&
     expected.writeSemanticBytes === root.writeSemanticBytes &&
     expected.materialWriteEventEvidenceBytes ===
-      root.materialWriteEventEvidenceBytes;
+      root.materialWriteEventEvidenceBytes &&
+    expected.receiptEvidenceBytes === root.receiptEvidenceBytes &&
+    expected.participantWorkBytes === root.participantWorkBytes &&
+    expected.participantWorkCalls === root.participantWorkCalls;
 }
 
 const verifySchemaArtifactEffect = Effect.fn(

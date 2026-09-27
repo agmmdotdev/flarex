@@ -131,6 +131,15 @@ database transactions; Medusa workflows retain step-level transactions,
 checkpoints, retries, and compensation. A workflow's recovery transaction is
 not one SQL transaction spanning its complete execution.
 
+The [first mixed mutation preflight](../roadmaps/mixed-mutation-core/01-application-product-attempt-preflight.md)
+approves a separate, private admitted Application and Product logical attempt
+for one authenticated scope and placement. It borrows the native journal and
+one pending view, runs selected real Product operations under their own domain
+authority, and settles one result and event intent with the Application writes.
+This profile is under implementation and has no public developer API or named
+environment activation. Existing Application, standalone framework and named
+command profiles remain available to their actual callers.
+
 Explicit cross-domain atomic commands are an accepted target after the
 participating lanes and a separate atomicity contract pass their gates. One
 trusted command owner may coordinate admitted Application, Payload, and Medusa
@@ -294,7 +303,8 @@ work continues.
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted first Flarex/Cloudflare coordination adapter | One deterministic instance per scope, durable SQLite cursor/query/dependency state and Postgres catch-up composed around the separately owned portable Query Sync Engine semantics. |
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization | Add only after measurement and a gap-free freshness protocol. |
-| Generic atomic `ctx.db + ctx.cms + ctx.commerce` | Rejected | Explicit domain commands preserve framework mutation ownership. A separately admitted cross-domain command may use one scoped physical transaction and finalizer; workflows and cross-placement follow-up use committed steps and the transactional outbox. |
+| Private admitted mixed Application and Product attempt | Approved, in progress | One authenticated scope/placement, selected Product update and reads, one journal-backed pending view and final outcome. Its proof and activation gates are owned by the mixed-core roadmap. |
+| Generic or public atomic `ctx.db + ctx.cms + ctx.commerce` | Deferred | The private Product admission grants no general or public composition. Payload, workflow and developer API gates remain separate; cross-placement follow-up uses committed steps and durable coordination. |
 
 Replacement strategy is selected from shipped-state evidence:
 
@@ -1198,8 +1208,10 @@ reconnect/reset policy. S08 does not infer either policy from the floor column.
 The compiler is a pure lowering boundary, not a new authority:
 
 ```text
-SessionJournalV1
-  local read dependencies and logical app operations
+SessionJournalV2
+  local Application read dependencies and logical writes,
+  admitted participant operations with ordered effects and event intents,
+  cumulative receipt and participant-work usage
 
 SuccessfulResultEvidenceV1
   separate canonical Value Codec result bytes and digest
@@ -1464,16 +1476,19 @@ the stable deployment binding only as corroboration. It never reads the mutable
 active-schema pointer. C04B1 owns the broader pinned schema/binding
 reauthentication, while C04B2 owns final value/return validation.
 
-C03 persists four exact-attempt tables: one bounded root, one replace-in-place
-latest receipt, at most 4,096 qualified point dependencies with deterministic
-same-row overlay state, and at most 16,000 ordered material-write events. For
-the latest sequence only, exact canonical request bytes replay the exact typed
-outcome; different bytes conflict, lower sequences are stale, and values above
-`last + 1` are gaps. The executor serializes calls per attempt, so a lost
-response for `N` must be recovered before `N + 1` can enter. Catchable missing
-or no-op outcomes advance and replace the receipt without growing row
-cardinality, while incremental resource-limit failures remain sticky until
-lifecycle cleanup.
+C03 persists one bounded exact-attempt root, per-sequence retained receipts,
+at most 4,096 qualified point dependencies with deterministic same-row overlay
+state, and at most 16,000 ordered material-write events. The journal point
+rows are the single pending view for Application and admitted logical work.
+For any accepted sequence, matching canonical request bytes replay its exact
+typed outcome; different bytes conflict, and values above `last + 1` are
+gaps. The executor serializes ordinary point calls per attempt and refuses
+overlapping admitted framework calls. Before a framework callback, C03 stores
+an exact invoking marker in that sequence's receipt and root. Accepted result
+or terminal failure replaces the marker. A duplicate observing a live marker
+cannot invoke the callback; the existing claim and attempt lease govern
+abandonment. Catchable missing and no-op outcomes retain their own receipts,
+while incremental resource-limit failures remain sticky until lifecycle cleanup.
 
 The root separately accounts the exact canonical bytes of persisted material-
 write events and caps their cumulative temporary evidence at 64 MiB. This is a
@@ -1495,7 +1510,7 @@ with exact `nextUp`, atomically with the accepted receipt, including rejected
 post-allocation inserts. Host/user wall-clock values are never accepted.
 
 Sealing first takes a read-only repeatable-read snapshot of at most each child
-limit plus one, detached raw row evidence, counters, and the latest receipt,
+limit plus one, detached raw row evidence, counters, and retained receipts,
 then closes that SQL transaction. Excess cardinality is rejected before child
 decoding. Outside SQL, C03 strictly decodes the children, recomputes cumulative
 material-event bytes against the root counter, constructs an independent
@@ -1689,8 +1704,8 @@ state.
 
 Requirements:
 
-- C02 defines canonical syscall-sequence fields; C03 owns monotonic operational
-  append enforcement, constant-cardinality latest-response replay, raw bounded
+- C02 defines canonical syscall-sequence fields; the journal owner enforces
+  monotonic append, bounded per-sequence retained response replay, raw bounded
   pre-coalescing write events, and trusted read rows/bytes accounting;
 - Convex-compatible execution ceilings are 32,000 documents read, 16 MiB of
   document bytes read, 4,096 point-read dependencies, 16,000 user write
@@ -1704,6 +1719,12 @@ Requirements:
   temporary-storage divergence. It is incrementally enforced before mutation,
   recomputed from detached event bytes at seal, and does not replace the final
   canonical-journal cap;
+- the V2 journal owner separately bounds cumulative retained request/outcome
+  receipt bytes at 64 MiB while a root is open or sealed. One terminal
+  limit-failure receipt may exceed that live cap within a bounded failed-only
+  reserve; the failed root cannot accept another operation or seal. At seal,
+  receipt and participant-work totals are recomputed from retained receipts
+  and bound into the canonical journal for finish-only recovery;
 - one fenced attempt owner;
 - O03-B1 defines initial activation and exact active-anchor replay; O03-B2a
   defines restart-safe exact-fence load; O03-B2b1 defines abort and expiry;
@@ -2065,8 +2086,9 @@ untrusted execution or arbitrary external callbacks.
 An independently settled framework command cannot silently participate in an
 atomic native mutation. Named trusted composition requires one scope/placement,
 authenticated domain capabilities and one finalizer; it can be proved using a
-single bounded SQL transaction. General mixed sandbox OCC is a separately
-selected capability, not the default framework migration. Consolidate actual
+single bounded SQL transaction. The private Application and Product mixed
+sandbox OCC profile is separately admitted under its focused preflight; it is
+not the default framework migration. Consolidate actual
 duplication and retire what it displaces under the replacement policy.
 The [framework execution profiles](../roadmaps/flarexdb-framework-integration/preflight/14-transaction-execution-profiles.md)
 and [shared-owner preflight](./flarexdb-commerce-occ-migration-preflight.md)

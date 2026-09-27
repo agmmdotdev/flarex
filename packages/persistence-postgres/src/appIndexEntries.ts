@@ -1089,6 +1089,7 @@ export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fn(
 )(function* (
   tx: AppIndexEntryTransaction,
   input: ScanAppIndexAtSnapshotV1Input,
+  observer?: Parameters<typeof observeDrizzleRawQuery<"scanCurrent">>[2],
 ): Effect.fn.Return<AppIndexRangePageV1, ReadAppIndexRangeV1Error> {
   const snapshotCommitSeq = yield* Effect.fromResult(
     decodeReadFieldResult(
@@ -1103,6 +1104,7 @@ export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fn(
     decoded,
     statement,
     "scanSnapshot",
+    observer,
   );
 });
 

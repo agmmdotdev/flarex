@@ -11,6 +11,7 @@
 export const MAX_COMMIT_READ_DOCUMENTS_V1 = 32_000;
 export const MAX_COMMIT_READ_SEMANTIC_BYTES_V1 = 1 << 24;
 export const MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 = 4_096;
+export const MAX_COMMIT_OPERATION_CALLS_V1 = 4_096;
 export const MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 = 32;
 export const MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 = 128;
 export const MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 = 32;
@@ -66,19 +67,36 @@ export const COMMIT_PROTOCOL_EXECUTION_LIMITS_V1 = Object.freeze({
  * to accommodate reads, writes, a result, and encoding overhead. C02 applies
  * the same pre-copy/pre-parse ceiling to one canonical evidence bundle. C03
  * separately applies that numeric ceiling to the cumulative canonical bytes
- * of temporary material-write events so an attempt cannot amplify trusted
- * storage before seal. That temporary-evidence bound is not a Convex
- * transaction semantic, final-journal substitute, lease authority, or hosted
- * transport guarantee. C07A must re-prove its hosted transport boundary before
+ * of temporary material-write events and to retained request/outcome receipts.
+ * The limits are independent; a large request can exhaust receipt storage
+ * before the material-event ceiling is reached. They bound trusted storage
+ * before seal rather than changing Convex transaction semantics. The exact
+ * terminal failure reserve is enforced by the journal owner and its root
+ * schema check. C07A must re-prove its hosted transport boundary before
  * activating inline carriage.
  */
 export const MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 = 1 << 26;
 export const MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1 = 1 << 26;
+export const MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1 = 1 << 26;
+/** One failed receipt may retain a bounded request and terminal error after
+ * the live cumulative cap has been reached. It cannot return to open/sealed. */
+export const MAX_COMMIT_FAILED_RECEIPT_EVIDENCE_BYTES_V1 =
+  2 * MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 + 1_024;
+export const MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1 = 1 << 26;
+export const MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1 = 65_536;
+/** One terminal admitted operation may consume its 16 MiB command allowance
+ * and 4,097 attempted calls (the request lifetime charges before refusing).
+ * The failed root cannot run another operation. */
+export const MAX_COMMIT_FAILED_PARTICIPANT_WORK_BYTES_V1 =
+  MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1 + 16_777_216;
+export const MAX_COMMIT_FAILED_PARTICIPANT_WORK_CALLS_V1 =
+  MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1 + 4_097;
 
 export interface CommitProtocolOperationalLimitsV1 {
   readonly canonicalEvidenceBytes: number;
   readonly indexRangeDependencyEvidenceBytes: number;
   readonly materialWriteEventEvidenceBytes: number;
+  readonly receiptEvidenceBytes: number;
 }
 
 export const COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1 = Object.freeze({
@@ -87,4 +105,5 @@ export const COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1 = Object.freeze({
     MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   materialWriteEventEvidenceBytes:
     MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  receiptEvidenceBytes: MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1,
 } satisfies CommitProtocolOperationalLimitsV1);

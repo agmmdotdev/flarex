@@ -9,7 +9,7 @@ import { fxAppRowCurrent, fxAppRowRevisions, fxAppIndexEntryCurrent, fxAppIndexE
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { appDocumentIdV1FromRowIdentity } from "flarex-protocol/app-document-id";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionFunctionPathV1Schema, TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { relationReadinessFixture, enableApplicationPhysicalBuilds, prepareReadinessEvidence, prepareAdditionalRelationRevision, uuidSequence } from "./applicationRelationReadinessFixture";
@@ -74,7 +74,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   await runEffect(staleStore.runPointOperationEffect(stalePosts, { kind: "delete", documentId: staleInserted.outcome.documentId,
     syscallSequence: CommitSyscallSequenceV1Schema.make(2n) }, staleValidator));
   const stalePrepared = await prepareSessionJournalSeal(staleStore, staleAttempt);
-  const staleJournal = await runEffect(canonicalizeSessionJournalV1Effect(stalePrepared.journal));
+  const staleJournal = await runEffect(canonicalizeSessionJournalV2Effect(stalePrepared.journal));
   const staleResult = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
   await completeSessionJournalSeal(staleStore, stalePrepared.preparation, staleJournal, staleResult);
   await prepareReadinessEvidence(fixture);
@@ -172,7 +172,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   expect(await runEffect(store.runPointOperationEffect(posts, { kind: "get", documentId,
     syscallSequence: CommitSyscallSequenceV1Schema.make(2n) }, validator))).toMatchObject({ kind: "completed" });
   const prepared = await prepareSessionJournalSeal(store, attempt);
-  const journal = await runEffect(canonicalizeSessionJournalV1Effect(prepared.journal));
+  const journal = await runEffect(canonicalizeSessionJournalV2Effect(prepared.journal));
   const result = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
   await completeSessionJournalSeal(store, prepared.preparation, journal, result);
   const authority = relationAuthorityFromAnchor(session.anchor, fixture.relation.binding.schemaVersionId, session.executionClaim);

@@ -1,8 +1,10 @@
 import type { Effect } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
+import type { AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { ScopeId } from "flarex-protocol/storage-authority";
+import type { CommitSeq } from "flarex-protocol/storage-authority";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRequestLifetime";
 import type { JsonObject } from "flarex-protocol/json";
@@ -10,6 +12,7 @@ import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { RelationalPersistenceCapability, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import type { LogicalSearchDefinition } from "./searchEntries";
+import type { ApplicationDocumentObservation } from "../applicationDocumentMaterialization/model";
 
 export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
   | "documentMissing" | "documentInvalid" | "uniqueConflict" | "writeConflict" | "storedCorruption"
@@ -43,10 +46,26 @@ export interface LogicalDocumentWrite {
  * bindings and a validator; this owner cannot acquire or settle a transaction.
  * The guard rechecks the captured admission/transaction pair on each entry.
  * Failure projection shares the existing lifetime and its first-failure latch. */
-export interface LogicalDocumentWorkingSetInput<Failure> {
-  readonly tx: FlarexMetadataTransaction;
+export type LogicalDocumentReadTransaction<Failure> = <A, E>(
+  work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>,
+) => Effect.Effect<A, E | Failure>;
+
+/** Immutable decoded rows from the same journal point table that serves App
+ * syscalls. This is evaluator hydration; the journal remains the pending owner. */
+export type LogicalPendingDocumentSeed = Readonly<{
+  tableId: CatalogTableId;
+  rowId: AppRowIdHexV1;
+  observed: ApplicationDocumentObservation["dependency"]["observed"];
+  overlay: Readonly<{ kind: "live"; creationTime: AppCreationTimeV1; document: CanonicalFlarexValueV1 }> |
+    Readonly<{ kind: "deleted" }>;
+}>;
+
+export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly scopeId: ScopeId;
   readonly clock: ScopeClockRecord;
+  /** Fixed historical view for a logical attempt. Unsupported candidate paths refuse. */
+  readonly snapshotCommitSeq?: CommitSeq;
+  readonly pendingRows?: readonly LogicalPendingDocumentSeed[];
   readonly tables: readonly Readonly<{ tableId: CatalogTableId; logicalName: string; relational?: RelationalTableDefinition }>[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
@@ -56,4 +75,7 @@ export interface LogicalDocumentWorkingSetInput<Failure> {
   readonly error: LogicalDocumentFailure<Failure>;
   readonly uniqueConflict: (constraint: Readonly<{ tableName: string; orderedFields: readonly string[] }>) => Failure;
   readonly limits: Readonly<{ pageRows: number; identities: number; documentBytes: number }>;
-}
+}> & (
+  | Readonly<{ readonly tx: FlarexMetadataTransaction; readonly readTransaction?: never }>
+  | Readonly<{ readonly tx?: never; readonly readTransaction: LogicalDocumentReadTransaction<Failure> }>
+);

@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { Effect } from "effect";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
@@ -49,7 +49,7 @@ async function prepareLegacyWriter(fixture: LegacyWriterFixture, kind: "material
       syscallSequence: CommitSyscallSequenceV1Schema.make(2n), documentId: inserted.outcome.documentId }, validator));
   }
   const seal = await prepareSessionJournalSeal(store, attempt);
-  const journal = await runEffect(canonicalizeSessionJournalV1Effect(seal.journal));
+  const journal = await runEffect(canonicalizeSessionJournalV2Effect(seal.journal));
   const result = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
   await completeSessionJournalSeal(store, seal.preparation, journal, result);
   const authority = relationAuthorityFromAnchor(activation.anchor, fixture.schemaVersionId, activation.executionClaim);

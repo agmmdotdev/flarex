@@ -10,9 +10,10 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
-import { Data, Effect, Option, Result, Schema } from "effect";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
 import { validateApplicationWriteOwnershipForCommit } from "./applicationWriteOwnership/Commit";
+import { EventEnvelope, commitEventLimits } from "./commitEvents/model";
 import { ApplicationTableWriteDeniedError } from "./applicationWriteOwnership/Model";
 export { ApplicationTableWriteDeniedError } from "./applicationWriteOwnership/Model";
 
@@ -60,6 +61,11 @@ import {
   LogicalAppWriteV1Schema,
   LogicalPatchFieldV1Schema,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_OPERATION_CALLS_V1,
+  MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_FAILED_RECEIPT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1,
+  MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1,
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
   MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
   MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
@@ -70,8 +76,8 @@ import {
   MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
-  SESSION_JOURNAL_FORMAT_V1,
-  SessionJournalV1Schema,
+  SESSION_JOURNAL_FORMAT_V2,
+  SessionJournalV2Schema,
   LogicalIndexRangeReadDependencyV1Schema,
   LogicalApplicationRelationIncomingReadDependencyV1Schema,
   MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
@@ -80,7 +86,7 @@ import {
   normalizeLogicalIndexRangeReadDependenciesV1Result,
   verifySuccessfulResultEvidenceV1Effect,
   type ApplicationActivationSequenceV1,
-  type CanonicalSessionJournalV1,
+  type CanonicalSessionJournalV2,
   type CanonicalSuccessfulResultV1,
   type CommitFinalSyscallSequenceV1,
   type CommitProtocolV1LimitDimension,
@@ -90,7 +96,11 @@ import {
   type LogicalReadDependencyV1,
   type LogicalIndexRangeReadDependencyV1,
   type LogicalApplicationRelationIncomingReadDependencyV1,
-  type SessionJournalV1,
+  type SessionJournalV2,
+  canonicalizeAdmittedParticipantBindingV1Result,
+  AdmittedParticipantWriteEventV1Schema,
+  type AdmittedParticipantLogicalEffectV1,
+  type AdmittedParticipantOperationV1,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
 import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from
@@ -242,10 +252,35 @@ import {
 } from "./scopeAuthorityResolution";
 import { decodeScopeClockRecord } from "./scopeClock";
 import {
+  prepareLogicalRelationalAdmission,
+  LogicalRelationalAdmissionError,
+  type LogicalRelationalAttemptAdmission,
+  type LogicalRelationalAttemptReadTransaction,
+} from "./logicalDocuments/relationalAdmission";
+import type { ApplicationBindingInput } from "./applicationActivation";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
+import type { ScopeClockRecord } from "./scopeClock";
+import {
+  inspectLogicalRelationalAttemptAdmission,
+  hasLogicalRelationalAttemptAdmission,
+  requireLogicalRelationalAttemptAdmissionInTransactionEffect,
+} from "./logicalDocuments/relationalAdmission";
+import { makeBorrowedLogicalAttempt } from "./commerceTransaction/borrowedLogicalAttempt";
+import { projectLogicalDocumentJournalContribution, type LogicalJournalContributionError } from "./logicalDocuments/journalContribution";
+import { serializeLogicalParticipantDependencyEvidence, type LogicalParticipantEvidenceError } from "./logicalDocuments/journalEvidence";
+import type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
+import type { LogicalPendingDocumentSeed } from "./logicalDocuments/model";
+import { CommerceTransactionError } from "./commerceTransaction/model";
+import {
+  encodeAdmittedFrameworkOperationV1Result,
+  MAX_ADMITTED_FRAMEWORK_OPERATION_BYTES_V1,
+  type AdmittedFrameworkOperationV1,
+} from "flarex-protocol/internal/admitted-framework-operation-v1";
+import {
   fxAppRowRevisions,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
-  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalPoints,
@@ -305,6 +340,8 @@ type SessionJournalIncrementalLimitDimensionV1 = Extract<
   | "writeOperations"
   | "writeSemanticBytes"
   | "materialWriteEventEvidenceBytes"
+  | "operationCalls"
+  | "receiptEvidenceBytes"
 >;
 type SessionJournalIncrementalLimitIssueV1 = Omit<
   Extract<
@@ -329,6 +366,8 @@ const SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1 = Object.freeze({
   writeSemanticBytes: MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
   materialWriteEventEvidenceBytes:
     MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  operationCalls: MAX_COMMIT_OPERATION_CALLS_V1,
+  receiptEvidenceBytes: MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1,
 } satisfies Readonly<
   Record<SessionJournalIncrementalLimitDimensionV1, number>
 >);
@@ -681,7 +720,7 @@ export interface OpenSessionJournalAttemptV1Input {
 
 export interface PreparedSessionJournalSealResultV1 {
   readonly preparation: PreparedSessionJournalSealV1;
-  readonly journal: SessionJournalV1;
+  readonly journal: SessionJournalV2;
 }
 
 export interface SessionJournalStorePersistenceV1 {
@@ -694,6 +733,46 @@ export interface SessionJournalStorePersistenceV1 {
     | SessionJournalPersistenceV1Error
     | SessionJournalStorageCorruptionV1Error
     | SessionJournalTargetUnavailableV1Error
+  >;
+  /** The journal owner binds one trusted relational source to its exact
+   * attempt handle; callers cannot mint or re-pair the admission. */
+  readonly admitLogicalParticipantEffect: (
+    attempt: SessionJournalAttemptV1,
+    input: Readonly<{
+      selection: Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>;
+      application: ApplicationBindingInput;
+      methods: readonly string[];
+    }>,
+  ) => Effect.Effect<
+    LogicalRelationalAttemptAdmission,
+    InvalidSessionJournalCapabilityV1Error |
+      SessionJournalPersistenceV1Error |
+      SessionJournalTargetUnavailableV1Error |
+      LogicalRelationalAdmissionError
+  >;
+  readonly runAdmittedOperationEffect: (
+    attempt: SessionJournalAttemptV1,
+    admission: LogicalRelationalAttemptAdmission,
+    input: Readonly<{
+      syscallSequence: CommitSyscallSequenceV1;
+      requestBytes: Uint8Array;
+      requestSha256: Uint8Array;
+      participant: string;
+      method: string;
+    }>,
+    invoke: (borrowed: Effect.Success<ReturnType<typeof makeBorrowedLogicalAttempt>>,
+      method: string, args: Json) =>
+      Effect.Effect<Readonly<{ result: Json; changes: LogicalDocumentChanges;
+        eventIntents: readonly Json[]; workBytes: number; workCalls: number }>, CommerceTransactionError>,
+  ) => Effect.Effect<
+    Readonly<{ kind: "completed"; delivery: "executed" | "replayed"; result: Json }> |
+      Readonly<{ kind: "sequenceRejected"; issue: SessionJournalSequenceIssueV1 }> |
+      Readonly<{ kind: "stateRejected"; issue: Readonly<{ reason: "journalSealed" | "journalFailed" | "journalRelationConflicted" | "operationPending" }> }>,
+    InvalidSessionJournalCapabilityV1Error | SessionJournalPersistenceV1Error |
+      SessionJournalAttemptUnavailableV1Error | SessionJournalStorageCorruptionV1Error |
+      SessionJournalTargetUnavailableV1Error |
+      LogicalRelationalAdmissionError | LogicalJournalContributionError |
+      LogicalParticipantEvidenceError | CommerceTransactionError
   >;
   readonly resolvePointTableEffect: (
     attempt: SessionJournalAttemptV1,
@@ -746,7 +825,7 @@ export interface SessionJournalStorePersistenceV1 {
   >;
   readonly completeSealEffect: (
     preparation: PreparedSessionJournalSealV1,
-    journal: CanonicalSessionJournalV1,
+    journal: CanonicalSessionJournalV2,
     successfulResult: CanonicalSuccessfulResultV1,
   ) => Effect.Effect<
     StoredForSessionAttemptCommitEnvelopeV1,
@@ -822,6 +901,8 @@ export class SessionJournalPersistenceV1Error extends Data.TaggedError(
     | "openAttempt"
     | "prepareSealSnapshot"
     | "resolveJournalTarget"
+    | "admitLogicalParticipant"
+    | "runAdmittedOperation"
     | "resolvePinnedPointTable"
     | "resolveDeveloperIndex"
     | "resolveApplicationRelation"
@@ -1117,6 +1198,24 @@ const SessionJournalRelationIncomingRequestV1Schema = Schema.Struct({
   limit: Schema.Int,
 }).annotate(StrictStructOptions);
 
+const SessionJournalAdmittedLogicalRequestSchema = Schema.Struct({
+  format: Schema.Literal("flarex.session-journal-syscall"),
+  codecVersion: Schema.Literal(1),
+  kind: Schema.Literal("admittedLogicalOperation"),
+  syscallSequence: CommitSyscallSequenceV1Schema,
+  participant: Schema.NonEmptyString,
+  method: Schema.NonEmptyString,
+  sourceKey: Schema.NonEmptyString,
+  sourceSha256Hex: Schema.String,
+  bindingHead: Schema.Struct({
+    sequence: Schema.NonEmptyString,
+    sha256: Schema.String,
+  }).annotate(StrictStructOptions),
+  participantBindingSha256Hex: Schema.String,
+  requestSha256Hex: Schema.String,
+  frame: JsonValue,
+}).annotate(StrictStructOptions);
+
 const SessionJournalStoredRequestV1Schema = Schema.Union([
   SessionJournalGetRequestV1Schema,
   SessionJournalInsertRequestV1Schema,
@@ -1125,12 +1224,13 @@ const SessionJournalStoredRequestV1Schema = Schema.Union([
   SessionJournalDeleteRequestV1Schema,
   SessionJournalIndexRangeRequestV1Schema,
   SessionJournalRelationIncomingRequestV1Schema,
+  SessionJournalAdmittedLogicalRequestSchema,
 ]);
 type SessionJournalStoredRequestV1 =
   typeof SessionJournalStoredRequestV1Schema.Type;
 type SessionJournalStoredPointRequestV1 = Exclude<
   SessionJournalStoredRequestV1,
-  { readonly kind: "indexRange" | "relationIncoming" }
+  { readonly kind: "indexRange" | "relationIncoming" | "admittedLogicalOperation" }
 >;
 
 const SessionJournalMissingOutcomeV1Schema = Schema.Struct({
@@ -1178,6 +1278,23 @@ const SessionJournalRelationConflictOutcomeV1Schema = Schema.Struct({
   actualAdjacencyVersion: CommitSeqSchema,
   snapshotCommitSeq: CommitSeqSchema,
 }).annotate(StrictStructOptions);
+const SessionJournalAdmittedLogicalResultSchema = Schema.Struct({
+  kind: Schema.Literal("admittedLogicalResult"),
+  result: JsonValue,
+  events: Schema.Array(JsonValue),
+  dependencyEvidence: Schema.Record(Schema.String, JsonValue),
+  workBytes: Schema.Int,
+  workCalls: Schema.Int,
+}).annotate(StrictStructOptions);
+const SessionJournalAdmittedLogicalErrorSchema = Schema.Struct({
+  kind: Schema.Literal("admittedLogicalError"),
+  reason: Schema.NonEmptyString,
+  workBytes: Schema.Int,
+  workCalls: Schema.Int,
+}).annotate(StrictStructOptions);
+const SessionJournalAdmittedLogicalInvokingSchema = Schema.Struct({
+  kind: Schema.Literal("admittedLogicalInvoking"),
+}).annotate(StrictStructOptions);
 const SessionJournalNotFoundOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("error"),
   reason: Schema.Literal("documentNotFound"),
@@ -1212,6 +1329,8 @@ const SessionJournalLimitOutcomeV1Schema = Schema.Struct({
     Schema.Literal("writeOperations"),
     Schema.Literal("writeSemanticBytes"),
     Schema.Literal("materialWriteEventEvidenceBytes"),
+    Schema.Literal("operationCalls"),
+    Schema.Literal("receiptEvidenceBytes"),
     Schema.Literal("indexedQuerySyscalls"),
     Schema.Literal("indexRangeReadDependencies"),
     Schema.Literal("indexRangeDependencyEvidenceBytes"),
@@ -1231,6 +1350,9 @@ const SessionJournalStoredOutcomeV1Schema = Schema.Union([
   SessionJournalIndexRangePageOutcomeV1Schema,
   SessionJournalRelationIncomingPageOutcomeV1Schema,
   SessionJournalRelationConflictOutcomeV1Schema,
+  SessionJournalAdmittedLogicalResultSchema,
+  SessionJournalAdmittedLogicalErrorSchema,
+  SessionJournalAdmittedLogicalInvokingSchema,
   SessionJournalNotFoundOutcomeV1Schema,
   SessionJournalCollisionOutcomeV1Schema,
   SessionJournalInvalidDocumentOutcomeV1Schema,
@@ -1279,14 +1401,15 @@ const decodeCommitSyscallSequenceResult = Schema.decodeUnknownResult(
 function nextCommitSyscallSequence(
   last: CommitFinalSyscallSequenceV1,
 ): Option.Option<CommitSyscallSequenceV1> {
+  if (last >= BigInt(MAX_COMMIT_OPERATION_CALLS_V1)) return Option.none();
   return decodeCommitSyscallSequenceResult(last + 1n).pipe(Result.match({
     onFailure: () => Option.none(),
     onSuccess: Option.some,
   }));
 }
 
-const encodeSessionJournal = Schema.encodeSync(SessionJournalV1Schema);
-const encodeSessionJournalResult = Schema.encodeResult(SessionJournalV1Schema);
+const encodeSessionJournal = Schema.encodeSync(SessionJournalV2Schema);
+const encodeSessionJournalResult = Schema.encodeResult(SessionJournalV2Schema);
 const decodeSchemaManifestAppTableNameEffect = Schema.decodeUnknownEffect(
   SchemaManifestAppTableNameSchema,
 );
@@ -1307,6 +1430,535 @@ const decodeOrderedIndexBoundHexV1Result = Schema.decodeUnknownResult(
 );
 const decodeExecutionClaimOwnerResult = decodeTransactionExecutionClaimOwnerV1;
 const decodeExecutionClaimFenceResult = decodeTransactionExecutionClaimFenceV1;
+
+const captureAdmittedOperationRequestEffect = Effect.fn(
+  "SessionJournalStore.captureAdmittedOperationRequest",
+)(function* (input: Readonly<{
+  requestBytes: Uint8Array;
+  requestSha256: Uint8Array;
+}>): Effect.fn.Return<
+  Readonly<{ frame: AdmittedFrameworkOperationV1; sha256: Uint8Array }>,
+  LogicalRelationalAdmissionError | SessionJournalPersistenceV1Error
+> {
+  if (!(input.requestBytes instanceof Uint8Array) ||
+    input.requestBytes.byteLength < 1 ||
+    input.requestBytes.byteLength > MAX_ADMITTED_FRAMEWORK_OPERATION_BYTES_V1 ||
+    !(input.requestSha256 instanceof Uint8Array) ||
+    input.requestSha256.byteLength !== 32) {
+    return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidInput" }));
+  }
+  const bytes = new Uint8Array(input.requestBytes);
+  const suppliedDigest = new Uint8Array(input.requestSha256);
+  const parsed = yield* Effect.try({
+    try: (): unknown => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
+    catch: (cause) => new LogicalRelationalAdmissionError({ reason: "invalidInput", cause }),
+  });
+  const encoded = yield* Effect.fromResult(
+    encodeAdmittedFrameworkOperationV1Result(parsed).pipe(Result.mapError((cause) =>
+      new LogicalRelationalAdmissionError({ reason: "invalidInput", cause }))),
+  );
+  if (!bytesEqual(bytes, encoded.bytes)) {
+    return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidInput" }));
+  }
+  const digest = yield* Effect.tryPromise({
+    try: () => sha256(bytes),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  if (!bytesEqual(digest, suppliedDigest)) {
+    return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidInput" }));
+  }
+  return Object.freeze({ frame: encoded.operation, sha256: digest });
+});
+
+function mapAdmittedKernelFailure(cause: unknown):
+  InvalidSessionJournalCapabilityV1Error | SessionJournalPersistenceV1Error |
+  SessionJournalAttemptUnavailableV1Error | SessionJournalStorageCorruptionV1Error |
+  SessionJournalTargetUnavailableV1Error |
+  LogicalRelationalAdmissionError | CommerceTransactionError {
+  if (cause instanceof ExactRunningAttemptTransactionV1Error) {
+    return mapExactAdmissionFailure("runAdmittedOperation", cause);
+  }
+  if (cause instanceof InvalidSessionJournalCapabilityV1Error ||
+    cause instanceof SessionJournalAttemptUnavailableV1Error ||
+    cause instanceof SessionJournalPersistenceV1Error ||
+    cause instanceof SessionJournalStorageCorruptionV1Error ||
+    cause instanceof SessionJournalTargetUnavailableV1Error ||
+    cause instanceof LogicalRelationalAdmissionError ||
+    cause instanceof CommerceTransactionError) return cause;
+  return new SessionJournalPersistenceV1Error({
+    operation: "runAdmittedOperation", cause,
+  });
+}
+
+const preflightAdmittedOperationInTransactionEffect = Effect.fn(
+  "SessionJournalStore.preflightAdmittedOperation",
+)(function* (
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  attempt: SessionJournalAttemptStateV1,
+  admission: LogicalRelationalAttemptAdmission,
+  attemptHandle: SessionJournalAttemptV1,
+  authority: TrustedScopeAuthority,
+  request: Extract<SessionJournalStoredRequestV1, { readonly kind: "admittedLogicalOperation" }>,
+  requestEvidence: CanonicalFlarexValueV1,
+  bindingDigest: Uint8Array,
+) {
+  const root = context.journalRoot;
+  if (root.journalFormat !== SESSION_JOURNAL_FORMAT_V2) {
+    return yield* Effect.fail(corruption(attempt, "journalStateInvalid"));
+  }
+  const latest = yield* Effect.tryPromise({
+    try: () => loadLatestReceipt(tx, context),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  const last = CommitFinalSyscallSequenceV1Schema.make(root.lastSyscallSequence);
+  yield* Effect.fromResult(validateReceiptCardinalityResult(attempt, last, latest));
+  if (root.state === "operation_invoking") {
+    if (latest === undefined) {
+      return yield* Effect.fail(corruption(attempt, "latestReceiptSequenceMismatch"));
+    }
+    const marker = yield* decodeAndVerifyReceiptRecordEffect(attempt, latest, undefined);
+    if (marker.request.kind !== "admittedLogicalOperation" ||
+      marker.outcome.kind !== "admittedLogicalInvoking" ||
+      latest.participantBindingSha256 === null) {
+      return yield* Effect.fail(corruption(attempt, "latestReceiptEvidenceInvalid"));
+    }
+    return Object.freeze({ kind: "resolved" as const, result: Object.freeze({
+      kind: "stateRejected" as const,
+      issue: Object.freeze({ reason: "operationPending" as const }),
+    }) });
+  }
+  if (root.state === "sealed" || root.state === "failed" ||
+    root.state === "operation_failed" || root.state === "relation_conflicted") {
+    return Object.freeze({ kind: "resolved" as const, result: Object.freeze({
+      kind: "stateRejected" as const,
+      issue: Object.freeze({ reason: root.state === "sealed" ? "journalSealed" as const :
+        root.state === "relation_conflicted" ? "journalRelationConflicted" as const :
+        "journalFailed" as const }),
+    }) });
+  }
+  if (request.syscallSequence <= last) {
+    const retained = yield* Effect.tryPromise({
+      try: () => loadReceiptAtSequence(tx, context, request.syscallSequence),
+      catch: (cause) => new SessionJournalPersistenceV1Error({
+        operation: "runAdmittedOperation", cause,
+      }),
+    });
+    if (retained === undefined) {
+      return yield* Effect.fail(corruption(attempt, "latestReceiptSequenceMismatch"));
+    }
+    if (retained.participantBindingSha256 === null ||
+      !bytesEqual(retained.participantBindingSha256, bindingDigest) ||
+      !bytesEqual(retained.requestSha256, requestEvidence.sha256)) {
+      return Object.freeze({ kind: "resolved" as const, result: Object.freeze({
+        kind: "sequenceRejected" as const,
+        issue: Object.freeze({ reason: "requestMismatch" as const,
+          syscallSequence: request.syscallSequence }),
+      }) });
+    }
+    const outcome = yield* decodeAndVerifyLatestReceiptEffect(
+      attempt, retained, request,
+    );
+    if (outcome.kind === "admittedLogicalResult") {
+      return Object.freeze({ kind: "resolved" as const, result: Object.freeze({
+        kind: "completed" as const,
+        delivery: "replayed" as const,
+        result: outcome.result,
+      }) });
+    }
+    if (outcome.kind === "admittedLogicalError") {
+      return Object.freeze({ kind: "resolved" as const, result: Object.freeze({
+        kind: "stateRejected" as const,
+        issue: Object.freeze({ reason: "journalFailed" as const }),
+      }) });
+    }
+    return yield* Effect.fail(corruption(attempt, "latestReceiptEvidenceInvalid"));
+  }
+  if (request.syscallSequence !== last + 1n) {
+    return Object.freeze({ kind: "resolved" as const, result: Object.freeze({
+      kind: "sequenceRejected" as const,
+      issue: Object.freeze({ reason: "sequenceGap" as const,
+        actual: request.syscallSequence,
+        expectedNext: CommitSyscallSequenceV1Schema.make(last + 1n) }),
+    }) });
+  }
+  if (last >= BigInt(MAX_COMMIT_OPERATION_CALLS_V1)) {
+    return Object.freeze({ kind: "resolved" as const, result: Object.freeze({
+      kind: "sequenceRejected" as const,
+      issue: Object.freeze({ reason: "sequenceExhausted" as const,
+        lastAccepted: last }),
+    }) });
+  }
+  const admittedState = yield* requireLogicalRelationalAttemptAdmissionInTransactionEffect(
+    admission, attemptHandle, request.method, tx, authority, context.scopeClock,
+  );
+  const tableIds = admittedState.tables.map((table) => table.tableId);
+  if (tableIds.length === 0) {
+    return yield* Effect.fail(new LogicalRelationalAdmissionError({
+      reason: "unsupportedProfile",
+    }));
+  }
+  const rows = yield* Effect.tryPromise({
+    try: () => tx.select().from(fxSystemTransactionJournalPoints).where(and(
+      eq(fxSystemTransactionJournalPoints.scopeUuid, context.scopeUuid),
+      eq(fxSystemTransactionJournalPoints.sessionId, context.anchor.sessionId),
+      eq(fxSystemTransactionJournalPoints.attemptFence, context.anchor.attemptFence),
+      inArray(fxSystemTransactionJournalPoints.tableId, tableIds),
+      ne(fxSystemTransactionJournalPoints.overlayKind, "none"),
+    )).limit(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 + 1),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  if (rows.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) {
+    return yield* Effect.fail(corruption(attempt, "pointDependencyCountMismatch"));
+  }
+  const pendingRows: LogicalPendingDocumentSeed[] = [];
+  for (const row of rows) {
+    const dependency = yield* Effect.fromResult(decodePointDependencyResult(attempt, row));
+    const observed = logicalDependencyFromPoint(dependency).observed;
+    if (row.overlayKind === "live" && row.overlayCreationTime === null) {
+      return yield* Effect.fail(corruption(attempt, "liveOverlayEvidenceMissing"));
+    }
+    const overlay = row.overlayKind === "live"
+      ? Object.freeze({ kind: "live" as const,
+        creationTime: decodeAppCreationTimeV1(row.overlayCreationTime),
+        document: yield* decodeLivePointOverlayEvidenceEffect(attempt, row) })
+      : Object.freeze({ kind: "deleted" as const });
+    pendingRows.push(Object.freeze({ tableId: row.tableId,
+      rowId: appRowIdHexV1FromBytes(row.rowId), observed, overlay }));
+  }
+  return Object.freeze({ kind: "ready" as const, pendingRows: Object.freeze(pendingRows) });
+});
+
+const persistAdmittedFailureInTransactionEffect = Effect.fn(
+  "SessionJournalStore.persistAdmittedFailure",
+)(function* (
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  attempt: SessionJournalAttemptStateV1,
+  request: Extract<SessionJournalStoredRequestV1, { readonly kind: "admittedLogicalOperation" }>,
+  requestEvidence: CanonicalFlarexValueV1,
+  bindingDigest: Uint8Array,
+  reason: string,
+  usage: Readonly<{ workBytes: number; workCalls: number }>,
+) {
+  if (context.journalRoot.state !== "operation_invoking" ||
+    BigInt(context.journalRoot.lastSyscallSequence) !== BigInt(request.syscallSequence)) {
+    return yield* Effect.fail(corruption(attempt, "journalRootOperationUpdateMismatch"));
+  }
+  const counters = yield* Effect.fromResult(decodeJournalCountersResult(
+    attempt, context.journalRoot,
+  ));
+  if (!Number.isSafeInteger(usage.workBytes) || usage.workBytes < 0 ||
+    !Number.isSafeInteger(usage.workCalls) || usage.workCalls < 0) {
+    return yield* Effect.fail(corruption(attempt, "journalCountersInvalid"));
+  }
+  const outcome = Object.freeze({
+    kind: "admittedLogicalError" as const,
+    reason,
+    workBytes: usage.workBytes,
+    workCalls: usage.workCalls,
+  });
+  yield* Effect.tryPromise({
+    try: () => persistAcceptedOperation(
+      tx, context, request, requestEvidence, outcome, counters,
+      ZERO_COUNTER_DELTAS,
+      { state: "operation_failed", failureDimension: null,
+        participantWorkBytes: usage.workBytes, participantWorkCalls: usage.workCalls },
+      bindingDigest,
+    ),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+});
+
+const persistAdmittedInvocationMarkerInTransactionEffect = Effect.fn(
+  "SessionJournalStore.markAdmittedInvocation",
+)(function* (
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  attemptState: SessionJournalAttemptStateV1,
+  admission: LogicalRelationalAttemptAdmission,
+  attempt: SessionJournalAttemptV1,
+  authority: TrustedScopeAuthority,
+  request: Extract<SessionJournalStoredRequestV1, { readonly kind: "admittedLogicalOperation" }>,
+  requestEvidence: CanonicalFlarexValueV1,
+  bindingDigest: Uint8Array,
+) {
+  const root = context.journalRoot;
+  if (root.journalFormat !== SESSION_JOURNAL_FORMAT_V2 || root.state !== "open" ||
+    root.lastSyscallSequence + 1n !== request.syscallSequence) {
+    return yield* Effect.fail(corruption(attemptState, "journalRootOperationUpdateMismatch"));
+  }
+  yield* requireLogicalRelationalAttemptAdmissionInTransactionEffect(
+    admission, attempt, request.method, tx, authority, context.scopeClock,
+  );
+  const outcomeEvidence = yield* Effect.tryPromise({
+    try: () => canonicalizeStoredOutcome({ kind: "admittedLogicalInvoking" }),
+    catch: cause => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  const evidenceBytes = requestEvidence.canonicalBytes.byteLength +
+    outcomeEvidence.canonicalBytes.byteLength;
+  // Reserve room for the bounded terminal error receipt before calling the
+  // native service; a full result can then fail closed without losing poison.
+  if (root.receiptEvidenceBytes + evidenceBytes + 1_024 >
+    MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1) {
+    return yield* Effect.fail(new LogicalRelationalAdmissionError({
+      reason: "unsupportedProfile",
+    }));
+  }
+  const changedCount = yield* Effect.tryPromise({
+    try: async () => {
+      await tx.insert(fxSystemTransactionJournalReceipts).values({
+        scopeUuid: context.scopeUuid,
+        sessionId: context.anchor.sessionId,
+        attemptFence: context.anchor.attemptFence,
+        lastSyscallSequence: request.syscallSequence,
+        operationKind: request.kind,
+        participantBindingSha256: new Uint8Array(bindingDigest),
+        requestCodecVersion: 1,
+        requestBytes: new Uint8Array(requestEvidence.canonicalBytes),
+        requestSha256: new Uint8Array(requestEvidence.sha256),
+        outcomeKind: "admittedLogicalInvoking",
+        outcomeCodecVersion: 1,
+        outcomeBytes: new Uint8Array(outcomeEvidence.canonicalBytes),
+        outcomeSha256: new Uint8Array(outcomeEvidence.sha256),
+        createdAt: context.databaseNow,
+        updatedAt: context.databaseNow,
+      });
+      const changed = await tx.update(fxSystemTransactionJournals).set({
+        state: "operation_invoking",
+        lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(request.syscallSequence),
+        receiptEvidenceBytes: root.receiptEvidenceBytes + evidenceBytes,
+        updatedAt: context.databaseNow,
+      }).where(and(
+        eq(fxSystemTransactionJournals.scopeUuid, context.scopeUuid),
+        eq(fxSystemTransactionJournals.sessionId, context.anchor.sessionId),
+        eq(fxSystemTransactionJournals.attemptFence, context.anchor.attemptFence),
+        eq(fxSystemTransactionJournals.state, "open"),
+        eq(fxSystemTransactionJournals.lastSyscallSequence, root.lastSyscallSequence),
+      )).returning({ state: fxSystemTransactionJournals.state });
+      return changed.length;
+    },
+    catch: cause => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  if (changedCount !== 1) {
+    return yield* Effect.fail(corruption(attemptState,
+      "journalRootOperationUpdateMismatch"));
+  }
+});
+
+type AdmittedCompletion = Readonly<{
+  result: Json;
+  changes: LogicalDocumentChanges;
+  eventIntents: readonly Json[];
+  workBytes: number;
+  workCalls: number;
+}>;
+
+const appendAdmittedOperationInTransactionEffect = Effect.fn(
+  "SessionJournalStore.appendAdmittedOperation",
+)(function* (
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  attemptState: SessionJournalAttemptStateV1,
+  admission: LogicalRelationalAttemptAdmission,
+  attempt: SessionJournalAttemptV1,
+  authority: TrustedScopeAuthority,
+  request: Extract<SessionJournalStoredRequestV1, { readonly kind: "admittedLogicalOperation" }>,
+  requestEvidence: CanonicalFlarexValueV1,
+  bindingDigest: Uint8Array,
+  completed: AdmittedCompletion,
+  contribution: Effect.Success<ReturnType<typeof projectLogicalDocumentJournalContribution>>,
+  dependencyEvidence: JsonObject,
+) {
+  const root = context.journalRoot;
+  if (root.journalFormat !== SESSION_JOURNAL_FORMAT_V2 || root.state !== "operation_invoking" ||
+    BigInt(root.lastSyscallSequence) !== BigInt(request.syscallSequence)) {
+    return yield* Effect.fail(corruption(attemptState, "journalRootOperationUpdateMismatch"));
+  }
+  yield* requireLogicalRelationalAttemptAdmissionInTransactionEffect(
+    admission, attempt, request.method, tx, authority, context.scopeClock,
+  );
+  const principalRows = yield* Effect.tryPromise({
+    try: () => tx.select({ digest: fxSystemTransactionSessions.identityAccessPolicySha256 })
+      .from(fxSystemTransactionSessions).where(and(
+        eq(fxSystemTransactionSessions.scopeUuid, context.scopeUuid),
+        eq(fxSystemTransactionSessions.sessionId, context.anchor.sessionId),
+        eq(fxSystemTransactionSessions.attemptFence, context.anchor.attemptFence),
+      )).limit(2),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  const admissionEvidence = inspectLogicalRelationalAttemptAdmission(
+    admission, attempt, request.method,
+  );
+  if (admissionEvidence === null || principalRows.length !== 1 ||
+    encodeBytesToLowercaseHex(principalRows[0]!.digest) !==
+      admissionEvidence.root.principalDigest) {
+    return yield* Effect.fail(new LogicalRelationalAdmissionError({
+      reason: "invalidAuthority",
+    }));
+  }
+  const counters = yield* Effect.fromResult(decodeJournalCountersResult(attemptState, root));
+  const existingPoints = yield* Effect.tryPromise({
+    try: () => tx.select().from(fxSystemTransactionJournalPoints).where(and(
+      eq(fxSystemTransactionJournalPoints.scopeUuid, context.scopeUuid),
+      eq(fxSystemTransactionJournalPoints.sessionId, context.anchor.sessionId),
+      eq(fxSystemTransactionJournalPoints.attemptFence, context.anchor.attemptFence),
+    )).limit(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 + 1),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  if (existingPoints.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) {
+    return yield* Effect.fail(corruption(attemptState, "pointDependencyCountMismatch"));
+  }
+  const existingByIdentity = new Map<string, typeof existingPoints[number]>(existingPoints.map((row) => [
+    `${row.tableId}/${appRowIdHexV1FromBytes(row.rowId)}`, row,
+  ] as const));
+  const mutations: JournalPointMutationV1[] = [];
+  let newPoints = 0;
+  for (const point of contribution.points) {
+    const observation = point.observation;
+    const key = `${observation.tableId}/${observation.rowId}`;
+    const existing = existingByIdentity.get(key);
+    const identity = Object.freeze({ scopeId: attemptState.selector.scopeId,
+      tableId: observation.tableId, rowId: observation.rowId });
+    const observed = observation.dependency.observed;
+    const dependency: AppRowPointDependencyV1 = observed.kind === "present"
+      ? Object.freeze({ kind: "present" as const, identity,
+        revisionCommitSeq: observed.revisionCommitSeq })
+      : Object.freeze({ kind: "missing" as const, identity,
+        basis: observed.basis });
+    if (existing !== undefined) {
+      const prior = yield* Effect.fromResult(decodePointDependencyResult(
+        attemptState, existing,
+      ));
+      if (!dependenciesEqual(prior, dependency)) {
+        return yield* Effect.fail(corruption(attemptState, "pointDependencyCountMismatch"));
+      }
+    } else {
+      newPoints += 1;
+    }
+    if (point.overlay.kind === "retain" && existing !== undefined) continue;
+    const overlay: JournalPointOverlayV1 = point.overlay.kind === "retain"
+      ? Object.freeze({ kind: "none" as const })
+      : point.overlay.kind === "deleted"
+        ? Object.freeze({ kind: "deleted" as const })
+        : Object.freeze({ kind: "live" as const,
+          creationTime: point.overlay.creationTime,
+          document: point.overlay.document });
+    mutations.push(Object.freeze({ mode: existing === undefined ? "insert" as const : "update" as const,
+      tableId: observation.tableId, rowId: observation.rowId,
+      dependency, overlay }));
+  }
+  const preparedEvents: Array<Readonly<{
+    effectOrdinal: number; bytes: Uint8Array; sha256: Uint8Array;
+  }>> = [];
+  let writeSemanticBytes = 0;
+  let eventEvidenceBytes = 0;
+  for (const effect of contribution.effects) {
+    const encoded = Schema.encodeSync(AdmittedParticipantWriteEventV1Schema)({
+      kind: "logicalDocument", syscallSequence: request.syscallSequence,
+      participantBindingSha256Hex: request.participantBindingSha256Hex,
+      effect,
+    });
+    const evidence = yield* Effect.tryPromise({
+      try: () => canonicalizeFlarexValueJsonV1(requireJson(encoded)),
+      catch: (cause) => new SessionJournalPersistenceV1Error({
+        operation: "runAdmittedOperation", cause,
+      }),
+    });
+    preparedEvents.push(Object.freeze({ effectOrdinal: effect.effectOrdinal,
+      bytes: new Uint8Array(evidence.canonicalBytes),
+      sha256: new Uint8Array(evidence.sha256) }));
+    eventEvidenceBytes += evidence.canonicalBytes.byteLength;
+    if (effect.after !== null) {
+      const after = yield* Effect.tryPromise({
+        try: () => canonicalizeFlarexValueJsonV1(effect.after),
+        catch: (cause) => new SessionJournalPersistenceV1Error({
+          operation: "runAdmittedOperation", cause,
+        }),
+      });
+      writeSemanticBytes += after.semanticSizeBytes;
+    }
+  }
+  if (!Number.isSafeInteger(completed.workBytes) || completed.workBytes < 0 ||
+    !Number.isSafeInteger(completed.workCalls) || completed.workCalls < 0) {
+    return yield* Effect.fail(corruption(attemptState, "journalCountersInvalid"));
+  }
+  const outcome = Object.freeze({ kind: "admittedLogicalResult" as const,
+    result: completed.result, events: completed.eventIntents,
+    dependencyEvidence, workBytes: completed.workBytes,
+    workCalls: completed.workCalls });
+  const outcomeEvidence = yield* Effect.tryPromise({
+    try: () => canonicalizeStoredOutcome(outcome),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  const invokingEvidence = yield* Effect.tryPromise({
+    try: () => canonicalizeStoredOutcome({ kind: "admittedLogicalInvoking" }),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  const deltas = Object.freeze({ ...ZERO_COUNTER_DELTAS,
+    operationCalls: 0,
+    pointDependencyCount: newPoints,
+    writeOperations: contribution.effects.length,
+    writeSemanticBytes,
+    materialWriteEventEvidenceBytes: eventEvidenceBytes,
+    receiptEvidenceBytes: outcomeEvidence.canonicalBytes.byteLength -
+      invokingEvidence.canonicalBytes.byteLength,
+  } satisfies SessionJournalCounterDeltasV1);
+  const limit = firstExceededLimit(counters, deltas);
+  if (limit !== undefined ||
+    root.participantWorkBytes + completed.workBytes > MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1 ||
+    root.participantWorkCalls + completed.workCalls > MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1) {
+    return yield* Effect.fail(new LogicalRelationalAdmissionError({
+      reason: "unsupportedProfile",
+    }));
+  }
+  yield* Effect.tryPromise({
+    try: async () => {
+      for (const mutation of mutations) await persistPointMutation(tx, context, mutation);
+      for (const event of preparedEvents) {
+        await tx.insert(fxSystemTransactionJournalWriteEvents).values({
+          scopeUuid: context.scopeUuid, sessionId: context.anchor.sessionId,
+          attemptFence: context.anchor.attemptFence,
+          syscallSequence: request.syscallSequence,
+          effectOrdinal: event.effectOrdinal,
+          writeKind: "logicalDocument", eventCodecVersion: 1,
+          eventBytes: event.bytes, eventSha256: event.sha256,
+          createdAt: context.databaseNow,
+        });
+      }
+      await persistAcceptedOperation(tx, context, request, requestEvidence,
+        outcome, counters, deltas,
+        { state: "open", failureDimension: null,
+          participantWorkBytes: completed.workBytes,
+          participantWorkCalls: completed.workCalls }, bindingDigest);
+    },
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation", cause,
+    }),
+  });
+  return Object.freeze({ kind: "completed" as const, delivery: "executed" as const,
+    result: completed.result });
+});
 
 export function createSessionJournalStorePersistenceV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
@@ -1356,6 +2008,260 @@ export function createSessionJournalStorePersistenceV1(
     const resolved = yield* resolveJournalTargetEffect(state);
     yield* admitExactRunningAttemptEffect(resolved, state, "openAttempt");
     return createAttemptHandle(state);
+  });
+
+  const admitLogicalParticipantEffect: SessionJournalStorePersistenceV1[
+    "admitLogicalParticipantEffect"
+  ] = Effect.fn("SessionJournalStore.admitLogicalParticipant")(function* (
+    attempt, input,
+  ) {
+    const attemptState = typeof attempt === "object" && attempt !== null
+      ? attemptStates.get(attempt)
+      : undefined;
+    if (attemptState === undefined) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "attempt",
+      }));
+    }
+    const resolved = yield* resolveJournalTargetEffect(attemptState);
+    const readTransaction: LogicalRelationalAttemptReadTransaction =
+      <Value, Failure>(work: (tx: FlarexMetadataTransaction,
+        authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+          Effect.Effect<Value, Failure>) =>
+        resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](
+          {
+            selector: attemptState.selector,
+            preliminaryAuthority: resolved.authority,
+            executionClaim: attemptState.executionClaim,
+          },
+          (tx, context) => work(tx, resolved.authority, context.scopeClock),
+        ).pipe(Effect.catchTag("ExactRunningAttemptTransactionV1Error", (cause) =>
+          Effect.fail(new LogicalRelationalAdmissionError({
+            reason: "invalidAuthority", cause,
+          }))));
+    const principalRows = yield* readTransaction((tx) => Effect.tryPromise({
+      try: () => tx.select({
+          digest: fxSystemTransactionSessions.identityAccessPolicySha256,
+        }).from(fxSystemTransactionSessions).where(and(
+          eq(fxSystemTransactionSessions.scopeUuid, projectScopeIdUuidV1(
+            attemptState.selector.scopeId,
+          ).scopeUuid),
+          eq(fxSystemTransactionSessions.sessionId, attemptState.selector.sessionId),
+          eq(fxSystemTransactionSessions.attemptFence, attemptState.selector.attemptFence),
+        )).limit(2),
+      catch: (cause) => new SessionJournalPersistenceV1Error({
+        operation: "admitLogicalParticipant", cause,
+      }),
+    }));
+    if (principalRows.length !== 1 || principalRows[0]?.digest.byteLength !== 32) {
+      return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "invalidAuthority" }));
+    }
+    const principalDigest = encodeBytesToLowercaseHex(principalRows[0].digest);
+    return yield* input.selection.bindAttemptEffect(input.application, attempt, {
+      scopeId: attemptState.selector.scopeId,
+      sessionId: attemptState.selector.sessionId,
+      attemptFence: attemptState.selector.attemptFence,
+      principalDigest,
+      snapshotCommitSeq: attemptState.snapshotToken.commitSeq,
+      schemaVersionId: attemptState.schemaVersionId,
+    }, readTransaction, input.methods);
+  });
+
+  const admittedInFlight = new Set<string>();
+  const runAdmittedOperationEffect: SessionJournalStorePersistenceV1[
+    "runAdmittedOperationEffect"
+  ] = Effect.fn("SessionJournalStore.runAdmittedOperation")(function* (
+    attempt, admission, input, invoke,
+  ) {
+    const attemptState = typeof attempt === "object" && attempt !== null
+      ? attemptStates.get(attempt)
+      : undefined;
+    if (attemptState === undefined ||
+      !hasLogicalRelationalAttemptAdmission(admission, attempt, input.method)) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "attempt",
+      }));
+    }
+    const admitted = inspectLogicalRelationalAttemptAdmission(
+      admission, attempt, input.method,
+    );
+    if (admitted === null || admitted.root.scopeId !== attemptState.selector.scopeId ||
+      admitted.root.sessionId !== attemptState.selector.sessionId ||
+      admitted.root.attemptFence !== attemptState.selector.attemptFence ||
+      admitted.root.snapshotCommitSeq !== attemptState.snapshotToken.commitSeq ||
+      admitted.root.schemaVersionId !== attemptState.schemaVersionId) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "attempt",
+      }));
+    }
+    const captured = yield* captureAdmittedOperationRequestEffect(input);
+    if (captured.frame.participant !== input.participant ||
+      captured.frame.operation !== input.method) {
+      return yield* Effect.fail(new LogicalRelationalAdmissionError({
+        reason: "invalidInput",
+      }));
+    }
+    const binding = yield* Effect.fromResult(
+      canonicalizeAdmittedParticipantBindingV1Result({
+        ...admitted.root,
+        principalDigest: admitted.root.principalDigest,
+        participant: input.participant,
+        method: input.method,
+        sourceKey: admitted.sourceKey,
+        sourceSha256Hex: admitted.sourceSha256,
+        bindingHead: admitted.bindingHead,
+      }).pipe(Result.mapError((cause) =>
+        new LogicalRelationalAdmissionError({ reason: "invalidAuthority", cause }))),
+    );
+    const bindingDigest = yield* Effect.tryPromise({
+      try: () => sha256(binding.bytes),
+      catch: (cause) => new SessionJournalPersistenceV1Error({
+        operation: "runAdmittedOperation", cause,
+      }),
+    });
+    const request = Object.freeze({
+      format: "flarex.session-journal-syscall" as const,
+      codecVersion: 1 as const,
+      kind: "admittedLogicalOperation" as const,
+      syscallSequence: input.syscallSequence,
+      participant: input.participant,
+      method: input.method,
+      sourceKey: admitted.sourceKey,
+      sourceSha256Hex: admitted.sourceSha256,
+      bindingHead: admitted.bindingHead,
+      participantBindingSha256Hex: encodeBytesToLowercaseHex(bindingDigest),
+      requestSha256Hex: encodeBytesToLowercaseHex(captured.sha256),
+      frame: captured.frame,
+    } satisfies Extract<SessionJournalStoredRequestV1, {
+      readonly kind: "admittedLogicalOperation";
+    }>);
+    const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
+    const resolved = yield* resolveJournalTargetEffect(attemptState);
+    const inFlightKey = `${attemptState.selector.scopeId}/${attemptState.selector.sessionId}/${attemptState.selector.attemptFence}`;
+    if (admittedInFlight.has(inFlightKey)) {
+      return Object.freeze({ kind: "stateRejected", issue: Object.freeze({
+        reason: "operationPending",
+      }) });
+    }
+    admittedInFlight.add(inFlightKey);
+    return yield* Effect.gen(function* () {
+      const pins = {
+        selector: attemptState.selector,
+        preliminaryAuthority: resolved.authority,
+        executionClaim: attemptState.executionClaim,
+      } as const;
+      const preflight = yield* resolved.target[
+        RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+      ](pins, (tx, context) => preflightAdmittedOperationInTransactionEffect(
+        tx, context, attemptState, admission, attempt, resolved.authority,
+        request, requestEvidence, bindingDigest,
+      )).pipe(Effect.mapError(mapAdmittedKernelFailure));
+      if (preflight.kind !== "ready") return preflight.result;
+      return yield* Effect.uninterruptibleMask((restore) => Effect.gen(function* () {
+        yield* resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](
+          pins,
+          (tx, context) => persistAdmittedInvocationMarkerInTransactionEffect(
+            tx, context, attemptState, admission, attempt, resolved.authority,
+            request, requestEvidence, bindingDigest,
+          ),
+        ).pipe(Effect.mapError(mapAdmittedKernelFailure));
+        const borrowedExit = yield* Effect.exit(makeBorrowedLogicalAttempt({
+          admission, attempt, method: input.method, pendingRows: preflight.pendingRows,
+        }));
+        if (Exit.isFailure(borrowedExit)) {
+          const poison = yield* Effect.exit(resolved.target[
+            RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+          ](pins, (tx, context) => persistAdmittedFailureInTransactionEffect(
+            tx, context, attemptState, request, requestEvidence,
+            bindingDigest, "participantPreparationFailed",
+            Object.freeze({ workBytes: 0, workCalls: 0 }),
+          )).pipe(Effect.mapError(mapAdmittedKernelFailure)));
+          return yield* Effect.failCause(Exit.isFailure(poison)
+            ? Cause.combine(borrowedExit.cause, poison.cause) : borrowedExit.cause);
+        }
+        const borrowed = borrowedExit.value;
+        return yield* Effect.gen(function* () {
+        // A native method may already have staged work when any subsequent
+        // projection or evidence check fails. Keep the entire preparation in
+        // the failure bracket and durably poison the exact root before exit.
+        const prepared = yield* Effect.exit(restore(Effect.gen(function* () {
+          const completed = yield* invoke(
+            borrowed, captured.frame.operation, captured.frame.args,
+          );
+          if (completed.eventIntents.length > commitEventLimits.messages) {
+            return yield* Effect.fail(new LogicalRelationalAdmissionError({
+              reason: "invalidInput",
+            }));
+          }
+          for (const intent of completed.eventIntents) {
+            yield* Effect.fromResult(Schema.decodeUnknownResult(EventEnvelope,
+              { onExcessProperty: "error" })(intent).pipe(Result.mapError(cause =>
+                new LogicalRelationalAdmissionError({ reason: "invalidInput", cause }))));
+          }
+          const contribution = yield* projectLogicalDocumentJournalContribution(
+            completed.changes,
+          );
+          const dependency = yield* serializeLogicalParticipantDependencyEvidence(
+            completed.changes,
+          );
+          return Object.freeze({ completed, contribution, dependency });
+        })));
+        if (Exit.isFailure(prepared)) {
+          const usage = borrowed.currentUsage();
+          yield* borrowed.abort;
+          const poison = yield* Effect.exit(resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](
+            pins,
+            (tx, context) => persistAdmittedFailureInTransactionEffect(
+              tx, context, attemptState, request, requestEvidence,
+              bindingDigest, "participantFailed", usage,
+            ),
+          ).pipe(Effect.mapError(mapAdmittedKernelFailure)));
+          if (Exit.isFailure(poison)) {
+            return yield* Effect.failCause(Cause.combine(prepared.cause, poison.cause));
+          }
+          return yield* Effect.failCause(prepared.cause);
+        }
+        const { completed, contribution, dependency } = prepared.value;
+        const acceptance = yield* Effect.exit(resolved.target[
+          RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+        ](pins, (tx, context) => appendAdmittedOperationInTransactionEffect(
+          tx, context, attemptState, admission, attempt, resolved.authority,
+          request, requestEvidence,
+          bindingDigest, completed, contribution, dependency.evidence,
+        )).pipe(Effect.mapError(mapAdmittedKernelFailure)));
+        if (Exit.isSuccess(acceptance)) return acceptance.value;
+        // The write may have committed even if its acknowledgement was lost.
+        // Resolve that exact sequence under the same fenced root before any
+        // failure receipt, and never invoke the native participant again here.
+        const resolution = yield* Effect.exit(resolved.target[
+          RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+        ](pins, (tx, context) => preflightAdmittedOperationInTransactionEffect(
+          tx, context, attemptState, admission, attempt, resolved.authority,
+          request, requestEvidence, bindingDigest,
+        )).pipe(Effect.mapError(mapAdmittedKernelFailure)));
+        if (Exit.isFailure(resolution)) {
+          return yield* Effect.failCause(Cause.combine(acceptance.cause,
+            resolution.cause));
+        }
+        if (resolution.value.kind === "resolved" &&
+          !(resolution.value.result.kind === "stateRejected" &&
+            resolution.value.result.issue.reason === "operationPending")) {
+          return resolution.value.result;
+        }
+        const poison = yield* Effect.exit(resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](
+          pins,
+          (tx, context) => persistAdmittedFailureInTransactionEffect(
+            tx, context, attemptState, request, requestEvidence,
+            bindingDigest, "acceptanceFailed", borrowed.currentUsage(),
+          ),
+        ).pipe(Effect.mapError(mapAdmittedKernelFailure)));
+        if (Exit.isFailure(poison)) {
+          return yield* Effect.failCause(Cause.combine(acceptance.cause, poison.cause));
+        }
+        return yield* Effect.failCause(acceptance.cause);
+        }).pipe(Effect.ensuring(borrowed.abort));
+      }));
+    }).pipe(Effect.ensuring(Effect.sync(() => admittedInFlight.delete(inFlightKey))));
   });
 
   const resolveJournalTargetEffect = Effect.fn(
@@ -1851,6 +2757,8 @@ export function createSessionJournalStorePersistenceV1(
   });
 
   return Object.freeze({
+    admitLogicalParticipantEffect,
+    runAdmittedOperationEffect,
     openAttemptEffect,
     resolvePointTableEffect,
     runPointOperationEffect,
@@ -1968,7 +2876,8 @@ function mapExactAdmissionFailure(
     | "openAttempt"
     | "resolvePinnedPointTable"
     | "resolveApplicationRelation"
-    | "prepareSealSnapshot",
+    | "prepareSealSnapshot"
+    | "runAdmittedOperation",
   cause: ExactRunningAttemptTransactionV1Error,
 ): SessionJournalAttemptUnavailableV1Error |
   SessionJournalStorageCorruptionV1Error |
@@ -2862,6 +3771,8 @@ type AppliedSessionJournalOperationV1 =
     }>;
 
 interface SessionJournalCountersV1 {
+  readonly operationCalls: number;
+  readonly receiptEvidenceBytes: number;
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointDependencyCount: number;
@@ -2877,6 +3788,8 @@ interface SessionJournalCountersV1 {
 }
 
 interface SessionJournalCounterDeltasV1 {
+  readonly operationCalls: number;
+  readonly receiptEvidenceBytes: number;
   readonly readDocuments: number;
   readonly readSemanticBytes: number;
   readonly pointDependencyCount: number;
@@ -2892,6 +3805,8 @@ interface SessionJournalCounterDeltasV1 {
 }
 
 const ZERO_COUNTER_DELTAS = Object.freeze({
+  operationCalls: 1,
+  receiptEvidenceBytes: 0,
   readDocuments: 0,
   readSemanticBytes: 0,
   pointDependencyCount: 0,
@@ -3015,13 +3930,34 @@ const runPointOperationInTransactionEffect = Effect.fn(
     });
   }
   if (actual < last) {
+    const prior = yield* Effect.tryPromise({
+      try: () => loadReceiptAtSequence(tx, context, actual),
+      catch: mapRunPointOperationFailure,
+    });
+    if (prior === undefined) {
+      return yield* Effect.fail(corruption(
+        table.attempt,
+        "latestReceiptMissing",
+      ));
+    }
+    if (!bytesEqual(prior.requestBytes, requestEvidence.canonicalBytes)) {
+      return Object.freeze({
+        kind: "sequenceRejected",
+        issue: Object.freeze({
+          reason: "requestMismatch",
+          syscallSequence: actual,
+        }),
+      });
+    }
+    const replayed = yield* decodeAndVerifyLatestReceiptEffect(
+      table.attempt,
+      prior,
+      request,
+    );
     return Object.freeze({
-      kind: "sequenceRejected",
-      issue: Object.freeze({
-        reason: "staleSequence",
-        actual,
-        lastAccepted: last,
-      }),
+      kind: "outcome",
+      delivery: "replayed",
+      outcome: replayed,
     });
   }
   if (BigInt(actual) === BigInt(last)) {
@@ -3091,6 +4027,9 @@ const runPointOperationInTransactionEffect = Effect.fn(
       reason: "journalRelationConflicted",
     });
   }
+  if (root.state === "operation_failed") {
+    return Object.freeze({ kind: "stateRejected", reason: "journalFailed" });
+  }
   if (root.state === "failed") {
     if (receipt === undefined) {
       return yield* Effect.fail(corruption(
@@ -3142,10 +4081,16 @@ const runPointOperationInTransactionEffect = Effect.fn(
   const preparedWriteEvent = logicalWrite === undefined
     ? undefined
     : yield* prepareLogicalWriteEventEffect(logicalWrite);
+  const plannedOutcomeEvidence = yield* Effect.tryPromise({
+    try: () => canonicalizeStoredOutcome(plan.outcome),
+    catch: mapRunPointOperationFailure,
+  });
   const counterDeltas = Object.freeze({
     ...plan.counters,
     materialWriteEventEvidenceBytes:
       preparedWriteEvent?.evidenceBytes ?? 0,
+    receiptEvidenceBytes: requestEvidence.canonicalBytes.byteLength +
+      plannedOutcomeEvidence.canonicalBytes.byteLength,
   } satisfies SessionJournalCounterDeltasV1);
   const limitIssue = firstExceededLimit(counters, counterDeltas);
   if (plan.documentValidation !== undefined) {
@@ -3285,13 +4230,39 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
     return Object.freeze({ kind: "stateRejected", reason: "journalSealed" });
   }
   if (actual < last) {
+    const prior = yield* fromIndexedQueryPromise(() =>
+      loadReceiptAtSequence(tx, context, actual)
+    );
+    if (prior === undefined) {
+      return yield* Effect.fail(corruption(
+        index.attempt,
+        "latestReceiptMissing",
+      ));
+    }
+    if (!bytesEqual(prior.requestBytes, requestEvidence.canonicalBytes)) {
+      return Object.freeze({
+        kind: "sequenceRejected",
+        issue: Object.freeze({
+          reason: "requestMismatch",
+          syscallSequence: actual,
+        }),
+      });
+    }
+    const replayed = yield* decodeAndVerifyLatestReceiptEffect(
+      index.attempt,
+      prior,
+      request,
+    );
+    if (replayed.kind !== "indexRangePage" && !isLimitOutcome(replayed)) {
+      return yield* Effect.fail(corruption(
+        index.attempt,
+        "latestReceiptEvidenceInvalid",
+      ));
+    }
     return Object.freeze({
-      kind: "sequenceRejected",
-      issue: Object.freeze({
-        reason: "staleSequence",
-        actual,
-        lastAccepted: last,
-      }),
+      kind: "outcome",
+      delivery: "replayed",
+      outcome: replayed,
     });
   }
   if (BigInt(actual) === BigInt(last)) {
@@ -3361,6 +4332,9 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
       kind: "stateRejected",
       reason: "journalRelationConflicted",
     });
+  }
+  if (root.state === "operation_failed") {
+    return Object.freeze({ kind: "stateRejected", reason: "journalFailed" });
   }
   if (root.state === "failed") {
     if (receipt === undefined) {
@@ -3748,6 +4722,16 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
     (total, range) => total + range.evidenceBytes,
     0,
   );
+  const outcome = Object.freeze({
+    kind: "indexRangePage",
+    documentsValueJson: Object.freeze(
+      resultDocuments.map((document) => structuredClone(document.valueJson)),
+    ),
+    isDone: pageIsDone,
+  } satisfies SessionJournalStoredOutcomeV1);
+  const outcomeEvidence = yield* fromIndexedQueryPromise(() =>
+    canonicalizeStoredOutcome(outcome)
+  );
   const deltas = Object.freeze({
     ...ZERO_COUNTER_DELTAS,
     readDocuments: resultDocuments.length,
@@ -3758,6 +4742,8 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
       nextRanges.length - counters.indexRangeDependencyCount,
     indexRangeDependencyEvidenceBytes:
       evidenceBytes - counters.indexRangeDependencyEvidenceBytes,
+    receiptEvidenceBytes: requestEvidence.canonicalBytes.byteLength +
+      outcomeEvidence.canonicalBytes.byteLength,
   } satisfies SessionJournalCounterDeltasV1);
   const limitIssue = firstExceededLimit(counters, deltas);
   if (limitIssue !== undefined) {
@@ -3770,13 +4756,6 @@ const runIndexedQueryInTransactionEffect = Effect.fn(
       limitIssue,
     );
   }
-  const outcome = Object.freeze({
-    kind: "indexRangePage",
-    documentsValueJson: Object.freeze(
-      resultDocuments.map((document) => structuredClone(document.valueJson)),
-    ),
-    isDone: pageIsDone,
-  } satisfies SessionJournalStoredOutcomeV1);
   yield* fromIndexedQueryPromise(async () => {
     if (newPointRows.length > 0) {
       await tx.insert(fxSystemTransactionJournalPoints).values(newPointRows);
@@ -3903,13 +4882,40 @@ const runApplicationRelationIncomingInTransactionEffect = Effect.fn(
     return Object.freeze({ kind: "stateRejected", reason: "journalSealed" });
   }
   if (actual < last) {
+    const prior = yield* fromApplicationRelationPromise(() =>
+      loadReceiptAtSequence(tx, context, actual)
+    );
+    if (prior === undefined) {
+      return yield* Effect.fail(corruption(attempt, "latestReceiptMissing"));
+    }
+    if (!bytesEqual(prior.requestBytes, requestEvidence.canonicalBytes)) {
+      return Object.freeze({
+        kind: "sequenceRejected",
+        issue: Object.freeze({
+          reason: "requestMismatch",
+          syscallSequence: actual,
+        }),
+      });
+    }
+    const replayed = yield* decodeAndVerifyLatestReceiptEffect(
+      attempt,
+      prior,
+      request,
+    );
+    if (
+      replayed.kind !== "relationIncomingPage" &&
+      replayed.kind !== "relationConflict" &&
+      !isLimitOutcome(replayed)
+    ) {
+      return yield* Effect.fail(corruption(
+        attempt,
+        "latestReceiptEvidenceInvalid",
+      ));
+    }
     return Object.freeze({
-      kind: "sequenceRejected",
-      issue: Object.freeze({
-        reason: "staleSequence",
-        actual,
-        lastAccepted: last,
-      }),
+      kind: "outcome",
+      delivery: "replayed",
+      outcome: replayed,
     });
   }
   if (BigInt(actual) === BigInt(last)) {
@@ -3982,6 +4988,9 @@ const runApplicationRelationIncomingInTransactionEffect = Effect.fn(
       kind: "sequenceRejected",
       issue: Object.freeze({ reason: "sequenceGap", actual, expectedNext }),
     });
+  }
+  if (root.state === "operation_failed") {
+    return Object.freeze({ kind: "stateRejected", reason: "journalFailed" });
   }
   if (root.state === "failed") {
     if (receipt === undefined) {
@@ -4178,11 +5187,21 @@ const runApplicationRelationIncomingInTransactionEffect = Effect.fn(
           "relationAdjacencyVersionInvalid",
         ));
       }
+      const outcome = Object.freeze({
+        kind: "relationIncomingPage",
+        items: merged.items,
+        exhausted: merged.exhausted,
+      } satisfies SessionJournalStoredOutcomeV1);
+      const outcomeEvidence = yield* fromApplicationRelationPromise(() =>
+        canonicalizeStoredOutcome(outcome)
+      );
       const deltas = Object.freeze({
         ...ZERO_COUNTER_DELTAS,
         relationReadSyscalls: 1,
         relationDependencyCount: dependencyIsNew ? 1 : 0,
         relationBaseOccurrences: inspectedBaseOccurrences,
+        receiptEvidenceBytes: requestEvidence.canonicalBytes.byteLength +
+          outcomeEvidence.canonicalBytes.byteLength,
       } satisfies SessionJournalCounterDeltasV1);
       const limitIssue = firstExceededLimit(counters, deltas);
       if (limitIssue !== undefined) {
@@ -4195,11 +5214,6 @@ const runApplicationRelationIncomingInTransactionEffect = Effect.fn(
           limitIssue,
         );
       }
-      const outcome = Object.freeze({
-        kind: "relationIncomingPage",
-        items: merged.items,
-        exhausted: merged.exhausted,
-      } satisfies SessionJournalStoredOutcomeV1);
       yield* fromApplicationRelationPromise(async () => {
         if (dependencyIsNew) {
           await insertApplicationRelationIncomingDependency(tx, context, {
@@ -5672,6 +6686,16 @@ function firstExceededLimit(
     maximum: number;
   }>> = [
     {
+      dimension: "operationCalls",
+      observed: current.operationCalls + deltas.operationCalls,
+      maximum: SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.operationCalls,
+    },
+    {
+      dimension: "receiptEvidenceBytes",
+      observed: current.receiptEvidenceBytes + deltas.receiptEvidenceBytes,
+      maximum: SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.receiptEvidenceBytes,
+    },
+    {
       dimension: "readDocuments",
       observed: current.readDocuments + deltas.readDocuments,
       maximum: SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.readDocuments,
@@ -5793,6 +6817,8 @@ function decodeJournalCountersResult(
   SessionJournalStorageCorruptionV1Error
 > {
   const counters = {
+    operationCalls: Number(root.lastSyscallSequence),
+    receiptEvidenceBytes: root.receiptEvidenceBytes,
     readDocuments: root.readDocuments,
     readSemanticBytes: root.readSemanticBytes,
     pointDependencyCount: root.pointDependencyCount,
@@ -5808,6 +6834,11 @@ function decodeJournalCountersResult(
     materialWriteEventEvidenceBytes: root.materialWriteEventEvidenceBytes,
   };
   const limits: ReadonlyArray<readonly [number, number]> = [
+    [counters.operationCalls, SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.operationCalls],
+    [counters.receiptEvidenceBytes,
+      root.state === "failed" && root.failureDimension !== null
+        ? MAX_COMMIT_FAILED_RECEIPT_EVIDENCE_BYTES_V1
+        : SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.receiptEvidenceBytes],
     [
       counters.readDocuments,
       SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1.readDocuments,
@@ -5873,37 +6904,56 @@ async function loadLatestReceipt(
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
 ): Promise<
-  typeof fxSystemTransactionJournalLatestReceipts.$inferSelect | undefined
+  typeof fxSystemTransactionJournalReceipts.$inferSelect | undefined
 > {
   const rows = await tx
     .select()
-    .from(fxSystemTransactionJournalLatestReceipts)
+    .from(fxSystemTransactionJournalReceipts)
     .where(and(
       eq(
-        fxSystemTransactionJournalLatestReceipts.scopeUuid,
+        fxSystemTransactionJournalReceipts.scopeUuid,
         context.scopeUuid,
       ),
       eq(
-        fxSystemTransactionJournalLatestReceipts.sessionId,
+        fxSystemTransactionJournalReceipts.sessionId,
         context.anchor.sessionId,
       ),
       eq(
-        fxSystemTransactionJournalLatestReceipts.attemptFence,
+        fxSystemTransactionJournalReceipts.attemptFence,
         context.anchor.attemptFence,
       ),
     ))
-    .limit(2)
+    .orderBy(desc(fxSystemTransactionJournalReceipts.lastSyscallSequence))
+    .limit(1)
     .for("update");
-  if (rows.length > 1) {
-    throw new Error("Latest receipt primary key returned duplicate rows.");
-  }
+  return rows[0];
+}
+
+async function loadReceiptAtSequence(
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  sequence: CommitSyscallSequenceV1,
+): Promise<
+  typeof fxSystemTransactionJournalReceipts.$inferSelect | undefined
+> {
+  const rows = await tx
+    .select()
+    .from(fxSystemTransactionJournalReceipts)
+    .where(and(
+      eq(fxSystemTransactionJournalReceipts.scopeUuid, context.scopeUuid),
+      eq(fxSystemTransactionJournalReceipts.sessionId, context.anchor.sessionId),
+      eq(fxSystemTransactionJournalReceipts.attemptFence, context.anchor.attemptFence),
+      eq(fxSystemTransactionJournalReceipts.lastSyscallSequence, sequence),
+    ))
+    .limit(1)
+    .for("update");
   return rows[0];
 }
 
 function validateReceiptCardinalityResult(
   attempt: SessionJournalAttemptStateV1,
   lastSequence: CommitFinalSyscallSequenceV1,
-  receipt: typeof fxSystemTransactionJournalLatestReceipts.$inferSelect |
+  receipt: typeof fxSystemTransactionJournalReceipts.$inferSelect |
     undefined,
 ): Result.Result<void, SessionJournalStorageCorruptionV1Error> {
   if (lastSequence === 0n && receipt !== undefined) {
@@ -5947,12 +6997,12 @@ const decodeStoredEvidenceEffect = Effect.fn((
     ),
   ));
 
-const decodeAndVerifyLatestReceiptEffect = Effect.fn(function* (
+const decodeAndVerifyReceiptRecordEffect = Effect.fn(function* (
   attempt: SessionJournalAttemptStateV1,
-  receipt: typeof fxSystemTransactionJournalLatestReceipts.$inferSelect,
+  receipt: typeof fxSystemTransactionJournalReceipts.$inferSelect,
   expectedRequest: SessionJournalStoredRequestV1 | undefined,
 ): Effect.fn.Return<
-  SessionJournalStoredOutcomeV1,
+  Readonly<{ request: SessionJournalStoredRequestV1; outcome: SessionJournalStoredOutcomeV1 }>,
   SessionJournalStorageCorruptionV1Error
 > {
   const requestEvidence = yield* decodeStoredEvidenceEffect(
@@ -6010,7 +7060,26 @@ const decodeAndVerifyLatestReceiptEffect = Effect.fn(function* (
       "latestReceiptEvidenceInvalid",
     ));
   }
-  return outcome;
+  if (request.kind === "admittedLogicalOperation") {
+    if (receipt.participantBindingSha256 === null ||
+      encodeBytesToLowercaseHex(receipt.participantBindingSha256) !==
+        request.participantBindingSha256Hex) {
+      return yield* Effect.fail(corruption(attempt, "latestReceiptEvidenceInvalid"));
+    }
+  } else if (receipt.participantBindingSha256 !== null) {
+    return yield* Effect.fail(corruption(attempt, "latestReceiptEvidenceInvalid"));
+  }
+  return Object.freeze({ request, outcome });
+});
+
+const decodeAndVerifyLatestReceiptEffect = Effect.fn(function* (
+  attempt: SessionJournalAttemptStateV1,
+  receipt: typeof fxSystemTransactionJournalReceipts.$inferSelect,
+  expectedRequest: SessionJournalStoredRequestV1 | undefined,
+) {
+  return (yield* decodeAndVerifyReceiptRecordEffect(
+    attempt, receipt, expectedRequest,
+  )).outcome;
 });
 
 function storedRequestsEqual(
@@ -6076,6 +7145,10 @@ function requestOutcomeCorrelates(
         outcome.items.length <= request.limit &&
         (outcome.exhausted || outcome.items.length === request.limit) &&
         relationIncomingItemsCorrelate(request, outcome.items);
+    case "admittedLogicalOperation":
+      return outcome.kind === "admittedLogicalResult" ||
+        outcome.kind === "admittedLogicalError" ||
+        outcome.kind === "admittedLogicalInvoking";
   }
   return false;
 }
@@ -6156,6 +7229,16 @@ function validateReceiptOutcomeMatchesJournalRootResult(
   root: typeof fxSystemTransactionJournals.$inferSelect,
   outcome: SessionJournalStoredOutcomeV1,
 ): Result.Result<void, SessionJournalStorageCorruptionV1Error> {
+  if (root.state === "operation_invoking") {
+    return outcome.kind === "admittedLogicalInvoking" && root.failureDimension === null
+      ? Result.succeed(undefined)
+      : Result.fail(corruption(attempt, "journalReceiptStateMismatch"));
+  }
+  if (root.state === "operation_failed") {
+    return outcome.kind === "admittedLogicalError" && root.failureDimension === null
+      ? Result.succeed(undefined)
+      : Result.fail(corruption(attempt, "failedJournalReceiptInvalid"));
+  }
   if (root.state === "failed") {
     if (root.failureDimension === null) {
       return Result.fail(corruption(
@@ -6190,7 +7273,7 @@ function validateReceiptOutcomeMatchesJournalRootResult(
     }
     return Result.succeed(undefined);
   }
-  if (outcome.kind === "relationConflict") {
+  if (outcome.kind === "admittedLogicalInvoking" || outcome.kind === "relationConflict") {
     return Result.fail(corruption(
       attempt,
       "journalReceiptStateMismatch",
@@ -6206,9 +7289,11 @@ function validateReceiptOutcomeMatchesJournalRootResult(
 }
 
 interface PersistAcceptedOperationRootStateV1 {
-  readonly state: "open" | "failed" | "relation_conflicted";
+  readonly state: "open" | "failed" | "operation_failed" | "relation_conflicted";
   readonly failureDimension: SessionJournalIncrementalLimitDimensionV1 | null;
   readonly nextCreationTime?: AppCreationTimeV1;
+  readonly participantWorkBytes?: number;
+  readonly participantWorkCalls?: number;
 }
 
 async function persistAcceptedOperation(
@@ -6220,11 +7305,46 @@ async function persistAcceptedOperation(
   current: SessionJournalCountersV1,
   deltas: SessionJournalCounterDeltasV1,
   state: PersistAcceptedOperationRootStateV1,
+  participantBindingSha256: Uint8Array | null = null,
 ): Promise<void> {
   const outcomeEvidence = await canonicalizeStoredOutcome(outcome);
+  const replacingInvocation = request.kind === "admittedLogicalOperation" &&
+    context.journalRoot.state === "operation_invoking";
+  const marker = replacingInvocation
+    ? await loadReceiptAtSequence(tx, context, request.syscallSequence)
+    : undefined;
+  if (replacingInvocation && (marker === undefined ||
+    marker.outcomeKind !== "admittedLogicalInvoking" ||
+    marker.operationKind !== request.kind ||
+    !bytesEqual(marker.requestSha256, requestEvidence.sha256) ||
+    participantBindingSha256 === null ||
+    marker.participantBindingSha256 === null ||
+    !bytesEqual(marker.participantBindingSha256, participantBindingSha256))) {
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - this async SQL adapter rejects a mismatched durable marker so Effect.tryPromise rolls back the transaction
+    throw corruption(attemptFromContext(context), "latestReceiptEvidenceInvalid");
+  }
+  const receiptEvidenceDelta = replacingInvocation
+    ? outcomeEvidence.canonicalBytes.byteLength - marker!.outcomeBytes.byteLength
+    : requestEvidence.canonicalBytes.byteLength + outcomeEvidence.canonicalBytes.byteLength;
+  const boundedTerminalLimitFailure = state.state === "failed" &&
+    state.failureDimension !== null && isLimitOutcome(outcome) &&
+    outcome.dimension === state.failureDimension;
+  const maximumReceiptEvidenceBytes = boundedTerminalLimitFailure
+    ? MAX_COMMIT_FAILED_RECEIPT_EVIDENCE_BYTES_V1
+    : MAX_COMMIT_RECEIPT_EVIDENCE_BYTES_V1;
+  if (!Number.isSafeInteger(receiptEvidenceDelta) ||
+    (boundedTerminalLimitFailure && outcomeEvidence.canonicalBytes.byteLength > 1_024) ||
+    current.receiptEvidenceBytes + receiptEvidenceDelta > maximumReceiptEvidenceBytes) {
+    // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - the receipt cap is enforced inside the owning SQL adapter and rejection rolls back staged point/event rows
+    throw new SessionJournalPersistenceV1Error({
+      operation: "runAdmittedOperation",
+      cause: "receiptEvidenceBytes limit exceeded before durable acknowledgement",
+    });
+  }
   const receipt = {
     lastSyscallSequence: request.syscallSequence,
     operationKind: request.kind,
+    participantBindingSha256,
     requestCodecVersion: 1,
     requestBytes: new Uint8Array(requestEvidence.canonicalBytes),
     requestSha256: new Uint8Array(requestEvidence.sha256),
@@ -6235,22 +7355,35 @@ async function persistAcceptedOperation(
     createdAt: context.databaseNow,
     updatedAt: context.databaseNow,
   } satisfies Omit<
-    typeof fxSystemTransactionJournalLatestReceipts.$inferInsert,
+    typeof fxSystemTransactionJournalReceipts.$inferInsert,
     "scopeUuid" | "sessionId" | "attemptFence"
   >;
-  await tx.insert(fxSystemTransactionJournalLatestReceipts).values({
-    scopeUuid: context.scopeUuid,
-    sessionId: context.anchor.sessionId,
-    attemptFence: context.anchor.attemptFence,
-    ...receipt,
-  }).onConflictDoUpdate({
-    target: [
-      fxSystemTransactionJournalLatestReceipts.scopeUuid,
-      fxSystemTransactionJournalLatestReceipts.sessionId,
-      fxSystemTransactionJournalLatestReceipts.attemptFence,
-    ],
-    set: receipt,
-  });
+  if (replacingInvocation) {
+    const changedReceipt = await tx.update(fxSystemTransactionJournalReceipts).set({
+      outcomeKind: receipt.outcomeKind,
+      outcomeCodecVersion: receipt.outcomeCodecVersion,
+      outcomeBytes: receipt.outcomeBytes,
+      outcomeSha256: receipt.outcomeSha256,
+      updatedAt: context.databaseNow,
+    }).where(and(
+      eq(fxSystemTransactionJournalReceipts.scopeUuid, context.scopeUuid),
+      eq(fxSystemTransactionJournalReceipts.sessionId, context.anchor.sessionId),
+      eq(fxSystemTransactionJournalReceipts.attemptFence, context.anchor.attemptFence),
+      eq(fxSystemTransactionJournalReceipts.lastSyscallSequence, request.syscallSequence),
+      eq(fxSystemTransactionJournalReceipts.outcomeKind, "admittedLogicalInvoking"),
+    )).returning({ outcomeKind: fxSystemTransactionJournalReceipts.outcomeKind });
+    if (changedReceipt.length !== 1) {
+      // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: transaction - a failed exact marker update rejects the SQL transaction before its root advances
+      throw corruption(attemptFromContext(context), "latestReceiptEvidenceInvalid");
+    }
+  } else {
+    await tx.insert(fxSystemTransactionJournalReceipts).values({
+      scopeUuid: context.scopeUuid,
+      sessionId: context.anchor.sessionId,
+      attemptFence: context.anchor.attemptFence,
+      ...receipt,
+    });
+  }
   const updated = await tx
     .update(fxSystemTransactionJournals)
     .set({
@@ -6284,6 +7417,11 @@ async function persistAcceptedOperation(
           current.materialWriteEventEvidenceBytes +
           deltas.materialWriteEventEvidenceBytes,
         ),
+      receiptEvidenceBytes: current.receiptEvidenceBytes + receiptEvidenceDelta,
+      participantWorkBytes: context.journalRoot.participantWorkBytes +
+        (state.participantWorkBytes ?? 0),
+      participantWorkCalls: context.journalRoot.participantWorkCalls +
+        (state.participantWorkCalls ?? 0),
       failureDimension: state.failureDimension,
       ...(state.nextCreationTime === undefined
         ? {}
@@ -6297,7 +7435,8 @@ async function persistAcceptedOperation(
         fxSystemTransactionJournals.attemptFence,
         context.anchor.attemptFence,
       ),
-      eq(fxSystemTransactionJournals.state, "open"),
+      eq(fxSystemTransactionJournals.state,
+        replacingInvocation ? "operation_invoking" : "open"),
       eq(
         fxSystemTransactionJournals.lastSyscallSequence,
         context.journalRoot.lastSyscallSequence,
@@ -6659,6 +7798,11 @@ function projectSuccessfulStoredOutcome(
     case "relationConflict":
       // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - point request and receipt correlation rejects relation outcomes before point projection
       throw new Error("Point operation received a relation-read outcome.");
+    case "admittedLogicalResult":
+    case "admittedLogicalError":
+    case "admittedLogicalInvoking":
+      // oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - point request and receipt correlation excludes participant outcomes before this projection
+      throw new Error("Point operation received an admitted logical outcome.");
   }
 }
 
@@ -6710,14 +7854,14 @@ interface SessionJournalSealCandidateV1 {
   readonly nextCreationTime: AppCreationTimeV1;
   readonly counters: SessionJournalCountersV1;
   readonly rootUpdatedAtMilliseconds: number;
-  readonly journal: SessionJournalV1;
+  readonly journal: SessionJournalV2;
 }
 
 interface ValidatedCanonicalSealEvidenceV1 {
   readonly finalSyscallSequence: CommitFinalSyscallSequenceV1;
   readonly journalBytes: Uint8Array;
   readonly journalSha256: Uint8Array;
-  readonly journalSha256Hex: CanonicalSessionJournalV1["sha256Hex"];
+  readonly journalSha256Hex: CanonicalSessionJournalV2["sha256Hex"];
   readonly resultValueCodecVersion: typeof FLAREX_VALUE_CODEC_VERSION_V1;
   readonly resultSemanticBytes: number;
   readonly resultBytes: Uint8Array;
@@ -6727,8 +7871,7 @@ interface ValidatedCanonicalSealEvidenceV1 {
 
 interface SessionJournalSealRowsV1 {
   readonly root: typeof fxSystemTransactionJournals.$inferSelect;
-  readonly receipt?:
-    typeof fxSystemTransactionJournalLatestReceipts.$inferSelect;
+  readonly receipts: ReadonlyArray<typeof fxSystemTransactionJournalReceipts.$inferSelect>;
   readonly points: ReadonlyArray<
     typeof fxSystemTransactionJournalPoints.$inferSelect
   >;
@@ -6763,7 +7906,7 @@ async function captureSealRowsInRepeatableRead(
     attempt,
     preliminaryAuthority,
   );
-  const receipt = await loadLatestReceiptReadOnly(tx, authority);
+  const receipts = await loadReceiptsReadOnly(tx, authority);
   const points = await tx
     .select()
     .from(fxSystemTransactionJournalPoints)
@@ -6843,11 +7986,12 @@ async function captureSealRowsInRepeatableRead(
         attempt.selector.attemptFence,
       ),
     ))
-    .orderBy(asc(fxSystemTransactionJournalWriteEvents.syscallSequence))
+    .orderBy(asc(fxSystemTransactionJournalWriteEvents.syscallSequence),
+      asc(fxSystemTransactionJournalWriteEvents.effectOrdinal))
     .limit(MAX_COMMIT_WRITE_OPERATIONS_V1 + 1);
   return Object.freeze({
     root: structuredClone(authority.root),
-    ...(receipt === undefined ? {} : { receipt: structuredClone(receipt) }),
+    receipts: Object.freeze(structuredClone(receipts)),
     points: Object.freeze(structuredClone(points)),
     indexRanges: Object.freeze(structuredClone(indexRanges)),
     relationDependencies: Object.freeze(
@@ -6867,7 +8011,10 @@ const materializeSealCandidateEffect = Effect.fn(
   SessionJournalSealV1Error | SessionJournalStorageCorruptionV1Error
 > {
   const root = snapshot.root;
-  if (root.state === "failed") {
+  if (root.journalFormat !== SESSION_JOURNAL_FORMAT_V2) {
+    return yield* Effect.fail(corruption(attempt, "journalStateInvalid"));
+  }
+  if (root.state === "failed" || root.state === "operation_failed") {
     return yield* Effect.fail(
       new SessionJournalSealV1Error({ reason: "journalFailed" }),
     );
@@ -6917,22 +8064,41 @@ const materializeSealCandidateEffect = Effect.fn(
   const lastSyscallSequence = CommitFinalSyscallSequenceV1Schema.make(
     root.lastSyscallSequence,
   );
-  const receipt = snapshot.receipt;
-  yield* Effect.fromResult(validateReceiptCardinalityResult(
-    attempt,
-    lastSyscallSequence,
-    receipt,
-  ));
-  if (receipt !== undefined) {
-    const outcome = yield* decodeAndVerifyLatestReceiptEffect(
-      attempt,
-      receipt,
-      undefined,
+  if (snapshot.receipts.length !== Number(lastSyscallSequence) ||
+    snapshot.receipts.length > MAX_COMMIT_OPERATION_CALLS_V1) {
+    return yield* Effect.fail(corruption(attempt, "latestReceiptSequenceMismatch"));
+  }
+  const receiptRecords: Array<Readonly<{
+    request: SessionJournalStoredRequestV1;
+    outcome: SessionJournalStoredOutcomeV1;
+  }>> = [];
+  let receiptEvidenceBytes = 0;
+  let participantWorkBytes = 0;
+  let participantWorkCalls = 0;
+  for (const [ordinal, receipt] of snapshot.receipts.entries()) {
+    if (receipt.lastSyscallSequence !== BigInt(ordinal + 1)) {
+      return yield* Effect.fail(corruption(attempt, "latestReceiptSequenceMismatch"));
+    }
+    const decoded = yield* decodeAndVerifyReceiptRecordEffect(
+      attempt, receipt, undefined,
     );
+    receiptRecords.push(decoded);
+    receiptEvidenceBytes += receipt.requestBytes.byteLength + receipt.outcomeBytes.byteLength;
+    if (decoded.outcome.kind === "admittedLogicalResult" ||
+      decoded.outcome.kind === "admittedLogicalError") {
+      participantWorkBytes += decoded.outcome.workBytes;
+      participantWorkCalls += decoded.outcome.workCalls;
+    }
+  }
+  if (receiptEvidenceBytes !== root.receiptEvidenceBytes ||
+    participantWorkBytes !== root.participantWorkBytes ||
+    participantWorkCalls !== root.participantWorkCalls) {
+    return yield* Effect.fail(corruption(attempt, "journalCountersInvalid"));
+  }
+  const lastRecord = receiptRecords.at(-1);
+  if (lastRecord !== undefined) {
     yield* Effect.fromResult(validateReceiptOutcomeMatchesJournalRootResult(
-      attempt,
-      root,
-      outcome,
+      attempt, root, lastRecord.outcome,
     ));
   }
 
@@ -7006,6 +8172,7 @@ const materializeSealCandidateEffect = Effect.fn(
     ));
   }
   const writes: LogicalAppWriteV1[] = [];
+  const participantEffects = new Map<bigint, AdmittedParticipantLogicalEffectV1[]>();
   let computedWriteSemanticBytes = 0;
   let computedMaterialWriteEventEvidenceBytes = 0;
   for (const event of eventRows) {
@@ -7020,20 +8187,51 @@ const materializeSealCandidateEffect = Effect.fn(
         "materialWriteEventEvidenceBytesMismatch",
       ));
     }
-    const write = yield* decodeAndVerifyLogicalWriteEventEffect(
-      attempt,
-      event,
-    );
-    if (write.syscallSequence > lastSyscallSequence) {
+    if (event.syscallSequence > lastSyscallSequence) {
       return yield* Effect.fail(corruption(
         attempt,
         "writeSequenceBeyondJournalFinalSequence",
       ));
     }
-    computedWriteSemanticBytes += write.kind === "delete"
-      ? 0
-      : write.resultingDocumentSemanticBytes;
-    writes.push(write);
+    if (event.writeKind === "logicalDocument") {
+      const evidence = yield* decodeStoredEvidenceEffect(attempt,
+        "logicalWriteEventInvalid", event.eventBytes, event.eventSha256);
+      const decoded = yield* Effect.fromResult(Schema.decodeUnknownResult(
+        AdmittedParticipantWriteEventV1Schema, { onExcessProperty: "error" },
+      )(evidence.valueJson).pipe(Result.mapError(cause => corruption(
+        attempt, "logicalWriteEventInvalid", cause,
+      ))));
+      const matching = receiptRecords[Number(event.syscallSequence) - 1];
+      if (matching?.request.kind !== "admittedLogicalOperation" ||
+        matching.outcome.kind !== "admittedLogicalResult" ||
+        decoded.syscallSequence !== event.syscallSequence ||
+        decoded.effect.effectOrdinal !== event.effectOrdinal ||
+        decoded.participantBindingSha256Hex !==
+          matching.request.participantBindingSha256Hex) {
+        return yield* Effect.fail(corruption(attempt, "logicalWriteEventInvalid"));
+      }
+      const effects = participantEffects.get(event.syscallSequence) ?? [];
+      if (event.effectOrdinal !== effects.length) {
+        return yield* Effect.fail(corruption(attempt, "logicalWriteEventInvalid"));
+      }
+      effects.push(decoded.effect);
+      participantEffects.set(event.syscallSequence, effects);
+      if (decoded.effect.after !== null) {
+        const after = yield* Effect.tryPromise({
+          try: () => canonicalizeFlarexValueJsonV1(decoded.effect.after),
+          catch: cause => corruption(attempt, "logicalWriteEventInvalid", cause),
+        });
+        computedWriteSemanticBytes += after.semanticSizeBytes;
+      }
+    } else {
+      if (event.effectOrdinal !== 0) {
+        return yield* Effect.fail(corruption(attempt, "logicalWriteEventInvalid"));
+      }
+      const write = yield* decodeAndVerifyLogicalWriteEventEffect(attempt, event);
+      computedWriteSemanticBytes += write.kind === "delete"
+        ? 0 : write.resultingDocumentSemanticBytes;
+      writes.push(write);
+    }
   }
   if (computedWriteSemanticBytes !== counters.writeSemanticBytes) {
     return yield* Effect.fail(corruption(
@@ -7051,8 +8249,54 @@ const materializeSealCandidateEffect = Effect.fn(
     ));
   }
 
-  const journal = Object.freeze(SessionJournalV1Schema.make({
-    format: SESSION_JOURNAL_FORMAT_V1,
+  const participantOperations: AdmittedParticipantOperationV1[] = [];
+  for (const record of receiptRecords) {
+    if (record.request.kind !== "admittedLogicalOperation") continue;
+    const outcome = record.outcome;
+    if (outcome.kind !== "admittedLogicalResult") {
+      return yield* Effect.fail(corruption(attempt, "latestReceiptEvidenceInvalid"));
+    }
+    const frame = yield* Effect.fromResult(
+      encodeAdmittedFrameworkOperationV1Result(record.request.frame).pipe(
+        Result.mapError(cause => corruption(attempt,
+          "latestReceiptEvidenceInvalid", cause)),
+      ),
+    );
+    const frameDigest = yield* Effect.tryPromise({
+      try: () => sha256(frame.bytes),
+      catch: cause => corruption(attempt, "latestReceiptEvidenceInvalid", cause),
+    });
+    if (frame.operation.participant !== record.request.participant ||
+      frame.operation.operation !== record.request.method ||
+      encodeBytesToLowercaseHex(frameDigest) !== record.request.requestSha256Hex) {
+      return yield* Effect.fail(corruption(attempt, "latestReceiptEvidenceInvalid"));
+    }
+    const resultEvidence = yield* Effect.tryPromise({
+      try: () => canonicalizeFlarexValueJsonV1(outcome.result),
+      catch: cause => corruption(attempt, "latestReceiptEvidenceInvalid", cause),
+    });
+    participantOperations.push(Object.freeze({
+      syscallSequence: record.request.syscallSequence,
+      participant: record.request.participant,
+      method: record.request.method,
+      sourceKey: record.request.sourceKey,
+      sourceSha256Hex: record.request.sourceSha256Hex,
+      bindingHead: record.request.bindingHead,
+      participantBindingSha256Hex: record.request.participantBindingSha256Hex,
+      requestSha256Hex: record.request.requestSha256Hex,
+      resultSha256Hex: encodeBytesToLowercaseHex(resultEvidence.sha256),
+      effects: Object.freeze(participantEffects.get(record.request.syscallSequence) ?? []),
+      dependencyEvidence: outcome.dependencyEvidence,
+      eventIntents: Object.freeze(outcome.events),
+    }));
+  }
+  if ([...participantEffects.keys()].some(sequence => !participantOperations.some(
+      operation => operation.syscallSequence === sequence))) {
+    return yield* Effect.fail(corruption(attempt, "logicalWriteEventInvalid"));
+  }
+
+  const journal = Object.freeze(SessionJournalV2Schema.make({
+    format: SESSION_JOURNAL_FORMAT_V2,
     protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     finalSyscallSequence: lastSyscallSequence,
@@ -7066,6 +8310,12 @@ const materializeSealCandidateEffect = Effect.fn(
       ),
     }),
     writes: Object.freeze(writes),
+    operationUsage: Object.freeze({
+      receiptEvidenceBytes,
+      participantWorkBytes,
+      participantWorkCalls,
+    }),
+    participantOperations: Object.freeze(participantOperations),
   }));
   const rootUpdatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
   if (rootUpdatedAtMilliseconds === undefined) {
@@ -7272,34 +8522,32 @@ async function readDatabaseNowForSeal(
   return date;
 }
 
-async function loadLatestReceiptReadOnly(
+async function loadReceiptsReadOnly(
   tx: AppRowTransaction,
   authority: RepeatableReadAttemptAuthorityV1,
 ): Promise<
-  typeof fxSystemTransactionJournalLatestReceipts.$inferSelect | undefined
+  ReadonlyArray<typeof fxSystemTransactionJournalReceipts.$inferSelect>
 > {
   const rows = await tx
     .select()
-    .from(fxSystemTransactionJournalLatestReceipts)
+    .from(fxSystemTransactionJournalReceipts)
     .where(and(
       eq(
-        fxSystemTransactionJournalLatestReceipts.scopeUuid,
+        fxSystemTransactionJournalReceipts.scopeUuid,
         authority.scopeUuid,
       ),
       eq(
-        fxSystemTransactionJournalLatestReceipts.sessionId,
+        fxSystemTransactionJournalReceipts.sessionId,
         authority.root.sessionId,
       ),
       eq(
-        fxSystemTransactionJournalLatestReceipts.attemptFence,
+        fxSystemTransactionJournalReceipts.attemptFence,
         authority.root.attemptFence,
       ),
     ))
-    .limit(2);
-  if (rows.length > 1) {
-    throw new Error("Latest receipt primary key returned duplicate rows.");
-  }
-  return rows[0];
+    .orderBy(asc(fxSystemTransactionJournalReceipts.lastSyscallSequence))
+    .limit(MAX_COMMIT_OPERATION_CALLS_V1 + 1);
+  return rows;
 }
 
 const decodeLivePointOverlayEvidenceEffect = Effect.fn(
@@ -7438,10 +8686,10 @@ const decodeAndVerifyLogicalWriteEventEffect = Effect.fn(function* (
 });
 
 interface CanonicalSealInputsSnapshotV1 {
-  readonly journal: SessionJournalV1;
+  readonly journal: SessionJournalV2;
   readonly journalCanonicalText: string;
   readonly journalBytes: Uint8Array;
-  readonly journalSha256Hex: CanonicalSessionJournalV1["sha256Hex"];
+  readonly journalSha256Hex: CanonicalSessionJournalV2["sha256Hex"];
   readonly resultValueJson: Json;
   readonly resultSemanticBytes: number;
   readonly resultCanonicalText: string;
@@ -7450,7 +8698,7 @@ interface CanonicalSealInputsSnapshotV1 {
 }
 
 function captureCanonicalSealInputsResult(
-  journal: CanonicalSessionJournalV1,
+  journal: CanonicalSessionJournalV2,
   successfulResult: CanonicalSuccessfulResultV1,
 ): Result.Result<CanonicalSealInputsSnapshotV1, SessionJournalSealV1Error> {
   return Result.gen(function* () {
@@ -7481,7 +8729,7 @@ const validateCanonicalSealEvidenceEffect = Effect.fn(
   "SessionJournalStore.validateCanonicalSealEvidence",
 )(function* (
   candidate: SessionJournalSealCandidateV1,
-  journal: CanonicalSessionJournalV1,
+  journal: CanonicalSessionJournalV2,
   successfulResult: CanonicalSuccessfulResultV1,
 ): Effect.fn.Return<
   ValidatedCanonicalSealEvidenceV1,
@@ -7628,7 +8876,7 @@ const completeSealInTransactionEffect = Effect.fn(
     ));
   }
   const root = context.journalRoot;
-  if (root.state === "failed") {
+  if (root.state === "failed" || root.state === "operation_failed") {
     return yield* Effect.fail(
       new SessionJournalSealV1Error({ reason: "journalFailed" }),
     );

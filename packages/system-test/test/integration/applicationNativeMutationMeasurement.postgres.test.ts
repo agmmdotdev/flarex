@@ -10,7 +10,7 @@ import { fxAppRowRevisions, fxAppRowCurrent, fxAppIndexEntryRevisions, fxAppInde
   fxAppUniqueKeys, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemAppSchemaCandidateValidations,
   fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemCommitAppRowChanges, fxSystemScopeClocks,
   fxSystemTransactionSessions, fxSystemSnapshotLeases, fxSystemTransactionJournals,
-  fxSystemTransactionExecutionClaims, fxSystemTransactionJournalLatestReceipts, fxSystemTransactionJournalPoints,
+  fxSystemTransactionExecutionClaims, fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalIndexRanges, fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalWriteEvents } from "@flarex/persistence-postgres/internal/system-test/schema";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/postgres";
@@ -188,7 +188,7 @@ const nativeDurableTables = [fxAppRowRevisions, fxAppRowCurrent, fxAppIndexEntry
   fxAppUniqueKeys, fxSystemIndexBuildStates, fxSystemUniqueConstraintBuilds, fxSystemAppSchemaCandidateValidations,
   fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemCommitAppRowChanges, fxSystemScopeClocks,
   fxSystemTransactionSessions, fxSystemSnapshotLeases, fxSystemTransactionJournals, fxSystemTransactionExecutionClaims,
-  fxSystemTransactionJournalLatestReceipts, fxSystemTransactionJournalPoints, fxSystemTransactionJournalIndexRanges,
+  fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints, fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournalWriteEvents];
 const decodeSnapshot = Schema.decodeUnknownSync(Schema.Struct({ snapshot: Schema.String }));
 

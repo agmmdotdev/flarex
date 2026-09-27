@@ -1,13 +1,14 @@
 # Mixed Application, Payload And Medusa Mutations
 
-Status: proposed core execution design for discussion. The other shared-storage
+Status: accepted and implemented for the first private Application and Product
+slice in isolated test scopes. Later Payload, workflow, public API and hosted
+activation gates remain proposed or deferred as described below. The other shared-storage
 session has completed its active [exact-scope retained-history slice](../roadmaps/shared-logical-storage/56-same-deployment-scope-authority.md)
 and paused at a clean committed handoff; the shared-storage domain still has
-remaining work. A baseline audit and focused core scope agreement are pending.
-Core implementation is the intended next phase; developer APIs remain deferred.
-The execution contract and compatibility changes below remain proposals.
-Recording these decisions does not approve runtime implementation, public
-exposure, a journal migration or changes to locking. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
+remaining work. The [first focused preflight](../roadmaps/mixed-mutation-core/01-application-product-attempt-preflight.md)
+owns the approved private Product operation, attempt defaults and validation
+gate. Developer APIs remain deferred. This approval does not authorize public
+exposure, named-environment journal migration or changes to locking. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
 owns current status and connected delivery gates.
 
 ## Outcome And Authority
@@ -55,14 +56,13 @@ its active exact-scope retained-history slice, then confirmed a clean pause and
 handoff. Its [completion plan](../roadmaps/shared-logical-storage/03-completion-plan.md)
 still owns the uncompleted storage backlog. The mixed core need not wait for
 that entire goal, but must not silently absorb its remaining consumer migrations.
-Before runtime work, inspect the handed-off code, tests, selected operations,
-limitations and owned runtime resources; refresh the owner and durable-data
-inventory; identify only storage blockers needed by the first mixed proof; and
-agree a focused core preflight covering execution, authority, snapshot, retry,
-cutover and validation. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
-tracks these gates. This handoff and design note do not authorize implementation.
+The first [focused preflight](../roadmaps/mixed-mutation-core/01-application-product-attempt-preflight.md)
+approves the Application and Product private attempt after its baseline audit.
+It owns execution, authority, snapshot, retry, cutover and validation for that
+slice. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
+tracks later gates and remaining work.
 
-The proposed core phase covers attempt participation, snapshot and pending reads,
+The approved private core phase covers attempt participation, snapshot and pending reads,
 journal evidence, OCC validation, settlement, recovery, framework lifecycle
 integration and connected private proofs. It may change necessary internal
 contracts and migrate their consumers. Use existing private host/sandbox test
@@ -100,9 +100,16 @@ records the pinned framework evidence. Separate execution was a compatibility
 and sequencing choice. It does not establish that mixed mutations are impossible
 or that separate profiles have universally better performance.
 
-## Current Foundations And Missing Contracts
+## Baseline Foundations And Later Contracts
 
-| Current owner | Reusable foundation | Gap for this proposal |
+The table records the baseline gaps that motivated the first slice and the
+contracts still needed for broader admission. The implemented Product path
+uses the native journal V2, one pending point overlay, a borrowed logical
+working set and authenticated Product effects under the root. Those contracts
+are proved for the selected title/handle/published native graph, not for an
+arbitrary framework operation or historical text search.
+
+| Owner | Reusable foundation | Baseline or later-admission gap |
 | --- | --- | --- |
 | [Native session journal](../packages/persistence-postgres/src/sessionJournalStore.ts) and [commit owner](../packages/persistence-postgres/src/pointCommitTransaction.ts) | Attempt identity, snapshot reads, pending point/index state, authenticated sealing, OCC and recovery | Authenticate framework operations and their complete dependencies without granting ordinary Application writes to framework-owned tables |
 | [Logical working set](../packages/persistence-postgres/src/logicalDocuments/workingSet.ts) | Pending documents, indexed queries, unique observations, relational checks and resource accounting | Its [construction contract](../packages/persistence-postgres/src/logicalDocuments/model.ts) borrows a physical transaction and request lifetime; current observations do not establish native historical-snapshot semantics |
@@ -117,18 +124,20 @@ proves explicit trusted composition under one SQL transaction. Its Application
 participant supports one insert. It does not provide arbitrary sandbox interleaving
 or allow ordinary mutations to call independently committing framework hosts.
 
-The working set now supplies more shared mechanics than the original direct-SQL
-commerce baseline. Its reuse should be assessed against each required contract;
-neither a blanket rewrite nor a thin adapter is assumed sufficient.
+The first slice refactors the working-set construction for a disposable borrowed
+operation while retaining its shared query, constraint and relation mechanics.
+Later framework methods still need their own complete historical candidates,
+dependency evidence and admission proof.
 
-### Expected Redesign Depth
+### Redesign Depth
 
 This is a substantial execution redesign across connected owners. A small
 Application/Product example is the first behavioral proof, not an estimate of
-the underlying change size. Reassess the following against the completed
-migration baseline before fixing the implementation scope:
+the underlying change size. The first slice selected and implemented the
+contracts needed for that Product path; later admissions must reassess the
+remaining breadth against their selected call graphs:
 
-| Area | Expected change and reusable foundation |
+| Area | Required change and reusable foundation |
 | --- | --- |
 | Working set | Major refactor of its physical-transaction-bound construction and pending evaluation into the admitted snapshot/attempt contract. Reuse query, index, constraint and resource mechanics where they preserve that contract. |
 | Logical journal | Significant extension for authenticated framework participation, operation/result evidence, dependencies and pending effects. Reuse attempt identity, sequencing, sealing and recovery. This is the logical attempt journal, not PostgreSQL WAL. |
@@ -150,7 +159,7 @@ one snapshot, pending view or retry contract across the three execution profiles
 Exact journal/protocol changes and data obligations require an inventory; this
 note does not prescribe new tables, a universal interpreter or a second ledger.
 
-## Proposed Execution Model
+## Execution Model And Proposed Extensions
 
 One logical mutation attempt owns the snapshot, pending state, dependency set,
 event intents, result and final settlement. Physical Postgres transactions remain
@@ -193,13 +202,13 @@ Every admitted read uses the same logical snapshot plus earlier pending changes,
 including changes issued through another admitted domain capability. Relevant
 cross-domain reads still require explicit authorization and query support.
 
-Reuse the native journal as the durable attempt record and refactor shared
-logical storage mechanics for snapshot reads and pending-state evaluation.
-There must be one coherent pending view; keeping independent mutable overlays
-and reconciling their final write lists is insufficient. The exact separation
-between in-memory evaluation and durable journal storage remains a design gate.
-Any evaluation cache must be derived from authenticated attempt state and must
-not become another commit or recovery authority.
+The first private slice uses the native V2 journal as the durable attempt record
+and its point rows as the single pending view. A borrowed logical operation
+hydrates its disposable working set from the authenticated snapshot and pending
+points, then returns checked effects for atomic journal acceptance. No SQL
+transaction spans sandbox execution or the Product service callback. Later
+admissions must preserve this ownership; an evaluation cache cannot become
+another commit or recovery authority.
 
 Framework calls execute when invoked so their results can guide later code.
 Record the required operation/result evidence and resulting data dependencies.
@@ -627,29 +636,30 @@ unbounded tuning or an unproved universal performance claim a completion gate.
 
 Each implementation slice includes meaningful owner/consumer tests, PGlite and
 ordinary-role PostgreSQL lanes, applicable Worker execution, required type/build/
-lint/source guards, both standing reviewers and cleanup. No implementation or
-performance result is claimed by this note. Core completion means the agreed
+lint/source guards, both standing reviewers and cleanup. The first private
+Product slice is implemented and bounded as described above. Payload, workflow
+and whole-core completion remain open, and no performance result is claimed.
+Core completion means the agreed
 private execution contracts, real consumer proofs, measured performance targets
 and cleanup gates pass; developer API design and exposure remain separate
 follow-on work.
 
-## Open Decisions For Discussion
+## Decisions For Later Gates
 
-- What exact Product operation and supported field set should be the first
-  mixed-mutation proof? Which Payload operation and finite workflow follow it?
-- How should the native attempt record and current working-set algorithms share
-  one pending view without introducing another overlay or policy dispatcher?
+- Which Payload operation and finite workflow follow the approved first Product
+  update, retrieve and handle-list proof?
 - Which framework query forms have sufficient history and dependency evidence,
   and which must remain unavailable until that evidence exists?
 - Which text/JSON access paths use historical candidate selection, and which
   need a conservative change-detection/retry contract? How are index readiness,
   retention and all participating writers covered without duplicate authorities?
-- What hook execution locations and effect capabilities are permitted? Which
-  failures remain catchable before any work is staged?
+- What hook execution locations and effect capabilities are permitted for the
+  later Payload and workflow admissions?
 - How do time, generated IDs, workflow outputs and framework bindings behave
   across transport replay, OCC restart and process recovery?
 - Which journal/callback formats and active attempts require migration or exact
-  compatibility, and what is the explicit activation order?
+  compatibility in each named durable environment, and what is its explicit
+  activation order?
 - Which resource locks genuinely need exclusion beyond one atomic mutation,
   and which database invariants can use a proved OCC adaptation?
 - What retry, latency, memory, query and lock-contention budgets establish an
@@ -657,8 +667,14 @@ follow-on work.
   Which native/reference comparisons are runnable with matching obligations?
   No broad throughput benefit or numerical parity target is assumed upfront.
 
-These decisions should produce a focused implementation preflight. The user
-request currently authorizes recording and discussing this design. Runtime
-implementation waits for baseline audit and the subsequent scope agreement.
-The intended next phase is core implementation; developer APIs remain explicitly
-deferred.
+The implemented first slice uses one journal-backed pending view, durable child-operation
+acknowledgements, sticky rollback-only after staged failure, fresh whole-attempt
+retries under root budgets, durable outcome resolution before an uncertain
+commit can rerun callbacks, and the existing lock protocol. The same root and
+receipt owner records an exact in-progress operation before native execution;
+duplicates wait or refuse while it is live, and the existing execution claim
+and attempt lease govern abandonment after expiry. The V2 representation and
+selected Product path are implemented in the focused private preflight; named
+durable-environment activation still requires its explicit data disposition.
+Later admissions require their own focused preflights;
+developer APIs remain deferred.

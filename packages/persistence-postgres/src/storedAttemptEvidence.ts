@@ -263,6 +263,9 @@ export interface StoredAttemptSealedRootV1 {
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
     CommitMaterialWriteEventEvidenceBytesV1;
+  readonly receiptEvidenceBytes: number;
+  readonly participantWorkBytes: number;
+  readonly participantWorkCalls: number;
   readonly journalBytes: Uint8Array;
   readonly journalSha256: Uint8Array;
   readonly resultValueCodecVersion: FlarexValueCodecVersion;
@@ -1373,6 +1376,9 @@ function captureSealedRoot(
     writeOperations: root.writeOperations,
     writeSemanticBytes: root.writeSemanticBytes,
     materialWriteEventEvidenceBytes: root.materialWriteEventEvidenceBytes,
+    receiptEvidenceBytes: root.receiptEvidenceBytes,
+    participantWorkBytes: root.participantWorkBytes,
+    participantWorkCalls: root.participantWorkCalls,
     journalBytes: copyBytes(root.sealedJournalBytes),
     journalSha256: copyBytes(root.sealedJournalSha256),
     resultValueCodecVersion: root.sealedResultValueCodecVersion,

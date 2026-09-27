@@ -45,6 +45,7 @@ export interface BoundedRequestLifetime<Failure> {
   readonly close: Effect.Effect<void>;
   readonly isClosing: () => boolean;
   readonly remainingBytes: () => number;
+  readonly usedCalls: () => number;
 }
 
 /** Domain projection over one root lifetime; budgets, contexts and failure latch are shared. */
@@ -52,7 +53,7 @@ export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
   root: BoundedRequestLifetime<Outer>, project: (failure: Outer) => Inner,
 ): BoundedRequestLifetime<Inner> {
   return Object.freeze({
-    context: root.context, isClosing: root.isClosing, remainingBytes: root.remainingBytes, close: root.close,
+    context: root.context, isClosing: root.isClosing, remainingBytes: root.remainingBytes, usedCalls: root.usedCalls, close: root.close,
     begin: (context, id) => root.begin(context, id).pipe(Effect.mapError(project)),
     adapterCommit: (context, id) => root.adapterCommit(context, id).pipe(Effect.mapError(project)),
     rollback: (context, id) => root.rollback(context, id).pipe(Effect.mapError(project)),
@@ -202,6 +203,7 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
   });
   return Object.freeze({ context, begin, operation, nested, charge, seal, close,
     remainingBytes: () => limits.commandBytes - request.bytes,
+    usedCalls: () => request.calls,
     isClosing: () => request.phase === "closing" && !request.busy && request.children === 0 && request.activeCalls === 0 && Option.isNone(request.failure),
     adapterCommit: (supplied: BoundedRequestContext, presented: PresentedTransactionId) => settleFromAdapter(supplied, presented, "borrowedSettlement"),
     rollback: (supplied: BoundedRequestContext, presented: PresentedTransactionId) => settleFromAdapter(supplied, presented, "rollbackOnly"),

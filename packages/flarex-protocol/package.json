@@ -76,6 +76,7 @@
     "./point-mutation-start": "./src/point-mutation-start.ts",
     "./point-mutation-exact-runtime": "./src/point-mutation-exact-runtime.ts",
     "./point-mutation-exact-runtime-host": "./src/point-mutation-exact-runtime-host.ts",
+    "./internal/admitted-framework-operation-v1": "./src/admitted-framework-operation-v1.ts",
     "./point-mutation-internal-query-exact-runtime": "./src/point-mutation-internal-query-exact-runtime.ts",
     "./point-mutation-internal-call-exact-runtime": "./src/point-mutation-internal-call-exact-runtime.ts",
     "./point-query-exact-runtime": "./src/point-query-exact-runtime.ts",

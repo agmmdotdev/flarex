@@ -25,6 +25,7 @@ import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import {
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
+  SESSION_JOURNAL_FORMAT_V2,
 } from "flarex-protocol/commit-protocol";
 import {
   isJsonArray,
@@ -132,7 +133,7 @@ import {
   fxSystemIdempotency,
   fxSystemSnapshotLeases,
   fxSystemTransactionExecutionClaims,
-  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalPoints,
@@ -1723,11 +1724,11 @@ async function renewExecutionClaimLivenessInTransaction(
   );
   const phase = root.state === "sealed"
     ? "sealed"
-    : root.state === "failed"
+    : root.state === "failed" || root.state === "operation_failed"
     ? "failed"
     : root.state === "relation_conflicted"
     ? "relationConflicted"
-    : root.state === "open"
+    : root.state === "open" || root.state === "operation_invoking"
     ? "open"
     : undefined;
   if (phase === undefined) {
@@ -2688,8 +2689,12 @@ async function createSession(
     scopeUuid: clock.scopeUuid,
     sessionId: input.candidateSessionId,
     attemptFence: INITIAL_ATTEMPT_FENCE,
+    journalFormat: SESSION_JOURNAL_FORMAT_V2,
     state: "open",
     lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
+    receiptEvidenceBytes: 0,
+    participantWorkBytes: 0,
+    participantWorkCalls: 0,
     creationTimeSeed,
     nextCreationTime: creationTimeSeed,
     readDocuments: 0,
@@ -3166,12 +3171,12 @@ async function observePointMutationSessionAttemptFacet(
 
   const rows = await tx.select({
     receiptExists: sql<boolean>`exists(
-      select 1 from ${fxSystemTransactionJournalLatestReceipts}
-      where ${fxSystemTransactionJournalLatestReceipts.scopeUuid} =
+      select 1 from ${fxSystemTransactionJournalReceipts}
+      where ${fxSystemTransactionJournalReceipts.scopeUuid} =
         ${clock.scopeUuid}
-        and ${fxSystemTransactionJournalLatestReceipts.sessionId} =
+        and ${fxSystemTransactionJournalReceipts.sessionId} =
           ${locked.sessionId}
-        and ${fxSystemTransactionJournalLatestReceipts.attemptFence} =
+        and ${fxSystemTransactionJournalReceipts.attemptFence} =
           ${locked.attemptFence}
     )`,
     pointExists: sql<boolean>`exists(

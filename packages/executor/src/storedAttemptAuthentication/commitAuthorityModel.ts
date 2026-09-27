@@ -23,6 +23,8 @@ import type { ApplicationManifest } from
   "@flarex/analysis/application-analysis";
 
 import type { TransactionGrantVerifierV1 } from "../transactionGrant";
+import type { LogicalRelationalParticipantCommitAuthority } from
+  "@flarex/persistence-postgres/internal/logical-relational-admission";
 import type {
   ApplicationMutationGrantVerificationKernelV1,
 } from "../applicationMutationGrantVerificationKernel";
@@ -45,6 +47,7 @@ export class StoredCommitAuthorityConfigurationV1Error
   extends Data.TaggedError("StoredCommitAuthorityConfigurationV1Error")<{
     readonly reason:
       | "unregisteredTransactionGrantVerifier"
+      | "missingGrantVerifier"
       | "missingExecutionClaimVault";
   }> {}
 
@@ -241,11 +244,17 @@ export interface PinnedPointMutationFunctionMetadataReaderPortV1 {
   ) => Effect.Effect<unknown | null, PinnedFunctionMetadataSourceV1Error>;
 }
 
-export interface StoredCommitAuthorityAuthenticationConfigV1 {
+interface StoredCommitAuthorityAuthenticationBaseConfigV1 {
   readonly evidenceLoader: StoredCommitAuthorityEvidenceLoaderPortV1;
-  readonly transactionGrantVerifier: TransactionGrantVerifierV1;
-  readonly applicationMutationGrantVerifier?:
-    ApplicationMutationGrantVerificationKernelV1;
-  readonly functionMetadata:
-    PinnedPointMutationFunctionMetadataReaderPortV1;
+  readonly logicalParticipants?: readonly LogicalRelationalParticipantCommitAuthority[];
 }
+
+export type StoredCommitAuthorityAuthenticationConfigV1 =
+  StoredCommitAuthorityAuthenticationBaseConfigV1 & (
+    | { readonly transactionGrantVerifier: TransactionGrantVerifierV1;
+        readonly functionMetadata: PinnedPointMutationFunctionMetadataReaderPortV1;
+        readonly applicationMutationGrantVerifier?: ApplicationMutationGrantVerificationKernelV1 }
+    | { readonly applicationMutationGrantVerifier: ApplicationMutationGrantVerificationKernelV1;
+        readonly transactionGrantVerifier?: never;
+        readonly functionMetadata?: never }
+  );

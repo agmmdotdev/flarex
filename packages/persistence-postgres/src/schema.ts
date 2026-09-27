@@ -58,6 +58,11 @@ import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 import {
   MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_FAILED_RECEIPT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1,
+  MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1,
+  MAX_COMMIT_FAILED_PARTICIPANT_WORK_BYTES_V1,
+  MAX_COMMIT_FAILED_PARTICIPANT_WORK_CALLS_V1,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
@@ -72,6 +77,7 @@ import {
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
+  SESSION_JOURNAL_FORMAT_V2,
   type ApplicationActivationSequenceV1,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
@@ -272,7 +278,7 @@ type TransactionJournalOperationalLimitDimensionV1 = Extract<
   | "writeOperations"
   | "writeSemanticBytes"
   | "materialWriteEventEvidenceBytes"
->;
+> | "operationCalls" | "receiptEvidenceBytes";
 
 type TransactionJournalOperationKindV1 =
   | "get"
@@ -281,7 +287,8 @@ type TransactionJournalOperationKindV1 =
   | "replace"
   | "delete"
   | "indexRange"
-  | "relationIncoming";
+  | "relationIncoming"
+  | "admittedLogicalOperation";
 
 type TransactionJournalOutcomeKindV1 =
   | "missing"
@@ -291,7 +298,10 @@ type TransactionJournalOutcomeKindV1 =
   | "indexRangePage"
   | "relationIncomingPage"
   | "relationConflict"
-  | "error";
+  | "error"
+  | "admittedLogicalInvoking"
+  | "admittedLogicalResult"
+  | "admittedLogicalError";
 
 type TransactionJournalDependencyKindV1 =
   | "present"
@@ -2744,13 +2754,17 @@ export const fxSystemTransactionJournals = pgTable(
     attemptFence: bigint("attempt_fence", { mode: "bigint" })
       .$type<TransactionAttemptFence>()
       .notNull(),
+    journalFormat: text("journal_format").$type<typeof SESSION_JOURNAL_FORMAT_V2>().notNull(),
     state: text("state")
-      .$type<"open" | "sealed" | "failed" | "relation_conflicted">()
+      .$type<"open" | "sealed" | "failed" | "operation_invoking" | "operation_failed" | "relation_conflicted">()
       .notNull(),
     lastSyscallSequence: bigint("last_syscall_sequence", { mode: "bigint" })
       .$type<CommitFinalSyscallSequenceV1>()
       .notNull()
       .default(sql`0`),
+    receiptEvidenceBytes: integer("receipt_evidence_bytes").notNull().default(0),
+    participantWorkBytes: integer("participant_work_bytes").notNull().default(0),
+    participantWorkCalls: integer("participant_work_calls").notNull().default(0),
     creationTimeSeed: doublePrecision("creation_time_seed")
       .$type<AppCreationTimeV1>()
       .notNull(),
@@ -2812,14 +2826,42 @@ export const fxSystemTransactionJournals = pgTable(
       "fx_system_tx_journal_attempt_fence_check",
       sql`${table.attemptFence} >= 1`,
     ),
+    check("fx_system_tx_journal_format_check", sql`${table.journalFormat} = 'flarex.session-journal-v2'`),
     check(
       "fx_system_tx_journal_state_check",
-      sql`${table.state} in ('open', 'sealed', 'failed', 'relation_conflicted')`,
+      sql`${table.state} in ('open', 'sealed', 'failed', 'operation_invoking', 'operation_failed', 'relation_conflicted')`,
     ),
     check(
       "fx_system_tx_journal_sequence_check",
-      sql`${table.lastSyscallSequence} >= 0`,
+      sql`${table.lastSyscallSequence} between 0 and 4096`,
     ),
+    check("fx_system_tx_journal_receipt_bytes_check", sql`
+      ${table.receiptEvidenceBytes} >= 0
+      and (
+        ${table.receiptEvidenceBytes} <= ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
+        or (
+          ${table.state} = 'failed'
+          and ${table.failureDimension} is not null
+          and ${table.receiptEvidenceBytes} <= ${sql.raw(String(MAX_COMMIT_FAILED_RECEIPT_EVIDENCE_BYTES_V1))}
+        )
+      )
+    `),
+    check("fx_system_tx_journal_participant_work_bytes_check", sql`
+      ${table.participantWorkBytes} >= 0
+      and (
+        ${table.participantWorkBytes} <= ${sql.raw(String(MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1))}
+        or (${table.state} = 'operation_failed'
+          and ${table.participantWorkBytes} <= ${sql.raw(String(MAX_COMMIT_FAILED_PARTICIPANT_WORK_BYTES_V1))})
+      )
+    `),
+    check("fx_system_tx_journal_participant_work_calls_check", sql`
+      ${table.participantWorkCalls} >= 0
+      and (
+        ${table.participantWorkCalls} <= ${sql.raw(String(MAX_COMMIT_PARTICIPANT_WORK_CALLS_V1))}
+        or (${table.state} = 'operation_failed'
+          and ${table.participantWorkCalls} <= ${sql.raw(String(MAX_COMMIT_FAILED_PARTICIPANT_WORK_CALLS_V1))})
+      )
+    `),
     check(
       "fx_system_tx_journal_creation_time_check",
       sql`
@@ -2896,6 +2938,8 @@ export const fxSystemTransactionJournals = pgTable(
             'writeOperations',
             'writeSemanticBytes',
             'materialWriteEventEvidenceBytes'
+            ,'operationCalls'
+            ,'receiptEvidenceBytes'
           )
         )
       `,
@@ -2905,6 +2949,28 @@ export const fxSystemTransactionJournals = pgTable(
       sql`
         (
           ${table.state} = 'open'
+          and ${table.failureDimension} is null
+          and ${table.sealedJournalBytes} is null
+          and ${table.sealedJournalSha256} is null
+          and ${table.sealedResultValueCodecVersion} is null
+          and ${table.sealedResultSemanticBytes} is null
+          and ${table.sealedResultBytes} is null
+          and ${table.sealedResultSha256} is null
+          and ${table.sealedAt} is null
+        )
+        or (
+          ${table.state} = 'operation_invoking'
+          and ${table.failureDimension} is null
+          and ${table.sealedJournalBytes} is null
+          and ${table.sealedJournalSha256} is null
+          and ${table.sealedResultValueCodecVersion} is null
+          and ${table.sealedResultSemanticBytes} is null
+          and ${table.sealedResultBytes} is null
+          and ${table.sealedResultSha256} is null
+          and ${table.sealedAt} is null
+        )
+        or (
+          ${table.state} = 'operation_failed'
           and ${table.failureDimension} is null
           and ${table.sealedJournalBytes} is null
           and ${table.sealedJournalSha256} is null
@@ -3045,9 +3111,9 @@ export const fxSystemTransactionExecutionClaims = pgTable(
   ],
 );
 
-/** Constant-cardinality durable replay receipt for one exact attempt. */
-export const fxSystemTransactionJournalLatestReceipts = pgTable(
-  "fx_system_tx_journal_latest_receipt",
+/** Bounded exact-sequence receipts for authenticated replay within one attempt. */
+export const fxSystemTransactionJournalReceipts = pgTable(
+  "fx_system_tx_journal_receipt",
   {
     scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
     sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
@@ -3065,6 +3131,7 @@ export const fxSystemTransactionJournalLatestReceipts = pgTable(
       .notNull(),
     requestBytes: bytea("request_bytes").notNull(),
     requestSha256: bytea("request_sha256").notNull(),
+    participantBindingSha256: bytea("participant_binding_sha256"),
     outcomeKind: text("outcome_kind")
       .$type<TransactionJournalOutcomeKindV1>()
       .notNull(),
@@ -3079,7 +3146,7 @@ export const fxSystemTransactionJournalLatestReceipts = pgTable(
   (table) => [
     primaryKey({
       name: "fx_system_tx_journal_receipt_pk",
-      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence, table.lastSyscallSequence],
     }),
     foreignKey({
       name: "fx_system_tx_journal_receipt_root_fk",
@@ -3102,7 +3169,10 @@ export const fxSystemTransactionJournalLatestReceipts = pgTable(
     ),
     check(
       "fx_system_tx_journal_receipt_operation_check",
-      sql`${table.operationKind} in ('get', 'insert', 'patch', 'replace', 'delete', 'indexRange', 'relationIncoming')`,
+      sql`(${table.operationKind} in ('get', 'insert', 'patch', 'replace', 'delete', 'indexRange', 'relationIncoming')
+        and ${table.participantBindingSha256} is null)
+        or (${table.operationKind} = 'admittedLogicalOperation'
+        and ${table.participantBindingSha256} is not null)`,
     ),
     check(
       "fx_system_tx_journal_receipt_request_check",
@@ -3110,12 +3180,15 @@ export const fxSystemTransactionJournalLatestReceipts = pgTable(
         ${table.requestCodecVersion} = 1
         and octet_length(${table.requestBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
         and octet_length(${table.requestSha256}) = 32
+        and (${table.participantBindingSha256} is null or octet_length(${table.participantBindingSha256}) = 32)
       `,
     ),
     check(
       "fx_system_tx_journal_receipt_outcome_check",
       sql`
-        ${table.outcomeKind} in ('missing', 'present', 'inserted', 'unit', 'indexRangePage', 'relationIncomingPage', 'relationConflict', 'error')
+        ((${table.operationKind} = 'admittedLogicalOperation' and ${table.outcomeKind} in ('admittedLogicalInvoking', 'admittedLogicalResult', 'admittedLogicalError', 'error'))
+          or (${table.operationKind} <> 'admittedLogicalOperation' and ${table.outcomeKind} in
+            ('missing', 'present', 'inserted', 'unit', 'indexRangePage', 'relationIncomingPage', 'relationConflict', 'error')))
         and ${table.outcomeCodecVersion} = 1
         and octet_length(${table.outcomeBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
         and octet_length(${table.outcomeSha256}) = 32
@@ -3437,8 +3510,9 @@ export const fxSystemTransactionJournalWriteEvents = pgTable(
     syscallSequence: bigint("syscall_sequence", { mode: "bigint" })
       .$type<CommitSyscallSequenceV1>()
       .notNull(),
+    effectOrdinal: integer("effect_ordinal").notNull().default(0),
     writeKind: text("write_kind")
-      .$type<LogicalAppWriteV1["kind"]>()
+      .$type<LogicalAppWriteV1["kind"] | "logicalDocument">()
       .notNull(),
     eventCodecVersion: integer("event_codec_version").$type<1>().notNull(),
     eventBytes: bytea("event_bytes").notNull(),
@@ -3453,6 +3527,7 @@ export const fxSystemTransactionJournalWriteEvents = pgTable(
         table.sessionId,
         table.attemptFence,
         table.syscallSequence,
+        table.effectOrdinal,
       ],
     }),
     foreignKey({
@@ -3468,12 +3543,12 @@ export const fxSystemTransactionJournalWriteEvents = pgTable(
       .onDelete("cascade"),
     check(
       "fx_system_tx_journal_event_identity_check",
-      sql`${table.attemptFence} >= 1 and ${table.syscallSequence} >= 1`,
+      sql`${table.attemptFence} >= 1 and ${table.syscallSequence} >= 1 and ${table.effectOrdinal} between 0 and 65535`,
     ),
     check(
       "fx_system_tx_journal_event_payload_check",
       sql`
-        ${table.writeKind} in ('insert', 'patch', 'replace', 'delete')
+        ${table.writeKind} in ('insert', 'patch', 'replace', 'delete', 'logicalDocument')
         and ${table.eventCodecVersion} = 1
         and octet_length(${table.eventBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1))}
         and octet_length(${table.eventSha256}) = 32
@@ -9746,7 +9821,7 @@ export const flarexSchema = {
   fxSystemPointMutationRedeliveryScheduler,
   fxSystemDurableTaskRepairSchedulerV1,
   fxSystemTransactionExecutionClaims,
-  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalPoints,

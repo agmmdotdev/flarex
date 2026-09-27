@@ -7,7 +7,8 @@
     "./internal/currency-schema": "./src/currency-schema.ts",
     "./internal/currency": "./src/currency-service.ts",
     "./internal/product-schema": "./src/product-schema.ts",
-    "./internal/product-definition": "./src/product-definition.ts"
+    "./internal/product-definition": "./src/product-definition.ts",
+    "./internal/product-attempt": "./src/product-attempt.ts"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",

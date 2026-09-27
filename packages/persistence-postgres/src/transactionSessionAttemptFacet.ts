@@ -4,6 +4,7 @@ import { Result, Schema } from "effect";
 
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import {
+  SESSION_JOURNAL_FORMAT_V2,
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
 } from "flarex-protocol/commit-protocol";
@@ -183,8 +184,12 @@ export function buildFreshTransactionAttemptFacetV1(
           scopeUuid: input.scopeUuid,
           sessionId: input.sessionId,
           attemptFence: input.attemptFence,
+          journalFormat: SESSION_JOURNAL_FORMAT_V2,
           state: "open" as const,
           lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
+          receiptEvidenceBytes: 0,
+          participantWorkBytes: 0,
+          participantWorkCalls: 0,
           creationTimeSeed,
           nextCreationTime: creationTimeSeed,
           readDocuments: 0,
@@ -220,8 +225,12 @@ export function isPristineFreshTransactionAttemptJournalRootV1(
   return root.scopeUuid === expected.scopeUuid &&
     root.sessionId === expected.sessionId &&
     root.attemptFence === expected.attemptFence &&
+    root.journalFormat === expected.journalFormat &&
     root.state === "open" &&
     root.lastSyscallSequence === 0n &&
+    root.receiptEvidenceBytes === 0 &&
+    root.participantWorkBytes === 0 &&
+    root.participantWorkCalls === 0 &&
     root.creationTimeSeed === expected.creationTimeSeed &&
     root.nextCreationTime === expected.nextCreationTime &&
     root.readDocuments === 0 &&

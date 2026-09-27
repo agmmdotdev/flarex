@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type {
-  CanonicalSessionJournalV1,
+  CanonicalSessionJournalV2,
   CanonicalSuccessfulResultV1,
   StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
@@ -51,7 +51,7 @@ export function prepareSessionJournalSeal(
 export function completeSessionJournalSeal(
   store: SessionJournalStorePersistenceV1,
   preparation: PreparedSessionJournalSealV1,
-  journal: CanonicalSessionJournalV1,
+  journal: CanonicalSessionJournalV2,
   successfulResult: CanonicalSuccessfulResultV1,
 ): Promise<StoredForSessionAttemptCommitEnvelopeV1> {
   return runEffect(

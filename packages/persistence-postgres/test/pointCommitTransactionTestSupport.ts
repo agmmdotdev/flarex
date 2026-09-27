@@ -6,8 +6,8 @@ import {
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect } from "effect";
 import {
-  SESSION_JOURNAL_FORMAT_V1,
-  decodeCanonicalSessionJournalV1Effect,
+  SESSION_JOURNAL_FORMAT_V2,
+  decodeCanonicalSessionJournalV2Effect,
   type LogicalApplicationRelationIncomingReadDependencyV1,
   type LogicalIndexRangeReadDependencyV1,
 } from "flarex-protocol/commit-protocol";
@@ -189,7 +189,7 @@ export async function pointCommitCommandWithJournalReadDependenciesFromStoredAtt
     evidence,
   );
   const journal = await Effect.runPromise(
-    decodeCanonicalSessionJournalV1Effect({
+    decodeCanonicalSessionJournalV2Effect({
       canonicalBytes: new Uint8Array(evidence.root.journalBytes),
       expectedSha256Hex: encodeBytesToLowercaseHex(
         evidence.root.journalSha256,
@@ -313,7 +313,7 @@ function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
       finalSyscallSequence: root.lastSyscallSequence,
       creationTimeSeed: root.creationTimeSeed,
       nextCreationTime: root.nextCreationTime,
-      journalFormat: SESSION_JOURNAL_FORMAT_V1,
+      journalFormat: SESSION_JOURNAL_FORMAT_V2,
       journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
       journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
       journalByteLength: root.journalBytes.byteLength,
@@ -336,6 +336,9 @@ function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
       writeSemanticBytes: root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
         root.materialWriteEventEvidenceBytes,
+      receiptEvidenceBytes: root.receiptEvidenceBytes,
+      participantWorkBytes: root.participantWorkBytes,
+      participantWorkCalls: root.participantWorkCalls,
     }),
   });
 }

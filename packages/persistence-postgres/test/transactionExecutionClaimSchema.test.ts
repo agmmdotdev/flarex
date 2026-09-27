@@ -19,6 +19,7 @@ import {
 } from "./idempotencySchemaTestSupport";
 import {
   insertOpenTransactionJournalFixture,
+  insertLegacyOpenTransactionJournalFixture,
   insertSessionTestScope,
   insertSnapshotLeaseFixture,
   insertTransactionSessionFixture,
@@ -120,7 +121,7 @@ describe("B2b1 exact-attempt execution-claim schema", () => {
         previous,
         snapshotLeaseFixture(sessionId),
       );
-      await insertOpenTransactionJournalFixture(previous, {
+      await insertLegacyOpenTransactionJournalFixture(previous, {
         scopeUuid: SESSION_TEST_SCOPE_UUID,
         sessionId,
       });

@@ -3,7 +3,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
-import { ApplicationActivationSequenceV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { ApplicationActivationSequenceV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { CatalogSchemaVersionSchema } from "flarex-protocol/schema-manifest";
 import { decodeCatalogEdgeDefinitionId } from "flarex-protocol/catalog";
 import { CommitSeqSchema, decodeReplacementScopeIdV1, LegacyV1StorageGenerationSchema, projectScopeIdUuidV1, ScopeEpochSchema, ScopeIdSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
@@ -347,7 +347,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       exhausted: true,
     });
     await fixture.persistence.query(
-      `update fx_system_tx_journal_latest_receipt
+      `update fx_system_tx_journal_receipt
           set outcome_bytes = $2, outcome_sha256 = $3
         where session_id = $1`,
       [
@@ -366,7 +366,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       reason: "latestReceiptEvidenceInvalid",
     });
     await fixture.persistence.query(
-      `update fx_system_tx_journal_latest_receipt
+      `update fx_system_tx_journal_receipt
           set outcome_bytes = $2, outcome_sha256 = $3
         where session_id = $1`,
       [
@@ -477,7 +477,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       writes: [],
     });
     const canonicalJournal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -1136,7 +1136,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     );
     const prepared = await prepareSessionJournalSeal(store, attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),

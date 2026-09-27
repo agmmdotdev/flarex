@@ -37,10 +37,10 @@ import {
   CommitReadDocumentsV1Schema,
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
-  SESSION_JOURNAL_FORMAT_V1,
-  type CanonicalSessionJournalV1,
+  SESSION_JOURNAL_FORMAT_V2,
+  type CanonicalSessionJournalV2,
   type CanonicalSuccessfulResultV1,
-  type SessionJournalV1,
+  type SessionJournalV2,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -888,11 +888,11 @@ interface HarnessOptions {
   ) => Promise<RunSessionJournalRelationIncomingV1Result>;
   readonly prepareSeal?: (persistenceAttempt: unknown) => Promise<Readonly<{
     readonly preparation: unknown;
-    readonly journal: SessionJournalV1;
+    readonly journal: SessionJournalV2;
   }>>;
   readonly completeSeal?: (
     preparation: unknown,
-    journal: CanonicalSessionJournalV1,
+    journal: CanonicalSessionJournalV2,
     result: CanonicalSuccessfulResultV1,
   ) => Promise<StoredForSessionAttemptCommitEnvelopeV1>;
 }
@@ -904,7 +904,7 @@ interface JournalHarness {
   readonly indexedOperations: SessionJournalIndexedQueryOperationV1[];
   readonly relationOperations: SessionJournalRelationIncomingOperationV1[];
   readonly completeSealCalls: number;
-  readonly completedJournal: CanonicalSessionJournalV1;
+  readonly completedJournal: CanonicalSessionJournalV2;
   readonly completedResult: CanonicalSuccessfulResultV1;
 }
 
@@ -914,7 +914,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   const indexedOperations: SessionJournalIndexedQueryOperationV1[] = [];
   const relationOperations: SessionJournalRelationIncomingOperationV1[] = [];
   let completeSealCalls = 0;
-  let completedJournal: CanonicalSessionJournalV1 | undefined;
+  let completedJournal: CanonicalSessionJournalV2 | undefined;
   let completedResult: CanonicalSuccessfulResultV1 | undefined;
   const runPointOperation = async (
     table: unknown,
@@ -1027,7 +1027,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
     }),
     completeSealEffect: (
       preparation: unknown,
-      journal: CanonicalSessionJournalV1,
+      journal: CanonicalSessionJournalV2,
       result: CanonicalSuccessfulResultV1,
     ) => Effect.tryPromise({
       try: async (): Promise<StoredForSessionAttemptCommitEnvelopeV1> => {
@@ -1211,9 +1211,9 @@ function relationIncomingOperation(
   });
 }
 
-function emptyJournal(finalSequence: bigint): SessionJournalV1 {
+function emptyJournal(finalSequence: bigint): SessionJournalV2 {
   return Object.freeze({
-    format: SESSION_JOURNAL_FORMAT_V1,
+    format: SESSION_JOURNAL_FORMAT_V2,
     protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(
@@ -1225,11 +1225,14 @@ function emptyJournal(finalSequence: bigint): SessionJournalV1 {
       semanticBytesRead: CommitReadSemanticBytesV1Schema.make(0),
     }),
     writes: [],
+    participantOperations: [],
+    operationUsage: Object.freeze({ receiptEvidenceBytes: 0, participantWorkBytes: 0,
+      participantWorkCalls: 0 }),
   });
 }
 
 function storedEnvelope(
-  journal: CanonicalSessionJournalV1,
+  journal: CanonicalSessionJournalV2,
   result: CanonicalSuccessfulResultV1,
 ): StoredForSessionAttemptCommitEnvelopeV1 {
   return Object.freeze({

@@ -170,7 +170,7 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
 )(function* (
   storedAttempt: CommitAuthorityVerificationStateV1,
   evidence: StoredCommitAuthorityEvidencePortV1,
-  grantKernel: TransactionGrantVerificationKernelV1,
+  grantKernel: TransactionGrantVerificationKernelV1 | undefined,
   applicationGrantKernel?: ApplicationMutationGrantVerificationKernelV1,
 ) {
   if (
@@ -244,6 +244,9 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
         readonly verifiedGrant: VerifiedApplicationMutationGrantInspectionV1;
         readonly application: NonNullable<typeof evidence.application> }>;
   if (isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+    if (grantKernel === undefined) {
+      return yield* commitAuthorityCorruptionEffect("authorizationGrantInvalid");
+    }
     const expectedLogicalPins = yield* Effect.try({
       try: () => buildExpectedTransactionGrantPins(storedAttempt),
       catch: cause => commitAuthorityCorruption("sessionEvidenceInvalid", cause),

@@ -267,6 +267,7 @@ export default {};`,
             same: first === second,
             firstRole: first.role,
             secondRole: second.role,
+            hasPrivateMixed: "privateMixed" in context,
             contextKeys: Object.keys(context),
             dbKeys: Object.keys(context.db),
           };
@@ -292,6 +293,7 @@ export default {};`,
           same: false,
           firstRole: "changed",
           secondRole: "admin",
+          hasPrivateMixed: false,
           contextKeys: ["auth", "db"],
           dbKeys: [
             "get",
@@ -343,6 +345,47 @@ export default {};`,
       },
     });
   });
+
+  it("orders private admitted operations with Application syscalls inside Workerd", async () => {
+    await expect(runContractFailureScenario({
+      path: "orders:complete",
+      privateMixed: true,
+      functionSource: `{
+        isMutation: true,
+        isPublic: true,
+        _handler: async (context) => {
+          const launchId = await context.db.insert("orders", { title: "launch" });
+          const product = await context.privateMixed.call("medusa.product", "update", {
+            id: "prod_1", data: { title: "Published", handle: "published", status: "published" },
+          });
+          const pending = await context.privateMixed.call("medusa.product", "retrieve", { id: "prod_1" });
+          const listed = await context.privateMixed.call("medusa.product", "listByHandle", {
+            filters: { handle: "published" },
+          });
+          await context.db.patch(launchId, { productId: pending.id, productTitle: product.title });
+          return { launchId, pending, listed };
+        },
+      }`,
+      argumentsValue: {},
+      argsValidator: { type: "object", value: {} },
+    })).resolves.toMatchObject({
+      name: "success",
+      operations: [
+        { kind: "insert", sequence: "1" },
+        { kind: "update", sequence: "2" },
+        { kind: "retrieve", sequence: "3" },
+        { kind: "listByHandle", sequence: "4" },
+        { kind: "patch", sequence: "5" },
+      ],
+      result: {
+        value: {
+          launchId: "1:22222222-2222-2222-2222-222222222222",
+          pending: { id: "prod_1", title: "Published", status: "published" },
+          listed: [{ id: "prod_1", handle: "published" }],
+        },
+      },
+    });
+  });
 });
 
 async function runContractFailureScenario(
@@ -351,6 +394,7 @@ async function runContractFailureScenario(
     readonly functionSource: string;
     readonly executionImports?: string;
     readonly applicationModuleSource?: string;
+    readonly privateMixed?: boolean;
     readonly auth?: unknown;
     readonly argumentsValue: Readonly<Record<string, unknown>>;
     readonly argsValidator: unknown;
@@ -410,19 +454,44 @@ export default {
   async fetch() {
     const input = ${serializedRequest};
     input.context.randomSeed = new Uint8Array(input.context.randomSeed);
+    const operations = [];
+    const journal = ${scenario.privateMixed
+      ? `{
+        resolvePointTable() {
+          return {
+            runPointOperation(operation) {
+              operations.push({ kind: operation.kind, sequence: String(operation.syscallSequence) });
+              if (operation.kind === "insert") return {
+                  kind: "inserted",
+                  documentId: "1:22222222-2222-2222-2222-222222222222",
+                  document: { _id: "1:22222222-2222-2222-2222-222222222222", _creationTime: 100, title: "launch" },
+              };
+              return { kind: "unit", operation: operation.kind };
+            },
+          };
+        },
+        runAdmittedFrameworkOperation(sequence, frame) {
+          operations.push({ kind: frame.operation, sequence: String(sequence) });
+          if (frame.operation === "listByHandle") return [{ id: "prod_1", handle: "published" }];
+          return { id: "prod_1", title: "Published", status: "published", handle: "published" };
+        },
+      }`
+      : `{
+        resolvePointTable() { throw new Error("journal must not open"); },
+      }`};
     try {
       const result = await Reflect.apply(
-        FlarexPointMutationExactRuntimeV1.prototype.run,
+        FlarexPointMutationExactRuntimeV1.prototype.${scenario.privateMixed
+          ? "runPrivateMixed"
+          : "run"},
         {},
-        [input, {
-          resolvePointTable() {
-            throw new Error("journal must not open");
-          },
-        }],
+        [input, journal],
       );
       return result.kind === "applicationError"
         ? Response.json({ name: "applicationError", error: result.error })
-        : Response.json({ name: "success", result: result.result });
+        : Response.json({ name: "success", result: result.result, ...${scenario.privateMixed
+          ? "{ operations }"
+          : "{}"} });
     } catch (error) {
       return Response.json({
         name: error?.name,

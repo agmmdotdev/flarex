@@ -5,7 +5,7 @@ import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
   fxSystemTransactionJournals,
-  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
 } from "../src/schema";
@@ -17,7 +17,7 @@ import type {
 } from "../src/sessionJournalStore";
 import { runSessionJournalPointOperation } from "./effectTestRuntime";
 
-/** Real database triggers witness rollback after receipt overwrite and before root CAS. */
+/** A root CAS failure rolls back the new immutable receipt with its point effects. */
 export async function sessionJournalReceiptScenario(
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   current: {
@@ -31,8 +31,8 @@ export async function sessionJournalReceiptScenario(
   const readState = async () => ({
     roots: await persistence.drizzle.select().from(fxSystemTransactionJournals)
       .where(eq(fxSystemTransactionJournals.sessionId, current.anchor.sessionId)),
-    receipts: await persistence.drizzle.select().from(fxSystemTransactionJournalLatestReceipts)
-      .where(eq(fxSystemTransactionJournalLatestReceipts.sessionId, current.anchor.sessionId)),
+    receipts: await persistence.drizzle.select().from(fxSystemTransactionJournalReceipts)
+      .where(eq(fxSystemTransactionJournalReceipts.sessionId, current.anchor.sessionId)),
     points: await persistence.drizzle.select().from(fxSystemTransactionJournalPoints)
       .where(eq(fxSystemTransactionJournalPoints.sessionId, current.anchor.sessionId)),
     events: await persistence.drizzle.select().from(fxSystemTransactionJournalWriteEvents)
@@ -45,20 +45,20 @@ export async function sessionJournalReceiptScenario(
   const before = await readState();
   const next = {
     kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
-    fields: { name: "replacement receipt" },
+    fields: { name: "second receipt" },
   } satisfies SessionJournalPointOperationV1;
   // Test-only DDL injects failure at the SQL boundary; ordinary state uses Drizzle.
-  await persistence.exec(`create function fx_test_receipt_no_delete() returns trigger
-    language plpgsql as $$ begin raise exception 'receipt delete forbidden'; end $$`);
+  await persistence.exec(`create function fx_test_receipt_immutable() returns trigger
+    language plpgsql as $$ begin raise exception 'receipt mutation forbidden'; end $$`);
   await persistence.exec(`create function fx_test_receipt_root_failure() returns trigger
     language plpgsql as $$ begin
       if new.last_syscall_sequence = 2 then raise exception 'root CAS failure'; end if;
       return new;
     end $$`);
   try {
-    await persistence.exec(`create trigger fx_test_receipt_no_delete before delete
-      on fx_system_tx_journal_latest_receipt for each row
-      execute function fx_test_receipt_no_delete()`);
+    await persistence.exec(`create trigger fx_test_receipt_no_update before update
+      on fx_system_tx_journal_receipt for each row
+      execute function fx_test_receipt_immutable()`);
     await persistence.exec(`create trigger fx_test_receipt_root_failure before update
       on fx_system_tx_journal for each row
       execute function fx_test_receipt_root_failure()`);
@@ -68,11 +68,9 @@ export async function sessionJournalReceiptScenario(
     const executed = await run(next);
     expect(executed).toMatchObject({ kind: "completed", delivery: "executed" });
     const after = await readState();
-    expect(after.receipts).toHaveLength(1);
-    expect(after.receipts[0]).toMatchObject({
-      lastSyscallSequence: 2n, operationKind: "insert",
-      createdAt: after.receipts[0]?.updatedAt,
-    });
+    expect(after.receipts).toHaveLength(2);
+    expect(after.receipts.map((receipt) => receipt.lastSyscallSequence).sort()).toEqual([1n, 2n]);
+    expect(after.receipts.every((receipt) => receipt.operationKind === "insert")).toBe(true);
     expect(after.roots[0]).toMatchObject({ lastSyscallSequence: 2n, writeOperations: 2 });
     expect(after.points).toHaveLength(2);
     expect(after.events).toHaveLength(2);
@@ -80,8 +78,8 @@ export async function sessionJournalReceiptScenario(
     expect(await readState()).toEqual(after);
   } finally {
     await persistence.exec("drop trigger if exists fx_test_receipt_root_failure on fx_system_tx_journal");
-    await persistence.exec("drop trigger if exists fx_test_receipt_no_delete on fx_system_tx_journal_latest_receipt");
+    await persistence.exec("drop trigger if exists fx_test_receipt_no_update on fx_system_tx_journal_receipt");
     await persistence.exec("drop function fx_test_receipt_root_failure()");
-    await persistence.exec("drop function fx_test_receipt_no_delete()");
+    await persistence.exec("drop function fx_test_receipt_immutable()");
   }
 }

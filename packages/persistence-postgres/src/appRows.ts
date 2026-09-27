@@ -483,6 +483,7 @@ export const readAppRowAtSnapshotInTransactionEffect = Effect.fn(
 )(function* (
   tx: AppRowTransaction,
   input: ReadAppRowAtSnapshotV1Input,
+  observer?: Parameters<typeof observeDrizzleQuery<"snapshotRevision">>[2],
 ): Effect.fn.Return<AppRowReadResultV1, ReadAppRowError> {
   const decodedIdentity = yield* Effect.fromResult(
     decodeReadIdentityResult(input),
@@ -497,6 +498,7 @@ export const readAppRowAtSnapshotInTransactionEffect = Effect.fn(
     tx,
     decodedIdentity,
     snapshotCommitSeq,
+    observer,
   );
 });
 
@@ -617,6 +619,7 @@ const readDecodedAppRowAtSnapshotInTransactionEffect = Effect.fn(
   tx: AppRowTransaction,
   decodedIdentity: DecodedAppRowReadIdentityV1,
   snapshotCommitSeq: CommitSeq,
+  observer?: Parameters<typeof observeDrizzleQuery<"snapshotRevision">>[2],
 ): Effect.fn.Return<AppRowReadResultV1, Exclude<
   ReadAppRowError,
   InvalidAppRowReadInputError
@@ -639,6 +642,7 @@ const readDecodedAppRowAtSnapshotInTransactionEffect = Effect.fn(
     )
     .orderBy(desc(fxAppRowRevisions.commitSeq))
     .limit(1);
+  observeDrizzleQuery("snapshotRevision", query, observer);
   const rows = yield* readAppRowRowsEffect(
     query,
     "readSnapshotRevision",

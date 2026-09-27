@@ -83,7 +83,7 @@ export {
   fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalRelationIncomingDependencies,
-  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournals,
   fxSystemTransactionJournalWriteEvents,

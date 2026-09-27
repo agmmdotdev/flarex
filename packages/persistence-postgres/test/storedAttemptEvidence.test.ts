@@ -51,8 +51,8 @@ import {
   CommitSyscallSequenceV1Schema,
   CommitFinalSyscallSequenceV1Schema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
-  SESSION_JOURNAL_FORMAT_V1,
-  canonicalizeSessionJournalV1Effect,
+  SESSION_JOURNAL_FORMAT_V2,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import { makeGrantRetentionPolicyV1Result } from "flarex-protocol/grant-retention-policy";
@@ -618,6 +618,29 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       ),
     ).toBe(true);
   });
+
+  it.each(["receiptEvidenceBytes", "participantWorkBytes", "participantWorkCalls"] as const)(
+    "rejects a sealed root whose %s differs from the authenticated usage evidence", async counter => {
+      const current = await scenario(`sealed_usage_${counter}`);
+      await seal(current);
+      const stored = await runEffect(current.loader.loadEffect(current.authority));
+      if (stored.kind !== "loaded") throw new Error("Expected sealed attempt evidence.");
+      const authority = commitAuthorityFromStoredEvidence(current.authority, stored.evidence);
+      const changed = stored.evidence.root[counter] + 1;
+      const patch = counter === "receiptEvidenceBytes" ? { receiptEvidenceBytes: changed } :
+        counter === "participantWorkBytes" ? { participantWorkBytes: changed } :
+          { participantWorkCalls: changed };
+      await persistence.drizzle.update(fxSystemTransactionJournals).set(patch).where(and(
+        eq(fxSystemTransactionJournals.scopeUuid, projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid),
+        eq(fxSystemTransactionJournals.sessionId, current.anchor.sessionId),
+        eq(fxSystemTransactionJournals.attemptFence, current.anchor.attemptFence),
+      ));
+      const loader = createStoredCommitAuthorityEvidenceLoaderV1(resolutionPorts(persistence));
+      await expect(runEffect(loader.loadEffect(authority))).resolves.toMatchObject({
+        kind: "authorityMismatch", reason: "sealChanged",
+      });
+    },
+  );
 
   it.each(["lease", "journal"] as const)("preserves missing %s classification in the joined authority header", async child => {
     const current = await scenario(`header_missing_${child}`);
@@ -1215,7 +1238,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
               and lease.attempt_fence = session.attempt_fence) as lease_count,
           journal.state as root_state,
           journal.last_syscall_sequence::text,
-          (select count(*)::text from fx_system_tx_journal_latest_receipt receipt
+          (select count(*)::text from fx_system_tx_journal_receipt receipt
             where receipt.scope_uuid = session.scope_uuid
               and receipt.session_id = session.session_id
               and receipt.attempt_fence = session.attempt_fence) as receipt_count,
@@ -3681,6 +3704,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         await runEffect(
           installAppSchemaCandidateValidationEffect(candidateValidation, {
             deploymentId: current.anchor.deploymentId,
+            scopeId: current.anchor.scopeId,
             schemaVersionId: candidateSchemaVersionId,
           }),
         );
@@ -3707,6 +3731,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       runEffect(
         loadAppSchemaCandidateValidationEffect(candidateValidation, {
           deploymentId: prepared.current.anchor.deploymentId,
+          scopeId: prepared.current.anchor.scopeId,
           schemaVersionId: candidateSchemaVersionId,
         }),
       ),
@@ -3726,6 +3751,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       runEffect(
         loadAppSchemaCandidateValidationEffect(candidateValidation, {
           deploymentId: prepared.current.anchor.deploymentId,
+          scopeId: prepared.current.anchor.scopeId,
           schemaVersionId: candidateSchemaVersionId,
         }),
       ),
@@ -3809,6 +3835,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         await runEffect(
           installAppSchemaCandidateValidationEffect(candidateValidation, {
             deploymentId: current.anchor.deploymentId,
+            scopeId: current.anchor.scopeId,
             schemaVersionId: candidateSchemaVersionId,
           }),
         );
@@ -3846,6 +3873,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       runEffect(
         loadAppSchemaCandidateValidationEffect(candidateValidation, {
           deploymentId: running.current.anchor.deploymentId,
+          scopeId: running.current.anchor.scopeId,
           schemaVersionId: candidateSchemaVersionId,
         }),
       ),
@@ -7664,6 +7692,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           },
           {
             deploymentId: current.anchor.deploymentId,
+            scopeId: current.anchor.scopeId,
             indexDefinitionId: definition.indexDefinitionId,
             pageSize: 16,
           },
@@ -7737,7 +7766,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const prepared = await prepareSeal(store, attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -7848,6 +7877,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await runEffect(
       reconcilePublishedIndexBuildsV1Effect(ports, {
         deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
         schemaVersionId: current.schemaVersionId,
       }),
     );
@@ -7855,6 +7885,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       const advanced = await runEffect(
         buildIntrinsicCreationTimeIndexV1Effect(ports, {
           deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
           indexDefinitionId: decodeCatalogIndexDefinitionId(1),
           pageSize: 8,
         }),
@@ -7892,6 +7923,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
         {
           deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
           schemaVersionId: current.schemaVersionId,
         },
       ),
@@ -8183,6 +8215,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await runEffect(
       reconcileAppUniqueConstraintSetBuildV1Effect(buildPorts, {
         deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
         schemaVersionId: current.schemaVersionId,
       }),
     );
@@ -8191,6 +8224,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       const advanced = await runEffect(
         advanceAppUniqueConstraintSetBackfillV1Effect(buildPorts, {
           deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
           schemaVersionId: current.schemaVersionId,
           pageSize: 16,
         }),
@@ -8994,7 +9028,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           journal.state as root_state,
           journal.last_syscall_sequence::text,
           (select count(*)::text
-            from fx_system_tx_journal_latest_receipt receipt
+            from fx_system_tx_journal_receipt receipt
             where receipt.scope_uuid = session.scope_uuid
               and receipt.session_id = session.session_id
               and receipt.attempt_fence = session.attempt_fence)
@@ -9260,7 +9294,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             where scope_uuid = $1 and session_id = $2) as leases,
           (select count(*)::text from fx_system_tx_journal
             where scope_uuid = $1 and session_id = $2) as journals,
-          (select count(*)::text from fx_system_tx_journal_latest_receipt
+          (select count(*)::text from fx_system_tx_journal_receipt
             where scope_uuid = $1 and session_id = $2) as receipts,
           (select count(*)::text from fx_system_tx_journal_point
             where scope_uuid = $1 and session_id = $2) as points,
@@ -9292,7 +9326,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             where scope_uuid = $1 and session_id = $2) as leases,
           (select count(*)::text from fx_system_tx_journal
             where scope_uuid = $1 and session_id = $2) as journals,
-          (select count(*)::text from fx_system_tx_journal_latest_receipt
+          (select count(*)::text from fx_system_tx_journal_receipt
             where scope_uuid = $1 and session_id = $2) as receipts,
           (select count(*)::text from fx_system_tx_journal_point
             where scope_uuid = $1 and session_id = $2) as points,
@@ -9477,7 +9511,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   async function seal(current: Scenario) {
     const prepared = await prepareSeal(current.store, current.attempt);
     const journal = await runEffect(
-      canonicalizeSessionJournalV1Effect(prepared.journal),
+      canonicalizeSessionJournalV2Effect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -9736,7 +9770,7 @@ function commitAuthorityFromStoredEvidence(
       finalSyscallSequence: evidence.root.lastSyscallSequence,
       creationTimeSeed: evidence.root.creationTimeSeed,
       nextCreationTime: evidence.root.nextCreationTime,
-      journalFormat: SESSION_JOURNAL_FORMAT_V1,
+      journalFormat: SESSION_JOURNAL_FORMAT_V2,
       journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
       journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
       journalByteLength: evidence.root.journalBytes.byteLength,
@@ -9759,6 +9793,9 @@ function commitAuthorityFromStoredEvidence(
       writeSemanticBytes: evidence.root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
         evidence.root.materialWriteEventEvidenceBytes,
+      receiptEvidenceBytes: evidence.root.receiptEvidenceBytes,
+      participantWorkBytes: evidence.root.participantWorkBytes,
+      participantWorkCalls: evidence.root.participantWorkCalls,
     }),
   });
 }

@@ -491,7 +491,7 @@ export {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
-  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournals,
   fxSystemTransactionJournalWriteEvents,

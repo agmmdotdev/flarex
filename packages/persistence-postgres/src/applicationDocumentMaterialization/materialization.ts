@@ -681,7 +681,6 @@ export async function materializeApplicationDocumentRows(
   // Page writes may share one publication sequence. The coverage watermarks
   // must advance only after every page is lowered, or the next page would be
   // validated against a future watermark while the scope clock is still old.
-  const coverageSchemaVersionId = command.authorityPins.schemaVersionId;
   const coverageAuthority = { authorityPins: { scopeId: command.authorityPins.scopeId } };
   const completeCoverage = async () => {
     for (const { build } of maintainedBuilds) {
@@ -714,14 +713,13 @@ export async function materializeApplicationDocumentRows(
       if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
     }
 
-    await runUniqueCoverage(
-      advanceUnboundUniqueCoverageInTransactionEffect(
-        tx,
-        uniqueBuilds,
-        commitSeq,
-        coverageSchemaVersionId,
-      ),
-    );
+    for (const build of uniqueBuilds) {
+      const definition = uniqueDefinitions.find(member =>
+        member.uniqueConstraintDefinitionId === build.uniqueConstraintDefinitionId);
+      if (definition === undefined) throw corruption("uniqueConstraintDefinitionInvalid");
+      await runUniqueCoverage(advanceUnboundUniqueCoverageInTransactionEffect(
+        tx, [build], commitSeq, definition.schemaVersionId));
+    }
     if (uniqueBuilds.length > 0)
       await emitTransactionStep(
         options,
@@ -2369,7 +2367,7 @@ function prepareTentativePointCommitRowResult(
       writeEpoch,
       commitSeq: tentativeCommitSeq,
       prevCommitSeq: predecessorCommitSeq,
-      schemaVersionId: command.authorityPins.schemaVersionId,
+      schemaVersionId: command.sourceSchemaVersionByTable?.get(intent.tableId) ?? command.authorityPins.schemaVersionId,
       creationTime,
     });
   }
@@ -2394,7 +2392,7 @@ function prepareTentativePointCommitRowResult(
     writeEpoch,
     commitSeq: tentativeCommitSeq,
     prevCommitSeq,
-    schemaVersionId: command.authorityPins.schemaVersionId,
+    schemaVersionId: command.sourceSchemaVersionByTable?.get(intent.tableId) ?? command.authorityPins.schemaVersionId,
     creationTime: intent.creationTime,
     document: intent.document,
   });

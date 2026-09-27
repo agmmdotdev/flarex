@@ -217,7 +217,8 @@ export async function insertSnapshotLeaseFixture(
   );
 }
 
-export async function insertOpenTransactionJournalFixture(
+/** Intentional predecessor root for migration tests before 0117. */
+export async function insertLegacyOpenTransactionJournalFixture(
   client: Pick<FlarexSqlClient, "query">,
   fixture: Readonly<{
     readonly scopeUuid: string;
@@ -246,6 +247,31 @@ export async function insertOpenTransactionJournalFixture(
       creationTime,
       createdAt,
     ],
+  );
+}
+
+/** Current V2 journal root. */
+export async function insertOpenTransactionJournalFixture(
+  client: Pick<FlarexSqlClient, "query">,
+  fixture: Readonly<{
+    readonly scopeUuid: string;
+    readonly sessionId: string;
+    readonly attemptFence?: string;
+    readonly createdAt?: string;
+  }>,
+): Promise<void> {
+  const createdAt = fixture.createdAt ?? "2030-01-01T00:00:00.000Z";
+  const creationTime = Date.parse(createdAt);
+  if (!Number.isFinite(creationTime) || creationTime <= 0) {
+    throw new Error("Journal fixture requires a finite positive creation time.");
+  }
+  await client.query(
+    `insert into fx_system_tx_journal
+      (scope_uuid, session_id, attempt_fence, state, journal_format,
+       creation_time_seed, next_creation_time, created_at, updated_at)
+     values ($1::uuid, $2::uuid, $3, 'open', 'flarex.session-journal-v2', $4, $4,
+       $5::timestamptz, $5::timestamptz)`,
+    [fixture.scopeUuid, fixture.sessionId, fixture.attemptFence ?? "1", creationTime, createdAt],
   );
 }
 

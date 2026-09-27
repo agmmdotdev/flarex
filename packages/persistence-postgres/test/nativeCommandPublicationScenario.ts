@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
 import { Effect } from "effect";
 import { expect } from "vitest";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
 import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
 import { createAppDeveloperIndexQueryPortV1 } from "../src/sessionJournalStore";
@@ -55,7 +55,7 @@ export const prepareNativeRangePublication = Effect.fn("NativeCommand.prepareRan
       fields: { title: auditTitle } }, validator)).toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
   }
   const sealed = yield* store.prepareSealEffect(attempt);
-  const journal = (yield* canonicalizeSessionJournalV1Effect(sealed.journal));
+  const journal = (yield* canonicalizeSessionJournalV2Effect(sealed.journal));
   const result = (yield* canonicalizeSuccessfulResultV1Effect({ observed: true }));
   yield* store.completeSealEffect(sealed.preparation, journal, result);
   const authority = relationAuthorityFromAnchor(activation.anchor, native.relation.binding.schemaVersionId, activation.executionClaim);

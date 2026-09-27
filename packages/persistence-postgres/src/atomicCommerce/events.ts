@@ -10,6 +10,9 @@ import type { BoundedRequestLifetime } from "../boundedRequestLifetime";
 import { commitEventsDigest } from "../commitEvents/digest";
 import { CommitEventError } from "../commitEvents/model";
 import { chargeHostPreparation } from "../preparedHostRuntime";
+import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
+import type { TransactionAttemptFence, TransactionSessionIdV1 } from
+  "flarex-protocol/transaction-session";
 
 declare const contractBrand: unique symbol;
 export interface CommerceEventContract { readonly [contractBrand]: true }
@@ -159,6 +162,66 @@ export function admitParticipantEvents(selection: ParticipantEventSelection | un
   }
   return Result.succeed(Object.freeze(identities.toSorted((a, b) => compareUtf16Strings(a.name, b.name))));
 }
+
+/** Admit already policy-validated native messages into the existing committed
+ * event envelope contract before the journal acknowledges an operation. The
+ * journal charges root usage; this helper owns only event shape and identity. */
+export const prepareAdmittedCommerceEventIntents = Effect.fn("AtomicEvents.prepareAdmittedIntents")(
+  function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
+    selection: ParticipantEventSelection, messages: readonly Json[], group: string) {
+    yield* Effect.fromResult(admitParticipantEvents(selection, policy));
+    if (messages.length > commitEventLimits.messages)
+      return yield* Effect.fail(commerceError("limitExceeded"));
+    const intents: CommittedEvent[] = [];
+    let totalBytes = 0;
+    for (const message of messages) {
+      const token = yield* selection.select(message);
+      if (!selection.contracts.includes(token)) return yield* Effect.fail(commerceError("unadmittedEvent"));
+      const definition = policy.allowed.get(token);
+      if (definition === undefined || !definition.internal)
+        return yield* Effect.fail(commerceError("unadmittedEvent"));
+      const decoded = yield* definition.decode(message);
+      const envelope = yield* decodeEnvelope({ contract: definition.name,
+        contractRevision: definition.revision, internal: definition.internal,
+        producerRevision: policy.producerRevision, group, message: decoded,
+        subscribers: policy.subscribers,
+      }).pipe(Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
+      const captured = yield* Effect.fromResult(capturePrivateJsonData(envelope,
+        commitEventLimits.bytes, commerceError));
+      totalBytes += captured.bytes;
+      if (totalBytes > commitEventLimits.totalBytes)
+        return yield* Effect.fail(commerceError("limitExceeded"));
+      intents.push(yield* decodeEnvelope(captured.value).pipe(
+        Effect.mapError(cause => commerceError("unadmittedEvent", cause))));
+    }
+    return Object.freeze(intents);
+  });
+
+/** Finishing checks only the pinned event identity. Native event callbacks have
+ * already run before the operation was acknowledged and are never replayed. */
+export const validateAdmittedCommerceEventIntents = Effect.fn("AtomicEvents.validateAdmittedIntents")(
+  function* (policy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>,
+    selection: ParticipantEventSelection, events: readonly CommittedEvent[], group: string) {
+    const identities = yield* Effect.fromResult(admitParticipantEvents(selection, policy));
+    if (events.length > commitEventLimits.messages)
+      return yield* Effect.fail(commerceError("unadmittedEvent"));
+    for (const candidate of events) {
+      const envelope = yield* decodeEnvelope(candidate).pipe(
+        Effect.mapError(cause => commerceError("unadmittedEvent", cause)));
+      if (envelope.group !== group || envelope.producerRevision !== policy.producerRevision ||
+        !envelope.internal || !jsonEqual(envelope.subscribers, policy.subscribers) ||
+        !identities.some(identity => identity.name === envelope.contract &&
+          identity.revision === envelope.contractRevision))
+        return yield* Effect.fail(commerceError("unadmittedEvent"));
+    }
+  });
+
+/** Stable across replay and finishing; all three root pins come from the
+ * trusted journal attempt, never from an operation frame. */
+export const admittedCommerceEventGroup = (root: Readonly<{
+  scopeUuid: ScopeUuidV1; sessionId: TransactionSessionIdV1;
+  attemptFence: TransactionAttemptFence;
+}>): string => `${root.scopeUuid}:${root.sessionId}:${root.attemptFence}`;
 
 declare const closureBrand: unique symbol;
 export interface CommerceEventClosure { readonly [closureBrand]: true }

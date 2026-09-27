@@ -149,6 +149,8 @@ export function rebaseFinishingPreparedPointCommitState(
   const successfulResult = state.plan.successfulResult;
   const plan = Object.freeze({
     get journalBytes(): Uint8Array { return copyBytes(state.plan.journalBytes); },
+    logicalParticipantOperations: Object.freeze(state.plan.logicalParticipantOperations.map(operation =>
+      Object.freeze({ participant: operation.participant, syscallSequence: operation.syscallSequence }))),
     authorityPins: Object.freeze({
       ...pins,
       snapshotToken: Object.freeze({ ...pins.snapshotToken }),
@@ -472,10 +474,16 @@ function capturePointCommitConflictEvidence(
           ? {}
           : { rowId: evidence.conflict.rowId }),
       })
-    : Object.freeze({
+    : evidence.conflict.kind === "appRelationIncoming"
+    ? Object.freeze({
         kind: "appRelationIncoming" as const,
         edgeDefinitionId: evidence.conflict.edgeDefinitionId,
         targetRowId: evidence.conflict.targetRowId,
+      })
+    : Object.freeze({
+        kind: "logicalParticipant" as const,
+        participant: evidence.conflict.participant,
+        syscallSequence: evidence.conflict.syscallSequence,
       });
   return Object.freeze({
     conflict,
@@ -601,6 +609,9 @@ const POINT_COMMIT_SEAL_IDENTITY_SCALAR_FIELDS = [
   "writeOperations",
   "writeSemanticBytes",
   "materialWriteEventEvidenceBytes",
+  "receiptEvidenceBytes",
+  "participantWorkBytes",
+  "participantWorkCalls",
 ] as const satisfies ReadonlyArray<
   Exclude<
     keyof PointCommitSealIdentityV1,

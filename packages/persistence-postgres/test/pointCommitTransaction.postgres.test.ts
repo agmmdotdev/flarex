@@ -23,7 +23,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { and, eq } from "drizzle-orm";
 import { fxControlSchemaVersionIndexBindings, fxControlSchemaVersionUniqueConstraintBindings } from "../src/schema";
-import { Effect, Exit, Fiber, Result } from "effect";
+import { Effect, Exit, Fiber, Result, Schema } from "effect";
 import type { PoolClient } from "pg";
 import {
   canonicalizeAppDocumentV1,
@@ -50,8 +50,9 @@ import {
 } from "flarex-protocol/index-build-state";
 import {
   CommitSyscallSequenceV1Schema,
+  AdmittedParticipantOperationV1Schema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
   type LogicalIndexRangeReadDependencyV1,
 } from "flarex-protocol/commit-protocol";
@@ -105,6 +106,7 @@ import {
   prepareAppUniqueConstraintDefinitionBindingV1Effect,
 } from "../src/appUniqueConstraintDefinitions";
 import { AppUniqueKeyConflictError } from "../src/appUniqueKeys";
+import { validateLogicalParticipantDependencyEvidence } from "../src/logicalDocuments/commitEvidence";
 import { reconcilePublishedIndexBuildsV1Effect } from "../src/indexBuildReconciliation";
 import {
   createPointCommitFinishingTransitionPortV1,
@@ -536,6 +538,34 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         commit_headers: "1",
         last_commit_seq: "1",
       });
+    });
+  }, 120_000);
+
+  it("classifies multiple new members of a borrowed empty index range as a conflict", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96310001");
+      const scope = await createScope(persistence, randomUuid, "borrowed_range_growth", true);
+      const attempt = await createIndexedAttempt(persistence, randomUuid, scope, "borrowed_range_growth");
+      expect(attempt.queryResult).toMatchObject({ outcome: { documents: [] } });
+      await commitCompetingIndexedUser(persistence, scope, attempt, "23".repeat(16));
+      await commitCompetingIndexedUser(persistence, scope, attempt, "24".repeat(16));
+      const digest = "0".repeat(64);
+      const operation = Result.getOrThrow(Schema.decodeUnknownResult(
+        Schema.toType(AdmittedParticipantOperationV1Schema))({
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          participant: "fixture.borrowed", method: "readIndex", sourceKey: "fixture.source",
+          sourceSha256Hex: digest, bindingHead: { sequence: "1", sha256: digest },
+          participantBindingSha256Hex: digest, requestSha256Hex: digest, resultSha256Hex: digest,
+          effects: [], eventIntents: [],
+          dependencyEvidence: { format: "flarex.logical-participant-evidence", version: 1,
+            indexRanges: [{ indexDefinitionId: attempt.definition.indexDefinitionId,
+              bounds: {}, entries: [] }], indexPages: [], uniqueReads: [] },
+        }));
+      const failure = await persistence.drizzle.transaction(tx => runFailure(
+        validateLogicalParticipantDependencyEvidence(tx, scope.scopeId, operation, {
+          tableIds: new Set([decodeCatalogTableId(1)]), indexes: [attempt.definition], unique: [],
+        })));
+      expect(failure).toMatchObject({ reason: "writeConflict" });
     });
   }, 120_000);
 
@@ -4773,7 +4803,7 @@ async function createAttempt(
   const prepared = await prepareSeal(store, attempt);
   markPhase?.("sealCanonicalization");
   const journal = await runEffect(
-    canonicalizeSessionJournalV1Effect(prepared.journal),
+    canonicalizeSessionJournalV2Effect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -4877,6 +4907,7 @@ async function createIndexedAttempt(
         },
         {
           deploymentId: scope.deploymentId,
+          scopeId: scope.scopeId,
           indexDefinitionId: definition.indexDefinitionId,
           pageSize: 16,
         },
@@ -4942,7 +4973,7 @@ async function createIndexedAttempt(
   );
   const prepared = await prepareSeal(store, attempt);
   const journal = await runEffect(
-    canonicalizeSessionJournalV1Effect(prepared.journal),
+    canonicalizeSessionJournalV2Effect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
@@ -5974,7 +6005,7 @@ async function replacementState(
       (select count(*)::text from fx_system_tx_execution_claim
         where scope_uuid = $1 and session_id = $2) as execution_claim_count,
       claim.claim_fence::text as execution_claim_fence,
-      (select count(*)::text from fx_system_tx_journal_latest_receipt
+      (select count(*)::text from fx_system_tx_journal_receipt
         where scope_uuid = $1 and session_id = $2) as receipt_count,
       (select count(*)::text from fx_system_tx_journal_point
         where scope_uuid = $1 and session_id = $2) as point_count,

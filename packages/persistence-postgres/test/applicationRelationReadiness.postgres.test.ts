@@ -24,7 +24,7 @@ import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   ApplicationActivationSequenceV1Schema,
   CommitSyscallSequenceV1Schema,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
@@ -1447,7 +1447,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         retryAttempt,
       );
       const canonicalJournal = await runEffect(
-        canonicalizeSessionJournalV1Effect(preparedSeal.journal),
+        canonicalizeSessionJournalV2Effect(preparedSeal.journal),
       );
       const successfulResult = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),

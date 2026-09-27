@@ -6,6 +6,10 @@ import {
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
+import { hasLogicalRelationalParticipantCommitAuthority,
+  inspectLogicalRelationalParticipantCommitAuthority,
+  type LogicalRelationalParticipantCommitAuthority } from
+  "@flarex/persistence-postgres/internal/logical-relational-admission";
 
 import {
   AppDocumentIdV1Error,
@@ -17,10 +21,10 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
   canonicalizeSuccessfulResultV1Effect,
-  canonicalizeSessionJournalV1Effect,
+  canonicalizeSessionJournalV2Effect,
   type CanonicalSuccessfulResultBytesV1,
   type CanonicalSuccessfulResultV1,
-  type SessionJournalV1,
+  type SessionJournalV2,
   type SuccessfulResultSha256HexV1,
 } from "flarex-protocol/commit-protocol";
 import type { SchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
@@ -32,6 +36,7 @@ import type {
   TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
 import {
+  canonicalizeFlarexValueV1,
   isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
@@ -62,6 +67,7 @@ export type CommitInputAuthorityCorruptionReasonV1 =
   | "executionAuthorityGenerationInvalid"
   | "duplicateTableAuthority"
   | "pointTableAuthorityMissing"
+  | "pointLogicalDocumentInvalid"
   | "pointWritableDependencyInvalid"
   | "pointDocumentNotObject"
   | "pointIdentityMismatch"
@@ -217,7 +223,7 @@ export interface VerifiedCommitInputStateV1 {
   readonly journalBytes: Uint8Array;
   readonly authorityPins: Readonly<CommitInputAuthorityPinsV1>;
   readonly sealIdentity: Readonly<StoredAttemptSealIdentityPortV1>;
-  readonly journal: SessionJournalV1;
+  readonly journal: SessionJournalV2;
   readonly points: ReadonlyArray<VerifiedCommitPointV1>;
   readonly successfulResult: Readonly<VerifiedSuccessfulResultV1>;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
@@ -227,10 +233,11 @@ export interface CommitInputVerificationSourceV1 {
   readonly authority: StoredAttemptAuthorityStateV1;
   readonly session: StoredAttemptSessionScalarsPortV1;
   readonly sealIdentity: Readonly<StoredAttemptSealIdentityPortV1>;
-  readonly journal: SessionJournalV1;
+  readonly journal: SessionJournalV2;
   readonly points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>;
   readonly successfulResult: AuthenticatedSuccessfulResultV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
+  readonly logicalParticipants: readonly LogicalRelationalParticipantCommitAuthority[];
   readonly functionValidationAuthority: Readonly<{
     readonly path: string;
     readonly returnsValidator:
@@ -261,6 +268,25 @@ export const verifyCommitInputStateEffect = Effect.fn(
     tablesById.set(table.tableId, table);
     tableIdsByName.set(table.logicalName, table.tableId);
   }
+  const participantTables = new Map<CatalogTableId, Readonly<{
+    authority: LogicalRelationalParticipantCommitAuthority;
+    validateDocument: NonNullable<ReturnType<typeof inspectLogicalRelationalParticipantCommitAuthority>>["validateDocument"];
+  }>>();
+  for (const operation of source.journal.participantOperations) {
+    const authorities = source.logicalParticipants.filter(token =>
+      hasLogicalRelationalParticipantCommitAuthority(token, operation.participant, operation.method));
+    if (authorities.length !== 1) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
+    const authority = authorities[0]!;
+    const inspected = inspectLogicalRelationalParticipantCommitAuthority(authority, operation);
+    if (inspected === null) return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
+    for (const tableId of inspected.tableIds) {
+      const existing = participantTables.get(tableId);
+      if (tablesById.has(tableId) || (existing !== undefined && existing.authority !== authority))
+        return yield* authorityCorruptionEffect("duplicateTableAuthority");
+      participantTables.set(tableId, Object.freeze({ authority,
+        validateDocument: inspected.validateDocument }));
+    }
+  }
   const idPolicy = tableAwareIdPolicy(tableIdsByName);
 
   const verifiedPoints: VerifiedCommitPointV1[] = [];
@@ -272,7 +298,8 @@ export const verifyCommitInputStateEffect = Effect.fn(
       dependency: Object.freeze(structuredClone(point.dependency)),
     } satisfies VerifiedCommitPointBaseV1);
     const table = tablesById.get(point.tableId);
-    if (table === undefined) {
+    const participantTable = participantTables.get(point.tableId);
+    if (table === undefined && participantTable === undefined) {
       return yield* authorityCorruptionEffect("pointTableAuthorityMissing");
     }
     switch (point.overlayKind) {
@@ -322,19 +349,28 @@ export const verifyCommitInputStateEffect = Effect.fn(
         }
         const developerFields = yield* projectDeveloperFieldsEffect(
           point,
-          table.logicalName,
+          table?.logicalName ?? "logicalParticipant",
         );
-        yield* Effect.fromResult(validateValidatorValueV1(
-          table.definition.documentType,
-          developerFields,
-          { path: "$document", idPolicy },
-        )).pipe(
-          Effect.mapError((error) => new CommitDocumentValidationV1Error({
-            documentId: point.documentId,
-            tableName: table.logicalName,
-            issue: { reason: "validator", issue: error.issue },
-          })),
-        );
+        if (table !== undefined) {
+          yield* Effect.fromResult(validateValidatorValueV1(
+            table.definition.documentType,
+            developerFields,
+            { path: "$document", idPolicy },
+          )).pipe(
+            Effect.mapError((error) => new CommitDocumentValidationV1Error({
+              documentId: point.documentId,
+              tableName: table.logicalName,
+              issue: { reason: "validator", issue: error.issue },
+            })),
+          );
+        } else if (participantTable !== undefined) {
+          const canonical = yield* Effect.tryPromise({
+            try: () => canonicalizeFlarexValueV1(point.overlayValue, "appDocument"),
+            catch: () => authorityCorruption("pointLogicalDocumentInvalid"),
+          });
+          yield* Effect.fromResult(participantTable.validateDocument(point.tableId, canonical))
+            .pipe(Effect.mapError(() => authorityCorruption("pointLogicalDocumentInvalid")));
+        }
         if (!isVerifiedCommitWritablePointDependency(base.dependency)) {
           return yield* authorityCorruptionEffect(
             "pointWritableDependencyInvalid",
@@ -391,7 +427,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
   }
 
   const stableResultBytes = copyBytes(canonicalResult.canonicalBytes);
-  const canonicalJournal = yield* canonicalizeSessionJournalV1Effect(source.journal).pipe(
+  const canonicalJournal = yield* canonicalizeSessionJournalV2Effect(source.journal).pipe(
     Effect.mapError(() => authorityCorruption("journalSealMismatch")));
   if (canonicalJournal.sha256Hex !== encodeBytesToLowercaseHex(source.sealIdentity.journalSha256)) {
     return yield* authorityCorruptionEffect("journalSealMismatch");

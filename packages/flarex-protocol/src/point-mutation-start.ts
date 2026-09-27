@@ -236,13 +236,13 @@ export async function preparePointMutationStartEvidenceV1(
   const matchingFunctions = metadata.functions.filter(
     (metadataFunction) => metadataFunction.path === functionPath,
   );
-  if (matchingFunctions.length === 0) {
+  const targetFunction = matchingFunctions[0];
+  if (targetFunction === undefined) {
     throw selectionFailure("functionMissing");
   }
   if (matchingFunctions.length !== 1) {
     throw selectionFailure("duplicateFunctionPath");
   }
-  const targetFunction = matchingFunctions[0];
   if (targetFunction.kind !== "mutation") {
     throw selectionFailure("wrongFunctionKind");
   }

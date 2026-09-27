@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 
 import {
+  CommitFinalSyscallSequenceV1Schema,
+  CommitMaterialWriteEventEvidenceBytesV1Schema,
+} from "flarex-protocol/commit-protocol";
+import {
   CommitSeqSchema,
   ScopeEpochUuidV1Schema,
   ScopeUuidV1Schema,
@@ -13,8 +17,10 @@ import {
 
 import {
   buildFreshTransactionAttemptFacetV1,
+  isPristineFreshTransactionAttemptJournalRootV1,
   type FreshTransactionAttemptFacetInputV1,
 } from "../src/transactionSessionAttemptFacet";
+import { fxSystemTransactionJournals } from "../src/schema";
 
 const VALID_INPUT = Object.freeze({
   scopeUuid: ScopeUuidV1Schema.make(
@@ -53,6 +59,45 @@ describe("fresh transaction-attempt facet", () => {
       VALID_INPUT.databaseNowMilliseconds,
     );
     expect(facet.journalRoot.state).toBe("open");
+    expect(facet.journalRoot.participantWorkBytes).toBe(0);
+    expect(facet.journalRoot.participantWorkCalls).toBe(0);
+  });
+
+  it("refuses a fresh root with native work counters already charged", () => {
+    const expected = Result.getOrThrow(buildFreshTransactionAttemptFacetV1(VALID_INPUT)).journalRoot;
+    const pristine = {
+      ...expected,
+      lastSyscallSequence: expected.lastSyscallSequence ?? CommitFinalSyscallSequenceV1Schema.make(0n),
+      receiptEvidenceBytes: expected.receiptEvidenceBytes ?? 0,
+      participantWorkBytes: expected.participantWorkBytes ?? 0,
+      participantWorkCalls: expected.participantWorkCalls ?? 0,
+      readDocuments: expected.readDocuments ?? 0,
+      readSemanticBytes: expected.readSemanticBytes ?? 0,
+      pointDependencyCount: expected.pointDependencyCount ?? 0,
+      indexedQuerySyscalls: expected.indexedQuerySyscalls ?? 0,
+      indexRangeDependencyCount: expected.indexRangeDependencyCount ?? 0,
+      indexRangeDependencyEvidenceBytes: expected.indexRangeDependencyEvidenceBytes ?? 0,
+      relationReadSyscalls: expected.relationReadSyscalls ?? 0,
+      relationDependencyCount: expected.relationDependencyCount ?? 0,
+      relationBaseOccurrences: expected.relationBaseOccurrences ?? 0,
+      writeOperations: expected.writeOperations ?? 0,
+      writeSemanticBytes: expected.writeSemanticBytes ?? 0,
+      materialWriteEventEvidenceBytes: expected.materialWriteEventEvidenceBytes ??
+        CommitMaterialWriteEventEvidenceBytesV1Schema.make(0),
+      failureDimension: null,
+      sealedJournalBytes: null,
+      sealedJournalSha256: null,
+      sealedResultValueCodecVersion: null,
+      sealedResultSemanticBytes: null,
+      sealedResultBytes: null,
+      sealedResultSha256: null,
+      sealedAt: null,
+    } satisfies typeof fxSystemTransactionJournals.$inferSelect;
+    expect(isPristineFreshTransactionAttemptJournalRootV1(pristine, expected)).toBe(true);
+    expect(isPristineFreshTransactionAttemptJournalRootV1({ ...pristine, participantWorkBytes: 1 }, expected))
+      .toBe(false);
+    expect(isPristineFreshTransactionAttemptJournalRootV1({ ...pristine, participantWorkCalls: 1 }, expected))
+      .toBe(false);
   });
 
   it.each([

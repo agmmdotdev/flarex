@@ -55,9 +55,17 @@ const MAX_AUTH_SEMANTIC_BYTES =
 const RANDOM_SEED_BYTES = exactRuntimeConfigurationV1.randomSeedBytes;
 const MAX_ARGUMENT_ARRAY_SEMANTIC_BYTES =
   exactRuntimeConfigurationV1.maxArgumentArraySemanticBytes;
+const PRIVATE_MIXED_OPERATION_FORMAT:
+  typeof import("flarex-protocol/internal/admitted-framework-operation-v1")
+    .ADMITTED_FRAMEWORK_OPERATION_FORMAT_V1 =
+      "flarex.admitted-framework-operation";
+const PRIVATE_MIXED_OPERATION_VERSION:
+  typeof import("flarex-protocol/internal/admitted-framework-operation-v1")
+    .ADMITTED_FRAMEWORK_OPERATION_VERSION_V1 = 1;
 const MAX_VALUE_BYTES = 1 << 25;
 const MAX_VALUE_NESTING = 64;
 const MAX_APP_DOCUMENT_BYTES = 1 << 20;
+const MAX_PRIVATE_MIXED_ARGS_BYTES = 1 << 20;
 const MAX_APP_DOCUMENT_NESTING = 16;
 const MAX_ARRAY_ITEMS = 8192;
 const MAX_OBJECT_FIELDS = 1024;
@@ -148,6 +156,10 @@ interface DecodedExactRuntimeRequest {
 interface JournalCapability {
   readonly resolvePointTable: (
     name: string,
+  ) => unknown | PromiseLike<unknown>;
+  readonly runAdmittedFrameworkOperation?: (
+    syscallSequence: bigint,
+    operation: unknown,
   ) => unknown | PromiseLike<unknown>;
   readonly [Symbol.dispose]?: () => void;
 }
@@ -259,6 +271,13 @@ interface ExactRuntimeDatabase {
 
 interface ExactRuntimeJournal {
   readonly database: ExactRuntimeDatabase;
+  readonly privateMixed: Readonly<{
+    readonly call: (
+      participant: string,
+      operation: string,
+      args: unknown,
+    ) => Promise<unknown>;
+  }> | undefined;
   readonly close: () => void;
   readonly drain: () => Promise<void>;
   readonly dispose: () => void;
@@ -614,10 +633,28 @@ const APPLICATION_DOCUMENT_VALIDATION_ERROR_MESSAGE:
       "The resulting document failed the active schema validator.";
 
 export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
-  async run(
+  run(
     input: unknown,
     journal: unknown,
   ): Promise<PointMutationExactRuntimeHostResponseV2> {
+    return runExactRuntime(input, journal, false);
+  }
+
+  /** Internal proof entrypoint. Production exact mutation dispatch calls run
+   * and cannot expose this participant facade. */
+  runPrivateMixed(
+    input: unknown,
+    journal: unknown,
+  ): Promise<PointMutationExactRuntimeHostResponseV2> {
+    return runExactRuntime(input, journal, true);
+  }
+}
+
+async function runExactRuntime(
+  input: unknown,
+  journal: unknown,
+  privateMixed: boolean,
+): Promise<PointMutationExactRuntimeHostResponseV2> {
     let journalRuntime: ExactRuntimeJournal | undefined;
     let capability: JournalCapability | undefined;
     let settledFailure:
@@ -630,6 +667,12 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
       runAdmitted = true;
       const request = decodeRequest(input);
       const admittedCapability = decodeJournalCapability(journal);
+      if (
+        privateMixed &&
+        typeof admittedCapability.runAdmittedFrameworkOperation !== "function"
+      ) {
+        throw new Error("Private mixed operation capability is unavailable.");
+      }
       capability = admittedCapability;
       deterministicTime = request.context.executionTime;
       deterministicRandom = randomFromSeed(request.context.randomSeed);
@@ -645,9 +688,14 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
             journalRuntime = databaseForJournal(
               request.tables,
               admittedCapability,
+              privateMixed,
             );
             return Object.freeze({
-              context: executionContext(request, journalRuntime.database),
+              context: executionContext(
+                request,
+                journalRuntime.database,
+                journalRuntime.privateMixed,
+              ),
               journal: journalRuntime,
               isCoreApplicationError: inspectCoreApplicationErrorV1,
             });
@@ -723,7 +771,8 @@ export class FlarexPointMutationExactRuntimeV1 extends WorkerEntrypoint {
       }
     }
   }
-}
+
+
 
 function hardenIntrinsic(name: string, value: unknown): void {
   if (
@@ -1361,13 +1410,17 @@ function isIndexJournalCapability(
 function executionContext(
   request: DecodedExactRuntimeRequest,
   database: ExactRuntimeDatabase,
+  privateMixed: ExactRuntimeJournal["privateMixed"],
 ) {
-  return createFunctionRuntimeDatabaseContextV1(
+  const context = createFunctionRuntimeDatabaseContextV1(
     createFunctionRuntimeAuthV1(
       request.auth,
     ),
     database,
   );
+  return privateMixed === undefined
+    ? context
+    : Object.freeze({ ...context, privateMixed });
 }
 
 function isUserIdentity(value: unknown): value is UserIdentity {
@@ -1450,6 +1503,7 @@ function freezeJsonValue(value: unknown): void {
 function databaseForJournal(
   tables: ReadonlyArray<DecodedExactRuntimeTable>,
   journal: JournalCapability,
+  admitPrivateMixed: boolean,
 ): ExactRuntimeJournal {
   const namesById = new Map<string, string>(
     tables.map((table) => [String(table.tableId), table.logicalName]),
@@ -1466,6 +1520,7 @@ function databaseForJournal(
   const receivedIndexStubs = new Set<IndexJournalCapability>();
   let syscallSequence = 0n;
   let operationTail: Promise<void> = Promise.resolve();
+  let admittedOperationPending = false;
   let firstOperationFailure:
     | Readonly<{ readonly cause: ExactRuntimeJournalBoundaryError }>
     | undefined;
@@ -1657,6 +1712,80 @@ function databaseForJournal(
     );
     return execution;
   }
+  const runAdmittedFrameworkOperation = (
+    participant: string,
+    operation: string,
+    args: unknown,
+  ): Promise<unknown> => {
+    if (!acceptingOperations) {
+      const failure = journalBoundaryError(new Error(
+        "Private mixed operation started after handler settlement.",
+      ));
+      firstOperationFailure ??= { cause: failure };
+      throw failure;
+    }
+    if (admittedOperationPending) {
+      const failure = journalBoundaryError(new Error(
+        "Parallel private mixed operations are unsupported.",
+      ));
+      firstOperationFailure ??= { cause: failure };
+      throw failure;
+    }
+    let capturedArgs: CanonicalFlarexRuntimeValueV1;
+    try {
+      const captured = normalizeValue(args, "private mixed arguments", 0, new WeakSet());
+      if (
+        captured.semanticBytes > MAX_PRIVATE_MIXED_ARGS_BYTES ||
+        !isJsonValue(captured.value)
+      ) {
+        throw new Error("Private mixed arguments exceed the admitted JSON boundary.");
+      }
+      capturedArgs = captured.value;
+    } catch (cause) {
+      const failure = journalBoundaryError(cause);
+      firstOperationFailure ??= { cause: failure };
+      throw failure;
+    }
+    admittedOperationPending = true;
+    const execution = operationTail.then(async () => {
+      if (firstOperationFailure !== undefined) {
+        throw firstOperationFailure.cause;
+      }
+      try {
+        const runAdmitted = journal.runAdmittedFrameworkOperation;
+        if (!admitPrivateMixed || typeof runAdmitted !== "function") {
+          throw new Error("Private mixed operation capability is unavailable.");
+        }
+        const operationSequence = syscallSequence + 1n;
+        const result = await runAdmitted.call(
+          journal,
+          operationSequence,
+          Object.freeze({
+            format: PRIVATE_MIXED_OPERATION_FORMAT,
+            version: PRIVATE_MIXED_OPERATION_VERSION,
+            participant,
+            operation,
+            args: capturedArgs,
+          }),
+        );
+        syscallSequence = operationSequence;
+        return result;
+      } catch (cause) {
+        const failure = journalBoundaryError(cause);
+        firstOperationFailure ??= { cause: failure };
+        throw failure;
+      }
+    });
+    operationTail = execution.then(
+      () => {
+        admittedOperationPending = false;
+      },
+      () => {
+        admittedOperationPending = false;
+      },
+    );
+    return trackCallerPromise(execution);
+  };
   const pointReader = createFunctionRuntimePointReaderV1(
     (documentId: string) =>
       trackCallerPromise(run(
@@ -1719,6 +1848,9 @@ function databaseForJournal(
   );
   return Object.freeze({
     database,
+    privateMixed: admitPrivateMixed
+      ? Object.freeze({ call: runAdmittedFrameworkOperation })
+      : undefined,
     close: () => {
       acceptingOperations = false;
     },

@@ -29,6 +29,29 @@ const dependencyFields = [
   "peerDependencies",
 ];
 const islandPrefix = "third_party/medusa/upstream/";
+const mixedProductTestFixture = "packages/flarex-backend/test/support/mixedMutationProductFixture.ts";
+const mixedProductTestImports = new Map([
+  ["../../../medusa-adapter/test/support/logical-currency-fixture",
+    "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
+  ["../../../medusa-adapter/test/support/logical-product-fixture",
+    "packages/medusa-adapter/test/support/logical-product-fixture.ts"],
+  ["../../../medusa-adapter/test/support/native-product-attempt-seed",
+    "packages/medusa-adapter/test/support/native-product-attempt-seed.ts"],
+  ["@flarex/medusa-adapter/internal/product-attempt",
+    "packages/medusa-adapter/src/product-attempt.ts"],
+]);
+
+/** One pinned test fixture composes the real native Product with the private
+ * Worker proof. No backend runtime source receives this import authority. */
+/** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
+ * @param {string} relativePath
+ * @param {string} specifier */
+function admitsMixedProductTestImport(promotion, relativePath, specifier) {
+  if (relativePath !== mixedProductTestFixture) return false;
+  const target = mixedProductTestImports.get(specifier);
+  return target !== undefined && promotion?.files.some(file =>
+    file.target === target && file.classification === "authored") === true;
+}
 
 /**
  * @typedef {{ readonly relativePath: string, readonly manifest: Readonly<Record<string, unknown>> }} ManifestInput
@@ -145,7 +168,10 @@ export function analyzeMedusaSourceIslandBoundary(input) {
   analyzeManifests(
     input.rootManifests,
     errors,
-    (name, value, relativePath) => (isForbiddenRootDependency(name, value) || promotion?.packages.some((pkg) => pkg.name === name) === true)
+    (name, value, relativePath, field) => (isForbiddenRootDependency(name, value) || promotion?.packages.some((pkg) => pkg.name === name) === true)
+      && !(relativePath === "packages/flarex-backend/package.json" && field === "devDependencies"
+        && name === "@flarex/medusa-adapter" && value === "workspace:*"
+        && promotion?.packages.some(pkg => pkg.path === "packages/medusa-adapter" && pkg.name === name) === true)
       && !(value === "workspace:*" && promotion?.packages.some((pkg) =>
         relativePath === `${pkg.path}/package.json` && pkg.dependencies[name] === value)),
     "must not reference Medusa source-island dependency",
@@ -195,6 +221,7 @@ export function analyzeMedusaSourceIslandBoundary(input) {
   );
 
   analyzeSources(input.rootSources, errors, (specifier, relativePath) => {
+    if (admitsMixedProductTestImport(promotion, relativePath, specifier)) return undefined;
     if ((specifier.toLowerCase().startsWith("file:") || isPortableAbsolutePath(specifier)) && normalized(specifier).toLowerCase().includes("/packages/medusa-")) {
       return `must not bypass Currency exports through "${specifier}"`;
     }
@@ -462,7 +489,7 @@ function admittedIslandPaths(repoRoot) {
 /**
  * @param {readonly ManifestInput[]} manifests
  * @param {string[]} errors
- * @param {(name: string, value: string, relativePath: string) => boolean} forbiddenDependency
+ * @param {(name: string, value: string, relativePath: string, field: string) => boolean} forbiddenDependency
  * @param {string} dependencyMessage
  * @param {(value: string, relativePath: string) => boolean} forbiddenPath
  * @param {string} pathMessage
@@ -481,7 +508,7 @@ function analyzeManifests(
       if (!isRecord(dependencies)) continue;
       for (const [name, value] of Object.entries(dependencies)) {
         if (typeof value !== "string") continue;
-        if (forbiddenDependency(name, value, relativePath)) {
+        if (forbiddenDependency(name, value, relativePath, field)) {
           errors.push(
             `${relativePath}: ${field} ${dependencyMessage} "${name}".`,
           );

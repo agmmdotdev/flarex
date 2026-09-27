@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { expect } from "vitest";
-import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect,
+import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV2Effect,
   canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import { selectApplicationMutationAdmission } from "../src/applicationMutationAdmission";
@@ -67,7 +67,7 @@ export const prepareNativeApplicationJournalOnLogicalScope = Effect.fn("NativeAp
       }
     }
     const sealed = yield* store.prepareSealEffect(attempt);
-    const journal = yield* canonicalizeSessionJournalV1Effect(sealed.journal);
+    const journal = yield* canonicalizeSessionJournalV2Effect(sealed.journal);
     const result = yield* canonicalizeSuccessfulResultV1Effect({ observed: true });
     yield* store.completeSealEffect(sealed.preparation, journal, result);
     const authority = relationAuthorityFromAnchor(activation.anchor, schemaVersionId, activation.executionClaim);

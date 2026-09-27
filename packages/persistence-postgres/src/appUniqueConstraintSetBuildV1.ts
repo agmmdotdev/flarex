@@ -3275,9 +3275,12 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
     return yield* Effect.fail(stateError(clock, snapshot, "buildMissing"));
   const states: BuildState[] = [];
   for (const row of rows) {
+    const definition = definitions.find(value => value.uniqueConstraintDefinitionId === row.uniqueConstraintDefinitionId);
+    if (definition === undefined) return yield* Effect.fail(stateError(clock, snapshot, "storedStateInvalid"));
+    const selectedSnapshot = { schemaVersionId: definition.schemaVersionId, members: definitions };
     const state = yield* decodeBuildStateEffect(
       clock,
-      snapshot,
+      selectedSnapshot,
       row,
       clock.lastCommitSeq,
     );
@@ -3286,33 +3289,28 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
       state.coveredThroughCommitSeq === null ||
       !buildAuthorityIsCurrent(state, clock)
     )
-      return yield* Effect.fail(stateError(clock, snapshot, "coverageMissing"));
-    const definition = definitions.find(
-      (value) =>
-        value.uniqueConstraintDefinitionId ===
-        state.uniqueConstraintDefinitionId,
-    )!;
+      return yield* Effect.fail(stateError(clock, selectedSnapshot, "coverageMissing"));
     const mode = publicationModeForTable(publicationProfile, definition.tableId);
     if ((mode === "activeApplication" && context.active !== null && state.maintenance === null) ||
       (mode === "sourceBound" && state.maintenance !== null) ||
       (typeof publicationProfile !== "string" && mode === "activeApplication" && context.active === null)) {
-      return yield* Effect.fail(stateError(clock, snapshot, "coverageMissing"));
+      return yield* Effect.fail(stateError(clock, selectedSnapshot, "coverageMissing"));
     }
     const maintenanceSchemaVersionId = typeof publicationProfile !== "string" && mode === "activeApplication"
-      ? context.active?.schema.schemaVersionId : schemaVersionId;
+      ? context.active?.schema.schemaVersionId : definition.schemaVersionId;
     if (state.maintenance !== null && (state.maintenance.frame.schemaVersionId !== maintenanceSchemaVersionId ||
       state.maintenance.frame.deploymentId !== definition.deploymentId)) {
-      return yield* Effect.fail(stateError(clock, snapshot, "storedStateInvalid"));
+      return yield* Effect.fail(stateError(clock, selectedSnapshot, "storedStateInvalid"));
     }
-    if (!(yield* hasDefinitionCoverage(tx, clock, snapshot, state, definition.tableId, clock, context))) {
-      return yield* Effect.fail(stateError(clock, snapshot, "coverageMissing"));
+    if (!(yield* hasDefinitionCoverage(tx, clock, selectedSnapshot, state, definition.tableId, clock, context))) {
+      return yield* Effect.fail(stateError(clock, selectedSnapshot, "coverageMissing"));
     }
     // A source-bound build may lag the scope clock when other tables changed.
     // Record the proved table-local coverage before a batch writes its first
     // page; later pages must not mistake this transaction's own rows for an
     // uncovered committed write.
     if (sourceBoundBatch && mode === "sourceBound" && state.coveredThroughCommitSeq < clock.lastCommitSeq)
-      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx, [state], clock.lastCommitSeq, schemaVersionId);
+      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx, [state], clock.lastCommitSeq, definition.schemaVersionId);
     states.push(state);
   }
   return Object.freeze(states);
