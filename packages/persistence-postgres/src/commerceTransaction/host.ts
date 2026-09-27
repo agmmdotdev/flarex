@@ -16,7 +16,7 @@ import type { InstallationBindingReference } from "../frameworkSchema/binding/mo
 import { captureCommerceJsonData, lockCommerceRequest } from "./request";
 import { makeBoundedRequestLifetime, type BoundedRequestContext } from "../boundedRequestLifetime";
 import { hasApplicationBindingComposition, prepareApplicationBindingSelection } from "../applicationActivation";
-import { captureTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
+import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
 import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../scopeClock";
@@ -90,7 +90,7 @@ const makeHost = Effect.fn("CommerceHost.retain")(function* <Failure>(input: Com
 });
 
 const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure>(input: CommerceHostInput<Failure>, local?: LocalComposition): Effect.fn.Return<Omit<CommerceHost, "close">, CommerceTransactionError> {
-  const { database, session, target, deploymentId, application } = input;
+  const { database, session, target, deploymentId, scopeId, application } = input;
   if (!hasRelationalSessionDatabase(session, database) || !hasFrameworkSchemaTargetDatabase(target, database) ||
     !hasApplicationBindingComposition(application, input.authority)) return yield* Effect.fail(commerceError("invalidAuthority"));
   const logicalResult = input.logicalStorage === undefined ? undefined : captureLogicalCommerceSelection(input.logicalStorage);
@@ -110,7 +110,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
   const reference = capturedReference === undefined ? undefined : isSyntheticBindingReference(capturedReference.value)
     ? capturedReference.value : yield* Effect.fail(commerceError("invalidInput"));
   if (reference !== undefined) yield* chargeHostPreparation(reference).pipe(Effect.mapError(projectFailure));
-  const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
+  const authority = captureExactTrustedScopeAuthorityResolutionPorts(input.authority);
   const allowed = new Set(input.commands);
   const names = new Set<string>();
   for (const token of allowed) {
@@ -123,7 +123,8 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
     { policy: policy.value, logicalResources: selectedLogicalResources }, resources.commandBytes);
   const identityDigest = TransactionIdentityAccessPolicySha256V1Schema.make(yield* sha(identityBytes.canonicalBytes));
   const installationRuntime = reference === undefined ? undefined : yield* prepareInstallationRuntime(database, target, reference).pipe(Effect.mapError(projectFailure));
-  const initialLocation = logicalSelection === undefined ? undefined : yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(projectFailure));
+  const initialLocation = logicalSelection === undefined ? undefined : yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId, scopeId }, authority).pipe(Effect.mapError(projectFailure));
   const preparedLogical = logicalSelection === undefined || initialLocation === undefined ? undefined :
     yield* prepareLogicalRelationalAdmission(logicalSelection.ports, logicalSelection.unique, {
       deploymentId, scopeId: initialLocation.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId,
@@ -144,7 +145,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
     }
     let pendingEvents: readonly Json[] = [];
     const attempt = Effect.fn("CommerceHost.attempt")(function* (recoverOnly: boolean) {
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database)) return yield* Effect.fail(commerceError("invalidAuthority"));
       const active = yield* prepareApplicationBindingSelection(application);
       return yield* runRelationalSession(session, key === null ? "snapshotRead" : "command", tx => Effect.scoped(Effect.gen(function* () {

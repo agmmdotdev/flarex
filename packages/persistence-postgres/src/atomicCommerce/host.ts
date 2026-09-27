@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { prepareApplicationBindingSelection } from "../applicationActivation";
 import { runRelationalSession } from "../relationalTransaction/session";
 import { runWithRequestRecovery } from "../relationalTransaction/requestRecovery";
-import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
+import { resolveLocatedTrustedScopeAuthorityByIdEffect } from "../scopeAuthorityResolution";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "../transactionSessionAttemptKernel";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../scopeClock";
@@ -35,7 +35,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
   input: AtomicCommerceHostInput<Failure>,
 ): Effect.fn.Return<Omit<AtomicCommerceHost, "close">, CommerceTransactionError> {
   const configuration = yield* prepareAtomicCommerceConfiguration(input);
-  const { database, session, target, deploymentId, application, authority, members } = configuration;
+  const { database, session, target, deploymentId, scopeId, application, authority, members } = configuration;
   const run: AtomicCommerceHost["run"] = Effect.fn("AtomicCommerce.run")(function* (requestKey, token, args) {
     const request = yield* captureAtomicCommerceRequest(
       configuration.allowed,
@@ -45,7 +45,7 @@ const composeAtomicCommerceHost = Effect.fn("AtomicCommerce.composeHost")(functi
       args,
     );
     const attempt = Effect.fn("AtomicCommerce.attempt")(function* (recoverOnly: boolean) {
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority);
       if (!hasLocatedReadCommittedTargetDatabaseV1(located.target, database))
         return yield* Effect.fail(commerceError("invalidAuthority"));
       const active = yield* prepareApplicationBindingSelection(application);

@@ -188,6 +188,7 @@ const witness = Effect.fn("CompositeIdentity.witness")(function* <Persistence ex
         cause => new RelationalSessionError({ reason: "resourceFailure", cause })));
       yield* Effect.acquireUseRelease(makeCommerceHost({ hostRuntime: preparedHostTestRuntime(fixture.target.drizzle),
         database: fixture.target.drizzle, session: dataSession, target: bindingTarget, deploymentId: fixture.deploymentId,
+        scopeId: fixture.authority.scopeId,
         authority: fixture.authorityPorts, application: fixture.activation,
         identityAndAccessPolicy: { profile: "composite-identity-test" },
         logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts },

@@ -389,7 +389,8 @@ export interface ApplicationBindingSelectionReader<Failure> {
 }
 
 export function hasApplicationBindingComposition<Failure>(repository: ApplicationBindingSelectionReader<Failure>,
-  authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>): boolean {
+  authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> |
+    ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>): boolean {
   return activationRepositoryStates.get(repository)?.authority === authority;
 }
 

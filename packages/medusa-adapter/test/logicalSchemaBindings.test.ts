@@ -146,6 +146,7 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
       const hostInput = {
         hostRuntime: preparedHostTestRuntime(fixture.target.drizzle), database: fixture.target.drizzle,
         session: dataSession, target: bindingTarget, deploymentId: fixture.deploymentId,
+        scopeId: fixture.authority.scopeId,
         authority: fixture.authorityPorts, application: fixture.activation,
         identityAndAccessPolicy: { profile: "logical-currency-test" },
         logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts },
@@ -380,6 +381,7 @@ const witness = Effect.fn("LogicalSchemaBinding.nativeComposition")(function* <P
           cause => new RelationalSessionError({ reason: "resourceFailure", cause })));
       const common = { hostRuntime: preparedHostTestRuntime(fixture.target.drizzle),
         database: fixture.target.drizzle, session, target: bindingTarget, deploymentId: fixture.deploymentId,
+        scopeId: fixture.authority.scopeId,
         authority: fixture.authorityPorts, application: fixture.activation };
       const ports = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
       const productStorage = { ports, unique: fixture.uniqueConstraintEligibility, schemaVersionId,

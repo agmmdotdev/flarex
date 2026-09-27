@@ -4336,7 +4336,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-category-currency-atomic.test.ts",
       "classification": "authored",
-      "targetSha256": "7789ccada4c16b64be62debe7524d1da496d3179240642c6b014bf5abb962978"
+      "targetSha256": "eb8369a938c6f2b15f625599a29bf298f019f962b4d0d3e0381148634a131f07"
     },
     {
       "target": "packages/medusa-adapter/test/logical-internal-category-boundaries.test.ts",
@@ -4391,7 +4391,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "c8111251699a9fe77f4a0279ce6c07f4d33c7df3f9326190d9714122e1bdb7ca"
+      "targetSha256": "e7e5be6d5ac757a75a187ccb837dedc912e22dc58b4d21fff27ff3efb063e672"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",
@@ -4436,7 +4436,7 @@
     {
       "target": "packages/medusa-adapter/test/logicalSchemaBindings.test.ts",
       "classification": "authored",
-      "targetSha256": "7a8c1d6d17b7a055bc8464b574f16265bfc0f89a83e0563c18ab9a5529e38810"
+      "targetSha256": "28320dc1a8724ef2f763e7105eb53a95dbec1afddb43af214204f9a5000cd418"
     },
     {
       "target": "packages/medusa-adapter/src/product-category-workflow.ts",
@@ -4456,7 +4456,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-composite-identity.test.ts",
       "classification": "authored",
-      "targetSha256": "9928d5d7c46cbe14e676ee4a729c138f81a07ef0a595ecd9d2a9c01ac41e00a9"
+      "targetSha256": "68cbbdd61bdde08852bf728365e907016c2ad80108b796c11aa0de4c1419b929"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-collection-storage.test.ts",

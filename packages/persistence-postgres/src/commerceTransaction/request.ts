@@ -7,6 +7,7 @@ import { PreparedHostRuntimeError } from "../preparedHostRuntime";
 import { LogicalDocumentMaterializationError } from "../logicalDocuments/materialization";
 import { LogicalRelationalAdmissionError } from "../logicalDocuments/relationalAdmission";
 import { DataBindingError } from "../frameworkSchema/binding/errors";
+import { TrustedScopeAuthorityPortError } from "../scopeAuthorityResolution";
 import { canonicalizeJsonOutcome, captureJsonOutcomeValue, JsonOutcomeError } from "../jsonOutcome";
 import { sql } from "drizzle-orm";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
@@ -56,6 +57,7 @@ export const projectCommerceRequestFailure = (cause: unknown): CommerceTransacti
     cause.reason === "uniqueConflict" || cause.reason === "relationInvalid" || cause.reason === "relationTargetMissing" || cause.reason === "relationDeleteRestricted"
       ? "invalidInput" : cause.reason, cause);
   if (cause instanceof PreparedHostRuntimeError) return commerceError(cause.reason === "closed" ? "closed" : "resourceFailure", cause);
+  if (cause instanceof TrustedScopeAuthorityPortError) return commerceError("resourceFailure", cause);
   if (cause instanceof JsonOutcomeError) return commerceError(cause.reason === "invalidEvidence" ? "storedCorruption" : cause.reason, cause);
   if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) return commerceError("requestConflict", cause);
   if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) return commerceError("storedCorruption", cause);

@@ -35,6 +35,8 @@ import { makeDataBindingHost, dataBindingActivationRequest } from
   "../../../persistence-postgres/src/frameworkSchema/binding/host";
 import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
 import type { LogicalCommerceHostInput } from "../../../persistence-postgres/src/commerceTransaction/host";
+import type { TrustedScopeAuthorityResolutionPorts } from "../../../persistence-postgres/src/scopeAuthorityResolution";
+import type { LocatedReadCommittedAttemptTargetV1 } from "../../../persistence-postgres/src/transactionSessionAttemptKernel";
 import type { CommerceHost } from "../../../persistence-postgres/src/commerceTransaction/commands";
 import type { PGliteFlarexPersistence } from "../../../persistence-postgres/src/pglite";
 import type { PostgresFlarexPersistence } from "../../../persistence-postgres/src/postgres";
@@ -83,7 +85,9 @@ export interface LogicalCurrencyFixture {
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly applicationSource: Readonly<{ sourceKey: string; writeProfile: string; definition: unknown; evidence: unknown }>;
   readonly session: RelationalSession;
-  readonly hostInput: LogicalCommerceHostInput<unknown>;
+  readonly hostInput: LogicalCommerceHostInput<unknown> & Readonly<{
+    authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+  }>;
   readonly host: CommerceHost;
   readonly service: ReturnType<typeof makeCurrencyService>;
   readonly initialization: Effect.Success<ReturnType<typeof currencyInitialization>>;
@@ -234,6 +238,7 @@ export async function logicalCurrencyFixture(
     const session = pair.kind === "postgres" ? makePostgresRelationalSession(pair.target) : pair.session;
     const hostInput = { hostRuntime: preparedHostTestRuntime(target.drizzle), database: target.drizzle,
       session, target: bindingTarget, deploymentId: application.deploymentId,
+      scopeId: application.authority.scopeId,
       authority: application.authorityPorts, application: application.activation,
       identityAndAccessPolicy: { profile: "logical-currency-test" },
       logicalStorage: { ports: { controlDb: control.drizzle, authority: application.authorityPorts },

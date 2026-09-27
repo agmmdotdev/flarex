@@ -2,8 +2,9 @@ import { Effect, Schema } from "effect";
 import { hasApplicationBindingComposition } from "../applicationActivation";
 import { hasFrameworkSchemaTargetDatabase } from "../frameworkSchema/target";
 import { hasRelationalSessionDatabase } from "../relationalTransaction/session";
-import { captureTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
-import { resolveLocatedTrustedScopeAuthorityEffect } from "../scopeAuthorityResolution";
+import { captureExactTrustedScopeAuthorityResolutionPorts, resolveLocatedTrustedScopeAuthorityByIdEffect } from "../scopeAuthorityResolution";
+import type { ExactTrustedScopeAuthorityResolutionPorts } from "../scopeAuthorityResolution";
+import type { LocatedReadCommittedAttemptTargetV1 } from "../transactionSessionAttemptKernel";
 import { captureCommerceJsonData } from "../commerceTransaction/request";
 import type { CommerceHostConfiguration } from "../commerceTransaction/hostConfiguration";
 import { commerceError, commerceLimits, type CommerceTransactionError } from "../commerceTransaction/model";
@@ -21,7 +22,7 @@ import {
 import { admitParticipantEvents, captureAtomicCommerceEvents, isCommerceDerivedIdEventContract,
   prepareAtomicCommerceEvents, type AtomicCommerceEvents } from "./events";
 import { TransactionIdentityAccessPolicySha256V1Schema } from "flarex-protocol/transaction-session";
-import { commerceIdentityEvidence } from "../commerceTransaction/request";
+import { commerceIdentityEvidence, projectCommerceRequestFailure } from "../commerceTransaction/request";
 import { hashAtomicCommerceBytes } from "./request";
 import { chargeHostPreparation } from "../preparedHostRuntime";
 import { commitEventLimits } from "../commitEvents/model";
@@ -52,8 +53,9 @@ const decodeCommandMs = Schema.decodeUnknownEffect(FrameworkCommandMilliseconds)
 /** Captured host configuration, with no request-local state or settlement capability. */
 export interface PreparedAtomicCommerceConfiguration<Failure> extends Omit<
   CommerceHostConfiguration<Failure>,
-  "identityAndAccessPolicy" | "hostRuntime"
+  "identityAndAccessPolicy" | "hostRuntime" | "authority"
 > {
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly allowed: ReadonlySet<AtomicCommerceCommand>;
   readonly members: Effect.Success<ReturnType<typeof prepareAtomicCommerceParticipants>>;
   readonly eventPolicy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>> | undefined;
@@ -70,7 +72,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
 >(
   input: AtomicCommerceHostInput<Failure>,
 ): Effect.fn.Return<PreparedAtomicCommerceConfiguration<Failure>, CommerceTransactionError> {
-  const { database, session, target, deploymentId, application } = input;
+  const { database, session, target, deploymentId, scopeId, application } = input;
   if (
     !hasRelationalSessionDatabase(session, database) ||
     !hasFrameworkSchemaTargetDatabase(target, database) ||
@@ -82,7 +84,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   const eventInput = input.events === undefined ? undefined : captureAtomicCommerceEvents(input.events);
   const selectedCommands = [...input.commands];
   const policyInput = captureCommerceJsonData(input.identityAndAccessPolicy, commerceLimits.rowBytes);
-  const authority = captureTrustedScopeAuthorityResolutionPorts(input.authority);
+  const authority = captureExactTrustedScopeAuthorityResolutionPorts(input.authority);
   const selectedCallLimit = input.requestCallLimit;
   const selectedByteLimit = input.requestByteLimit;
   const selectedEventLimit = input.requestEventLimit;
@@ -111,7 +113,8 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
   const policy = yield* Effect.fromResult(policyInput);
   const capturedMembers = yield* Effect.fromResult(participantInput);
   const logicalLocation = capturedMembers.some(member => member.kind === "logical")
-    ? yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority).pipe(Effect.mapError(cause => commerceError("invalidAuthority", cause)))
+    ? yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId, scopeId }, authority)
+      .pipe(Effect.mapError(projectCommerceRequestFailure))
     : undefined;
   const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
     logicalLocation === undefined ? undefined : { deploymentId, scopeId: logicalLocation.authority.scopeId });
@@ -190,6 +193,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
     session,
     target,
     deploymentId,
+    scopeId,
     application,
     authority,
     allowed,

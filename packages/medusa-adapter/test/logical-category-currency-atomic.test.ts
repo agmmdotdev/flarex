@@ -2,10 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { isJsonObject } from "flarex-protocol/json";
 import { decodeCategoryProjection } from "../src/product-category-projection";
-import { currencyCommands } from "../src/currency-service";
+import { currencyAnnouncementWrite, currencyCommands } from "../src/currency-service";
 import { defineAtomicCommerceCommand, getAtomicCommerceCommand } from
   "../../persistence-postgres/src/atomicCommerce/commands";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
+import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { defineCommerceCommand } from "../../persistence-postgres/src/commerceTransaction/commands";
 import { defineCommerceEventContract, type AtomicCommerceEvents } from
   "../../persistence-postgres/src/atomicCommerce/events";
@@ -310,5 +312,46 @@ describe("Category/Currency on two logical participants", () => {
         .toMatchObject({ reason: "invalidAuthority" });
       expect(await inventory()).toEqual(before);
     } finally { await runEffect(denied.close); }
+  }, 120_000);
+
+  it("runs standalone and mixed native commands after a peer joins the deployment", async () => {
+    const { currency, input, proof } = fixture;
+    const peerScopeId = ScopeIdSchema.make(`scope_category_currency_peer_${driver}`);
+    await currency.control.insertScopeMetadata({
+      deploymentId: currency.deploymentId,
+      scopeId: peerScopeId,
+      physicalLocator: currency.application.active.basis.authority.physicalLocator,
+    });
+    const before = await inventory();
+    const expectedPeerFailure = { reason: "invalidAuthority",
+      cause: { failure: { reason: "splitProvisioningReceiptMissing", scopeId: peerScopeId } } };
+    expect(await runEffectFailure(makeCommerceHost({ ...currency.hostInput, scopeId: peerScopeId })))
+      .toMatchObject(expectedPeerFailure);
+    expect(await runEffectFailure(makeAtomicCommerceHost({ ...input, scopeId: peerScopeId })))
+      .toMatchObject(expectedPeerFailure);
+    expect(await inventory()).toEqual(before);
+    const standalone = await runEffect(makeCommerceHost(currency.hostInput));
+    const mixed = await runEffect(makeAtomicCommerceHost(input));
+    try {
+      const single = await runEffect(standalone.run(standalone.newRequestKey(),
+        currencyAnnouncementWrite,
+        { code: "scp", name: "Scoped Currency", symbol: "S", symbol_native: "S" }));
+      expect(single).toMatchObject({ code: "scp" });
+      const key = mixed.newRequestKey();
+      const mixedArgs = {
+        ...args("scope-selected"), currency: { ...args("scope-selected").currency, code: "scm" },
+      };
+      const value = await runEffect(mixed.run(key, proof.command, mixedArgs));
+      expect(value).toMatchObject({ currency: { code: "scm" } });
+      expect(await runEffect(mixed.run(key, proof.command, mixedArgs))).toEqual(value);
+      const after = await inventory();
+      expect(after.logical.commits).toHaveLength(before.logical.commits.length + 2);
+      expect(after.logical.outcomes).toHaveLength(before.logical.outcomes.length + 2);
+      expect(after.logical.rows).toHaveLength(before.logical.rows.length + 4);
+      expect(after.logical.physicalFacts).toEqual(before.logical.physicalFacts);
+    } finally {
+      await runEffect(mixed.close);
+      await runEffect(standalone.close);
+    }
   }, 120_000);
 });

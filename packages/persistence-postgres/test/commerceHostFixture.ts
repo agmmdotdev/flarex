@@ -5,6 +5,8 @@ import type { Json } from "flarex-protocol/json";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import type { RelationalSession } from "../src/relationalTransaction/session";
+import type { TrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
+import type { LocatedReadCommittedAttemptTargetV1 } from "../src/transactionSessionAttemptKernel";
 import { frameworkSchemaTargetSnapshot, type FrameworkSchemaTargetSnapshot } from "../src/frameworkSchema/target";
 import { makeDataBindingHost, dataBindingActivationRequest, type DataBindingHost, type DataBindingHostInput } from "../src/frameworkSchema/binding/host";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
@@ -27,7 +29,9 @@ export interface CommerceHostTestFixture {
   readonly bindings: DataBindingHost<unknown>;
   readonly bindingsInput: DataBindingHostInput<unknown>;
   readonly host: CommerceHost;
-  readonly hostInput: PhysicalCommerceHostInput<unknown>;
+  readonly hostInput: PhysicalCommerceHostInput<unknown> & Readonly<{
+    authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+  }>;
   readonly prepared: { readonly profile: CommerceProfile; readonly initialization: { readonly rows: Json | undefined } };
   readonly descriptor: CommerceProfileState;
   readonly installation: ReturnType<typeof installationBindingReference>;
@@ -60,6 +64,7 @@ export async function commerceHostFixture<Failure>(persistence: PGliteFlarexPers
   if (process.env.FLAREX_PRODUCT_TIMINGS === "1") process.stdout.write(JSON.stringify({ installationAndColdOpenMs: Math.round(performance.now() - installationStarted) }) + "\n");
   const installation = installationBindingReference(availability);
   const hostInput = { hostRuntime: preparedHostTestRuntime(persistence.drizzle), database: persistence.drizzle, session, target: base.target, deploymentId: base.fixture.deploymentId,
+    scopeId: base.fixture.authority.scopeId,
     authority: base.fixture.authorityPorts, application: base.fixture.relationActivation, profile: prepared.profile, installation,
     identityAndAccessPolicy: { profile: "commerce-test" }, commands };
   const local = localPolicy === undefined ? undefined : await runEffect(makeLocalCommerceHost(hostInput, localPolicy(descriptor)));
