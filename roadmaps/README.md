@@ -103,6 +103,7 @@ with domain rationale in
 | Roadmap | Domain authority |
 | --- | --- |
 | [Shared logical storage](./shared-logical-storage/README.md) | Cross-consumer generic physical storage, logical schema/index/constraint/relation contracts, core redesign and commerce physical-path retirement |
+| [Mixed mutation core](./mixed-mutation-core/README.md) | Proposed private Application/Payload/Medusa attempt composition: paused shared-storage handoff, focused scope agreement, connected core proofs, per-slice cleanup and measured acceptance. The [design note](../design-notes/flarexdb-mixed-mutation-execution.md) owns architecture; runtime implementation and developer APIs remain unapproved/deferred. |
 | [`06-dynamic-worker-execution.md`](./06-dynamic-worker-execution.md) | Managed execution artifacts, local Miniflare and hosted Dynamic Workers, sandbox capabilities, runtime identity, and syscall execution. |
 | [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) | Public SDK, generated APIs, clients/React, CLI/codegen/deploy, test package relationship, npm distribution, and later non-reactive relation ergonomics only after `SV-R Core`; reactive relation APIs remain gated by `SV-R Live`. |
 | [`10-runtime-validation.md`](./10-runtime-validation.md) | Layered validators, protocol decoding, active metadata checks, commit validation, stored corruption detection, and error boundaries. |

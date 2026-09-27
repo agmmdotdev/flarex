@@ -60,9 +60,15 @@ necessary in-scope breaks need no separate compatibility permission; inventory
 affected callers and durable data/formats, migrate and validate them, and remove
 displaced paths in the same coherent slice. Preserve intended correctness and
 explicit durable-data disposition. This extends the replacement policy only:
-implementation still waits for the shared-storage migration goal to finish and
-the subsequent core scope agreement. Developer APIs remain deferred; the standing
-implementation approvals for the goals below do not automatically start this work.
+implementation requires the other shared-storage session to finish its active
+slice, review, validate and commit it, then confirm a clean pause and handoff.
+The remaining shared-storage backlog stays with its owner; whole-goal completion
+is not a prerequisite. Audit the handed-off baseline and agree a focused core
+scope and preflight before runtime changes. Read the [mixed mutation core roadmap](roadmaps/mixed-mutation-core/README.md)
+and the relevant numbered slice preflight before doing this work; they own the
+sequence and connected delivery gates. Developer APIs remain
+deferred; the standing implementation approvals for the goals below do not
+automatically start this work.
 
 The owner grants standing approval for the Flarex DB core redesign tracked in
 [core execution redesign](roadmaps/shared-transaction-core/10-core-execution-redesign.md).
@@ -228,7 +234,12 @@ not establish the root cause of an intermittent failure.
   stage explicit owned files or hunks, and never revert, rewrite, or absorb
   another task's changes.
 - The main thread owns every file edit and Git operation. Reviewer agents are
-  read-only.
+  read-only. For this owner-authorized mixed-mutation-core session, explicitly
+  assigned workers instead own disjoint edits and fixes. Spawn every subagent,
+  including workers, explorers and both read-only reviewers, with model
+  `gpt-6-sol` and `reasoning_effort: high`. The root coordinates, plans,
+  discusses, reviews and owns all Git operations. Dependent edits serialize;
+  workers preserve unrelated work and reviewers remain read-only.
 
 ## Integration, Effect, And Oxlint Routing
 
@@ -275,7 +286,9 @@ correctness, trust, transactions/concurrency, reliability, performance, operabil
 maintainability degradation, failure modes, and test adequacy. Their source of
 truth is `.codex/agents/`. If substantive code changes after review, rerun both
 reviewers against the final diff. The main thread triages findings, makes all
-fixes, and reruns validation.
+fixes, and reruns validation. For this owner-authorized mixed-mutation-core
+session, the root triages findings and delegates fixes to assigned
+workers, then owns final validation and Git operations.
 
 Give both reviewers the exact base/checkpoint, owned paths or hunks (including
 untracked files), approved contract, and validation evidence. Keep that scope

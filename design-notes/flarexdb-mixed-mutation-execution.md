@@ -1,11 +1,14 @@
 # Mixed Application, Payload And Medusa Mutations
 
-Status: proposed core execution design for discussion. The owner has chosen to
-wait for the ongoing shared-storage migration goal to finish before starting
-implementation here. Core implementation is the intended next phase; developer
-APIs remain deferred. The execution contract and compatibility changes below
-remain proposals. Recording these decisions does not approve runtime
-implementation, public exposure, a journal migration or changes to locking.
+Status: proposed core execution design for discussion. The other shared-storage
+session has completed its active [exact-scope retained-history slice](../roadmaps/shared-logical-storage/56-same-deployment-scope-authority.md)
+and paused at a clean committed handoff; the shared-storage domain still has
+remaining work. A baseline audit and focused core scope agreement are pending.
+Core implementation is the intended next phase; developer APIs remain deferred.
+The execution contract and compatibility changes below remain proposals.
+Recording these decisions does not approve runtime implementation, public
+exposure, a journal migration or changes to locking. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
+owns current status and connected delivery gates.
 
 ## Outcome And Authority
 
@@ -47,27 +50,17 @@ Cross-placement work requires committed steps and a durable coordination contrac
 
 ## Sequencing And Core Scope
 
-The owner chose to let the other session, **Review Medusa integration design (2)**,
-finish the [shared-storage completion goal](../roadmaps/shared-logical-storage/03-completion-plan.md)
-before implementation of this proposal begins. Both efforts may change the
-working set, query dependencies, materialization, admission and schema readiness.
-Starting a second implementation against those moving contracts would risk
-conflicting edits and duplicated redesign. Discussion and this design note may
-continue while runtime changes remain deferred.
-
-After that goal reaches a validated, committed completion baseline:
-
-1. Inspect its final code, tests, supported operations and remaining limitations.
-2. Refresh this note's owner inventory and identify which gaps still exist.
-3. Trace the selected service/workflow dependencies and resolve the execution,
-   authority, snapshot, retry and compatibility decisions in a focused preflight.
-4. Agree on that core implementation scope before changing runtime owners.
-
-Completion of the migration goal alone does not authorize this proposal or
-trigger its implementation. This sequencing decision also does not require
-integration of every Medusa module or every upstream workflow: the prerequisite
-is completion of the other session's recorded goal, followed by exact dependency
-selection for this work.
+The other shared-storage session has finished, reviewed, validated and committed
+its active exact-scope retained-history slice, then confirmed a clean pause and
+handoff. Its [completion plan](../roadmaps/shared-logical-storage/03-completion-plan.md)
+still owns the uncompleted storage backlog. The mixed core need not wait for
+that entire goal, but must not silently absorb its remaining consumer migrations.
+Before runtime work, inspect the handed-off code, tests, selected operations,
+limitations and owned runtime resources; refresh the owner and durable-data
+inventory; identify only storage blockers needed by the first mixed proof; and
+agree a focused core preflight covering execution, authority, snapshot, retry,
+cutover and validation. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
+tracks these gates. This handoff and design note do not authorize implementation.
 
 The proposed core phase covers attempt participation, snapshot and pending reads,
 journal evidence, OCC validation, settlement, recovery, framework lifecycle
@@ -152,7 +145,7 @@ none of its previously returned rows changed. Existing framework writes must
 also preserve the evidence needed by mixed attempts.
 
 Logical tables, indexes, constraints, native services and the shared settlement
-foundation remain useful. The migration's completion does not itself establish
+foundation remain useful. The shared-storage baseline does not itself establish
 one snapshot, pending view or retry contract across the three execution profiles.
 Exact journal/protocol changes and data obligations require an inventory; this
 note does not prescribe new tables, a universal interpreter or a second ledger.
@@ -463,8 +456,9 @@ displaced contract merely because it exists, and do not add compatibility
 wrappers, dual paths or fallback engines to avoid updating affected consumers.
 
 This replacement policy is accepted now; runtime implementation still follows
-the wait and scope-agreement gates above. Once that scope is approved, necessary
-in-scope breaking changes need no additional compatibility permission. Record
+the baseline-audit and scope-agreement gates above. Once the focused scope is
+approved, necessary in-scope breaking changes need no additional compatibility
+permission. Record
 the breaks, rationale, affected callers/data/formats, cutover, validation and
 removal in the focused preflight. Preserve intended behavioral guarantees and
 explicitly handle named durable data and outstanding attempts; permission to
@@ -600,8 +594,8 @@ unbounded tuning or an unproved universal performance claim a completion gate.
 
 ## Connected Core Implementation Gates
 
-1. **Refresh the baseline and approve the execution contract.** After the other
-   session finishes its migration goal, resolve the open decisions below and
+1. **Refresh the baseline and approve the execution contract.** From the other
+   session's clean committed pause, resolve the open decisions below and
    trace one real Product service method through validation, queries, events and
    every transitive call. Select fields and behavior explicitly rather than
    treating the entire Product API as proven. Keep developer APIs out of this scope.
@@ -665,6 +659,6 @@ follow-on work.
 
 These decisions should produce a focused implementation preflight. The user
 request currently authorizes recording and discussing this design. Runtime
-implementation waits for the other session's goal to finish and the subsequent
-scope agreement. The intended next phase is core implementation; developer APIs
-remain explicitly deferred.
+implementation waits for baseline audit and the subsequent scope agreement.
+The intended next phase is core implementation; developer APIs remain explicitly
+deferred.
