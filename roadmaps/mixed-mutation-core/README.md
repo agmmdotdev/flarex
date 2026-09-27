@@ -14,6 +14,9 @@ The [Payload Local API attempt](./02-payload-local-api-attempt-preflight.md) add
 one pinned native create, update and find-by-ID lifecycle under the same root.
 The [finite Medusa workflow preflight](./03-finite-medusa-workflow-preflight.md)
 owns the implemented finite private workflow profile in isolated scopes.
+The [performance baseline preflight](./04-performance-baseline-preflight.md)
+proposes the next measurement-only package before further Product or
+SalesChannel admission; its method and scope await agreement.
 Named-environment activation and public authoring APIs remain separate gates.
 Payload's required unique `posts.title` field needs a retained ordered index for
 historical uniqueness checks. Adding that compiler index changes the compiled
@@ -144,15 +147,16 @@ from this roadmap alone.
    selected graph. Migrate affected workflow/adapter consumers and remove
    displaced mixed paths in that package. Exact journal-format cutover and
    named-environment disposition are gates in its preflight.
-4. **Evidence-driven cost and completion.** Only after representative real
+4. **[Evidence-driven cost baseline](./04-performance-baseline-preflight.md) (proposed for agreement).** Only after representative real
    integration and correctness work, measure equivalent workloads on ordinary-role
    PostgreSQL, attributing SQL statements, sequential round trips, journal,
    validation, index/event maintenance, retries and lock waits. Agree numerical
-   acceptance targets from that baseline. Optimize measured bottlenecks at
-   their owning layer; rerun the same correctness and performance workloads.
-   Finish with an audit of profile boundaries, durable formats, retained callers,
-   exports, tests and documentation. This audit confirms cleanup already done
-   per slice; it is not a delayed retirement package.
+   acceptance targets from that baseline. The linked preflight covers
+   measurement only. A separately agreed optimization slice can address measured
+   bottlenecks at their owners and rerun the same correctness and cost workloads.
+   Whole-goal completion then audits profile boundaries, durable formats,
+   retained callers, exports, tests and documentation; this confirms cleanup
+   already done per slice rather than delaying retirement.
 
 The first Product proof currently repeats checked-read, source-binding and
 attempt-authority SQL across native service operations. That is a known query
