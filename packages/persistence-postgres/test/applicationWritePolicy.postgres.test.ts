@@ -19,7 +19,7 @@ describe.skipIf(postgresUrl === null)("Application table write ownership (Postgr
         const independent = await relationReadinessFixture({ persistence, writePolicy: true });
         const entered = barrier();
         const released = barrier();
-        const activationOwner = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId,
+        const activationOwner = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
           readiness: fixture.legacyReadiness, relationReadiness: fixture.fold, authority: fixture.authorityPorts,
           faultAfter: async point => { if (point === "headWritten") { entered.resolve(); await released.promise; } } });
         const activation = Promise.allSettled([Effect.runPromise(activationOwner.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }))]);

@@ -6,7 +6,7 @@ import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-pro
 import { ApplicationActivationSequenceV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { CatalogSchemaVersionSchema } from "flarex-protocol/schema-manifest";
 import { decodeCatalogEdgeDefinitionId } from "flarex-protocol/catalog";
-import { CommitSeqSchema, decodeReplacementScopeIdV1, LegacyV1StorageGenerationSchema, projectScopeIdUuidV1, ScopeEpochSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
+import { CommitSeqSchema, decodeReplacementScopeIdV1, LegacyV1StorageGenerationSchema, projectScopeIdUuidV1, ScopeEpochSchema, ScopeIdSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 import { exactRelationCommitRowId } from "./applicationRelationSourceCommitFixture";
@@ -49,6 +49,27 @@ const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
 let fixtureOrdinal = 0;
 
 describe("Application relation readiness fold", { timeout: 60_000 }, () => {
+  it("keeps relation readiness and activation on the chosen scope after a peer shop joins", async () => {
+    const fixture = await relationReadinessFixture({ writePolicy: true });
+    await prepareReadinessEvidence(fixture);
+    const first = await runEffect(fixture.relationActivation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    await fixture.control.insertScopeMetadata({
+      deploymentId: fixture.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_relation_readiness_peer"),
+      physicalLocator: LOCATOR,
+    });
+
+    expect(await runEffect(fixture.fold.settle(fixture.input)))
+      .toMatchObject({ status: "ready", disposition: "replayed", scopeId: fixture.input.scopeId });
+    expect(await runEffect(fixture.fold.readActiveReady(fixture.input)))
+      .toMatchObject({ status: "ready", scopeId: fixture.input.scopeId });
+    expect(await runEffect(fixture.relationActivation.readActive()))
+      .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
+  });
+
   it("retains scalar V3 policy identity through target publication and readiness", async () => {
     const fixture = await relationReadinessFixture({ writePolicy: true });
     await prepareReadinessEvidence(fixture);
@@ -1570,6 +1591,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
 
     const coldRelationActivation = makeApplicationActivationRepository({
       deploymentId: ready.fixture.deploymentId,
+      scopeId: ready.fixture.authority.scopeId,
       readiness: ready.fixture.legacyReadiness,
       relationReadiness: makeApplicationRelationReadinessFoldRepository(
         ready.fixture.foldContext,
@@ -2401,6 +2423,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     );
     const restartedActivation = makeApplicationActivationRepository({
       deploymentId: ready.fixture.deploymentId,
+      scopeId: ready.fixture.authority.scopeId,
       readiness: ready.fixture.legacyReadiness,
       relationReadiness: recreatedFold,
       authority: ready.fixture.authorityPorts,
@@ -2560,6 +2583,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     }
     const failingActivation = makeApplicationActivationRepository({
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.authority.scopeId,
       readiness: fixture.legacyReadiness,
       relationReadiness: fixture.fold,
       authority: fixture.authorityPorts,

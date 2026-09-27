@@ -81,7 +81,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   const ready = await runEffect(fixture.fold.settle(fixture.input));
   expect(ready.status).toBe("ready");
   const input = { revisionId: fixture.input.revisionId, expectedActiveHead: null };
-  const faulty = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.legacyReadiness,
+  const faulty = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.legacyReadiness,
     relationReadiness: fixture.fold, authority: fixture.authorityPorts,
     faultAfter: point => { if (point === "headWritten") throw new Error("policy activation rollback"); } });
   const beforeActivationBuilds = await persistence.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
@@ -90,7 +90,7 @@ export async function applicationWritePolicyScenario(persistence: PGliteFlarexPe
   expect(await persistence.drizzle.select().from(fxSystemApplicationWriteOwnership)).toHaveLength(0);
   expect(await persistence.drizzle.select().from(fxSystemApplicationActiveHeads)).toHaveLength(0);
   expect(await persistence.drizzle.select().from(fxSystemApplicationActivations)).toHaveLength(0);
-  const partial = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.legacyReadiness,
+  const partial = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.legacyReadiness,
     relationReadiness: fixture.fold, authority: fixture.authorityPorts,
     faultAfter: point => { if (point === "maintenanceOpened") throw new Error("partial maintenance rollback"); } });
   await expect(runEffect(partial.activate(input))).rejects.toBeDefined();

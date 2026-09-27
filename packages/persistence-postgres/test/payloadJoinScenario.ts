@@ -262,7 +262,7 @@ export async function payloadJoinScenario(input: Parameters<typeof payloadRelati
     });
   })));
   await input.reopen?.();
-  const application = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.legacyReadiness, relationReadiness: fixture.fold, authority: fixture.authorityPorts });
+  const application = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.legacyReadiness, relationReadiness: fixture.fold, authority: fixture.authorityPorts });
   await runEffect(Effect.scoped(Effect.gen(function* () {
     const conformance = yield* makePayloadConformanceRuntime("payload.content-joins");
     const host = yield* conformance.runtime.bind({ ...hostInput, application });

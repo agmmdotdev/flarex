@@ -106,7 +106,8 @@ import type {
   AppUniqueConstraintSetEligibilityResultV1,
 } from "./appUniqueConstraintSetBuildV1";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+  type ExactTrustedScopeAuthorityResolutionPorts,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
@@ -159,9 +160,8 @@ export interface ApplicationReadinessColdMaterializationPort<Failure> {
 
 export interface ApplicationReadinessContext<SchemaFailure, ColdFailure> {
   readonly controlDb: FlarexMetadataDatabase;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
-    LocatedReadCommittedAttemptTargetV1
-  >;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
+    ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly schema: ApplicationSchemaAuthorityPublisher<SchemaFailure>;
   readonly taskCatalog: ApplicationTaskCatalogSnapshotPort;
   readonly candidateValidation: AppSchemaCandidateReadinessPort;
@@ -262,6 +262,7 @@ export type ReadApplicationReadinessError =
 export interface ApplicationReadinessRepository<SchemaFailure, ColdFailure> {
   readonly settle: (input: {
     readonly deploymentId: string;
+    readonly scopeId: TrustedScopeAuthority["scopeId"];
     readonly revisionId: string;
   }) => Effect.Effect<
     ApplicationReadinessResult,
@@ -269,6 +270,7 @@ export interface ApplicationReadinessRepository<SchemaFailure, ColdFailure> {
   >;
   readonly readReady: (input: {
     readonly deploymentId: string;
+    readonly scopeId: TrustedScopeAuthority["scopeId"];
     readonly revisionId: string;
   }) => Effect.Effect<
     ApplicationReadinessResult,
@@ -465,6 +467,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
   const settle = Effect.fn("ApplicationReadiness.settle")(
     function* (input: {
       readonly deploymentId: string;
+      readonly scopeId: TrustedScopeAuthority["scopeId"];
       readonly revisionId: string;
     }): Effect.fn.Return<
       ApplicationReadinessResult,
@@ -478,10 +481,11 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       }
       const captured = Object.freeze({
         deploymentId: input.deploymentId,
+        scopeId: input.scopeId,
         revisionId: input.revisionId,
       });
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        captured.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        captured,
         capturedContext.authority,
       );
       if (located.authority.storageGeneration !== "flarexdb_v1") {
@@ -630,6 +634,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
   const readReadyOperation = Effect.fn("ApplicationReadiness.readReady")(
     function* (input: {
       readonly deploymentId: string;
+      readonly scopeId: TrustedScopeAuthority["scopeId"];
       readonly revisionId: string;
     }): Effect.fn.Return<
       ApplicationReadinessResult,
@@ -643,10 +648,11 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       }
       const captured = Object.freeze({
         deploymentId: input.deploymentId,
+        scopeId: input.scopeId,
         revisionId: input.revisionId,
       });
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        captured.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        captured,
         capturedContext.authority,
       );
       if (located.authority.storageGeneration !== "flarexdb_v1") {

@@ -69,12 +69,14 @@ import {
   type ScopeClockRecord,
 } from "./scopeClock";
 import {
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   resolveLocatedTrustedScopeAuthorityEffect,
   type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
+import { getScopeMetadata } from "./scopeMetadata";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import {
   captureScopePhysicalLocator,
@@ -482,9 +484,12 @@ export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
     uniqueClosure.closure.schemaVersionId !== snapshot.schemaVersionId) {
     return yield* Effect.fail(new InvalidPhysicalDefinitionLifecycleInputError({ field: "uniqueConstraintSet" }));
   }
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    snapshot.deploymentId,
-    state.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: snapshot.deploymentId, scopeId },
+    {
+      ...state.authority,
+      scopeMetadata: { getScopeMetadata: selectedScopeId => getScopeMetadata(state.controlDb, selectedScopeId) },
+    },
   );
   if (located.authority.scopeId !== scopeId) {
     return yield* Effect.fail(new InvalidPhysicalDefinitionLifecycleInputError({

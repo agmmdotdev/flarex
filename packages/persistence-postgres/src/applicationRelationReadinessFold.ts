@@ -132,7 +132,8 @@ import {
 import type { AppUniqueConstraintSetEligibilityResultV1, AppUniqueConstraintSetPreparation } from
   "./appUniqueConstraintSetBuildV1";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+  type ExactTrustedScopeAuthorityResolutionPorts,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
@@ -173,9 +174,8 @@ const MAXIMUM_PHYSICAL_DEFINITIONS = 16_384;
 
 export interface ApplicationRelationReadinessFoldContext {
   readonly controlDb: FlarexMetadataDatabase;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
-    LocatedReadCommittedAttemptTargetV1
-  >;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
+    ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly schema: ApplicationRelationSchemaAuthorityPort;
   readonly taskCatalog: ApplicationRelationTaskCatalogSnapshotPort;
   readonly candidateValidation: AppSchemaCandidateReadinessPort;
@@ -286,6 +286,7 @@ type InternalApplicationRelationReadinessFoldError =
 export interface ApplicationRelationReadinessFoldRepository {
   readonly settle: (input: {
     readonly deploymentId: string;
+    readonly scopeId: ScopeId;
     readonly revisionId: string;
   }) => Effect.Effect<
     ApplicationRelationReadinessFoldResult,
@@ -293,6 +294,7 @@ export interface ApplicationRelationReadinessFoldRepository {
   >;
   readonly readReady: (input: {
     readonly deploymentId: string;
+    readonly scopeId: ScopeId;
     readonly revisionId: string;
   }) => Effect.Effect<
     ApplicationRelationReadinessFoldResult,
@@ -301,6 +303,7 @@ export interface ApplicationRelationReadinessFoldRepository {
   /** Authenticates immutable stored readiness for an already-active head. */
   readonly readActiveReady: (input: {
     readonly deploymentId: string;
+    readonly scopeId: ScopeId;
     readonly revisionId: string;
   }) => Effect.Effect<
     ApplicationRelationReadinessFoldResult,
@@ -357,7 +360,7 @@ type StoredApplicationRelationReadinessActivationValidation = Extract<
 
 interface FoldRepositoryState {
   readonly context: ApplicationRelationReadinessFoldContext;
-  readonly prepareActive: (input: { readonly deploymentId: string; readonly revisionId: string }) =>
+  readonly prepareActive: (input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string }) =>
     Effect.Effect<PreparedApplicationRelationActiveRead, ReadApplicationRelationReadinessFoldError>;
 }
 
@@ -383,7 +386,7 @@ export function hasPreparedApplicationRelationReadRepository(input: PreparedAppl
 /** Immutable planning inputs may be retained by a host. Each acceptance still
  * validates live evidence; preparation issues no ready result or active selection. */
 export const prepareApplicationRelationActiveRead = Effect.fn("ApplicationRelationReadinessFold.prepareActiveRead")(
-  (repository: ApplicationRelationReadinessFoldRepository, input: { readonly deploymentId: string; readonly revisionId: string }) => {
+  (repository: ApplicationRelationReadinessFoldRepository, input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string }) => {
     const state = repositoryStates.get(repository);
     return state === undefined ? failureForOperation("readReady", "invalidComposition") : state.prepareActive(input);
   },
@@ -445,7 +448,7 @@ export function makeApplicationRelationReadinessFoldRepository(
 ): ApplicationRelationReadinessFoldRepository {
   const captured = Object.freeze({ ...context });
   const state: FoldRepositoryState = Object.freeze({ context: captured,
-    prepareActive: (input: { readonly deploymentId: string; readonly revisionId: string }) => prepareActiveOperation(input),
+    prepareActive: (input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string }) => prepareActiveOperation(input),
   });
   const compositionIsExact = () =>
     hasApplicationRelationSchemaAuthorityComposition(
@@ -472,6 +475,7 @@ export function makeApplicationRelationReadinessFoldRepository(
   const settleOperation = Effect.fn("ApplicationRelationReadinessFold.settle")(
     function* (input: {
       readonly deploymentId: string;
+      readonly scopeId: ScopeId;
       readonly revisionId: string;
     }): Effect.fn.Return<
       ApplicationRelationReadinessFoldResult,
@@ -499,6 +503,7 @@ export function makeApplicationRelationReadinessFoldRepository(
     "ApplicationRelationReadinessFold.readReady",
   )(function* (input: {
     readonly deploymentId: string;
+    readonly scopeId: ScopeId;
     readonly revisionId: string;
   }): Effect.fn.Return<
     ApplicationRelationReadinessFoldResult,
@@ -525,6 +530,7 @@ export function makeApplicationRelationReadinessFoldRepository(
     "ApplicationRelationReadinessFold.readActiveReady",
   )(function* (input: {
     readonly deploymentId: string;
+    readonly scopeId: ScopeId;
     readonly revisionId: string;
   }): Effect.fn.Return<
     ApplicationRelationReadinessFoldResult,
@@ -548,7 +554,7 @@ export function makeApplicationRelationReadinessFoldRepository(
     );
   });
   const prepareActiveOperation = Effect.fn("ApplicationRelationReadinessFold.prepareActiveInputs")(
-    function* (input: { readonly deploymentId: string; readonly revisionId: string }) {
+    function* (input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string }) {
       const preparation = yield* prepareActiveFold(input, captured, compositionIsExact);
       if ("status" in preparation) return yield* failure("authorityChanged");
       const token: PreparedApplicationRelationActiveRead = Object.freeze({ [preparedActiveReadBrand]: true as const });
@@ -836,7 +842,7 @@ interface PreparedFoldLocation {
 }
 
 const prepareFoldSchema = Effect.fn("ApplicationRelationReadinessFold.prepareSchema")(
-  function* (input: { readonly deploymentId: string; readonly revisionId: string },
+  function* (input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string },
     context: ApplicationRelationReadinessFoldContext, compositionIsExact: () => boolean,
     rowLock: "share" | "planning") {
     if (!validIdentity(input.deploymentId) ||
@@ -845,8 +851,8 @@ const prepareFoldSchema = Effect.fn("ApplicationRelationReadinessFold.prepareSch
     }
     if (!compositionIsExact()) return yield* failure("invalidComposition");
     const capturedInput = Object.freeze({ ...input });
-    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-      capturedInput.deploymentId,
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      capturedInput,
       context.authority,
     );
     if (located.authority.storageGeneration !== "flarexdb_v1") {
@@ -924,7 +930,7 @@ const prepareFoldDefinitions = Effect.fn("ApplicationRelationReadinessFold.prepa
 );
 
 const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
-  function* (input: { readonly deploymentId: string; readonly revisionId: string },
+  function* (input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string },
     context: ApplicationRelationReadinessFoldContext, compositionIsExact: () => boolean,
     mode: "current" | "storedActive"): Effect.fn.Return<PreparedFoldLocation | Extract<ApplicationRelationReadinessFoldResult,
       { readonly status: "not_ready" }>, InternalApplicationRelationReadinessFoldError> {
@@ -994,7 +1000,7 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
 );
 
 const prepareActiveFold = Effect.fn("ApplicationRelationReadinessFold.preparePlanningInputs")(
-  function* (input: { readonly deploymentId: string; readonly revisionId: string },
+  function* (input: { readonly deploymentId: string; readonly scopeId: ScopeId; readonly revisionId: string },
     context: ApplicationRelationReadinessFoldContext, compositionIsExact: () => boolean) {
     const inputs = yield* prepareFoldSchema(input, context, compositionIsExact, "planning");
     if ("status" in inputs) return inputs;

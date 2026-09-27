@@ -207,7 +207,7 @@ export async function payloadPopulationScenario(input: Parameters<typeof payload
           if (change === "activation") {
             revision = await preparePayloadRelationRevision(revision, ordinal++);
             const head = await runEffect(fixture.relationActivation.readActive());
-            const activator = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.legacyReadiness,
+            const activator = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.legacyReadiness,
               relationReadiness: fixture.fold, authority: fixture.authorityPorts, faultAfter: point => point === "headWritten" ? holdChange() : undefined });
             changing = activator.activate({ revisionId: revision.publication.revisionId, expectedActiveHead: head.expectedActiveHead });
           } else {

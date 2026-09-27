@@ -2,10 +2,10 @@
 
 Status: the control catalog permits multiple scopes under one deployment, its
 deployment-only lookup refuses ambiguity, and the trusted relational command
-host, Application snapshot/query readers and framework data-binding host select
-an exact scope. Application activation/readiness, some binding readiness inputs,
-and point-mutation entry points still use deployment-only selection and therefore
-refuse a multi-scope deployment.
+host, Application snapshot/query readers, framework data-binding host and
+Application readiness/activation select an exact scope. Some binding and
+index/unique build inputs and point-mutation entry points still use
+deployment-only selection and therefore refuse a multi-scope deployment.
 Full Application/Payload/Medusa same-deployment isolation is not yet claimed.
 
 ## Preflight and selected contract
@@ -46,9 +46,8 @@ independent tokens and wrong-deployment refusal. A connected Application query
 opens from an already authenticated active selection after a second scope is
 added to its deployment, on both storage drivers; deployment-only revalidation
 would refuse that query. The existing relation-query system also exercises
-the exact revalidation. These consumers
-do not create the active selection, so activation/readiness remains the next
-functional gate before same-deployment Application serving is possible.
+the exact revalidation. These snapshot consumers do not create the active
+selection; the activation contract below supplies that selection.
 
 The framework data-binding host now takes the trusted deployment/scope pair at
 construction and resolves only that exact scope through the common authority
@@ -56,9 +55,22 @@ reader. Its private `deploymentId` input was replaced with `selection`; callers
 and fixture inputs moved together. A two-shop binding witness reaches the
 selected shop's missing binding head while a peer without provisioning fails
 for that peer's receipt, on PGlite and ordinary-role PostgreSQL. This proves
-selection before binding admission, not complete two-shop serving: the host's
-Application active selection and logical index/unique readiness still depend
-on deployment-only owners and fail closed until those owners migrate.
+selection before binding admission, not complete two-shop serving: other
+index/unique build and data-plane entry points still depend on
+deployment-only owners and fail closed until those owners migrate.
+
+Application readiness, relation-readiness fold and both activation modes now
+require a trusted scope ID alongside the deployment ID. They revalidate the
+exact catalog row and located clock for settlement, replay and active reads.
+The candidate-readiness, physical-definition readiness and non-empty unique-set
+eligibility checks called from these flows also resolve their supplied scope
+exactly. A second scope under
+the deployment no longer makes an already-active Application unreadable;
+PGlite and ordinary-role PostgreSQL cover both legacy and relation-aware
+active selections, plus enabled unique-set eligibility with a peer scope.
+This changes private readiness and activation inputs and
+their test compositions; it does not turn a scope ID from application input
+into authority.
 
 ## Alternatives and remaining gate
 
@@ -70,10 +82,9 @@ on deployment-only owners and fail closed until those owners migrate.
 - Copying scope checks into Medusa or Payload would duplicate core authority.
 
 Move the remaining deployment-only runtime owners together with their real
-caller-supplied authority: framework binding's Application selection and
-readiness inputs,
-Application readiness/activation and point mutation, followed by Medusa/Payload
-commands. Their present deployment-only resolver must continue
+caller-supplied authority: binding's other readiness inputs, index/unique
+build operations and point mutation, followed by Medusa/Payload commands. Their
+present deployment-only resolver must continue
 to refuse ambiguity until migrated, and then be removed with its mock ports
 and fixtures. The normal provisioning path also still creates or reuses one
 scope per deployment; a multi-shop provisioning identity and idempotent

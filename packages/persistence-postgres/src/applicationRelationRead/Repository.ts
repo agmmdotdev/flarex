@@ -1,6 +1,7 @@
 import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../deployments";
+import { getScopeMetadata } from "../scopeMetadata";
 import {
   applicationRelationActiveSelectionMatchesSnapshot,
   claimApplicationRelationActiveSelection,
@@ -197,7 +198,7 @@ const prepareCapability = Effect.fn(
     input.selection,
     input.deploymentId,
     {
-      scopeMetadata: authority.scopeMetadata,
+      scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.controlDb, scopeId) },
       provisioningReceipts: authority.provisioningReceipts,
       scopeClockTargets: authority.scopeSessionTargets,
     },

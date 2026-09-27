@@ -77,7 +77,8 @@ import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import { chargeHostPreparation } from "./preparedHostRuntime";
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
+  type ExactTrustedScopeAuthorityResolutionPorts,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
@@ -208,10 +209,10 @@ export class ApplicationActivationError extends Data.TaggedError(
 export interface ApplicationActivationContext<SchemaFailure, ColdFailure> {
   readonly readinessContract?: never;
   readonly deploymentId: string;
+  readonly scopeId: TrustedScopeAuthority["scopeId"];
   readonly readiness: ApplicationReadinessRepository<SchemaFailure, ColdFailure>;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
-    LocatedReadCommittedAttemptTargetV1
-  >;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
+    ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   /** Test-only failure or transaction gate after an owned persistence step. */
   readonly faultAfter?: (
     point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "uniqueMaintenanceClosed" | "uniqueMaintenanceOpened" | "headWritten",
@@ -220,11 +221,11 @@ export interface ApplicationActivationContext<SchemaFailure, ColdFailure> {
 
 export interface ApplicationRelationActivationContext<SchemaFailure, ColdFailure> {
   readonly deploymentId: string;
+  readonly scopeId: TrustedScopeAuthority["scopeId"];
   readonly readiness: ApplicationReadinessRepository<SchemaFailure, ColdFailure>;
   readonly relationReadiness: ApplicationRelationReadinessFoldRepository;
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
-    LocatedReadCommittedAttemptTargetV1
-  >;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
+    ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   /** Test-only failure or transaction gate after an owned persistence step. */
   readonly faultAfter?: (
     point: "activationInserted" | "maintenanceClosed" | "maintenanceOpened" | "uniqueMaintenanceClosed" | "uniqueMaintenanceOpened" | "headWritten",
@@ -539,7 +540,7 @@ export const validateApplicationRelationActiveSelectionForReadiness = Effect.fn(
   readiness: ApplicationRelationReadinessFoldRepository,
   selection: unknown,
   deploymentId: string,
-  authority: TrustedScopeAuthorityResolutionPorts,
+  authority: ExactTrustedScopeAuthorityResolutionPorts,
 ): Effect.fn.Return<
   ApplicationRelationActiveSelectionBasis,
   ValidateApplicationRelationActiveSelectionError
@@ -554,8 +555,8 @@ export const validateApplicationRelationActiveSelectionForReadiness = Effect.fn(
       basis.revisionId,
     );
   }
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    deploymentId,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId, scopeId: basis.authority.scopeId },
     authority,
   );
   if (!sameTrustedAuthority(basis.authority, located.authority)) {
@@ -613,6 +614,7 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
 ): ApplicationActivationRepository<SchemaFailure, ColdFailure> {
   const captured = Object.freeze({
     deploymentId: context.deploymentId,
+    scopeId: context.scopeId,
     readiness: context.readiness,
     authority: context.authority,
     ...(context.faultAfter === undefined ? {} : { faultAfter: context.faultAfter }),
@@ -639,14 +641,15 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
           input.revisionId,
         );
       }
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        captured.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        captured,
         captured.authority,
       );
       const replay = yield* tryReplayStoredActivation(located.target, located.authority, input.revisionId, expected, "legacy");
       if (replay !== null) return replay;
       const readiness = yield* captured.readiness.settle(Object.freeze({
         deploymentId: captured.deploymentId,
+        scopeId: captured.scopeId,
         revisionId: input.revisionId,
       }));
       if (readiness.status !== "ready") {
@@ -676,8 +679,8 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
           captured.readiness,
           captured.authority,
         )) return yield* activationFailure("read", "invalidComposition");
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        captured.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        captured,
         captured.authority,
       );
       const hint = yield* runLocatedTransaction(
@@ -689,6 +692,7 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
       const readiness = yield* loadReadyForActiveRead(
         captured.readiness,
         captured.deploymentId,
+        captured.scopeId,
         hint.revisionId,
       );
       const state = yield* runLocatedTransaction(
@@ -723,6 +727,7 @@ function makeCompositeApplicationActivationRepository<
 ): ApplicationRelationActivationRepository<SchemaFailure, ColdFailure> {
   const captured = Object.freeze({
     deploymentId: context.deploymentId,
+    scopeId: context.scopeId,
     readiness: context.readiness,
     relationReadiness: context.relationReadiness,
     authority: context.authority,
@@ -761,8 +766,8 @@ function makeCompositeApplicationActivationRepository<
           input.revisionId,
         );
       }
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        captured.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        captured,
         captured.authority,
       );
       const replay = yield* tryReplayStoredActivation(located.target, located.authority, input.revisionId, expected);
@@ -780,6 +785,7 @@ function makeCompositeApplicationActivationRepository<
       if (readinessKind === "legacy") {
         const readiness = yield* captured.readiness.settle(Object.freeze({
           deploymentId: captured.deploymentId,
+          scopeId: captured.scopeId,
           revisionId: input.revisionId,
         }));
         if (readiness.status !== "ready") {
@@ -806,6 +812,7 @@ function makeCompositeApplicationActivationRepository<
       }
       const readiness = yield* captured.relationReadiness.settle(Object.freeze({
         deploymentId: captured.deploymentId,
+        scopeId: captured.scopeId,
         revisionId: input.revisionId,
       }));
       if (readiness.status !== "ready") {
@@ -845,8 +852,8 @@ function makeCompositeApplicationActivationRepository<
       if (!validIdentity(captured.deploymentId) || !compositionIsExact()) {
         return yield* activationFailure("read", "invalidComposition");
       }
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-        captured.deploymentId,
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        captured,
         captured.authority,
       );
       const hint = yield* runLocatedTransaction(
@@ -859,6 +866,7 @@ function makeCompositeApplicationActivationRepository<
         const readiness = yield* loadReadyForActiveRead(
           captured.readiness,
           captured.deploymentId,
+          captured.scopeId,
           hint.revisionId,
         );
         const state = yield* runLocatedTransaction(
@@ -877,6 +885,7 @@ function makeCompositeApplicationActivationRepository<
       const readiness = yield* loadRelationReadyForActiveRead(
         captured.relationReadiness,
         captured.deploymentId,
+        captured.scopeId,
         hint.revisionId,
       );
       const state = yield* runLocatedTransaction(
@@ -907,12 +916,12 @@ function makeCompositeApplicationActivationRepository<
   bindingPreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareCompositeBinding")(
     function* () {
       if (!validIdentity(captured.deploymentId) || !compositionIsExact()) return yield* activationFailure("read", "invalidComposition");
-      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(captured.deploymentId, captured.authority);
+      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(captured, captured.authority);
       const hint = yield* runLocatedTransaction(located.target, "read", undefined,
         tx => loadActiveRevisionHint(tx, located.authority.scopeId));
       if (hint.readinessKind === "legacy") return (yield* readActive()).selection;
       const readiness = yield* prepareApplicationRelationActiveRead(captured.relationReadiness,
-        { deploymentId: captured.deploymentId, revisionId: hint.revisionId });
+        { deploymentId: captured.deploymentId, scopeId: captured.scopeId, revisionId: hint.revisionId });
       yield* chargeHostPreparation({ authority: located.authority, revisionId: hint.revisionId }).pipe(
         Effect.mapError(cause => activationError("read", "resourceFailure", hint.revisionId, false, cause)),
       );
@@ -929,10 +938,12 @@ const loadReadyForActiveRead = Effect.fn(
 )(function* <SchemaFailure, ColdFailure>(
   readinessRepository: ApplicationReadinessRepository<SchemaFailure, ColdFailure>,
   deploymentId: string,
+  scopeId: TrustedScopeAuthority["scopeId"],
   revisionId: string,
 ) {
   const readiness = yield* readinessRepository.readReady(Object.freeze({
     deploymentId,
+    scopeId,
     revisionId,
   }));
   if (readiness.status !== "ready") {
@@ -946,6 +957,7 @@ const loadRelationReadyForActiveRead = Effect.fn(
 )(function* (
   readinessRepository: ApplicationRelationReadinessFoldRepository,
   deploymentId: string,
+  scopeId: TrustedScopeAuthority["scopeId"],
   revisionId: string,
 ): Effect.fn.Return<
   Extract<
@@ -957,6 +969,7 @@ const loadRelationReadyForActiveRead = Effect.fn(
 > {
   const readiness = yield* readinessRepository.readActiveReady(Object.freeze({
     deploymentId,
+    scopeId,
     revisionId,
   }));
   if (readiness.status !== "ready") {

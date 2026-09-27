@@ -92,6 +92,7 @@ export async function reopenBindingHost(
   );
   const application = makeApplicationActivationRepository({
     deploymentId: frame.application.deploymentId,
+    scopeId: ScopeIdSchema.make(frame.application.scopeId),
     readiness,
     authority,
   });

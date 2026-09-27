@@ -873,12 +873,14 @@ async function createRelationalCoreFixture(
   });
   const activation = makeApplicationActivationRepository({
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     readiness: legacyReadiness,
     relationReadiness: relationFold,
     authority: authorityPorts,
   });
   const ready = await runEffect(relationFold.settle({
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     revisionId: publication.revisionId,
   }));
   if (ready.status !== "ready") {
@@ -1185,12 +1187,14 @@ async function createFixture(
   });
   const activation = makeApplicationActivationRepository({
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     readiness: legacyReadiness,
     relationReadiness: relationFold,
     authority: authorityPorts,
   });
   const initialReadiness = await runEffect(relationFold.settle({
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     revisionId: firstPublication.revisionId,
   }));
   if (initialReadiness.status !== "ready") {
@@ -1291,6 +1295,7 @@ async function createFixture(
   );
   const legacyEvidence = await runEffect(legacyReadiness.settle({
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     revisionId: legacyPublication.revisionId,
   }));
   if (legacyEvidence.status !== "ready") {
@@ -1312,6 +1317,7 @@ async function createFixture(
   );
   const successorReadiness = await runEffect(relationFold.settle({
     deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     revisionId: successorPublication.revisionId,
   }));
   if (successorReadiness.status !== "ready") {

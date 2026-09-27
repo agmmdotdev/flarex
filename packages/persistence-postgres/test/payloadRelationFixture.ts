@@ -47,7 +47,7 @@ export async function preparePayloadRelationSuccessor(fixture: Awaited<ReturnTyp
   if (fixture.control !== fixture.persistence) await runEffect(publishApplicationRelationBindingEffect(relationBindingRepository(fixture.persistence.drizzle), input));
   const next = { ...fixture, relation, manifest: canonical.manifest };
   const prepared = await prepareAdditionalRelationRevision(next, ordinal, async () => { await prepareCmsFixtureReadiness(next); });
-  return { ...next, publication: prepared.publication, input: { deploymentId: fixture.deploymentId, revisionId: prepared.publication.revisionId } };
+  return { ...next, publication: prepared.publication, input: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, revisionId: prepared.publication.revisionId } };
 }
 
 /** A subsequent revision explicitly preserves the serving relation through its native evolution contract. */
@@ -69,5 +69,5 @@ export async function preparePayloadRelationRevision(fixture: Awaited<ReturnType
   if (fixture.control !== fixture.persistence) await runEffect(publishApplicationRelationBindingEffect(relationBindingRepository(fixture.persistence.drizzle), input));
   const next = { ...fixture, relation, manifest: canonical.manifest, semanticReuse: true };
   const prepared = await prepareAdditionalRelationRevision(next, ordinal, async () => { await prepareCmsFixtureReadiness(next); });
-  return { ...next, publication: prepared.publication, input: { deploymentId: fixture.deploymentId, revisionId: prepared.publication.revisionId } };
+  return { ...next, publication: prepared.publication, input: { deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, revisionId: prepared.publication.revisionId } };
 }

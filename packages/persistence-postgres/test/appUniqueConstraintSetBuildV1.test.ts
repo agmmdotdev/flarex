@@ -239,6 +239,25 @@ describe("C08-B1 closed unique-set build foundation", () => {
     expect(lockModes).toContain("update");
   });
 
+  it("reads an enabled unique set by exact scope after another shop joins its deployment", async () => {
+    const fixture = await closedFixture("eligibility_peer_scope");
+    await reconcile(fixture);
+    await advanceToEnabled(fixture, 16);
+    await fixture.persistence.insertScopeMetadata({
+      deploymentId: fixture.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_unique_eligibility_peer"),
+      physicalLocator: LOCATOR,
+    });
+
+    expect(await runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+      eligibilityPort(fixture),
+      eligibilityInput(fixture),
+    ))).toMatchObject({
+      status: "eligible",
+      evidence: { scopeId: fixture.scopeId, definitionCount: 1 },
+    });
+  });
+
   it("mints exact eligibility only for the current enabled closed set", async () => {
     const absent = await fixtureFor("eligibility_absent");
     const absentDefinitions = createAppUniqueConstraintDefinitionPortV1(

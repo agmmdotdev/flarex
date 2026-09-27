@@ -93,12 +93,14 @@ import {
   type ScopeClockRecord,
 } from "./scopeClock";
 import {
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   resolveLocatedTrustedScopeAuthorityEffect,
   type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
+import { getScopeMetadata } from "./scopeMetadata";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import {
   captureScopePhysicalLocator,
@@ -446,9 +448,12 @@ export const loadAppSchemaCandidateReadinessEffect = Effect.fn(
       reason: "invalidPort",
     });
   }
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    input.deploymentId,
-    state.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    input,
+    {
+      ...state.authority,
+      scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.controlDb, scopeId) },
+    },
   );
   if (located.authority.scopeId !== input.scopeId) {
     return yield* new AppSchemaCandidateReadinessError({

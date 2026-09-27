@@ -80,6 +80,7 @@ import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
   projectScopeIdUuidV1,
+  ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
 
 import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
@@ -88,8 +89,9 @@ import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
-import type { CatalogSchemaVersionId } from
+import { SchemaManifestAppIndexDescriptorSchema, type CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
+import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1, decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
 import {
   decodeCatalogEdgeDefinitionId,
   decodeCatalogTableId,
@@ -109,7 +111,10 @@ import {
 } from "../src/appUniqueConstraintCommitV1";
 import {
   createAppUniqueConstraintSetEligibilityPortV1,
+  advanceAppUniqueConstraintSetBackfillV1Effect,
+  reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
+import { ensureAppUniqueConstraintDefinitionBindingV1InTransaction, prepareAppUniqueConstraintDefinitionBindingV1Effect } from "../src/appUniqueConstraintDefinitions";
 import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
   prepareAppUniqueConstraintSetClosureV1Effect,
@@ -302,6 +307,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
 
     const result = await runEffect(Effect.result(fixture.repository.readReady({
       deploymentId: "",
+      scopeId: fixture.input.scopeId,
       revisionId: fixture.input.revisionId,
     })));
 
@@ -432,6 +438,92 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       fixture.target,
       "fx_system_application_readiness_function_v1",
     )).toBe(1);
+  });
+
+  it("keeps readiness and active selection on the chosen scope after a peer shop joins the deployment", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    const first = await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    await fixture.control.insertScopeMetadata({
+      deploymentId: fixture.input.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_application_readiness_peer"),
+      physicalLocator: LOCATOR,
+    });
+
+    expect(await runEffect(fixture.repository.settle(fixture.input)))
+      .toMatchObject({ status: "ready", disposition: "replayed", scopeId: fixture.input.scopeId });
+    expect(await runEffect(fixture.repository.readReady(fixture.input)))
+      .toMatchObject({ status: "ready", scopeId: fixture.input.scopeId });
+    expect(await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }))).toMatchObject({ disposition: "replayed", scopeId: fixture.input.scopeId });
+    expect(await runEffect(activation.readActive()))
+      .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
+  });
+
+  it("keeps an active Application with an enabled unique definition readable after a peer shop joins", async () => {
+    const fixture = await readinessFixture({ includeTable: true });
+    expect(await runEffect(fixture.repository.settle(fixture.input)))
+      .toMatchObject({ status: "not_ready", reason: "candidateValidationMissing" });
+    const schemaVersionId = await applicationSchemaVersionId(fixture.control);
+    const prepared = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
+      fixture.control.drizzle,
+      {
+        deploymentId: fixture.input.deploymentId,
+        schemaVersionId,
+        tableId: decodeCatalogTableId(1),
+        descriptor: SchemaManifestAppIndexDescriptorSchema.make("by_name_unique"),
+        physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+          kind: "appUniqueConstraint",
+          specVersion: 1,
+          orderedFields: ["name"],
+          sparse: false,
+          localePolicy: { kind: "none" },
+          keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+          keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+        }),
+      },
+    ));
+    await fixture.control.drizzle.transaction(tx => runEffect(
+      ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
+    ));
+    await closeEmptyUniqueConstraintSet(fixture, schemaVersionId);
+    await settleCandidateValidation(fixture, schemaVersionId);
+    await enablePhysicalBuilds(fixture, schemaVersionId);
+    const uniquePorts = { controlDb: fixture.control.drizzle, authority: fixture.authorityPorts };
+    const uniqueInput = { deploymentId: fixture.input.deploymentId, schemaVersionId };
+    await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput));
+    let enabled = false;
+    for (let step = 0; step < 8; step += 1) {
+      const progress = await runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(uniquePorts, { ...uniqueInput, pageSize: 16 }));
+      if (progress.lifecycle === "enabled") { enabled = true; break; }
+    }
+    expect(enabled).toBe(true);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    const first = await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
+    await fixture.control.insertScopeMetadata({
+      deploymentId: fixture.input.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_application_unique_peer"),
+      physicalLocator: LOCATOR,
+    });
+
+    expect(await runEffect(activation.readActive()))
+      .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
   });
 
   it("converges concurrent identical settlement on one readiness receipt", async () => {
@@ -629,7 +721,8 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       status: "ready", readinessSha256: ready.readinessSha256,
     });
     const activation = makeApplicationActivationRepository({
-      deploymentId: fixture.input.deploymentId, readiness: fixture.repository, authority: fixture.authorityPorts,
+      deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts,
     });
     await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
     const before = await runEffect(activation.readActive());
@@ -653,6 +746,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       .toMatchObject({ status: "ready", disposition: "inserted" });
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -859,6 +953,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -950,6 +1045,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -1022,6 +1118,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const nextRevisionId = await createAdditionalApplicationRevision(fixture);
     expect(await runEffect(fixture.repository.settle({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       revisionId: nextRevisionId,
     }))).toMatchObject({ status: "ready" });
     await runEffect(activation.activate({
@@ -1042,6 +1139,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -1185,6 +1283,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const nextRevisionId = await createAdditionalApplicationRevision(fixture, true);
     expect(await runEffect(fixture.repository.settle({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       revisionId: nextRevisionId,
     }))).toMatchObject({ status: "ready" });
     await runEffect(activation.activate({
@@ -1801,6 +1900,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(empty);
     const emptyActivation = makeApplicationActivationRepository({
       deploymentId: empty.input.deploymentId,
+      scopeId: empty.input.scopeId,
       readiness: empty.repository,
       authority: empty.authorityPorts,
     });
@@ -1828,6 +1928,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(corrupt);
     const corruptActivation = makeApplicationActivationRepository({
       deploymentId: corrupt.input.deploymentId,
+      scopeId: corrupt.input.scopeId,
       readiness: corrupt.repository,
       authority: corrupt.authorityPorts,
     });
@@ -1888,6 +1989,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -1954,6 +2056,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -2211,6 +2314,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -2275,6 +2379,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -2969,6 +3074,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
       faultAfter: point => {
@@ -3027,6 +3133,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       uncertainTarget;
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3071,6 +3178,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3097,6 +3205,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3108,6 +3217,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const nextRevisionId = await createAdditionalApplicationRevision(fixture);
     const nextReadiness = await runEffect(fixture.repository.settle({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       revisionId: nextRevisionId,
     }));
     expect(nextReadiness).toMatchObject({ status: "ready" });
@@ -3163,6 +3273,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3219,6 +3330,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3285,6 +3397,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3326,6 +3439,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3363,6 +3477,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await enablePhysicalBuilds(fixture, schemaVersionId);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3459,6 +3574,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await runEffect(fixture.repository.settle(fixture.input));
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3554,6 +3670,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3582,6 +3699,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       );
       yield* fixture.repository.settle({
         deploymentId: fixture.input.deploymentId,
+        scopeId: fixture.input.scopeId,
         revisionId: nextRevisionId,
       });
       yield* activation.activate({
@@ -3609,6 +3727,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await enablePhysicalBuilds(fixture, schemaVersionId);
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -3683,6 +3802,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await runEffect(fixture.repository.settle(fixture.input));
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId,
       readiness: fixture.repository,
       authority: fixture.authorityPorts,
     });
@@ -4090,6 +4210,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     schema: readinessContext.schema,
     input: Object.freeze({
       deploymentId,
+      scopeId: authority.scopeId,
       revisionId: publication.revisionId,
     }),
     materializationCount: () => materializations,

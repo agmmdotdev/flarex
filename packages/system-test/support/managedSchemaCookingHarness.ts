@@ -879,6 +879,7 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
     const staleReadiness = await runSystemTestEffectV1(
       fixture.readiness.settle({
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.authority.scopeId,
         revisionId: candidate.publication.revisionId,
       }),
     );
@@ -1134,7 +1135,7 @@ export async function proveManagedSchemaCandidateIndexAfterActiveWrite(
         }
         const buildsBefore = await fixture.target.drizzle.select().from(fxSystemIndexBuildStates).orderBy(fxSystemIndexBuildStates.indexDefinitionId);
         let closedFault = false;
-        const faulty = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, readiness: fixture.readiness,
+        const faulty = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId, readiness: fixture.readiness,
           authority: fixture.authorityPorts, faultAfter: point => {
             if (point === "maintenanceClosed") { closedFault = true; throw new Error("Rollback closed maintenance"); }
           } });
@@ -1354,6 +1355,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
     const priorValidation = await Effect.runPromise(
       scenario.fixture.readiness.settle({
         deploymentId: scenario.fixture.deploymentId,
+        scopeId: scenario.fixture.authority.scopeId,
         revisionId: firstSchemaB.publication.revisionId,
       }),
     );
@@ -1488,6 +1490,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
     const failedReadiness = await Effect.runPromise(
       scenario.fixture.readiness.settle({
         deploymentId: scenario.fixture.deploymentId,
+        scopeId: scenario.fixture.authority.scopeId,
         revisionId: firstSchemaB.publication.revisionId,
       }),
     );
@@ -1766,6 +1769,7 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
     const priorValidation = await Effect.runPromise(
       scenario.fixture.readiness.settle({
         deploymentId: scenario.fixture.deploymentId,
+        scopeId: scenario.fixture.authority.scopeId,
         revisionId: firstSchemaC.publication.revisionId,
       }),
     );
@@ -1816,6 +1820,7 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
     const blockedReadiness = await Effect.runPromise(
       scenario.fixture.readiness.settle({
         deploymentId: scenario.fixture.deploymentId,
+        scopeId: scenario.fixture.authority.scopeId,
         revisionId: firstSchemaC.publication.revisionId,
       }),
     );
@@ -1905,6 +1910,7 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
     );
     const ready = await Effect.runPromise(scenario.fixture.readiness.settle({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       revisionId: retriedSchemaC.publication.revisionId,
     }));
     if (ready.status !== "ready") {
@@ -2026,6 +2032,7 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
     const priorValidation = await Effect.runPromise(
       scenario.fixture.readiness.settle({
         deploymentId: scenario.fixture.deploymentId,
+        scopeId: scenario.fixture.authority.scopeId,
         revisionId: firstSchemaD.publication.revisionId,
       }),
     );
@@ -2101,6 +2108,7 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
     const blockedReadiness = await Effect.runPromise(
       scenario.fixture.readiness.settle({
         deploymentId: scenario.fixture.deploymentId,
+        scopeId: scenario.fixture.authority.scopeId,
         revisionId: firstSchemaD.publication.revisionId,
       }),
     );
@@ -2182,6 +2190,7 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
     );
     const ready = await Effect.runPromise(scenario.fixture.readiness.settle({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       revisionId: retriedSchemaD.publication.revisionId,
     }));
     if (ready.status !== "ready") {
@@ -2432,6 +2441,7 @@ export async function proveManagedSchemaCookingSchemaE(
     const blockedReadiness = await Effect.runPromise(
       scenario.fixture.readiness.settle({
         deploymentId: scenario.fixture.deploymentId,
+        scopeId: scenario.fixture.authority.scopeId,
         revisionId: schemaERevision.publication.revisionId,
       }),
     );
@@ -2714,6 +2724,7 @@ export async function proveManagedSchemaCookingSchemaF(
     );
     const readyF = await runSystemTestEffectV1(scenario.fixture.readiness.settle({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       revisionId: schemaFRevision.publication.revisionId,
     }));
     if (readyF.status !== "ready") {
@@ -2859,6 +2870,7 @@ export async function proveManagedSchemaCookingSchemaG(
     );
     const readyF = await runSystemTestEffectV1(scenario.fixture.readiness.settle({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       revisionId: schemaFRevision.publication.revisionId,
     }));
     if (readyF.status !== "ready") {
@@ -2910,6 +2922,7 @@ export async function proveManagedSchemaCookingSchemaG(
     );
     const readyG = await runSystemTestEffectV1(scenario.fixture.readiness.settle({
       deploymentId: scenario.fixture.deploymentId,
+      scopeId: scenario.fixture.authority.scopeId,
       revisionId: schemaGRevision.publication.revisionId,
     }));
     const candidateBeforeActivation = await runSystemTestEffectV1(

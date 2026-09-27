@@ -81,7 +81,7 @@ export async function applicationActivationCatalogScenario(
     if (armed) { refuseReads++; throw new Error("Original catalog handle read under activation lease"); }
     return originalSelect(...args);
   });
-  const activation = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId,
+  const activation = makeApplicationActivationRepository({ deploymentId: fixture.deploymentId, scopeId: fixture.authority.scopeId,
     readiness: fixture.legacyReadiness, relationReadiness: fixture.fold, authority: fixture.authorityPorts,
     faultAfter: point => {
       if (point === "activationInserted") armed = true;
@@ -139,8 +139,8 @@ export async function applicationActivationCatalogScenario(
     expect(refuseReads).toBe(0);
   } finally { armed = false; select.mockRestore(); }
 
-  const issued = await runEffect(fixture.fold.settle(successor.input));
-  const otherIssued = await runEffect(fixture.fold.settle(successor.input));
+  const issued = await runEffect(fixture.fold.settle({ ...successor.input, scopeId: fixture.authority.scopeId }));
+  const otherIssued = await runEffect(fixture.fold.settle({ ...successor.input, scopeId: fixture.authority.scopeId }));
   const foreignRepository = makeApplicationRelationReadinessFoldRepository(fixture.foldContext);
   let retainedLease: ApplicationActivationCatalogLease | undefined;
   await runEffect(withApplicationActivationCatalogLock(fixture.fold, issued, lease => Effect.promise(async () => {

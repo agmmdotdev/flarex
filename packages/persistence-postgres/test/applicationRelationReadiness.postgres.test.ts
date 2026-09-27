@@ -175,7 +175,7 @@ import {
   fxSystemScopeClocks,
 } from "../src/schema";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
-import { resolveLocatedTrustedScopeAuthorityEffect } from
+import { resolveLocatedTrustedScopeAuthorityEffect, type ExactTrustedScopeAuthorityResolutionPorts } from
   "../src/scopeAuthorityResolution";
 import { lockScopeClockForUpdateInTransactionEffect } from
   "../src/scopeClock";
@@ -222,6 +222,7 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistencePair,
 } from "./postgresHelpers";
+import { prepareReadinessEvidence, relationReadinessFixture } from "./applicationRelationReadinessFixture";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
@@ -245,6 +246,33 @@ describe("E01-B PostgreSQL acceptance environment", () => {
 });
 
 describePostgres("real PostgreSQL E01-B application relation readiness", () => {
+  it("keeps an active relation-aware Application on its selected scope after a second shop joins", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await relationReadinessFixture({
+        persistence: target,
+        controlPersistence: control,
+        writePolicy: true,
+      });
+      await prepareReadinessEvidence(fixture);
+      const first = await runEffect(fixture.relationActivation.activate({
+        revisionId: fixture.input.revisionId,
+        expectedActiveHead: null,
+      }));
+      const metadata = await control.getScopeMetadata(fixture.authority.scopeId);
+      if (metadata === null) throw new Error("Missing PostgreSQL Application scope metadata.");
+      await control.insertScopeMetadata({
+        deploymentId: fixture.deploymentId,
+        scopeId: ScopeIdSchema.make("scope_relation_readiness_peer_postgres"),
+        physicalLocator: metadata.physicalLocator,
+      });
+
+      expect(await runEffect(fixture.fold.readActiveReady(fixture.input)))
+        .toMatchObject({ status: "ready", scopeId: fixture.input.scopeId });
+      expect(await runEffect(fixture.relationActivation.readActive()))
+        .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
+    });
+  }, 240_000);
+
   it("migrates, restarts, rolls back, serializes settlement, replays, and chains without sidecar writes", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const fixture = await fixtureFor(control, target);
@@ -913,6 +941,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       });
       const input = Object.freeze({
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.scopeId,
         revisionId: publication.revisionId,
       });
       const [left, right] = await Promise.all([
@@ -1004,6 +1033,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
 
       const relationActivation = makeApplicationActivationRepository({
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.scopeId,
         readiness: legacyReadiness,
         relationReadiness: fold,
         authority: fixture.authority,
@@ -1851,6 +1881,7 @@ async function preparePostgresRelationActivationFixture(
   });
   const readiness = await runEffect(fold.settle({
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
     revisionId: publication.revisionId,
   }));
   if (readiness.status !== "ready") {
@@ -1863,6 +1894,7 @@ async function preparePostgresRelationActivationFixture(
     relationReadiness = fold,
   ) => makeApplicationActivationRepository({
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
     readiness: legacyReadiness,
     relationReadiness,
     authority: fixture.authority,
@@ -1997,6 +2029,7 @@ async function preparePostgresLegacyReplacement(
   );
   const readiness = await runEffect(ready.legacyReadiness.settle({
     deploymentId: ready.fixture.deploymentId,
+    scopeId: ready.fixture.scopeId,
     revisionId: publication.revisionId,
   }));
   if (readiness.status !== "ready") {
@@ -2073,6 +2106,7 @@ async function preparePostgresRelationSuccessor(
   }));
   const readiness = await runEffect(ready.fold.settle({
     deploymentId: ready.fixture.deploymentId,
+    scopeId: ready.fixture.scopeId,
     revisionId: publication.revisionId,
   }));
   if (readiness.status !== "ready") {
@@ -2093,7 +2127,7 @@ interface Fixture {
   readonly pointCommitAuthority: Parameters<
     typeof createApplicationRelationCommitPort
   >[1];
-  readonly authority: Parameters<typeof createApplicationRelationBuildPort>[1];
+  readonly authority: Parameters<typeof createApplicationRelationBuildPort>[1] & ExactTrustedScopeAuthorityResolutionPorts;
   readonly build: ApplicationRelationBuildPort;
   readonly readiness: ApplicationRelationReadinessPort;
 }

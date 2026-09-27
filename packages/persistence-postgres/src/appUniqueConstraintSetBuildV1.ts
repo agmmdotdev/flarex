@@ -123,11 +123,13 @@ import {
   type ScopeClockRecord,
 } from "./scopeClock";
 import {
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   resolveLocatedTrustedScopeAuthorityEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
+import { getScopeMetadata } from "./scopeMetadata";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import { fxSystemUniqueConstraintBuilds } from "./schema";
@@ -540,9 +542,12 @@ const loadEligibilityWithClockLock = Effect.fn(
   const prepared = uniquePreparations.get(planned.preparation);
   if (prepared === undefined) return yield* Effect.die("Missing issued unique-set preparation");
   if (prepared.snapshot.members.length === 0) return Object.freeze({ status: "not_required" as const, tableIds: [] as const });
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    prepared.snapshot.deploymentId,
-    ports.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: prepared.snapshot.deploymentId, scopeId: prepared.scopeId },
+    {
+      ...ports.authority,
+      scopeMetadata: { getScopeMetadata: selectedScopeId => getScopeMetadata(ports.controlDb, selectedScopeId) },
+    },
   );
   if (located.authority.scopeId !== prepared.scopeId) {
     return yield* Effect.fail(

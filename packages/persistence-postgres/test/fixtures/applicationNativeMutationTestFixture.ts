@@ -1,4 +1,4 @@
-import type { TrustedScopeAuthorityResolutionPorts } from "../../src/scopeAuthorityResolution";
+import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../../src/scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../../src/transactionSessionAttemptKernel";
 import { webcrypto } from "node:crypto";
 
@@ -604,6 +604,7 @@ async function createApplicationNativeMutationFixture<
   };
   const notReady = await Effect.runPromise(readiness.settle({
     deploymentId,
+    scopeId: authority.scopeId,
     revisionId: publication.revisionId,
   }));
   if (notReady.status !== "not_ready" ||
@@ -624,6 +625,7 @@ async function createApplicationNativeMutationFixture<
   );
   const ready = await Effect.runPromise(readiness.settle({
     deploymentId,
+    scopeId: authority.scopeId,
     revisionId: publication.revisionId,
   }));
   if (ready.status !== "ready") {
@@ -631,6 +633,7 @@ async function createApplicationNativeMutationFixture<
   }
   const activation = makeApplicationActivationRepository({
     deploymentId,
+    scopeId: authority.scopeId,
     readiness,
     authority: authorityPorts,
   });
@@ -764,6 +767,7 @@ async function createApplicationNativeMutationFixture<
     );
     const nextReady = await Effect.runPromise(readiness.settle({
       deploymentId,
+      scopeId: authority.scopeId,
       revisionId: nextPublication.revisionId,
     }));
     if (nextReady.status !== "ready") {
@@ -1425,7 +1429,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 export function composeApplicationNativeMutationReadiness(
   options: Pick<ApplicationNativeMutationFixtureOptions, "runtimeHostIdentity" | "compatibilityDate">,
   control: ApplicationNativeMutationPersistence,
-  authorityPorts: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
+  authorityPorts: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> & ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
   sessionAuthority: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>["sessionAuthority"],
 ) {
   const candidateValidation = createAppSchemaCandidateValidationPort({

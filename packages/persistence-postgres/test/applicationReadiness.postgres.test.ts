@@ -14,6 +14,7 @@ import {
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Effect, Result } from "effect";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
@@ -21,8 +22,11 @@ import {
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
+  SchemaManifestAppIndexDescriptorSchema,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import { APP_UNIQUE_KEY_CODEC_IDENTITY_V1, APP_UNIQUE_KEY_CODEC_VERSION_V1, decodeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -38,7 +42,10 @@ import {
 } from "../src/appUniqueConstraintCommitV1";
 import {
   createAppUniqueConstraintSetEligibilityPortV1,
+  advanceAppUniqueConstraintSetBackfillV1Effect,
+  reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
+import { ensureAppUniqueConstraintDefinitionBindingV1InTransaction, prepareAppUniqueConstraintDefinitionBindingV1Effect } from "../src/appUniqueConstraintDefinitions";
 import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
   prepareAppUniqueConstraintSetClosureV1Effect,
@@ -299,6 +306,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       await enablePhysicalBuilds(fixture, schemaVersionId);
       const activation = makeApplicationActivationRepository({
         deploymentId: fixture.input.deploymentId,
+        scopeId: fixture.input.scopeId,
         readiness: fixture.repository,
         authority: fixture.authorityPorts,
       });
@@ -377,6 +385,88 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
         if (!released) await blocker.query("rollback").catch(() => undefined);
         blocker.release();
       }
+    });
+  }, 240_000);
+
+  it("keeps an active Application readable after a second scope joins its deployment", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await readinessFixture(control, target);
+      const schemaVersionId = await prepareReadinessAuthorities(fixture);
+      await enablePhysicalBuilds(fixture, schemaVersionId);
+      const activation = makeApplicationActivationRepository({
+        deploymentId: fixture.input.deploymentId,
+        scopeId: fixture.input.scopeId,
+        readiness: fixture.repository,
+        authority: fixture.authorityPorts,
+      });
+      const first = await runEffect(activation.activate({
+        revisionId: fixture.input.revisionId,
+        expectedActiveHead: null,
+      }));
+      await control.insertScopeMetadata({
+        deploymentId: fixture.input.deploymentId,
+        scopeId: ScopeIdSchema.make("scope_application_readiness_peer_postgres"),
+        physicalLocator: LOCATOR,
+      });
+
+      expect(await runEffect(fixture.repository.readReady(fixture.input)))
+        .toMatchObject({ status: "ready", scopeId: fixture.input.scopeId });
+      expect(await runEffect(activation.readActive()))
+        .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
+    });
+  }, 240_000);
+
+  it("keeps an active Application with an enabled unique definition readable after a peer shop joins", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await readinessFixture(control, target);
+      const schemaVersionId = await prepareReadinessAuthorities(fixture, async selectedSchemaVersionId => {
+        const prepared = await runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
+          control.drizzle,
+          {
+            deploymentId: fixture.input.deploymentId,
+            schemaVersionId: selectedSchemaVersionId,
+            tableId: decodeCatalogTableId(1),
+            descriptor: SchemaManifestAppIndexDescriptorSchema.make("by_name_unique"),
+            physicalSpec: decodeAppUniqueConstraintPhysicalSpecV1({
+              kind: "appUniqueConstraint",
+              specVersion: 1,
+              orderedFields: ["name"],
+              sparse: false,
+              localePolicy: { kind: "none" },
+              keyCodecIdentity: APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
+              keyCodecVersion: APP_UNIQUE_KEY_CODEC_VERSION_V1,
+            }),
+          },
+        ));
+        await control.drizzle.transaction(tx => runEffect(
+          ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, prepared),
+        ));
+      });
+      await enablePhysicalBuilds(fixture, schemaVersionId);
+      const uniquePorts = { controlDb: control.drizzle, authority: fixture.authorityPorts };
+      const uniqueInput = { deploymentId: fixture.input.deploymentId, schemaVersionId };
+      await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(uniquePorts, uniqueInput));
+      let enabled = false;
+      for (let step = 0; step < 8; step += 1) {
+        const progress = await runEffect(advanceAppUniqueConstraintSetBackfillV1Effect(uniquePorts, { ...uniqueInput, pageSize: 16 }));
+        if (progress.lifecycle === "enabled") { enabled = true; break; }
+      }
+      expect(enabled).toBe(true);
+      const activation = makeApplicationActivationRepository({
+        deploymentId: fixture.input.deploymentId,
+        scopeId: fixture.input.scopeId,
+        readiness: fixture.repository,
+        authority: fixture.authorityPorts,
+      });
+      const first = await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
+      await control.insertScopeMetadata({
+        deploymentId: fixture.input.deploymentId,
+        scopeId: ScopeIdSchema.make("scope_application_unique_peer_postgres"),
+        physicalLocator: LOCATOR,
+      });
+
+      expect(await runEffect(activation.readActive()))
+        .toMatchObject({ expectedActiveHead: first.expectedActiveHead, basis: { authority: { scopeId: fixture.input.scopeId } } });
     });
   }, 240_000);
 
@@ -611,6 +701,7 @@ async function readinessFixture(
     repository,
     input: Object.freeze({
       deploymentId,
+      scopeId: authority.scopeId,
       revisionId: publication.revisionId,
     }),
   });
@@ -618,6 +709,7 @@ async function readinessFixture(
 
 async function prepareReadinessAuthorities(
   fixture: Awaited<ReturnType<typeof readinessFixture>>,
+  beforeClosure?: (schemaVersionId: CatalogSchemaVersionId) => Promise<void>,
 ): Promise<CatalogSchemaVersionId> {
   const beforeValidation = await runEffect(
     fixture.repository.settle(fixture.input),
@@ -633,6 +725,7 @@ async function prepareReadinessAuthorities(
   if (schemaVersionId === undefined) {
     throw new Error("Expected PostgreSQL Application schema authority.");
   }
+  if (beforeClosure !== undefined) await beforeClosure(schemaVersionId);
   const closure = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
     fixture.control.drizzle,
     { deploymentId: fixture.input.deploymentId, schemaVersionId },

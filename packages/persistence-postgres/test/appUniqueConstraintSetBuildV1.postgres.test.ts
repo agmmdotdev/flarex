@@ -69,6 +69,32 @@ const LOCATOR = Object.freeze({
 } as const satisfies ScopePhysicalLocator);
 
 describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
+  it("reads an enabled unique set by exact scope after another shop joins its deployment", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const fixture = await fixtureFor(persistence);
+      await closeFixtureSet(fixture);
+      await reconcile(fixture);
+      await advanceUntilEnabled(fixture);
+      await persistence.insertScopeMetadata({
+        deploymentId: fixture.input.deploymentId,
+        scopeId: ScopeIdSchema.make("scope_unique_eligibility_peer_postgres"),
+        physicalLocator: LOCATOR,
+      });
+      const port = createAppUniqueConstraintSetEligibilityPortV1(
+        fixture.ports,
+        createAppUniqueConstraintDefinitionPortV1(persistence.drizzle),
+      );
+
+      expect(await runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+        port,
+        { ...fixture.input, scopeId: fixture.scopeId },
+      ))).toMatchObject({
+        status: "eligible",
+        evidence: { scopeId: fixture.scopeId, definitionCount: 1 },
+      });
+    });
+  }, 120_000);
+
   it.each([false, true])("builds conditional nullable keys with active duplicate = %s", async duplicate => {
     await withTemporaryPostgresPersistence(async persistence => {
       const spec = decodeAppUniqueConstraintPhysicalSpecV1({ kind: "appUniqueConstraint", specVersion: 1,

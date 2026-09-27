@@ -628,6 +628,7 @@ export async function relationReadinessFixture(
   });
   const relationActivation = makeApplicationActivationRepository({
     deploymentId,
+    scopeId: authority.scopeId,
     readiness: legacyReadiness,
     relationReadiness: fold,
     authority: authorityPorts,
@@ -660,12 +661,14 @@ export async function relationReadinessFixture(
     relationActivation,
     legacyActivation: makeApplicationActivationRepository({
       deploymentId,
+      scopeId: authority.scopeId,
       readiness: legacyReadiness,
       authority: authorityPorts,
     }),
     legacyColdCalls: () => legacyColdCalls,
     input: Object.freeze({
       deploymentId,
+      scopeId: authority.scopeId,
       revisionId: publication.revisionId,
     }),
   });
@@ -781,6 +784,7 @@ export async function prepareAdditionalRelationRevision(
   if (beforeReadiness !== undefined) await beforeReadiness();
   const readiness = await runEffect(fixture.fold.settle({
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.authority.scopeId,
     revisionId: publication.revisionId,
   }));
   if (readiness.status !== "ready") {
@@ -897,6 +901,7 @@ export async function prepareLegacyRevisionInRelationFixture(
   );
   const readiness = await runEffect(fixture.legacyReadiness.settle({
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.authority.scopeId,
     revisionId: publication.revisionId,
   }));
   if (readiness.status !== "ready") {
