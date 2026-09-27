@@ -110,7 +110,7 @@ or that separate profiles have universally better performance.
 
 The table records the baseline gaps that motivated the first slice and the
 contracts still needed for broader admission. The implemented Product and
-selected Payload paths use the native journal V2, one pending point overlay,
+selected Payload paths use the current journal with one source per admitted operation, one pending point overlay,
 borrowed logical working sets and authenticated source effects under the root.
 Those contracts are proved for their pinned operations, not for an arbitrary
 framework operation or historical text search.
@@ -208,7 +208,7 @@ Every admitted read uses the same logical snapshot plus earlier pending changes,
 including changes issued through another admitted domain capability. Relevant
 cross-domain reads still require explicit authorization and query support.
 
-The first private slice uses the native V2 journal as the durable attempt record
+The first private slice uses the current journal with one source per admitted operation as the durable attempt record
 and its point rows as the single pending view. A borrowed logical operation
 hydrates its disposable working set from the authenticated snapshot and pending
 points, then returns checked effects for atomic journal acceptance. No SQL
@@ -654,7 +654,7 @@ follow-on work.
 ## Decisions For Later Gates
 
 - The selected Payload lifecycle is implemented privately. The proposed finite
-  workflow, source-set and V3 cutover decisions are in the [third preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md);
+  workflow, source-set and journal-format cutover decisions are in the [third preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md);
   they require focused scope agreement before runtime work.
 - Which framework query forms have sufficient history and dependency evidence,
   and which must remain unavailable until that evidence exists?
@@ -681,7 +681,7 @@ retries under root budgets, durable outcome resolution before an uncertain
 commit can rerun callbacks, and the existing lock protocol. The same root and
 receipt owner records an exact in-progress operation before native execution;
 duplicates wait or refuse while it is live, and the existing execution claim
-and attempt lease govern abandonment after expiry. The V2 representation and
+and attempt lease govern abandonment after expiry. The current journal representation and
 selected Product/Payload paths are implemented in their focused private
 preflights; named durable-environment activation still requires its explicit
 data disposition. The proposed finite workflow would change that durable

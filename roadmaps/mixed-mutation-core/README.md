@@ -145,7 +145,7 @@ from this roadmap alone.
    cancellation and uncertain COMMIT alongside Application and Payload. Refuse
    text/JSON search, effects, waits, parallelism and resource locks outside its
    selected graph. Migrate affected workflow/adapter consumers and remove
-   displaced mixed paths in that package. Exact V3 durable-format cutover and
+   displaced mixed paths in that package. Exact journal-format cutover and
    named-environment disposition are gates in its preflight.
 4. **Evidence-driven cost and completion.** Only after representative real
    integration and correctness work, measure equivalent workloads on ordinary-role
