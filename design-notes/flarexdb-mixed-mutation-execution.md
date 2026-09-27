@@ -1,13 +1,17 @@
 # Mixed Application, Payload And Medusa Mutations
 
-Status: accepted and implemented for the first private Application and Product
-slice in isolated test scopes. Later Payload, workflow, public API and hosted
-activation gates remain proposed or deferred as described below. The other shared-storage
+Status: accepted and implemented for the private Application/Product and selected
+Payload Local API slices in isolated test scopes. The [finite Medusa workflow
+preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md)
+is proposed for focused scope agreement; its runtime work, public API and hosted
+activation remain unapproved or deferred. The other shared-storage
 session has completed its active [exact-scope retained-history slice](../roadmaps/shared-logical-storage/56-same-deployment-scope-authority.md)
 and paused at a clean committed handoff; the shared-storage domain still has
 remaining work. The [first focused preflight](../roadmaps/mixed-mutation-core/01-application-product-attempt-preflight.md)
 owns the approved private Product operation, attempt defaults and validation
-gate. Developer APIs remain deferred. This approval does not authorize public
+gate. The [Payload preflight](../roadmaps/mixed-mutation-core/02-payload-local-api-attempt-preflight.md)
+owns its implemented private lifecycle. Developer APIs remain deferred. These
+approvals do not authorize public
 exposure, named-environment journal migration or changes to locking. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
 owns current status and connected delivery gates.
 
@@ -57,10 +61,12 @@ handoff. Its [completion plan](../roadmaps/shared-logical-storage/03-completion-
 still owns the uncompleted storage backlog. The mixed core need not wait for
 that entire goal, but must not silently absorb its remaining consumer migrations.
 The first [focused preflight](../roadmaps/mixed-mutation-core/01-application-product-attempt-preflight.md)
-approves the Application and Product private attempt after its baseline audit.
-It owns execution, authority, snapshot, retry, cutover and validation for that
-slice. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
-tracks later gates and remaining work.
+approves the Application and Product private attempt after its baseline audit;
+the [second](../roadmaps/mixed-mutation-core/02-payload-local-api-attempt-preflight.md)
+owns the implemented Payload lifecycle under the same root. Each owns its exact
+authority, cutover and validation scope. The proposed [workflow preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md)
+owns the next scope discussion. The [mixed core roadmap](../roadmaps/mixed-mutation-core/README.md)
+tracks remaining gates and work.
 
 The approved private core phase covers attempt participation, snapshot and pending reads,
 journal evidence, OCC validation, settlement, recovery, framework lifecycle
@@ -103,16 +109,16 @@ or that separate profiles have universally better performance.
 ## Baseline Foundations And Later Contracts
 
 The table records the baseline gaps that motivated the first slice and the
-contracts still needed for broader admission. The implemented Product path
-uses the native journal V2, one pending point overlay, a borrowed logical
-working set and authenticated Product effects under the root. Those contracts
-are proved for the selected title/handle/published native graph, not for an
-arbitrary framework operation or historical text search.
+contracts still needed for broader admission. The implemented Product and
+selected Payload paths use the native journal V2, one pending point overlay,
+borrowed logical working sets and authenticated source effects under the root.
+Those contracts are proved for their pinned operations, not for an arbitrary
+framework operation or historical text search.
 
 | Owner | Reusable foundation | Baseline or later-admission gap |
 | --- | --- | --- |
 | [Native session journal](../packages/persistence-postgres/src/sessionJournalStore.ts) and [commit owner](../packages/persistence-postgres/src/pointCommitTransaction.ts) | Attempt identity, snapshot reads, pending point/index state, authenticated sealing, OCC and recovery | Authenticate framework operations and their complete dependencies without granting ordinary Application writes to framework-owned tables |
-| [Logical working set](../packages/persistence-postgres/src/logicalDocuments/workingSet.ts) | Pending documents, indexed queries, unique observations, relational checks and resource accounting | Its [construction contract](../packages/persistence-postgres/src/logicalDocuments/model.ts) borrows a physical transaction and request lifetime; current observations do not establish native historical-snapshot semantics |
+| [Logical working set](../packages/persistence-postgres/src/logicalDocuments/workingSet.ts) | Pending documents, indexed queries, unique observations, relational checks and resource accounting; selected Product/Payload borrowed historical reads are implemented | Broader query forms and a multi-source workflow invocation still need exact pending and dependency proofs |
 | [Shared index/search definitions and entries](../packages/persistence-postgres/src/logicalDocuments/searchEntries.ts) | Ordered and unique access, current text/JSON search, atomic maintenance and scoped readiness | Establish snapshot candidate selection and complete conflict evidence for each admitted access path; current-search entries alone do not provide historical search |
 | [Shared materialization](../packages/persistence-postgres/src/logicalDocuments/materialization.ts) | Generic row/index/constraint preparation and lowering | Validate one combined mutation contribution across authenticated semantic owners |
 | [Medusa repository context](../packages/medusa-adapter/src/commerce-repository-context.ts) and [Payload adapter](../packages/payload-adapter/src/adapter.ts) | Opaque manager/request propagation and framework translation | Borrow mutation-attempt capabilities instead of independently executing a root command |
@@ -636,9 +642,10 @@ unbounded tuning or an unproved universal performance claim a completion gate.
 
 Each implementation slice includes meaningful owner/consumer tests, PGlite and
 ordinary-role PostgreSQL lanes, applicable Worker execution, required type/build/
-lint/source guards, both standing reviewers and cleanup. The first private
-Product slice is implemented and bounded as described above. Payload, workflow
-and whole-core completion remain open, and no performance result is claimed.
+lint/source guards, both standing reviewers and cleanup. The private Product
+and selected Payload slices are implemented and bounded in their numbered
+preflights. Workflow runtime and whole-core completion remain open, and no
+performance result is claimed.
 Core completion means the agreed
 private execution contracts, real consumer proofs, measured performance targets
 and cleanup gates pass; developer API design and exposure remain separate
@@ -646,8 +653,9 @@ follow-on work.
 
 ## Decisions For Later Gates
 
-- Which Payload operation and finite workflow follow the approved first Product
-  update, retrieve and handle-list proof?
+- The selected Payload lifecycle is implemented privately. The proposed finite
+  workflow, source-set and V3 cutover decisions are in the [third preflight](../roadmaps/mixed-mutation-core/03-finite-medusa-workflow-preflight.md);
+  they require focused scope agreement before runtime work.
 - Which framework query forms have sufficient history and dependency evidence,
   and which must remain unavailable until that evidence exists?
 - Which text/JSON access paths use historical candidate selection, and which
@@ -674,7 +682,9 @@ commit can rerun callbacks, and the existing lock protocol. The same root and
 receipt owner records an exact in-progress operation before native execution;
 duplicates wait or refuse while it is live, and the existing execution claim
 and attempt lease govern abandonment after expiry. The V2 representation and
-selected Product path are implemented in the focused private preflight; named
-durable-environment activation still requires its explicit data disposition.
-Later admissions require their own focused preflights;
+selected Product/Payload paths are implemented in their focused private
+preflights; named durable-environment activation still requires its explicit
+data disposition. The proposed finite workflow would change that durable
+format and has its own scope and data gates. Later admissions require their
+own focused preflights;
 developer APIs remain deferred.
