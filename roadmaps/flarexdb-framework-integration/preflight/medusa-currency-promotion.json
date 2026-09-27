@@ -525,6 +525,11 @@
       "targetSha256": "213dbdfc486ec48cc446ce8d8d648cf0980622a58b6cc3c0ed19aa5b7832074e"
     },
     {
+      "target": "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
+      "classification": "authored",
+      "targetSha256": "e891829bfbd48aa9bc8c9f5765c3ce5a7d752877cfd10088d52c5fe3b0b21c35"
+    },
+    {
       "target": "packages/medusa-adapter/test/support/product-attempt-seed.ts",
       "classification": "authored",
       "targetSha256": "e5ba7d15eba35ef1e4cec48751f45f35064e9dba63c384e7e1c5987d90715660"

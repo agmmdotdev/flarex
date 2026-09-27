@@ -13,7 +13,7 @@ import { createLocatedIndexBuildReconciliationTargetV1, reconcilePublishedIndexB
 import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../src/appIndexDefinitions";
 import { locateAppUniqueConstraintDefinitionsForSchemaEffect } from "../src/appUniqueConstraintDefinitions";
 import { prepareLogicalRelationalValueValidation } from "../src/logicalDocuments/relationalValues";
-import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
+import { makeLogicalDocumentWorkingSet, type LogicalDocumentReadTestHooks } from "../src/logicalDocuments/workingSet";
 import { makeBoundedRequestLifetime, type BoundedRequestLifetime } from "../src/boundedRequestLifetime";
 import { runEffectTransaction } from "../src/effectTransaction";
 import { runDrizzleStatementEffect } from "../src/drizzleStatementEffect";
@@ -61,13 +61,14 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
   const make = (lifetime: BoundedRequestLifetime<Error>, clock:
     Effect.Success<ReturnType<typeof lockScopeClockForOrdinaryWriteInTransactionEffect>>,
     readSource: { readonly tx: FlarexMetadataTransaction } | { readonly readTransaction: typeof transact; readonly snapshotCommitSeq: typeof clock.lastCommitSeq },
+    testHooks?: LogicalDocumentReadTestHooks<Error>,
   ) => makeLogicalDocumentWorkingSet<Error>({ ...readSource, scopeId, clock, lifetime, tables,
     relationalCapabilities: schema.capabilities, requireAdmission: Effect.void,
     validateDocument: write => Effect.fromResult(values.validate(write.tableId, write.document))
       .pipe(Effect.mapError(cause => error("documentInvalid", cause))),
     error, uniqueConflict: () => error("uniqueConflict"),
     limits: { pageRows: 32, identities: 64, documentBytes: 65_536 },
-  }, AppCreationTimeV1Schema.make(1), unique, indexes);
+  }, AppCreationTimeV1Schema.make(1), unique, indexes, testHooks);
   const productId = "prod_historical_attempt", imageId = "img_historical_attempt";
   const optionId = "opt_historical_attempt";
   const oldHandle = "historical-before", committedHandle = "historical-after", pendingHandle = "historical-pending";
@@ -149,8 +150,14 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
     const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(error,
       { calls: 128, commandBytes: 1_048_576, commandMs: 60_000 }, {}, {}, "product-historical", "write"),
     resource => resource.close);
+    let readTransactions = 0;
+    let activeRead = false;
+    const checkedReadTransaction: typeof transact = work => Effect.acquireUseRelease(
+      Effect.sync(() => { readTransactions++; activeRead = true; }),
+      () => transact(work), () => Effect.sync(() => { activeRead = false; }));
     const working = yield* make(lifetime, currentClock,
-      { readTransaction: transact, snapshotCommitSeq });
+      { readTransaction: checkedReadTransaction, snapshotCommitSeq },
+      { observeQuery: () => expect(activeRead).toBe(true) });
     const id = yield* lifetime.begin(lifetime.context);
     const product = yield* working.relationalTable(lifetime.context, id, "product");
     const image = yield* working.relationalTable(lifetime.context, id, "image");
@@ -162,12 +169,16 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
       order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
         { kind: "in", column: "handle", values: [handle] }, { kind: "isNull", column: "deleted_at" }] } });
     expect(yield* point()).toMatchObject([{ id: productId, title: "Historical Product", handle: oldHandle }]);
+    expect(activeRead).toBe(false);
     expect(yield* find(oldHandle)).toMatchObject([{ id: productId, title: "Historical Product" }]);
     expect(yield* find(committedHandle)).toEqual([]);
     const images = () => image.find(lifetime.context, { take: 10,
       order: { column: "id", direction: "asc" }, predicate: { kind: "and", children: [
         { kind: "in", column: "product_id", values: [productId] }, { kind: "isNull", column: "deleted_at" }] } });
+    const beforeImageRead = readTransactions;
     expect(yield* images()).toMatchObject([{ id: imageId }]);
+    expect(readTransactions - beforeImageRead).toBe(1);
+    expect(activeRead).toBe(false);
     yield* product.write(lifetime.context, "update", [{ id: productId, handle: pendingHandle,
       title: "Pending native title", status: "published" }]);
     expect(yield* point()).toMatchObject([{ id: productId, title: "Pending native title", handle: pendingHandle }]);

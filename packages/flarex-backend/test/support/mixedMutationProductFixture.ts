@@ -78,6 +78,8 @@ import { issueSetupSeededSyscallValidatorProofV1 } from
   "../../../persistence-postgres/test/applicationRevisionSyscallValidatorTestSupport";
 import { applicationMutationActivationFixture } from
   "../../../persistence-postgres/test/applicationMutationActivationFixture";
+import type { MixedMutationPerformanceTrace } from
+  "../../../persistence-postgres/test/mixedMutationPerformanceTrace";
 import { TEST_GRANT_RETENTION_POLICY_V1 } from
   "../../../persistence-postgres/test/transactionSessionActivationTestSupport";
 import { logicalCurrencyFixture } from
@@ -279,10 +281,10 @@ Readonly<{ workflow?: never; workflowIds?: never; payloadProfile?: MixedPayloadP
   deploymentId: string; projectId: string; uuidOffset: number;
 }> }>);
 
-export async function createMixedMutationProductFixture(
-  input: MixedMutationProductFixtureInput,
-): Promise<MixedMutationProductFixture> {
+async function prepareMixedMutationProductContext(input: MixedMutationProductFixtureInput,
+  initialSeedSuffix: string, mode: "single" | "series") {
   const cleanup: Array<() => Promise<void>> = [];
+  const provisioningStart = globalThis.performance.now();
   const currency = await logicalCurrencyFixture(input.driver, close => cleanup.push(close),
     input.resource === undefined
       ? { includeProduct: true,
@@ -297,6 +299,33 @@ export async function createMixedMutationProductFixture(
         ...(input.workflow === true ? { includePricing: true,
           includeVariantPricingLink: true } : {}),
         ...(input.payloadProfile === undefined ? {} : { payloadCollections: mixedPayloadPostsCollections() }) });
+  const provisioningMilliseconds = globalThis.performance.now() - provisioningStart;
+  const application = currency.application;
+  const selectAttempt = async () => {
+    const active = await Effect.runPromise(application.activation.readActive());
+    const applicationAdmission = await Effect.runPromise(selectApplicationMutationAdmission(
+      active.selection, input.workflow === true ? "productLaunch:launch" : "users:create", {
+        deploymentId: currency.deploymentId,
+        controlDb: currency.control.drizzle, authority: application.authorityPorts,
+        schema: application.schema }));
+    return { active, applicationAdmission };
+  };
+  const activateAttempt = async (suffix: string, validatedArgsJson?: Readonly<{ body: string }>) => {
+    const { active, applicationAdmission } = await selectAttempt();
+    const activationInput = await applicationMutationActivationFixture({
+      deploymentId: currency.deploymentId,
+      selection: active.selection, executionAuthority: applicationAdmission.executionAuthority,
+      requestKey: `mixed-product-${suffix}`, grantId: `mixed-product-${suffix}-grant`,
+      ...(validatedArgsJson === undefined ? {} : { validatedArgsJson }),
+    });
+    const activation = await Effect.runPromise(createApplicationMutationSessionActivationPersistenceV1(
+      application.sessionAuthority, { leaseDurationMilliseconds: 60_000 }).activateEffect(
+      activationInput));
+    if (activation.status !== "created") throw new Error("Expected fresh mixed attempt");
+    return { active, applicationAdmission, activationInput, activation };
+  };
+  const preparedModuleStart = globalThis.performance.now();
+  try {
   const product = await prepareLogicalProductHost(currency);
   const pricing = input.workflow === true ? await prepareLogicalPricingHost(currency) : undefined;
   const link = input.workflow === true ? await prepareLogicalVariantPricingLinkHost(currency) : undefined;
@@ -305,83 +334,341 @@ export async function createMixedMutationProductFixture(
     await Effect.runPromise(member.host.initialize([]));
     await Effect.runPromise(member.host.close);
   }
-  const { seed, baseline } = await seedNativeProductAttemptGraph(currency, product,
-    input.suffix, input.workflow === true ? "launch" : "existing");
-  const application = currency.application;
-  const active = await Effect.runPromise(application.activation.readActive());
+  const initialSeedStart = globalThis.performance.now();
+  const initialSeed = initialSeedSuffix === undefined ? undefined :
+    await seedNativeProductAttemptGraph(currency, product, initialSeedSuffix,
+      input.workflow === true ? "launch" : "existing");
+  const initialSeedingMilliseconds = globalThis.performance.now() - initialSeedStart;
+  // The ordinary fixture activates after native seeding and before preparing
+  // logical source admissions, preserving the seed's admission frontier.
+  const earlyActivation = mode === "single" ? await activateAttempt(input.suffix) : undefined;
+  const selected = earlyActivation ?? await selectAttempt();
+  const { active, applicationAdmission } = selected;
   const schemaVersionId = application.active.basis.schemaVersionId;
   const logicalSchemaVersionId = currency.schemaVersionId;
-  const applicationAdmission = await Effect.runPromise(selectApplicationMutationAdmission(
-      active.selection, input.workflow === true ? "productLaunch:launch" : "users:create", {
-        deploymentId: currency.deploymentId,
-        controlDb: currency.control.drizzle, authority: application.authorityPorts,
-        schema: application.schema }));
-    const activationInput = await applicationMutationActivationFixture({ deploymentId: currency.deploymentId,
-      selection: active.selection, executionAuthority: applicationAdmission.executionAuthority,
-      requestKey: `mixed-product-${input.suffix}`, grantId: `mixed-product-${input.suffix}-grant` });
-    const activation = await Effect.runPromise(createApplicationMutationSessionActivationPersistenceV1(
-      application.sessionAuthority, { leaseDurationMilliseconds: 60_000 }).activateEffect(
-      activationInput));
-    if (activation.status !== "created") throw new Error("Expected fresh mixed attempt");
-    const eventGroup = admittedCommerceEventGroup({
-      scopeUuid: projectScopeIdUuidV1(activation.anchor.scopeId).scopeUuid,
-      sessionId: activation.anchor.sessionId, attemptFence: activation.anchor.attemptFence,
-    });
-    const prepared = await Effect.runPromise(prepareLogicalRelationalAdmission({
+  const prepared = await Effect.runPromise(prepareLogicalRelationalAdmission({
+    controlDb: currency.control.drizzle, authority: application.authorityPorts,
+  }, application.uniqueConstraintEligibility, { deploymentId: currency.deploymentId,
+    scopeId: application.authority.scopeId, schemaVersionId: logicalSchemaVersionId },
+  product.hostInput.logicalStorage.source));
+  const selectedPayload = input.payloadProfile === undefined ? undefined : mixedPayloadProfiles[input.payloadProfile];
+  const payloadProfileRevision = selectedPayload === undefined ? undefined :
+    createHash("sha256").update(
+      `mixed-payload-${selectedPayload.profile.participant}-${input.payloadProfile}`).digest("hex");
+  const compiledPayload = selectedPayload === undefined ? undefined :
+    await Effect.runPromise(compilePayloadCollections(mixedPayloadPostsCollections()));
+  const payloadPrepared = compiledPayload === undefined ? undefined : await Effect.runPromise(
+    prepareLogicalDocumentSourceAdmission({ controlDb: currency.control.drizzle,
+      authority: application.authorityPorts }, application.uniqueConstraintEligibility,
+    { deploymentId: currency.deploymentId, scopeId: application.authority.scopeId,
+      schemaVersionId: logicalSchemaVersionId }, compiledPayload.sourceContract));
+  const binding = await Effect.runPromise(preparePrivateProductAttempt());
+  const revision = createHash("sha256").update("mixed-product-workerd-events").digest("hex");
+  const eventPolicy = await Effect.runPromise(preparePrivateProductAttemptEventPolicy(binding, {
+    producerRevision: revision, contractRevision: revision,
+    subscribers: [{ id: "mixed-product-proof", revision }],
+  }));
+  const workflowBinding = pricing === undefined || link === undefined ? undefined :
+    await Effect.runPromise(preparePrivateProductLaunchAttempt({
+      modules: {
+        product: { module: product.runtime.workflow,
+          logicalStorage: product.hostInput.logicalStorage },
+        pricing: { module: pricing.runtime.workflow,
+          logicalStorage: pricing.hostInput.logicalStorage },
+        link: { module: link.runtime.workflow,
+          logicalStorage: link.hostInput.logicalStorage },
+      },
+      identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
+      revision: createHash("sha256").update("mixed-product-launch-workflow").digest("hex"),
+      subscribers: [{ id: "mixed-product-launch-proof", revision }],
+    }));
+  const workflowSelections: Array<Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>> = [];
+  for (const source of workflowBinding?.sources ?? []) {
+    workflowSelections.push(await Effect.runPromise(prepareLogicalRelationalAdmission({
       controlDb: currency.control.drizzle, authority: application.authorityPorts,
     }, application.uniqueConstraintEligibility, { deploymentId: currency.deploymentId,
       scopeId: application.authority.scopeId, schemaVersionId: logicalSchemaVersionId },
-    product.hostInput.logicalStorage.source));
-    const selectedPayload = input.payloadProfile === undefined ? undefined : mixedPayloadProfiles[input.payloadProfile];
-    const payloadProfileRevision = selectedPayload === undefined ? undefined :
-      createHash("sha256").update(
-        `mixed-payload-${selectedPayload.profile.participant}-${input.payloadProfile}`).digest("hex");
-    const compiledPayload = selectedPayload === undefined ? undefined :
-      await Effect.runPromise(compilePayloadCollections(mixedPayloadPostsCollections()));
-    const payloadPrepared = compiledPayload === undefined ? undefined : await Effect.runPromise(
-      prepareLogicalDocumentSourceAdmission({ controlDb: currency.control.drizzle,
-        authority: application.authorityPorts }, application.uniqueConstraintEligibility,
-      { deploymentId: currency.deploymentId, scopeId: application.authority.scopeId,
-        schemaVersionId: logicalSchemaVersionId }, compiledPayload.sourceContract));
-    const binding = await Effect.runPromise(preparePrivateProductAttempt());
-    const revision = createHash("sha256").update("mixed-product-workerd-events").digest("hex");
-    const eventPolicy = await Effect.runPromise(preparePrivateProductAttemptEventPolicy(binding, {
-      producerRevision: revision, contractRevision: revision,
-      subscribers: [{ id: "mixed-product-proof", revision }],
-    }));
-    const workflowBinding = pricing === undefined || link === undefined ? undefined :
-      await Effect.runPromise(preparePrivateProductLaunchAttempt({
-        modules: {
-          product: { module: product.runtime.workflow,
-            logicalStorage: product.hostInput.logicalStorage },
-          pricing: { module: pricing.runtime.workflow,
-            logicalStorage: pricing.hostInput.logicalStorage },
-          link: { module: link.runtime.workflow,
-            logicalStorage: link.hostInput.logicalStorage },
-        },
-        identityAndAccessPolicy: product.hostInput.identityAndAccessPolicy,
-        revision: createHash("sha256").update("mixed-product-launch-workflow").digest("hex"),
-        subscribers: [{ id: "mixed-product-launch-proof", revision }],
-      }));
-    const workflowSelections: Array<Effect.Success<ReturnType<typeof prepareLogicalRelationalAdmission>>> = [];
-    for (const source of workflowBinding?.sources ?? []) {
-      workflowSelections.push(await Effect.runPromise(prepareLogicalRelationalAdmission({
-        controlDb: currency.control.drizzle, authority: application.authorityPorts,
-      }, application.uniqueConstraintEligibility, { deploymentId: currency.deploymentId,
-        scopeId: application.authority.scopeId, schemaVersionId: logicalSchemaVersionId },
-      source.logicalStorage.source)));
+    source.logicalStorage.source)));
+  }
+  const store = createSessionJournalStorePersistence(application.sessionAuthority,
+    { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+      indexedQueries: application.indexedQueries });
+  const pgTarget = currency.resource.kind === "postgres"
+    ? Object.freeze({ control: currency.resource.control,
+      applicationName: (await currency.resource.target.query<{ applicationName: string }>(
+        'select current_setting(\'application_name\') as "applicationName"')).rows[0]?.applicationName })
+    : undefined;
+  if (pgTarget !== undefined && !pgTarget.applicationName)
+    throw new Error("Missing target PostgreSQL application_name");
+  return { cleanup, currency, product, pricing, link, application, active,
+    applicationActivation: earlyActivation, activateAttempt,
+    initialSeed,
+    schemaVersionId, logicalSchemaVersionId, applicationAdmission, prepared,
+    selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared,
+    binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget,
+    provisioningMilliseconds,
+    initialSeedingMilliseconds,
+    preparedModuleMilliseconds: globalThis.performance.now() - preparedModuleStart - initialSeedingMilliseconds };
+  } catch (cause) {
+    return closeMixedMutationResourcesAfterFailure(cleanup.reverse(), cause);
+  }
+}
+
+type PreparedMixedMutationProductContext = Awaited<ReturnType<typeof prepareMixedMutationProductContext>>;
+
+async function closeMixedMutationResources(resources: readonly (() => Promise<void>)[]) {
+  const failures: unknown[] = [];
+  for (const close of resources) {
+    try { await close(); }
+    catch (cause) { failures.push(cause); }
+  }
+  if (failures.length > 0) throw new AggregateError(failures, "Mixed mutation fixture cleanup failed");
+}
+
+async function closeMixedMutationResourcesAfterFailure(resources: readonly (() => Promise<void>)[],
+  cause: unknown): Promise<never> {
+  try { await closeMixedMutationResources(resources); }
+  catch (cleanupCause) { throw new AggregateError([cause, cleanupCause],
+    "Mixed mutation fixture setup and cleanup failed"); }
+  throw cause;
+}
+
+type MixedMutationPerformanceProfile = "product" | "productPayload" | "workflow";
+
+function mixedMutationPerformanceApplicationSource(profile: MixedMutationPerformanceProfile,
+  payloadParticipant?: string): string {
+  const productCalls = `
+        const updated = await ctx.privateMixed.call("medusa.product", "update", seed.updateInput);
+        const pending = await ctx.privateMixed.call("medusa.product", "retrieve", seed.retrieveInput);`;
+  const listCall = `
+        const listed = await ctx.privateMixed.call("medusa.product", "listByHandle", seed.listInput);`;
+  const payloadCalls = `
+        const created = await ctx.privateMixed.call(${JSON.stringify(payloadParticipant)}, "payload-create",
+          { collection: "posts", data: { title: pending.title, publishedAt: "2026-01-01" } });
+        const afterHook = await ctx.privateMixed.call(${JSON.stringify(payloadParticipant)}, "payload-findByID",
+          { collection: "posts", id: created.id });
+        const enabled = await ctx.privateMixed.call(${JSON.stringify(payloadParticipant)}, "payload-update",
+          { collection: "posts", id: created.id, data: { enabled: true } });
+        const final = await ctx.privateMixed.call(${JSON.stringify(payloadParticipant)}, "payload-findByID",
+          { collection: "posts", id: created.id });`;
+  if (profile === "workflow") return `export default { productLaunch: { launch: { isMutation: true,
+    isPublic: true, _handler: async (ctx, args) => {
+      const seed = JSON.parse(args.body);
+      const id = await ctx.db.insert("productLaunch", { productId: seed.productId, phase: "draft" });
+      ${productCalls}
+      const workflow = await ctx.privateMixed.call("medusa.workflow", "run", {
+        product_id: seed.productId, tag_id: seed.tagId,
+        variant_title: "Launch variant", usd_amount: 50,
+      });
+      ${payloadCalls}
+      await ctx.db.patch(id, { phase: "launched",
+        variantId: workflow.pricing.variants[0].id,
+        priceSetId: workflow.pricing.priceSets[0].id,
+        priceId: workflow.pricing.priceSets[0].prices[0].id,
+        tagId: workflow.tags[0].id, payloadPostId: final.id });
+      return { id, updated, pending, workflow, created, afterHook, enabled, final };
+    } } } };`;
+  if (profile === "productPayload") return `export default { users: { create: { isMutation: true,
+    isPublic: true, _handler: async (ctx, args) => {
+      const seed = JSON.parse(args.body);
+      const id = await ctx.db.insert("users", { name: "before" });
+      ${productCalls}
+      ${listCall}
+      ${payloadCalls}
+      await ctx.db.patch(id, { name: final.title + ":" + final.score });
+      return { id, updated, pending, listed, created, afterHook, enabled, final };
+    } } } };`;
+  return `export default { users: { create: { isMutation: true,
+    isPublic: true, _handler: async (ctx, args) => {
+      const seed = JSON.parse(args.body);
+      const id = await ctx.db.insert("users", { name: "before" });
+      ${productCalls}
+      ${listCall}
+      await ctx.db.patch(id, { name: pending.title });
+      return { id, updated, pending, listed };
+    } } } };`;
+}
+
+export async function createMixedMutationProductFixture(
+  input: MixedMutationProductFixtureInput,
+): Promise<MixedMutationProductFixture> {
+  const preparedContext = await prepareMixedMutationProductContext(input, input.suffix, "single");
+  try {
+    const seedGraph = preparedContext.initialSeed;
+    if (seedGraph === undefined) throw new Error("Missing prepared Product graph");
+    return await createMixedMutationAttemptFixture(input, preparedContext, seedGraph, true);
+  } catch (cause) {
+    return closeMixedMutationResourcesAfterFailure(preparedContext.cleanup.reverse(), cause);
+  }
+}
+
+export interface MixedMutationPerformanceSeries {
+  readonly currency: CurrencyFixture;
+  readonly profileRevisions: Readonly<{ product: string; payload?: string; workflow?: string }>;
+  readonly workerConstructionCount: number;
+  readonly provisioningMilliseconds: number;
+  readonly preparedModuleMilliseconds: number;
+  readonly initialSeedingMilliseconds: number;
+  readonly additionalSetupSeedingMilliseconds: number;
+  readonly setTrace: (trace: MixedMutationPerformanceTrace) => void;
+  readonly prepareAttempt: (index: number) => Promise<void>;
+  readonly runAttempt: (index: number) => Promise<Readonly<{
+    fixture: MixedMutationProductFixture;
+    seed: ProductSeed["seed"];
+    returnedValue: unknown;
+    workerConstructionMilliseconds: number;
+    sealedJournalBytes: number;
+    publication: Effect.Success<ReturnType<ReturnType<typeof createStoredPointCommitExecutorV1>["publishPointCommit"]>>;
+  }>>;
+  readonly close: () => Promise<void>;
+}
+
+/** Test-only repeated private attempts over one prepared module graph, scope,
+ * and pair of database pools. Each attempt gets a fresh single-use Worker. */
+export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
+  driver: "pglite" | "postgres";
+  suffix: string;
+  profile: MixedMutationPerformanceProfile;
+  sampleCount: number;
+}>): Promise<MixedMutationPerformanceSeries> {
+  if (!Number.isSafeInteger(input.sampleCount) || input.sampleCount < 1 || input.sampleCount > 30)
+    throw new Error("Invalid finite mixed performance sample count");
+  const makeInput = (suffix: string): MixedMutationProductFixtureInput =>
+    input.profile === "workflow"
+      ? { driver: input.driver, suffix, workflow: true, payloadProfile: "success" }
+      : input.profile === "productPayload"
+        ? { driver: input.driver, suffix, payloadProfile: "success" }
+        : { driver: input.driver, suffix };
+  const context = await prepareMixedMutationProductContext(makeInput(input.suffix),
+    `${input.suffix}-0`, "series");
+  const seeded = new Map<number, ProductSeed>();
+  const attempted = new Set<number>();
+  const completed = new Set<number>();
+  const openFixtures = new Set<MixedMutationProductFixture>();
+  let workerConstructionCount = 0;
+  let trace: MixedMutationPerformanceTrace | undefined;
+  let closed = false;
+  try {
+    if (context.initialSeed === undefined) throw new Error("Missing first mixed performance seed");
+    seeded.set(0, context.initialSeed);
+    const additionalSetupSeedStart = globalThis.performance.now();
+    if (input.profile !== "workflow") {
+      for (let index = 1; index < input.sampleCount; index += 1) {
+        seeded.set(index, await seedNativeProductAttemptGraph(context.currency, context.product,
+          `${input.suffix}-${index}`, "existing"));
+      }
     }
-    const store = createSessionJournalStorePersistence(application.sessionAuthority,
-      { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
-        indexedQueries: application.indexedQueries });
-    const executionClaims = createPointMutationExecutionClaimVaultV1();
-    const pgTarget = currency.resource.kind === "postgres"
-      ? Object.freeze({ control: currency.resource.control,
-        applicationName: (await currency.resource.target.query<{ applicationName: string }>(
-          'select current_setting(\'application_name\') as "applicationName"')).rows[0]?.applicationName })
-      : undefined;
-    if (pgTarget !== undefined && !pgTarget.applicationName)
-      throw new Error("Missing target PostgreSQL application_name");
+    const additionalSetupSeedingMilliseconds = globalThis.performance.now() - additionalSetupSeedStart;
+    const applicationSource = mixedMutationPerformanceApplicationSource(input.profile,
+      context.selectedPayload?.profile.participant);
+    const prepareAttempt = async (index: number) => {
+      if (closed || index < 0 || index >= input.sampleCount || !Number.isSafeInteger(index))
+        throw new Error("Invalid mixed performance attempt index");
+      if (seeded.has(index)) return;
+      if (input.profile !== "workflow") throw new Error("Missing prepared Product graph");
+      if (index > 0) {
+        if (!completed.has(index - 1)) throw new Error("Previous workflow sample did not publish");
+        const previous = seeded.get(index - 1);
+        if (previous === undefined) throw new Error("Missing preceding workflow seed");
+        await runNativeStandaloneProductMutation(context.currency, context.product,
+          `performance-clear-${input.suffix}-${index - 1}`, "updateTag", {
+            selector: { id: previous.seed.tagId },
+            update: { value: `launched-${input.suffix}-${index - 1}` },
+          });
+      }
+      seeded.set(index, await seedNativeProductAttemptGraph(context.currency, context.product,
+        `${input.suffix}-${index}`, "launch"));
+    };
+    const runAttempt = async (index: number) => {
+      if (closed || attempted.has(index)) throw new Error("Mixed performance attempt already used or closed");
+      const seedGraph = seeded.get(index);
+      if (seedGraph === undefined) throw new Error("Prepare the disjoint graph before measurement");
+      attempted.add(index);
+      const runPhase = <T>(name: string, run: () => Promise<T>): Promise<T> =>
+        trace === undefined ? run() : trace.withPhase(name, run);
+      const seed = seedGraph.seed;
+      const validatedArgsJson = Object.freeze({ body: JSON.stringify(input.profile === "workflow"
+        ? { productId: seed.productId, tagId: seed.tagId,
+          updateInput: seed.updateInput, retrieveInput: seed.retrieveInput }
+        : { updateInput: seed.updateInput, retrieveInput: seed.retrieveInput,
+          listInput: seed.listInput }) });
+      let workerConstructionMilliseconds: number | null = null;
+      let sealedJournalBytes: number | null = null;
+      const fixture = await runPhase("request admission", () => createMixedMutationAttemptFixture(
+        makeInput(`${input.suffix}-${index}`), context, seedGraph, false,
+        { validatedArgsJson, onWorkerReady: milliseconds => {
+          workerConstructionCount++;
+          workerConstructionMilliseconds = milliseconds;
+        }, onSealBytes: bytes => { sealedJournalBytes = bytes; },
+        ...(trace === undefined ? {} : { trace }) }));
+      openFixtures.add(fixture);
+      try {
+        const raw = await runPhase("Worker execution", () => fixture.runWorkerd(applicationSource));
+        if (workerConstructionMilliseconds === null) throw new Error("Missing fresh Worker readiness");
+        const success = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
+          result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
+        const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
+          success.result.result))).value;
+        const publicationEffect = await runPhase("journal seal and OCC verification",
+          () => fixture.preparePublication(returnedValue));
+        const publication = await runPhase("authoritative publication",
+          () => Effect.runPromise(publicationEffect));
+        if (publication.kind !== "published") throw new Error("Missing first committed outcome");
+        if (sealedJournalBytes === null || sealedJournalBytes < 1)
+          throw new Error("Missing canonical sealed journal byte count");
+        completed.add(index);
+        return Object.freeze({ fixture, seed, returnedValue,
+          workerConstructionMilliseconds, sealedJournalBytes, publication });
+      } finally {
+        await fixture.close();
+        openFixtures.delete(fixture);
+      }
+    };
+    return Object.freeze({ currency: context.currency,
+      profileRevisions: Object.freeze({ product: context.revision,
+        ...(context.payloadProfileRevision === undefined ? {} : { payload: context.payloadProfileRevision }),
+        ...(context.workflowBinding === undefined ? {} : { workflow: context.workflowBinding.profileRevision }) }),
+      get workerConstructionCount() { return workerConstructionCount; },
+      provisioningMilliseconds: context.provisioningMilliseconds,
+      preparedModuleMilliseconds: context.preparedModuleMilliseconds,
+      initialSeedingMilliseconds: context.initialSeedingMilliseconds,
+      additionalSetupSeedingMilliseconds,
+      setTrace: (next: MixedMutationPerformanceTrace) => { trace = next; },
+      prepareAttempt, runAttempt,
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        await closeMixedMutationResources([...Array.from(openFixtures, fixture => fixture.close),
+          ...context.cleanup.reverse()]);
+      },
+    });
+  } catch (cause) {
+    return closeMixedMutationResourcesAfterFailure(context.cleanup.reverse(), cause);
+  }
+}
+
+async function createMixedMutationAttemptFixture(input: MixedMutationProductFixtureInput,
+  context: PreparedMixedMutationProductContext, seedGraph: ProductSeed,
+  ownsContext: boolean, performance?: Readonly<{
+    validatedArgsJson: Readonly<{ body: string }>;
+    onWorkerReady: (milliseconds: number) => void;
+    onSealBytes: (bytes: number) => void;
+    trace?: MixedMutationPerformanceTrace;
+  }>): Promise<MixedMutationProductFixture> {
+  const { cleanup, currency, product, pricing, link, application,
+    schemaVersionId, logicalSchemaVersionId, prepared,
+    selectedPayload, payloadProfileRevision, compiledPayload, payloadPrepared,
+    binding, revision, eventPolicy, workflowBinding, workflowSelections, store, pgTarget } = context;
+  const { seed, baseline } = seedGraph;
+  const selected = performance === undefined ? context.applicationActivation
+    : await context.activateAttempt(input.suffix, performance.validatedArgsJson);
+  if (selected === undefined) throw new Error("Missing single-attempt activation");
+  const { active, applicationAdmission, activationInput, activation } = selected;
+  const eventGroup = admittedCommerceEventGroup({
+    scopeUuid: projectScopeIdUuidV1(activation.anchor.scopeId).scopeUuid,
+    sessionId: activation.anchor.sessionId, attemptFence: activation.anchor.attemptFence,
+  });
+  const executionClaims = createPointMutationExecutionClaimVaultV1();
     const hasSqlObserver = currency.observeSql !== undefined;
     let sqlPhase = "prepare";
     const sqlByPhase = new Map<string, number>();
@@ -430,7 +717,11 @@ export async function createMixedMutationProductFixture(
       for (const scope of payloadScopes) yield* Scope.close(scope, Exit.succeed(undefined));
       payloadScopes.clear();
     });
-    const journal = createPointMutationJournalV1(store, executionClaims.admission,
+    const journalStore = performance === undefined ? store : Object.freeze({ ...store,
+      completeSealEffect: (...args: Parameters<typeof store.completeSealEffect>) =>
+        store.completeSealEffect(...args).pipe(Effect.tap(() => Effect.sync(() =>
+          performance.onSealBytes(args[1].canonicalBytes.byteLength)))) });
+    const journal = createPointMutationJournalV1(journalStore, executionClaims.admission,
       issueSetupSeededSyscallValidatorProofV1({ scopeId: application.authority.scopeId,
         schemaVersionId, schemaManifest: applicationAdmission.schema.manifest }), [{
         participant: "medusa.product",
@@ -446,7 +737,7 @@ export async function createMixedMutationProductFixture(
             abort: borrowed.abort,
             currentUsage: borrowed.currentUsage,
             invoke: (method: string, args: Json) => Effect.gen(function* () {
-              if (pgTarget !== undefined) {
+              if (pgTarget !== undefined && performance === undefined) {
                 const reading = yield* Effect.tryPromise({
                   try: () => pgTarget.control.query<{ targetBackends: number; openTransactions: number }>(
                     `select count(*)::int as "targetBackends",
@@ -525,7 +816,7 @@ export async function createMixedMutationProductFixture(
               currentUsage: borrowed.currentUsage,
               invoke: (method: string, args: Json) => Effect.gen(function* () {
                 if (method !== "run") return yield* Effect.fail(commerceError("invalidAuthority"));
-                if (pgTarget !== undefined) {
+                if (pgTarget !== undefined && performance === undefined) {
                   const reading = yield* Effect.tryPromise({
                     try: () => pgTarget.control.query<{ targetBackends: number; openTransactions: number }>(
                       `select count(*)::int as "targetBackends",
@@ -582,18 +873,23 @@ export async function createMixedMutationProductFixture(
         let value: unknown;
         if (message.kind === "point") {
           sqlPhase = "application";
-          if (typeof message.tableName !== "string" || message.operation === undefined ||
-            typeof message.operation.syscallSequence !== "string") throw new Error("Invalid point bridge request");
+          if (typeof message.tableName !== "string" || message.operation === undefined)
+            throw new Error("Invalid point bridge request");
+          const operation = message.operation;
+          const syscallSequence = operation.syscallSequence;
+          if (typeof syscallSequence !== "string") throw new Error("Invalid point bridge sequence");
           let table = tableHandles.get(message.tableName);
           if (table === undefined) {
             table = await Effect.runPromise(runtimeJournal.resolvePointTable(message.tableName));
             tableHandles.set(message.tableName, table);
           }
-          const result = await Effect.runPromise(runtimeJournal.runPointOperation(table, {
-            ...message.operation,
+          const runPoint = () => Effect.runPromise(runtimeJournal.runPointOperation(table, {
+            ...operation,
             syscallSequence: CommitSyscallSequenceV1Schema.make(
-              BigInt(message.operation.syscallSequence)),
+              BigInt(syscallSequence)),
           }));
+          const result = performance?.trace === undefined ? await runPoint()
+            : await performance.trace.withPhase("Application point", runPoint);
           if (result.kind !== "completed") throw new Error(`Point operation ${result.kind}`);
           value = result.outcome;
         } else if (message.kind === "admitted") {
@@ -613,7 +909,10 @@ export async function createMixedMutationProductFixture(
           if (encoded.operation.operation === "update") updateRequest = admittedInput;
           const runtimeAdmitted = runtimeJournal.runAdmittedOperation;
           if (runtimeAdmitted === undefined) throw new Error("Missing runtime admitted participant");
-          const admittedValue = await Effect.runPromise(runtimeAdmitted(admittedInput));
+          const runParticipant = () => Effect.runPromise(runtimeAdmitted(admittedInput));
+          const admittedValue = performance?.trace === undefined ? await runParticipant()
+            : await performance.trace.withPhase(
+              `${encoded.operation.participant}:${encoded.operation.operation}`, runParticipant);
           value = admittedValue;
           input.hooks?.afterStoreAckBeforeBridgeReply?.(encoded.operation.operation, admittedValue);
         } else throw new Error("Unsupported bridge request");
@@ -713,14 +1012,20 @@ export async function createMixedMutationProductFixture(
       },
     } } };`;
     const applicationSource = source ?? workflowSource ?? payloadSource ?? productSource;
+    const workerPhase = <T>(name: string, run: () => Promise<T>): Promise<T> =>
+      performance?.trace === undefined ? run() : performance.trace.withPhase(name, run);
+    const workerStarted = globalThis.performance.now();
+    let dispatchBridge = bridge;
+    const serviceBinding = (request: Request) => dispatchBridge(request);
     const platformSource = applicationErrorPlatformSourceV1({
       runtimeKernelModulePath: `../${POINT_MUTATION_RUNTIME_KERNEL_MODULE_V1}`,
       captureExportName: "capturePointMutationCoreApplicationErrorDataV1",
       captureProjectionExportName: "captureCoreApplicationErrorV1",
       invalid: { kind: "nativeError" },
     });
-    const worker = new Miniflare({ compatibilityDate: "2026-06-18",
-      serviceBindings: { MIXED_JOURNAL: bridge }, modules: [
+    const worker = await workerPhase("Worker construction and ready", async () => {
+      const created = new Miniflare({ compatibilityDate: "2026-06-18",
+      serviceBindings: { MIXED_JOURNAL: serviceBinding }, modules: [
         { type: "ESModule", path: "worker.js", contents: `${POINT_MUTATION_EXACT_RUNTIME_WORKER_CORE_SOURCE_V1}
 export default { async fetch(_request, env) {
   const invoke = async (kind, payload) => {
@@ -766,11 +1071,23 @@ export default { async fetch(_request, env) {
           contents: APPLICATION_ERROR_PUBLIC_VALUES_SOURCE_V1 },
         { type: "ESModule", path: executionModule, contents: applicationSource },
       ] });
+      try {
+        if (performance !== undefined) await created.ready;
+        return created;
+      } catch (cause) {
+        await created.dispose();
+        throw cause;
+      }
+    });
+    performance?.onWorkerReady(globalThis.performance.now() - workerStarted);
     let workerd: unknown;
     try {
-      const response = await worker.dispatchFetch("https://mixed-product.test/");
+      const response = await workerPhase("Worker dispatch", () => {
+        dispatchBridge = performance?.trace === undefined ? bridge : performance.trace.bindCurrent(bridge);
+        return worker.dispatchFetch("https://mixed-product.test/");
+      });
       workerd = await response.json();
-    } finally { await worker.dispose(); }
+    } finally { await workerPhase("Worker disposal", () => worker.dispose()); }
     if (typeof workerd === "object" && workerd !== null && "kind" in workerd &&
       workerd.kind === "error") {
       const failure = new Error(`Native Worker failed: ${JSON.stringify(workerd)}\n${bridgeFailures.join("\n")}`);
@@ -1121,7 +1438,9 @@ export default { async fetch(_request, env) {
     getTransactionCounts: () => ({ beginCount, settleCount }),
     setSqlPhase: (phase: string) => { sqlPhase = phase; },
     close: async () => { await Effect.runPromise(closePayloadScopes);
-      currency.observeSql?.(undefined);
-      for (const close of cleanup.reverse()) await close(); },
+      if (ownsContext) {
+        currency.observeSql?.(undefined);
+        for (const close of cleanup.reverse()) await close();
+      } },
   };
 }

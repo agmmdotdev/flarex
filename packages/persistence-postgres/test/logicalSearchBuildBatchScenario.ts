@@ -1,0 +1,163 @@
+import { Effect } from "effect";
+import { eq } from "drizzle-orm";
+import { expect, vi } from "vitest";
+import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
+import { decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
+import { decodeCatalogIndexId, decodeCatalogTableId } from "flarex-protocol/catalog";
+import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import { CommitSeqSchema, ScopeEpochSchema, ScopeIdSchema, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import type { FlarexPersistence } from "../src";
+import type { FlarexMetadataDatabase } from "../src/deployments";
+import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
+import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
+import { prepareLogicalSearchBuild } from "../src/logicalSearchBuild";
+import { fxSystemScopeClocks, fxSystemSearchBuildStates } from "../src/schema";
+import { getScopeClock } from "../src/scopeClock";
+import type { TrustedScopeAuthority } from "../src/scopeAuthorityResolution";
+
+// The control-catalog preparation is isolated here so this scenario exercises
+// the target-local SQL with arbitrary selected definitions, independent of a
+// framework's source names. Connected compiled-source proofs run separately.
+const selected = vi.hoisted(() => [
+  { tableId: 11, logicalIndexId: 101, kind: "jsonContainment", sourceSha256: "a".repeat(64) },
+  { tableId: 11, logicalIndexId: 102, kind: "text", sourceSha256: "a".repeat(64) },
+  { tableId: 12, logicalIndexId: 103, kind: "text", sourceSha256: "b".repeat(64) },
+  { tableId: 13, logicalIndexId: 104, kind: "jsonContainment", sourceSha256: "c".repeat(64) },
+  ...Array.from({ length: 66 }, (_, index) => ({
+    tableId: 11 + index % 3,
+    logicalIndexId: 105 + index,
+    kind: index % 2 === 0 ? "text" : "jsonContainment",
+    sourceSha256: ["a", "b", "c"][index % 3]!.repeat(64),
+  })),
+]);
+
+vi.mock("../src/logicalStorageDefinitions", async importOriginal => {
+  const { Effect } = await import("effect");
+  const original = await importOriginal<typeof import("../src/logicalStorageDefinitions")>();
+  return { ...original, readLogicalStorageRequirements: () => Effect.succeed({ search: selected.map(definition => ({
+    ...definition, descriptor: { id: definition.logicalIndexId },
+  })) }) };
+});
+vi.mock("../src/stableLogicalIndexCatalog", async importOriginal => {
+  const { Effect } = await import("effect");
+  const original = await importOriginal<typeof import("../src/stableLogicalIndexCatalog")>();
+  return { ...original, getStableLogicalIndexIdentityByNameEffect: (_db: unknown, input: { descriptor: { id: number } }) =>
+    Effect.succeed({ logicalIndexId: input.descriptor.id }) };
+});
+
+const scopeId = ScopeIdSchema.make("scope_66100000-0000-0000-0000-000000000001");
+const epoch = ScopeEpochSchema.make("epoch_66100000-0000-0000-0000-000000000002");
+const schemaVersionId = decodeCatalogSchemaVersionId("search_batch_neutral");
+
+interface InspectCounts { states: number; physical: number; frontiers: number }
+
+/** Observe target-local statement categories without replacing their results. */
+function observeTransaction(tx: FlarexMetadataTransaction, counts: InspectCounts,
+  failFrontiers = false): FlarexMetadataTransaction {
+  return new Proxy(tx, {
+    get(target, property, receiver) {
+      if (property === "select") return (fields?: Record<string, unknown>) => {
+        if (fields !== undefined && "sourceSha256" in fields) counts.states++;
+        if (fields !== undefined && "jsonReady" in fields) counts.physical++;
+        return fields === undefined ? target.select() : target.select(fields as never);
+      };
+      if (property === "execute") return (statement: Parameters<typeof target.execute>[0]) => {
+        counts.frontiers++;
+        if (failFrontiers) return Promise.reject(new Error("Later frontier query must not run"));
+        return target.execute(statement);
+      };
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+/** Same multi-table, multi-descriptor serving/refusal witness on both drivers. */
+export async function verifyLogicalSearchBuildBatch(
+  persistence: Pick<FlarexPersistence, "query">,
+  db: FlarexMetadataDatabase,
+) {
+  await persistence.query(
+    "insert into fx_system_scope_clock (scope_id, storage_generation, epoch) values ($1, 'flarexdb_v1', $2)",
+    [scopeId, epoch],
+  );
+  const clock = await getScopeClock(db, scopeId);
+  if (clock === null) throw new Error("Missing search fixture clock");
+  const authority: TrustedScopeAuthority = {
+    deploymentId: "neutral_search_deployment", scopeId,
+    physicalLocator: { kind: "shared_database", databaseKey: "search-batch", schemaName: "public" },
+    storageGeneration: clock.storageGeneration,
+    storageGenerationFence: clock.storageGenerationFence,
+    epoch: clock.epoch, lastCommitSeq: clock.lastCommitSeq,
+  };
+  const scopeUuid = projectScopeIdUuidV1(scopeId).scopeUuid;
+  await db.insert(fxSystemSearchBuildStates).values(selected.map(definition => ({
+    scopeUuid, tableId: decodeCatalogTableId(definition.tableId),
+    logicalIndexId: decodeCatalogIndexId(definition.logicalIndexId),
+    sourceSha256: definition.sourceSha256, lifecycle: "ready" as const,
+    coveredThroughCommitSeq: CommitSeqSchema.make(0n),
+  })));
+  const build = await Effect.runPromise(prepareLogicalSearchBuild(db, authority.deploymentId, schemaVersionId));
+  expect(build.definitionCount).toBe(70);
+  const inspect = (atClock = clock, failFrontiers = false) => {
+    const counts: InspectCounts = { states: 0, physical: 0, frontiers: 0 };
+    return db.transaction(async tx => ({
+      verdict: await Effect.runPromise(build.inspect(observeTransaction(tx, counts, failFrontiers), authority, atClock)),
+      counts,
+    }));
+  };
+  const initial = await inspect();
+  expect(initial.verdict).toEqual({ status: "ready", definitionCount: 70 });
+  expect(initial.counts).toEqual({ states: 2, physical: 1, frontiers: 1 });
+
+  // A later transaction must reject a changed physical identity even when the
+  // same prepared source selection and coverage rows are reused.
+  await persistence.query("alter index fx_app_search_entry_current_lookup_gin rename to fx_test_changed_search_gin");
+  try {
+    await persistence.query(`create index fx_app_search_entry_current_lookup_gin
+      on fx_app_search_entry_current using gin
+        (scope_uuid public.uuid_ops, logical_index_id public.int4_ops, field_id public.gin_trgm_ops)`);
+    expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+  } finally {
+    await persistence.query("drop index if exists fx_app_search_entry_current_lookup_gin");
+    await persistence.query("alter index fx_test_changed_search_gin rename to fx_app_search_entry_current_lookup_gin");
+  }
+  expect((await inspect()).verdict).toEqual({ status: "ready", definitionCount: 70 });
+
+  await db.delete(fxSystemSearchBuildStates).where(eq(fxSystemSearchBuildStates.logicalIndexId, decodeCatalogIndexId(102)));
+  expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+  await db.insert(fxSystemSearchBuildStates).values({
+    scopeUuid, tableId: decodeCatalogTableId(11), logicalIndexId: decodeCatalogIndexId(102),
+    sourceSha256: "d".repeat(64), lifecycle: "ready",
+    coveredThroughCommitSeq: CommitSeqSchema.make(0n),
+  });
+  expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+  await db.update(fxSystemSearchBuildStates).set({ sourceSha256: "a".repeat(64) })
+    .where(eq(fxSystemSearchBuildStates.logicalIndexId, decodeCatalogIndexId(102)));
+
+  const tableId = decodeCatalogTableId(13);
+  const rowId = decodeAppRowIdHexV1("11".repeat(16));
+  const creationTime = decodeAppCreationTimeV1(1);
+  const document = await canonicalizeAppDocumentV1({ tableId, rowId, creationTime, fields: { title: "later" } });
+  await db.transaction(async tx => {
+    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+      kind: "live", scopeId, tableId, rowId, writeEpoch: epoch,
+      commitSeq: CommitSeqSchema.make(1n), prevCommitSeq: null, schemaVersionId,
+      creationTime, value: { codecVersion: document.codecVersion, valueJson: document.valueJson,
+        canonicalBytes: document.canonicalBytes, sha256: document.sha256 },
+    });
+    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: CommitSeqSchema.make(1n) })
+      .where(eq(fxSystemScopeClocks.scopeId, scopeId));
+  });
+  expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+  await db.update(fxSystemSearchBuildStates).set({ coveredThroughCommitSeq: CommitSeqSchema.make(1n) })
+    .where(eq(fxSystemSearchBuildStates.tableId, decodeCatalogTableId(13)));
+  expect((await inspect(await getScopeClock(db, scopeId) ?? clock)).verdict)
+    .toEqual({ status: "ready", definitionCount: 70 });
+
+  // A known first-member refusal must finish before the later physical and
+  // frontier statements, even when those statements would fail if reached.
+  await db.delete(fxSystemSearchBuildStates).where(eq(fxSystemSearchBuildStates.logicalIndexId, decodeCatalogIndexId(101)));
+  const missingFirst = await inspect(await getScopeClock(db, scopeId) ?? clock, true);
+  expect(missingFirst.verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+  expect(missingFirst.counts).toEqual({ states: 1, physical: 0, frontiers: 0 });
+}

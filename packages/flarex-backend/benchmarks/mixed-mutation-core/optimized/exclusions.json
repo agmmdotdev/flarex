@@ -1,0 +1,25 @@
+{
+  "format": "flarex.mixed-mutation-performance-exclusions",
+  "dataset": "optimized-full",
+  "excludedSamples": [],
+  "failedSamples": [],
+  "unattemptedSamples": [],
+  "diagnosticRunsOutsideFullSeries": [
+    {
+      "id": "optimized-setup-stopped",
+      "status": "interrupted before first sample",
+      "note": "Nested checked-read admission lock cycle during setup; no raw record or sample was produced.",
+      "diagnostic": "stopped-attempt.md",
+      "diagnosticSha256": "856508416aaffb4626b4c344e7acc6709f8a410981e5b9c2aee8b38c12884e39"
+    },
+    {
+      "id": "optimized-smoke",
+      "status": "16 successful smoke samples",
+      "source": "work/validation/mixed-mutation-performance/optimized-smoke/raw.json",
+      "rawSha256": "98077b0b85699c3ab9313d96d55b1ac51eabe956d46c78313004e31cb2cbe8f1",
+      "samples": 16,
+      "disposition": "Harness and directional cost diagnostic only; pre-final verdict fix and possible early lint contention."
+    }
+  ],
+  "baselineSeparation": "The original incomplete mixed baseline and independently filtered standalone series remain distinct and unchanged."
+}

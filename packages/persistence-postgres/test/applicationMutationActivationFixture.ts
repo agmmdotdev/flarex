@@ -26,6 +26,7 @@ export async function applicationMutationActivationFixture(input: Readonly<{
   executionAuthority: CanonicalApplicationMutationExecutionAuthorityV1;
   requestKey: string;
   grantId: string;
+  validatedArgsJson?: Readonly<{ body: string }>;
 }>): Promise<PreparedApplicationMutationSessionActivationV1 & Readonly<{
   verificationKey: ApplicationMutationGrantVerificationKeyV1;
 }>> {
@@ -34,7 +35,7 @@ export async function applicationMutationActivationFixture(input: Readonly<{
   const policyVersion = TransactionPolicyVersionV1Schema.make("policy_point_mutation_v1");
   const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({ policyVersion, auth: { kind: "anonymous" },
     capabilities: ["db:get", "db:insert", "db:patch", "db:replace", "db:delete"] });
-  const validatedArgsJson = Object.freeze({ body: "hello" });
+  const validatedArgsJson = Object.freeze(input.validatedArgsJson ?? { body: "hello" });
   const args = await canonicalizeFlarexValueJsonV1(validatedArgsJson);
   const validatedArgsSha256 = TransactionArgumentsSha256V1Schema.make(args.sha256);
   const requestKey = TransactionRequestKeyV1Schema.make(input.requestKey);

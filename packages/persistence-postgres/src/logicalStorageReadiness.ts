@@ -1,10 +1,11 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Result } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
 import { readRequiredEnabledIndexBuildsInTransactionEffect, decodeIndexBuildStateRowResult,
-  readIndexCoverageContextInTransactionEffect, isIndexBuildSnapshotCoveredInTransactionEffect,
+  readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
+  isIndexBuildSnapshotCoveredInTransactionEffect,
   validateIndexBuildStateFrontierResult } from "./indexBuildStates";
 import { hasAppUniqueConstraintSetEligibilityCompositionV1, prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet,
   chargeUniqueConstraintPreparation,
@@ -79,13 +80,33 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       if (observedClock.storageGeneration !== clock.storageGeneration || observedClock.storageGenerationFence !== clock.storageGenerationFence ||
         observedClock.epoch !== clock.epoch || observedClock.lastCommitSeq < clock.lastCommitSeq)
         return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
-      const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock);
-      let uncoveredIndexDefinitionId: (typeof requirements.definitions)[number]["indexDefinitionId"] | undefined;
-      for (const definition of requirements.definitions) {
+      const selected = requirements.definitions.map(definition => {
         const row = builds.rows.find(build => build.indexDefinitionId === definition.indexDefinitionId);
-        if (row === undefined) return yield* Effect.die("Complete required build set lost a member");
-        const state = yield* Effect.fromResult(decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId));
+        if (row === undefined) return { definition, state: null } as const;
+        const decoded = decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId);
+        return { definition, state: decoded } as const;
+      });
+      const tableIds = selected.flatMap(({ definition, state }) => {
+        if (state === null || Result.isFailure(state)) return [];
+        const build = state.success;
+        return build.lifecycle === "enabled" && build.maintenance === null &&
+          build.coveredThroughCommitSeq !== null && build.coveredThroughCommitSeq < clock.lastCommitSeq &&
+          build.firstReadableCommitSeq !== null && build.firstReadableCommitSeq <= clock.lastCommitSeq
+          ? [definition.tableId] : [];
+      });
+      const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock);
+      let frontierBatchReady = false;
+      let uncoveredIndexDefinitionId: (typeof requirements.definitions)[number]["indexDefinitionId"] | undefined;
+      for (const { definition, state: decoded } of selected) {
+        if (decoded === null) return yield* Effect.die("Complete required build set lost a member");
+        const state = yield* Effect.fromResult(decoded);
         yield* Effect.fromResult(validateIndexBuildStateFrontierResult(state, observedClock.lastCommitSeq));
+        if (!frontierBatchReady && state.lifecycle === "enabled" && state.maintenance === null &&
+          state.coveredThroughCommitSeq !== null && state.coveredThroughCommitSeq < clock.lastCommitSeq &&
+          state.firstReadableCommitSeq !== null && state.firstReadableCommitSeq <= clock.lastCommitSeq) {
+          yield* readIndexCoverageTableFrontiersInTransactionEffect(tx, coverage, tableIds);
+          frontierBatchReady = true;
+        }
         if (!(yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state, definition, clock.lastCommitSeq, coverage))) {
           uncoveredIndexDefinitionId = definition.indexDefinitionId;
           break;

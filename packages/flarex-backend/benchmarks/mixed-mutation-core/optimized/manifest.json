@@ -1,0 +1,60 @@
+{
+  "format": "flarex.mixed-mutation-performance-artifacts",
+  "dataset": "optimized-full",
+  "measuredRevision": "95578d5fcc1a64fd556342786b0261a249b05cda",
+  "measuredWorkingDiffSha256": "943de0b2eddba4b2fd55e7ba2f17c498d419d511036696c04ceccefbd983c11c",
+  "mode": "full",
+  "planned": {
+    "warmups": 3,
+    "warm": 20,
+    "cold": 3
+  },
+  "plannedWorkloads": [
+    "product",
+    "productPayload",
+    "mixedWorkflow",
+    "standaloneWorkflow"
+  ],
+  "sampleCount": 104,
+  "successfulSamples": 104,
+  "failedSamples": 0,
+  "setupFailures": 0,
+  "sourceHashes": {
+    "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts": "9eaca2b299945a434c7cc7db201989c5698804e4b7c00181d397d1cd5375e784",
+    "packages/flarex-backend/test/support/mixedMutationProductFixture.ts": "299b0b9a2b87610c1837bfea19b5c00c74b5fa1930659d3c852440fb4fd84887",
+    "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts": "2a580cb7015a0faf38b2669ad7cc031ad9656597eef7ca0dc1fb35166a40a642",
+    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts": "e891829bfbd48aa9bc8c9f5765c3ce5a7d752877cfd10088d52c5fe3b0b21c35",
+    "packages/persistence-postgres/src/appRows.ts": "ca7a2a67f70e587da10b5a796bfdde20f84bcb0cd7dc4e0bc22e27bcbac6ad0e",
+    "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts": "27cbb62d616c3c6a9413bab17903a3975da1edc7821f911a27048bd541676fd5",
+    "packages/persistence-postgres/src/indexBuildStates.ts": "717297da4b03f890c18698bb488a4a21f5f90fb1ca286c46b16dbc214e68a299",
+    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts": "8289176a22f45bbcbacc05fb0ceb9a2763940de5684267bca3441be445c2da4d",
+    "packages/persistence-postgres/src/logicalSearchBuild.ts": "d283018fe41fe056a2f34a0372f56bc6049168ac5c00ef63fa0a75cb815a0437",
+    "packages/persistence-postgres/src/logicalStorageReadiness.ts": "d93c09c2faa661749de858679fdb1261441bcbcfcf4ec92f7b65ff68b60f9958",
+    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts": "a633ba98dfcc3c0b786a0b95e269510bc2ca2f54903c1e3812ba89445f522476"
+  },
+  "files": {
+    "raw.json.gz": {
+      "bytes": 1684215,
+      "sha256": "b5ea6c2e041804203d298f03f93aedb75e60be01fb7fe673210f0828f7f27e6a",
+      "uncompressedBytes": 25212567,
+      "uncompressedSha256": "c83e1d90159486ed239823757874d13be51485077e1e3456b9d364c65aa4d1f8"
+    },
+    "report.md": {
+      "bytes": 46122,
+      "sha256": "9bc0d55a4c1868b851372a23e189dfe01fc036fcfe517b1cbe99d9c8dd6a3f49"
+    },
+    "samples.csv": {
+      "rows": 104,
+      "bytes": 23219,
+      "sha256": "2045fc6bef91161e44a2e45337c5d349d28d38cfa26868f2998ee5e0a6189303"
+    },
+    "exclusions.json": {
+      "bytes": 1116,
+      "sha256": "3d66aff8281e87178097cf4bfd1115c09871956b14b39e5d6ce0cb0d158a00b1"
+    },
+    "stopped-attempt.md": {
+      "bytes": 1271,
+      "sha256": "856508416aaffb4626b4c344e7acc6709f8a410981e5b9c2aee8b38c12884e39"
+    }
+  }
+}

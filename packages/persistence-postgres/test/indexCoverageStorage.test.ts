@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { lockScopeClockForShareInTransactionEffect } from "../src/scopeClock";
 import { AppIndexPhysicalSpecSha256HexV1Schema } from "flarex-protocol/index-definition";
 import { newTestPGlite } from "./pgliteSearchExtensions";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -24,6 +24,7 @@ import {
 import {
   AppRowTableFrontierCorruptionError,
   readAppTableWriteFrontierInTransactionEffect,
+  readAppTableWriteFrontiersInTransactionEffect,
   type AppRowTransaction,
 } from "../src/appRows";
 import {
@@ -165,6 +166,12 @@ async function proveCoverageStorage(
       ),
     ),
   ).toBe(1000n);
+  const batch = await persistence.drizzle.transaction(tx => Effect.runPromise(
+    readAppTableWriteFrontiersInTransactionEffect(tx, scopeId,
+      [CatalogTableIdSchema.make(1), CatalogTableIdSchema.make(2), CatalogTableIdSchema.make(1)])));
+  expect(batch.size).toBe(2);
+  expect(batch.get(CatalogTableIdSchema.make(1))).toEqual(Result.succeed(1000n));
+  expect(batch.get(CatalogTableIdSchema.make(2))).toEqual(Result.succeed(null));
   await persistence.query(
     "update fx_system_index_build_state set covered_through_commit_seq=1000",
   );
@@ -196,6 +203,18 @@ async function proveCoverageStorage(
     expect(JSON.stringify(plan.rows)).toContain(
       "fx_app_row_current_table_frontier_idx",
     );
+    const batchPlan = await persistence.query(
+      `explain (analyze, buffers, format json)
+       with requested(ordinal, table_id) as (values (0,1),(1,2))
+       select requested.ordinal, latest.commit_seq from requested
+       left join lateral (
+         select current_row.commit_seq from fx_app_row_current as current_row
+         where current_row.scope_uuid=$1 and current_row.table_id=requested.table_id
+         order by current_row.commit_seq desc limit 1
+       ) as latest on true order by requested.ordinal`,
+      [SESSION_TEST_SCOPE_UUID],
+    );
+    expect(JSON.stringify(batchPlan.rows)).toContain("fx_app_row_current_table_frontier_idx");
   }
 }
 
@@ -247,6 +266,28 @@ describe("physical index coverage storage", () => {
 });
 
 describe("table coverage runtime boundary", () => {
+  it("bounds distinct table lookups and retains corruption by table order", async () => {
+    const scopeId = ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`);
+    let calls = 0;
+    const tx = { execute: () => {
+      calls += 1;
+      const count = calls < 3 ? 64 : 2;
+      return Promise.resolve({ rows: Array.from({ length: count }, (_, ordinal) => ({
+        ordinal, commitSeqText: calls === 1 && ordinal === 1 ? "0" : String(calls),
+      })) });
+    } } as unknown as AppRowTransaction;
+    const tableIds = Array.from({ length: 130 }, (_, index) => CatalogTableIdSchema.make(index + 1));
+    const result = await Effect.runPromise(readAppTableWriteFrontiersInTransactionEffect(
+      tx, scopeId, [...tableIds, tableIds[0]!],
+    ));
+    expect(calls).toBe(3);
+    expect(result.size).toBe(130);
+    expect(result.get(tableIds[0]!)).toEqual(Result.succeed(1n));
+    const corrupt = result.get(tableIds[1]!);
+    expect(corrupt).toMatchObject({ _tag: "Failure", failure: expect.any(AppRowTableFrontierCorruptionError) });
+    expect(result.get(tableIds[2]!)).toEqual(Result.succeed(1n));
+    expect(result.get(tableIds[129]!)).toEqual(Result.succeed(3n));
+  });
   it("distinguishes absent rows from malformed present frontiers", async () => {
     const scopeId = ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`);
     const tableId = CatalogTableIdSchema.make(1);

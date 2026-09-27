@@ -248,13 +248,15 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         return captured.value;
       })),
     );
-  const readBase = Effect.fn("LogicalDocuments.readBase")(function* (tableId: CatalogTableId, rowId?: AppRowIdHexV1, rowIds?: readonly AppRowIdHexV1[]): Effect.fn.Return<void, Failure> {
+  const readBaseInTransaction = Effect.fn("LogicalDocuments.readBaseInTransaction")(function* (
+    tx: FlarexMetadataTransaction, tableId: CatalogTableId, rowId?: AppRowIdHexV1,
+    rowIds?: readonly AppRowIdHexV1[],
+  ): Effect.fn.Return<void, Failure> {
     if (rowIds !== undefined && rowIds.length > MAX_BOUNDED_APP_ROW_READ_IDENTITIES) {
       for (let offset = 0; offset < rowIds.length; offset += MAX_BOUNDED_APP_ROW_READ_IDENTITIES)
-        yield* readBase(tableId, undefined, rowIds.slice(offset, offset + MAX_BOUNDED_APP_ROW_READ_IDENTITIES));
+        yield* readBaseInTransaction(tx, tableId, undefined, rowIds.slice(offset, offset + MAX_BOUNDED_APP_ROW_READ_IDENTITIES));
       return;
     }
-    yield* state.requireAdmission;
     if (closed) return yield* Effect.fail(error("closed"));
     const table = yield* Effect.fromResult(tableForId(tableId));
     if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead(rowIds !== undefined ? "batch" : rowId !== undefined ? "point" : "scan");
@@ -268,9 +270,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         return yield* Effect.fail(error("limitExceeded"));
       let loadedBytes = 0;
       for (const selectedRowId of selected) {
-        const base = yield* runRead(tx => readAppRowAtSnapshotInTransactionEffect(tx, {
+        const base = yield* readAppRowAtSnapshotInTransactionEffect(tx, {
           scopeId: state.scopeId, tableId, rowId: selectedRowId, snapshotCommitSeq,
-        }, testHooks?.observeQuery)).pipe(Effect.mapError(cause => error(cause instanceof AppRowReadPersistenceError
+        }, testHooks?.observeQuery).pipe(Effect.mapError(cause => error(cause instanceof AppRowReadPersistenceError
           ? "statementFailure" : "storedCorruption", cause)));
         const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId: selectedRowId });
         yield* observe(tableId, selectedRowId, base.kind === "missing" ? null : base, snapshotCommitSeq);
@@ -285,14 +287,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       }
       return;
     }
-    const capture = yield* runRead(tx => readBoundedCurrentAppRowsInTransactionEffect(tx, {
+    const capture = yield* readBoundedCurrentAppRowsInTransactionEffect(tx, {
       scopeId: state.scopeId, tableId, minimumCommitSeq: state.clock.lastCommitSeq,
       maximumIdentities: Math.min(MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
         rowIds === undefined ? limits.identities : limits.identities - dependencies.size), maximumDocumentBytes: limits.documentBytes,
       maximumTotalValueBytes: Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()),
       ...(rowId === undefined ? {} : { rowId }),
       ...(rowIds === undefined ? {} : { rowIds }),
-    }, testHooks?.observeQuery)).pipe(Effect.mapError(cause => error(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
+    }, testHooks?.observeQuery).pipe(Effect.mapError(cause => error(cause instanceof InvalidAppRowReadInputError && cause.issue.reason === "rowLimitExceeded"
       ? "limitExceeded" : cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause)));
     const loaded = capture.rows;
     for (const base of loaded) {
@@ -320,42 +322,59 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       scanned.set(tableId, capture.commitSeq);
     }
   });
+  const readBase = Effect.fn("LogicalDocuments.readBase")(function* (tableId: CatalogTableId,
+    rowId?: AppRowIdHexV1, rowIds?: readonly AppRowIdHexV1[]) {
+      yield* state.requireAdmission;
+      if (state.snapshotCommitSeq !== undefined && rowId === undefined && rowIds === undefined) {
+        if (closed) return yield* Effect.fail(error("closed"));
+        yield* Effect.fromResult(tableForId(tableId));
+        if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("scan");
+        return yield* Effect.fail(error("invalidInput"));
+      }
+      return yield* runRead(tx => readBaseInTransaction(tx, tableId, rowId, rowIds));
+    });
   if (state.pendingRows !== undefined) {
     if (state.snapshotCommitSeq === undefined || state.pendingRows.length > limits.identities)
       return yield* Effect.fail(error("invalidAuthority"));
     const seen = new Set<string>();
-    for (const seed of state.pendingRows) {
-      const documentId = appDocumentIdV1FromRowIdentity(seed);
-      if (seen.has(documentId)) return yield* Effect.fail(error("storedCorruption"));
-      seen.add(documentId);
-      yield* readBase(seed.tableId, seed.rowId);
-      const observation = dependencies.get(documentId)?.dependency.observed;
-      const expected = seed.observed;
-      const sameObservation = observation?.kind === expected.kind &&
-        (observation.kind === "present" && expected.kind === "present"
-          ? observation.revisionCommitSeq === expected.revisionCommitSeq
-          : observation.kind === "missing" && expected.kind === "missing" &&
-            observation.basis.kind === expected.basis.kind &&
-            (observation.basis.kind === "tombstone" && expected.basis.kind === "tombstone"
-              ? observation.basis.revisionCommitSeq === expected.basis.revisionCommitSeq : true));
-      if (!sameObservation) return yield* Effect.fail(error("storedCorruption"));
-      const table = yield* Effect.fromResult(tableForId(seed.tableId));
-      const existing = rows.get(documentId);
-      if (seed.overlay.kind === "live") {
-        if (!isJsonObject(seed.overlay.document.valueJson) ||
-          seed.overlay.document.valueJson._id !== documentId ||
-          seed.overlay.document.valueJson._creationTime !== seed.overlay.creationTime)
-          return yield* Effect.fail(error("storedCorruption"));
-        yield* charge(128 + seed.overlay.document.canonicalBytes.byteLength);
-      } else yield* charge(128);
-      const seedCreationTime = seed.overlay.kind === "live" ? seed.overlay.creationTime : existing?.creationTime;
-      // An insert followed by delete has a missing snapshot dependency and no
-      // current row. Retain its absence witness without inventing row time.
-      if (seedCreationTime === undefined && seed.overlay.kind === "deleted" && expected.kind === "missing") continue;
-      if (seedCreationTime === undefined) return yield* Effect.fail(error("storedCorruption"));
-      rows.set(documentId, { tableId: seed.tableId, tableName: table.logicalName, rowId: seed.rowId,
-        documentId, base: existing?.base ?? null, creationTime: seedCreationTime,
-        current: seed.overlay.kind === "live" ? seed.overlay.document : null, attempts: [], seeded: true });
+    const pendingRows = state.pendingRows;
+    if (pendingRows.length > 0) {
+      yield* state.requireAdmission;
+      yield* runRead(tx => Effect.gen(function* () {
+        for (const seed of pendingRows) {
+          const documentId = appDocumentIdV1FromRowIdentity(seed);
+          if (seen.has(documentId)) return yield* Effect.fail(error("storedCorruption"));
+          seen.add(documentId);
+          yield* readBaseInTransaction(tx, seed.tableId, seed.rowId);
+          const observation = dependencies.get(documentId)?.dependency.observed;
+          const expected = seed.observed;
+          const sameObservation = observation?.kind === expected.kind &&
+            (observation.kind === "present" && expected.kind === "present"
+              ? observation.revisionCommitSeq === expected.revisionCommitSeq
+              : observation.kind === "missing" && expected.kind === "missing" &&
+                observation.basis.kind === expected.basis.kind &&
+                (observation.basis.kind === "tombstone" && expected.basis.kind === "tombstone"
+                  ? observation.basis.revisionCommitSeq === expected.basis.revisionCommitSeq : true));
+          if (!sameObservation) return yield* Effect.fail(error("storedCorruption"));
+          const table = yield* Effect.fromResult(tableForId(seed.tableId));
+          const existing = rows.get(documentId);
+          if (seed.overlay.kind === "live") {
+            if (!isJsonObject(seed.overlay.document.valueJson) ||
+              seed.overlay.document.valueJson._id !== documentId ||
+              seed.overlay.document.valueJson._creationTime !== seed.overlay.creationTime)
+              return yield* Effect.fail(error("storedCorruption"));
+            yield* charge(128 + seed.overlay.document.canonicalBytes.byteLength);
+          } else yield* charge(128);
+          const seedCreationTime = seed.overlay.kind === "live" ? seed.overlay.creationTime : existing?.creationTime;
+          // An insert followed by delete has a missing snapshot dependency and no
+          // current row. Retain its absence witness without inventing row time.
+          if (seedCreationTime === undefined && seed.overlay.kind === "deleted" && expected.kind === "missing") continue;
+          if (seedCreationTime === undefined) return yield* Effect.fail(error("storedCorruption"));
+          rows.set(documentId, { tableId: seed.tableId, tableName: table.logicalName, rowId: seed.rowId,
+            documentId, base: existing?.base ?? null, creationTime: seedCreationTime,
+            current: seed.overlay.kind === "live" ? seed.overlay.document : null, attempts: [], seeded: true });
+        }
+      }));
     }
   }
   const locate = Effect.fn("LogicalDocuments.locate")(function* (inputId: string, tableName?: string) {
@@ -578,14 +597,20 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
           let read = indexReads.get(selection.identity);
           if (read === undefined) {
             if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-            const entries = yield* runRead(tx => readLogicalIndexRange(tx, state.scopeId, selection, limits.identities, error,
-              testHooks?.observeIndexQuery, state.snapshotCommitSeq));
-            yield* charge(128 + entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
-            if (entries.some(entry => entry.tableId !== table.tableId) || new Set(entries.map(entry => entry.rowId)).size !== entries.length) {
-              return yield* Effect.fail(error("storedCorruption"));
-            }
-            const missing = entries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
-            if (!scanned.has(table.tableId) && missing.length > 0) yield* readBase(table.tableId, undefined, missing.map(entry => entry.rowId));
+            yield* state.requireAdmission;
+            const entries = yield* runRead(tx => Effect.gen(function* () {
+              const rangeEntries = yield* readLogicalIndexRange(tx, state.scopeId, selection, limits.identities, error,
+                testHooks?.observeIndexQuery, state.snapshotCommitSeq);
+              yield* charge(128 + rangeEntries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
+              if (rangeEntries.some(entry => entry.tableId !== table.tableId) || new Set(rangeEntries.map(entry => entry.rowId)).size !== rangeEntries.length) {
+                return yield* Effect.fail(error("storedCorruption"));
+              }
+              if (!scanned.has(table.tableId)) {
+                const missing = rangeEntries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
+                if (missing.length > 0) yield* readBaseInTransaction(tx, table.tableId, undefined, missing.map(entry => entry.rowId));
+              }
+              return rangeEntries;
+            }));
             for (const entry of entries) {
               const { pending } = yield* locate(appDocumentIdV1FromRowIdentity(entry));
               if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));
@@ -671,34 +696,43 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       if (definition === undefined)
         return yield* Effect.fail(error("invalidInput"));
       if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-      let entries: readonly LogicalSearchMember[] | undefined;
-      if (jsonPattern !== null) {
-        // The JSON path may be broad while a scalar equality path is small.
-        // Probe one extra member before charging or recording a read; only a
-        // complete candidate path can become a transaction dependency.
-        entries = yield* runRead(tx => readLogicalJsonContainsRange(tx, state.scopeId,
-          definition, jsonPattern.column, jsonPattern.value, limits.identities,
-          (reason, cause) => reason === "limitExceeded"
-            ? { kind: "overflow" as const } : { kind: "failure" as const, value: error(reason, cause) })
-          .pipe(Effect.matchEffect({
-            onSuccess: matches => Effect.succeed(matches),
-            onFailure: failure => failure.kind === "failure" ? Effect.fail(failure.value)
-              : query.selections === null ? Effect.fail(error("limitExceeded")) : Effect.succeed(undefined),
-          })));
-      } else if (searchPatterns !== null) {
-        entries = yield* runRead(tx => readLogicalSearchRange(tx, state.scopeId, definition,
-          searchPatterns, limits.identities, error));
-      }
+      yield* state.requireAdmission;
+      // Candidate evidence and its previously unseen row revisions share one
+      // checked read. A later operation obtains a fresh authority check.
+      const entries = yield* runRead(tx => Effect.gen(function* () {
+        let matches: readonly LogicalSearchMember[] | undefined;
+        if (jsonPattern !== null) {
+          // The JSON path may be broad while a scalar equality path is small.
+          // Probe one extra member before charging or recording a read; only a
+          // complete candidate path can become a transaction dependency.
+          matches = yield* readLogicalJsonContainsRange(tx, state.scopeId,
+            definition, jsonPattern.column, jsonPattern.value, limits.identities,
+            (reason, cause) => reason === "limitExceeded"
+              ? { kind: "overflow" as const } : { kind: "failure" as const, value: error(reason, cause) })
+            .pipe(Effect.matchEffect({
+              onSuccess: found => Effect.succeed(found),
+              onFailure: failure => failure.kind === "failure" ? Effect.fail(failure.value)
+                : query.selections === null ? Effect.fail(error("limitExceeded")) : Effect.succeed(undefined),
+            }));
+        } else if (searchPatterns !== null) {
+          matches = yield* readLogicalSearchRange(tx, state.scopeId, definition,
+            searchPatterns, limits.identities, error);
+        }
+        if (matches !== undefined) {
+          yield* charge(128 + matches.length * 96);
+          if (jsonPattern !== null) searchReads.push(Object.freeze({ kind: "jsonContainment", definition,
+            column: jsonPattern.column, value: jsonPattern.value, entries: matches }));
+          else if (searchPatterns !== null) searchReads.push(Object.freeze({ kind: "text", definition,
+            patterns: searchPatterns, entries: matches }));
+          const members = new Set(matches.map(entry => entry.rowId));
+          const missing = [...members].filter(rowId => !dependencies.has(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId })));
+          if (missing.length > 0) yield* readBaseInTransaction(tx, table.tableId, undefined, missing);
+        }
+        return matches;
+      }));
       if (entries !== undefined) {
         usedSearchCandidates = true;
-        yield* charge(128 + entries.length * 96);
-        if (jsonPattern !== null) searchReads.push(Object.freeze({ kind: "jsonContainment", definition,
-          column: jsonPattern.column, value: jsonPattern.value, entries }));
-        else if (searchPatterns !== null) searchReads.push(Object.freeze({ kind: "text", definition,
-          patterns: searchPatterns, entries }));
         const members = new Set(entries.map(entry => entry.rowId));
-        const missing = [...members].filter(rowId => !dependencies.has(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId })));
-        if (missing.length > 0) yield* readBase(table.tableId, undefined, missing);
         for (const entry of entries) {
           const { pending } = yield* locate(appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId: entry.rowId }));
           if (pending?.base?.kind !== "live" || pending.base.commitSeq !== entry.commitSeq)
@@ -797,17 +831,21 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       // Batch residual filtering while charging the actual hidden lookahead.
       const limit = Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, Math.max(16, needed - matched.size), remaining);
       if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-      const page = yield* runRead(tx => readLogicalIndexPage(tx, state.scopeId, { ...selection, ...(after === undefined ? {} : { after }) },
-        limit, error, testHooks?.observeIndexQuery, state.snapshotCommitSeq));
-      examined += page.entries.length + (page.isDone ? 0 : 1);
-      if (examined > limits.identities) return yield* Effect.fail(error("limitExceeded"));
-      yield* charge(128 + page.entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
-      const read = Object.freeze({ ...selection, ...(after === undefined ? {} : { after: Object.freeze({ ...after }) }),
-        entries: page.entries, isDone: page.isDone });
-      pageReads.push(read);
-      if (page.entries.some(entry => entry.tableId !== table.tableId)) return yield* Effect.fail(error("storedCorruption"));
-      const missing = page.entries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
-      if (missing.length > 0) yield* readBase(table.tableId, undefined, missing.map(entry => entry.rowId));
+      yield* state.requireAdmission;
+      const page = yield* runRead(tx => Effect.gen(function* () {
+        const window = yield* readLogicalIndexPage(tx, state.scopeId, { ...selection, ...(after === undefined ? {} : { after }) },
+          limit, error, testHooks?.observeIndexQuery, state.snapshotCommitSeq);
+        examined += window.entries.length + (window.isDone ? 0 : 1);
+        if (examined > limits.identities) return yield* Effect.fail(error("limitExceeded"));
+        yield* charge(128 + window.entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
+        const read = Object.freeze({ ...selection, ...(after === undefined ? {} : { after: Object.freeze({ ...after }) }),
+          entries: window.entries, isDone: window.isDone });
+        pageReads.push(read);
+        if (window.entries.some(entry => entry.tableId !== table.tableId)) return yield* Effect.fail(error("storedCorruption"));
+        const missing = window.entries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
+        if (missing.length > 0) yield* readBaseInTransaction(tx, table.tableId, undefined, missing.map(entry => entry.rowId));
+        return window;
+      }));
       for (const entry of page.entries) {
         const { pending } = yield* locate(appDocumentIdV1FromRowIdentity(entry), tableName);
         if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));

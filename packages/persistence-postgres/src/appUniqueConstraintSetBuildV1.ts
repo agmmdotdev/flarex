@@ -106,6 +106,8 @@ import {
   readCurrentAppRowInTransactionEffect,
   AppRowReadPersistenceError,
   readAppTableWriteFrontierInTransactionEffect,
+  readAppTableWriteFrontiersInTransactionEffect,
+  type AppRowTableFrontierCorruptionError,
   type AppRowReadResultV1,
   type AppRowTransaction,
   type ReadAppRowError,
@@ -1370,6 +1372,13 @@ const inspectEligibilityWithLockedClock = Effect.fn(
   const observedClock = selected.clock;
   const coverageContext = states.some(state => state.maintenance !== null)
     ? yield* readUniqueCoverageContext(tx, observedClock, snapshot) : undefined;
+  const frontierTableIds = snapshot.members.flatMap(member => {
+      const state = states.find(value => value.uniqueConstraintDefinitionId === member.uniqueConstraintDefinitionId);
+      return state !== undefined && state.maintenance === null && state.coveredThroughCommitSeq !== null &&
+        state.coveredThroughCommitSeq < observedClock.lastCommitSeq && state.lifecycle === "enabled"
+        ? [member.tableId] : [];
+    });
+  let tableFrontiers: UniqueTableFrontiers | undefined;
   const identities: AppUniqueConstraintBuildIdentity[] = [];
   for (const member of snapshot.members) {
     const state = states.find(
@@ -1377,24 +1386,17 @@ const inspectEligibilityWithLockedClock = Effect.fn(
         value.uniqueConstraintDefinitionId ===
         member.uniqueConstraintDefinitionId,
     );
-    const reason =
-      state === undefined
-        ? "buildMissing"
-        : !buildAuthorityIsCurrent(state, observedClock)
-          ? "buildStale"
-          : state.lifecycle !== "enabled"
-            ? "buildNotEnabled"
-            : !(yield* hasDefinitionCoverage(
-                  tx,
-                  authority,
-                  snapshot,
-                  state,
-                  member.tableId,
-                  observedClock,
-                  coverageContext,
-                ))
-              ? "buildStale"
-              : null;
+    let reason: "buildMissing" | "buildStale" | "buildNotEnabled" | null;
+    if (state === undefined) reason = "buildMissing";
+    else if (!buildAuthorityIsCurrent(state, observedClock)) reason = "buildStale";
+    else if (state.lifecycle !== "enabled") reason = "buildNotEnabled";
+    else {
+      if (tableFrontiers === undefined && state.maintenance === null &&
+        state.coveredThroughCommitSeq !== null && state.coveredThroughCommitSeq < observedClock.lastCommitSeq)
+        tableFrontiers = yield* readUniqueTableFrontiers(tx, authority, snapshot, frontierTableIds);
+      reason = (yield* hasDefinitionCoverage(tx, authority, snapshot, state, member.tableId,
+        observedClock, coverageContext, tableFrontiers)) ? null : "buildStale";
+    }
     if (reason !== null)
       return Object.freeze({
         status: "not_ready" as const,
@@ -1515,6 +1517,18 @@ const readUniqueCoverageContext = Effect.fn("AppUniqueConstraintBuild.readCovera
         : stateError(clock, snapshot, "storedStateInvalid", cause))),
 );
 
+type UniqueTableFrontiers = ReadonlyMap<CatalogTableId,
+  Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>>;
+
+const readUniqueTableFrontiers = Effect.fn("AppUniqueConstraintBuild.readTableFrontiers")(
+  (tx: AppRowTransaction, authority: Pick<TrustedScopeAuthority, "scopeId">,
+    snapshot: Pick<BuildSnapshot, "schemaVersionId">, tableIds: ReadonlyArray<CatalogTableId>) =>
+    readAppTableWriteFrontiersInTransactionEffect(tx, authority.scopeId, tableIds).pipe(
+      Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
+        ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: true, cause })
+        : stateError(authority, snapshot, "storedStateInvalid", cause))),
+);
+
 const hasDefinitionCoverage = Effect.fn("AppUniqueConstraintBuild.hasCoverage")(
   function* (
     tx: AppRowTransaction,
@@ -1524,6 +1538,7 @@ const hasDefinitionCoverage = Effect.fn("AppUniqueConstraintBuild.hasCoverage")(
     tableId: CatalogTableId,
     clock: ScopeClockRecord,
     coverageContext?: IndexCoverageContext,
+    tableFrontiers?: UniqueTableFrontiers,
   ) {
     if (state.coveredThroughCommitSeq === null) return false;
     if (state.maintenance !== null) {
@@ -1542,11 +1557,12 @@ const hasDefinitionCoverage = Effect.fn("AppUniqueConstraintBuild.hasCoverage")(
       return true;
     }
     if (state.coveredThroughCommitSeq >= clock.lastCommitSeq) return true;
-    const frontier = yield* readAppTableWriteFrontierInTransactionEffect(
-      tx,
-      authority.scopeId,
-      tableId,
-    ).pipe(
+    const batched = tableFrontiers?.get(tableId);
+    const frontier = yield* (tableFrontiers === undefined
+      ? readAppTableWriteFrontierInTransactionEffect(tx, authority.scopeId, tableId)
+      : batched === undefined
+        ? Effect.die("Selected unique table frontier missing from transaction batch")
+        : Effect.fromResult(batched)).pipe(
       Effect.mapError((cause) =>
         cause instanceof AppRowReadPersistenceError
           ? new AppUniqueConstraintSetBuildIntegrationV1Error({

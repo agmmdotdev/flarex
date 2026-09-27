@@ -34,7 +34,7 @@ import {
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 
-import { readAppTableWriteFrontierInTransactionEffect, type AppRowTransaction, type AppRowReadPersistenceError, type AppRowTableFrontierCorruptionError, type InvalidAppRowReadInputError } from "./appRows";
+import { readAppTableWriteFrontierInTransactionEffect, readAppTableWriteFrontiersInTransactionEffect, type AppRowTransaction, type AppRowReadPersistenceError, type AppRowTableFrontierCorruptionError, type InvalidAppRowReadInputError } from "./appRows";
 import type { AppIndexDefinitionRecord } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
@@ -603,6 +603,12 @@ export interface IndexCoverageContext {
   readonly active: (CoherentApplicationActiveHead & { readonly schema: { readonly deploymentId: string; readonly schemaVersionId: string; readonly schemaManifestSha256: string } }) | null;
 }
 
+const coverageTableFrontiers = new WeakMap<IndexCoverageContext, Readonly<{
+  tx: AppRowTransaction;
+  frontiers: ReadonlyMap<CatalogTableId, Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>>;
+}>>();
+const coverageContextTransactions = new WeakMap<IndexCoverageContext, AppRowTransaction>();
+
 /** Application activation owns a maintained suffix. A separately admitted
  * logical source requires explicit build progress and cannot borrow that suffix.
  * A joint command names exactly which selected tables retain Application
@@ -622,12 +628,32 @@ export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuild
   function* (tx: AppRowTransaction, clock: ScopeClockRecord): Effect.fn.Return<IndexCoverageContext, IndexMaintenanceError> {
     return yield* Effect.gen(function* () {
       const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock.scopeId);
-      if (active === null) return Object.freeze({ clock, active: null });
+      if (active === null) {
+        const context = Object.freeze({ clock, active: null });
+        coverageContextTransactions.set(context, tx);
+        return context;
+      }
       const schema = yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head);
-      return Object.freeze({ clock, active: Object.freeze({ ...active, schema }) });
+      const context = Object.freeze({ clock, active: Object.freeze({ ...active, schema }) });
+      coverageContextTransactions.set(context, tx);
+      return context;
     }).pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: cause.reason, retryable: cause.retryable, cause: cause.cause })));
   },
 );
+
+/** Prepare only selected, uncovered source-table pointers in the accepting
+ * transaction. The context is the sole holder of the batch result; callers
+ * cannot supply a substitute frontier to the coverage decision. */
+export const readIndexCoverageTableFrontiersInTransactionEffect = Effect.fn(
+  "IndexBuildState.readCoverageTableFrontiers",
+)(function* (tx: AppRowTransaction, context: IndexCoverageContext,
+  tableIds: ReadonlyArray<CatalogTableId>): Effect.fn.Return<void,
+    InvalidAppRowReadInputError | AppRowReadPersistenceError | IndexMaintenanceError> {
+  if (coverageContextTransactions.get(context) !== tx)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const frontiers = yield* readAppTableWriteFrontiersInTransactionEffect(tx, context.clock.scopeId, tableIds);
+  coverageTableFrontiers.set(context, { tx, frontiers });
+});
 
 /** Call under the caller's scope-clock/snapshot transaction before admitting a read. */
 export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
@@ -689,11 +715,15 @@ export const isIndexBuildSnapshotCoveredInTransactionEffect = Effect.fn(
         )).limit(1), cause => new IndexMaintenanceError({ reason: "resourceFailure", cause })));
     return published.length === 0;
   }
-  const latest = yield* readAppTableWriteFrontierInTransactionEffect(
-    tx,
-    state.scopeId,
-    definition.tableId,
-  );
+  const batch = coverageTableFrontiers.get(context);
+  if (batch !== undefined && batch.tx !== tx)
+    return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const batched = batch?.frontiers.get(definition.tableId);
+  const latest = batch === undefined
+    ? yield* readAppTableWriteFrontierInTransactionEffect(tx, state.scopeId, definition.tableId)
+    : batched === undefined
+      ? yield* Effect.die("Selected index table frontier missing from transaction batch")
+      : yield* Effect.fromResult(batched);
   return latest === null || latest <= covered;
 });
 

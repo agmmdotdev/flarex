@@ -1,6 +1,8 @@
 import { and, desc, eq, getTableColumns, inArray, lte, or, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import {
   AppCreationTimeV1Schema,
   decodeAppCreationTimeV1,
@@ -412,6 +414,13 @@ const decodeAppCreationTimeV1Result = Schema.decodeUnknownResult(
   Schema.toType(AppCreationTimeV1Schema),
 );
 const decodeBooleanResult = Schema.decodeUnknownResult(Schema.Boolean);
+const decodeTableFrontierBatchRowResult = Schema.decodeUnknownResult(Schema.Struct({
+  ordinal: Schema.Int,
+  commitSeqText: Schema.NullOr(Schema.String),
+}));
+const decodeBigIntTextResult = Schema.decodeUnknownResult(Schema.BigIntFromString);
+
+const TABLE_FRONTIER_BATCH_SIZE = 64;
 
 interface DecodedAppRowReadIdentityV1 {
   readonly identity: AppRowIdentityV1;
@@ -476,6 +485,72 @@ export const readAppTableWriteFrontierInTransactionEffect = Effect.fn(
       new AppRowTableFrontierCorruptionError(scopeId, tableId),
     );
   return frontier;
+});
+
+/** Each entry retains its own stored-value verdict so a caller can consume
+ * coverage in definition order. The returned values belong only to this SQL
+ * transaction and its current pointer visibility. */
+export const readAppTableWriteFrontiersInTransactionEffect = Effect.fn(
+  "AppRows.readTableWriteFrontiers",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  tableIds: ReadonlyArray<CatalogTableId>,
+): Effect.fn.Return<
+  ReadonlyMap<CatalogTableId, Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>>,
+  InvalidAppRowReadInputError | AppRowReadPersistenceError
+> {
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId)).pipe(
+    Effect.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidScopeId", cause })),
+  );
+  const distinct = new Set<CatalogTableId>();
+  for (const tableId of tableIds) {
+    const table = yield* Effect.fromResult(decodeCatalogTableIdResult(tableId)).pipe(
+      Effect.mapError(cause => new InvalidAppRowReadInputError({ reason: "invalidTableId", cause })),
+    );
+    distinct.add(table);
+  }
+  const selected = [...distinct];
+  const frontiers = new Map<CatalogTableId, Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>>();
+  for (let offset = 0; offset < selected.length; offset += TABLE_FRONTIER_BATCH_SIZE) {
+    const batch = selected.slice(offset, offset + TABLE_FRONTIER_BATCH_SIZE);
+    const values = sql.join(batch.map((tableId, ordinal) => sql`(${ordinal}::integer, ${tableId}::integer)`), sql`, `);
+    const query = tx.execute(sql`
+      with requested(ordinal, table_id) as (values ${values})
+      select requested.ordinal as "ordinal", latest.commit_seq::text as "commitSeqText"
+      from requested
+      left join lateral (
+        select current_row.commit_seq from fx_app_row_current as current_row
+        where current_row.scope_uuid = ${scope.scopeUuid} and current_row.table_id = requested.table_id
+        order by current_row.commit_seq desc limit 1
+      ) as latest on true
+      order by requested.ordinal
+    `);
+    const result = yield* Effect.uninterruptible(runDrizzleStatementEffect(query,
+      cause => new AppRowReadPersistenceError("readTableFrontier", cause)));
+    const rows = isNonArrayRecord(result) && Array.isArray(result.rows) ? result.rows : [];
+    for (let ordinal = 0; ordinal < batch.length; ordinal += 1) {
+      const tableId = batch[ordinal]!;
+      const row = rows[ordinal];
+      const envelope = decodeTableFrontierBatchRowResult(row);
+      if (rows.length !== batch.length || Result.isFailure(envelope) || envelope.success.ordinal !== ordinal) {
+        frontiers.set(tableId, Result.fail(new AppRowTableFrontierCorruptionError(scopeId, tableId,
+          Result.isFailure(envelope) ? envelope.failure : undefined)));
+        continue;
+      }
+      if (envelope.success.commitSeqText === null) {
+        frontiers.set(tableId, Result.succeed(null));
+        continue;
+      }
+      const decoded = Result.flatMap(decodeBigIntTextResult(envelope.success.commitSeqText),
+        decodeCommitSeqResult);
+      frontiers.set(tableId, Result.isFailure(decoded) || decoded.success < 1n
+        ? Result.fail(new AppRowTableFrontierCorruptionError(scopeId, tableId,
+            Result.isFailure(decoded) ? decoded.failure : undefined))
+        : Result.succeed(decoded.success));
+    }
+  }
+  return frontiers;
 });
 
 export const readAppRowAtSnapshotInTransactionEffect = Effect.fn(

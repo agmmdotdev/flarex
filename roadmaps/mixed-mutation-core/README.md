@@ -15,9 +15,14 @@ one pinned native create, update and find-by-ID lifecycle under the same root.
 The [finite Medusa workflow preflight](./03-finite-medusa-workflow-preflight.md)
 owns the implemented finite private workflow profile in isolated scopes.
 The [performance baseline preflight](./04-performance-baseline-preflight.md)
-proposes the next measurement-only package before further Product or
-SalesChannel admission; its method and scope await agreement.
+owns the measurement package. Its original ordinary-PostgreSQL sample set
+remains a partial historical record because a finite-workflow cold request
+reached its existing deadline. The corrected, complete series closes that
+private cold-workflow cost gate.
 Named-environment activation and public authoring APIs remain separate gates.
+The [core query cost preflight](./05-core-query-cost-preflight.md) owns the
+implemented bounded persistence correction and its cost comparison. It does
+not change the original baseline record or admit another framework operation.
 Payload's required unique `posts.title` field needs a retained ordered index for
 historical uniqueness checks. Adding that compiler index changes the compiled
 Payload source definition and digest. Isolated proof scopes can be reprovisioned;
@@ -147,24 +152,33 @@ from this roadmap alone.
    selected graph. Migrate affected workflow/adapter consumers and remove
    displaced mixed paths in that package. Exact journal-format cutover and
    named-environment disposition are gates in its preflight.
-4. **[Evidence-driven cost baseline](./04-performance-baseline-preflight.md) (proposed for agreement).** Only after representative real
+4. **[Evidence-driven cost baseline](./04-performance-baseline-preflight.md) (original series partial; corrected cold gate closed).** After representative real
    integration and correctness work, measure equivalent workloads on ordinary-role
-   PostgreSQL, attributing SQL statements, sequential round trips, journal,
-   validation, index/event maintenance, retries and lock waits. Agree numerical
-   acceptance targets from that baseline. The linked preflight covers
-   measurement only. A separately agreed optimization slice can address measured
-   bottlenecks at their owners and rerun the same correctness and cost workloads.
-   Whole-goal completion then audits profile boundaries, durable formats,
-   retained callers, exports, tests and documentation; this confirms cleanup
-   already done per slice rather than delaying retirement.
+   PostgreSQL, attributing observed driver dispatches, SQL statements, awaited
+   query time and request wall time to their owners. Record sealed-journal bytes,
+   retained rows, indexes and events; mark unobserved inner phases and scope-clock
+   lock intervals unavailable. Recommend numerical acceptance targets from that
+   baseline. The linked preflight covers measurement only.
+5. **[Core query cost correction](./05-core-query-cost-preflight.md) (implemented bounded private correction).**
+   Batch selected source-readiness and table-frontier work at the persistence
+   owner, loading physical proofs and frontiers only when ordered coverage
+   checks need them. Group bounded working-set hydration under checked short
+   SQL transactions. The selection follows authenticated tables and definitions,
+   so future module, workflow and Payload sources can use the same core mechanics
+   when separately admitted. Preserve each source's fresh authority check,
+   transaction and publication obligations, then rerun the same correctness
+   and cost workloads. Whole-goal completion audits profile boundaries,
+   durable formats, retained callers, exports, tests and documentation; this
+   confirms cleanup already done per slice rather than delaying retirement.
 
-The first Product proof currently repeats checked-read, source-binding and
-attempt-authority SQL across native service operations. That is a known query
-cost, not a measured PostgreSQL latency or capacity result. Package 4 must
-attribute statements and sequential round trips on a representative
-ordinary-role PostgreSQL workload before setting targets or batching those
-checks at their owning layer; the first package retains their correctness
-checks.
+The original ordinary-PostgreSQL series exposed repeated source readiness
+checks and table-frontier queries across native Product operations. Its cold
+deadline failure remains in the historical record without an established
+COMMIT-delay cause. The complete corrected series closes the current private
+cold gate and shows lower median request cost for the selected workloads.
+Fresh source readiness and historical row reads retain work; this result does
+not establish native Medusa ORM parity, arbitrary future-framework support or
+hosted capacity. The first packages retain their correctness checks.
 
 The first preflight may revise package boundaries when a real call graph or
 durable obligation requires it, but it must preserve a connected consumer proof

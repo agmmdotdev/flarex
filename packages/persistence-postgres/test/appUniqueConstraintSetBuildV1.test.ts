@@ -467,6 +467,98 @@ describe("C08-B1 closed unique-set build foundation", () => {
     ))).resolves.toMatchObject({ reason: "invalidPort", retryable: false });
   }, 30_000);
 
+  it("batches uncovered unique definitions across independent tables in each fresh inspection", async () => {
+    const fixture = await fixtureFor("multi_table_frontier", ["users", "projects"]);
+    const secondTableId = fixture.tableIds[1];
+    if (secondTableId === undefined) throw new Error("Missing second unique-set table");
+    await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false));
+    await ensureBinding(fixture, await prepareBinding(fixture, "by_tenant", false));
+    await ensureBinding(fixture, await prepareBinding(fixture, "by_email", false, undefined, secondTableId));
+    await closeSet(fixture);
+    await reconcile(fixture);
+    await fixture.persistence.query(
+      `update fx_system_unique_constraint_build
+          set lifecycle = 'enabled', covered_through_commit_seq = 0
+        where scope_id = $1 and unique_constraint_definition_id in
+          (select unique_constraint_definition_id from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
+      [fixture.scopeId, fixture.schemaVersionId],
+    );
+    const members = (await fixture.persistence.query<{ table_id: number }>(
+      `select definition.table_id from fx_control_schema_version_unique_constraint_binding binding
+       join fx_control_unique_constraint_definition definition on
+         definition.deployment_id = binding.deployment_id and
+         definition.unique_constraint_definition_id = binding.unique_constraint_definition_id
+       where binding.schema_version_id = $1 order by binding.unique_constraint_definition_id`,
+      [fixture.schemaVersionId],
+    )).rows;
+    expect(members.map(member => member.table_id)).toEqual([fixture.tableId, fixture.tableId, secondTableId]);
+
+    let frontierQueries = 0;
+    let corruptSecondFrontier = false;
+    let failFrontierQuery = false;
+    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
+      fixture.persistence.drizzle, LOCATOR,
+      work => fixture.persistence.drizzle.transaction(tx => work(new Proxy(tx, {
+        get(transaction, property) {
+          const member = Reflect.get(transaction, property, transaction);
+          if (property !== "execute" || typeof member !== "function") return member;
+          return async (...args: ReadonlyArray<unknown>) => {
+            frontierQueries += 1;
+            if (failFrontierQuery) throw new Error("Later frontier query must not run");
+            const result: unknown = await Reflect.apply(member, transaction, args);
+            if (!corruptSecondFrontier) return result;
+            const driver = result as { readonly rows: ReadonlyArray<Readonly<Record<string, unknown>>> };
+            return { ...driver, rows: driver.rows.map((row, ordinal) =>
+              ordinal === 1 ? { ...row, commitSeqText: "malformed" } : row) };
+          };
+        },
+      }))),
+    );
+    const port = eligibilityPort(fixture, target);
+    const inspect = () => runEffect(loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+      port, eligibilityInput(fixture)));
+    expect(await inspect()).toMatchObject({ status: "eligible", evidence: { definitionCount: 3 } });
+    expect(frontierQueries).toBe(0);
+
+    await appendDocument(fixture, rowId(71), 1n, null, { tenantId: "tenant-a", email: "one@example.com" });
+    await setClockCommit(fixture, 1n);
+    frontierQueries = 0;
+    corruptSecondFrontier = true;
+    // The first uncovered definition wins even if a later table's driver value is malformed.
+    expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildStale" });
+    expect(frontierQueries).toBe(1);
+    corruptSecondFrontier = false;
+
+    await fixture.persistence.query(
+      `update fx_system_unique_constraint_build set covered_through_commit_seq = 1
+       where scope_id = $1 and unique_constraint_definition_id in
+         (select unique_constraint_definition_id from fx_control_unique_constraint_definition
+          where deployment_id = $2 and table_id = $3)`,
+      [fixture.scopeId, fixture.deploymentId, fixture.tableId],
+    );
+    frontierQueries = 0;
+    expect(await inspect()).toMatchObject({ status: "eligible", evidence: { definitionCount: 3 } });
+    expect(frontierQueries).toBe(1);
+
+    await appendDocument(fixture, rowId(72), 2n, null,
+      { tenantId: "tenant-b", email: "two@example.com" }, secondTableId);
+    await setClockCommit(fixture, 2n);
+    frontierQueries = 0;
+    expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildStale" });
+    expect(frontierQueries).toBe(1);
+
+    await fixture.persistence.query(
+      `delete from fx_system_unique_constraint_build where scope_id = $1 and
+       unique_constraint_definition_id = (select min(unique_constraint_definition_id)
+         from fx_control_schema_version_unique_constraint_binding where schema_version_id = $2)`,
+      [fixture.scopeId, fixture.schemaVersionId],
+    );
+    frontierQueries = 0;
+    failFrontierQuery = true;
+    expect(await inspect()).toMatchObject({ status: "not_ready", reason: "buildMissing" });
+    expect(frontierQueries).toBe(0);
+  }, 30_000);
+
   it("closes the exact set, replays it, and refuses late bindings", async () => {
     const fixture = await fixtureFor("closure");
     const first = await prepareBinding(fixture, "by_email", false);
@@ -1285,12 +1377,13 @@ interface Fixture {
   readonly epoch: ReturnType<typeof ScopeEpochSchema.make>;
   readonly schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>;
   readonly tableId: ReturnType<typeof CatalogTableIdSchema.make>;
+  readonly tableIds: ReadonlyArray<ReturnType<typeof CatalogTableIdSchema.make>>;
   readonly target: ReturnType<
     typeof createLocatedAppUniqueConstraintSetBuildTargetV1
   >;
 }
 
-async function fixtureFor(suffix: string): Promise<Fixture> {
+async function fixtureFor(suffix: string, tableNames: ReadonlyArray<string> = ["users"]): Promise<Fixture> {
   const persistence = await createPGlitePersistence();
   await persistence.migrate();
   fixtureOrdinal += 1;
@@ -1324,7 +1417,7 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1),
-    tables: [appTable("users")],
+    tables: tableNames.map(appTable),
     indexes: [],
   });
   const table = published.manifest.tableDefinitions.tables[0];
@@ -1336,6 +1429,7 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     epoch,
     schemaVersionId,
     tableId: table.tableId,
+    tableIds: Object.freeze(published.manifest.tableDefinitions.tables.map(value => value.tableId)),
     target: createLocatedAppUniqueConstraintSetBuildTargetV1(
       persistence.drizzle,
       LOCATOR,
@@ -1368,13 +1462,14 @@ function prepareBinding(
   descriptor: string,
   sparse: boolean,
   uniqueSpec?: AppUniqueConstraintPhysicalSpecV1,
+  tableId = fixture.tableId,
 ) {
   return runEffect(prepareAppUniqueConstraintDefinitionBindingV1Effect(
     fixture.persistence.drizzle,
     {
       deploymentId: fixture.deploymentId,
       schemaVersionId: fixture.schemaVersionId,
-      tableId: fixture.tableId,
+      tableId,
       descriptor: SchemaManifestAppIndexDescriptorSchema.make(descriptor),
       physicalSpec: uniqueSpec ?? decodeAppUniqueConstraintPhysicalSpecV1({
         kind: "appUniqueConstraint",
@@ -1523,10 +1618,11 @@ async function appendDocument(
   commitSeq: bigint,
   prevCommitSeq: bigint | null,
   fields: Readonly<Record<string, string | null>>,
+  tableId = fixture.tableId,
 ) {
   const creationTime = decodeAppCreationTimeV1(1_750_000_000_000);
   const document = await canonicalizeAppDocumentV1({
-    tableId: fixture.tableId,
+    tableId,
     rowId,
     creationTime,
     fields,
@@ -1535,7 +1631,7 @@ async function appendDocument(
     await runEffect(appendPreparedAppRowRevisionsInTransactionEffect(tx, [{
           kind: "live",
           scopeId: fixture.scopeId,
-          tableId: fixture.tableId,
+          tableId,
           rowId,
           writeEpoch: fixture.epoch,
           commitSeq: CommitSeqSchema.make(commitSeq),

@@ -31,6 +31,7 @@ describe("Medusa source-island boundary checker", () => {
         "packages/medusa-adapter/test/support/native-product-attempt-seed.ts",
         "packages/medusa-adapter/src/product-attempt.ts",
         "packages/medusa-adapter/src/product-launch-workflow.ts",
+        "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
       ].map(target => ({ target, targetSha256: "pinned", classification: "authored" })),
     };
     const imports = `
@@ -83,6 +84,21 @@ describe("Medusa source-island boundary checker", () => {
     expect(otherFixture).toContain(
       'packages/flarex-backend/test/support/otherFixture.ts:8 must not cross Currency package ownership through "../../../medusa-adapter/src/product-launch-workflow".',
     );
+    const benchmarkImport = 'import "../../medusa-adapter/test/support/product-launch-performance-fixture";';
+    expect(analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: promotion,
+      rootSources: [{ relativePath: "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts",
+        text: benchmarkImport }],
+    }).errors).toEqual([]);
+    for (const relativePath of ["packages/flarex-backend/test/otherPerformance.test.ts",
+      "packages/flarex-backend/src/performance.ts"]) {
+      expect(analyzeMedusaSourceIslandBoundary({
+        ...emptyInput, currencyPromotion: promotion,
+        rootSources: [{ relativePath, text: benchmarkImport }],
+      }).errors).toContain(
+        `${relativePath}:1 must not cross Currency package ownership through "../../medusa-adapter/test/support/product-launch-performance-fixture".`,
+      );
+    }
   });
 
   it("accepts independent Flarex and Medusa graphs", () => {

@@ -30,6 +30,7 @@ const dependencyFields = [
 ];
 const islandPrefix = "third_party/medusa/upstream/";
 const mixedProductTestFixture = "packages/flarex-backend/test/support/mixedMutationProductFixture.ts";
+const mixedPerformanceTest = "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts";
 const mixedProductTestImports = new Map([
   ["../../../medusa-adapter/test/support/logical-currency-fixture",
     "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
@@ -46,15 +47,20 @@ const mixedProductTestImports = new Map([
   ["../../../medusa-adapter/src/product-launch-workflow",
     "packages/medusa-adapter/src/product-launch-workflow.ts"],
 ]);
+const mixedPerformanceTestImports = new Map([
+  ["../../medusa-adapter/test/support/product-launch-performance-fixture",
+    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts"],
+]);
 
-/** One pinned test fixture composes real native Product, Pricing and Link
- * workflows with the private Worker proof. Backend runtime has no authority. */
+/** Only the two named private tests may cross to their exact authored Medusa
+ * support. Backend runtime has no authority. */
 /** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
  * @param {string} relativePath
  * @param {string} specifier */
-function admitsMixedProductTestImport(promotion, relativePath, specifier) {
-  if (relativePath !== mixedProductTestFixture) return false;
-  const target = mixedProductTestImports.get(specifier);
+function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
+  const permitted = relativePath === mixedProductTestFixture ? mixedProductTestImports
+    : relativePath === mixedPerformanceTest ? mixedPerformanceTestImports : undefined;
+  const target = permitted?.get(specifier);
   return target !== undefined && promotion?.files.some(file =>
     file.target === target && file.classification === "authored") === true;
 }
@@ -227,7 +233,7 @@ export function analyzeMedusaSourceIslandBoundary(input) {
   );
 
   analyzeSources(input.rootSources, errors, (specifier, relativePath) => {
-    if (admitsMixedProductTestImport(promotion, relativePath, specifier)) return undefined;
+    if (admitsSelectedMixedTestImport(promotion, relativePath, specifier)) return undefined;
     if ((specifier.toLowerCase().startsWith("file:") || isPortableAbsolutePath(specifier)) && normalized(specifier).toLowerCase().includes("/packages/medusa-")) {
       return `must not bypass Currency exports through "${specifier}"`;
     }
