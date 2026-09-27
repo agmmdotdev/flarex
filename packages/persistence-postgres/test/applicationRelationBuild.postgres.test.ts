@@ -79,6 +79,22 @@ describe("E01-A PostgreSQL acceptance environment", () => {
 });
 
 describePostgres("real PostgreSQL E01-A application relation builder", () => {
+  it("builds the selected scope after another scope joins its deployment", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await fixtureFor(control, target);
+      await control.insertScopeMetadata({
+        deploymentId: fixture.deploymentId,
+        scopeId: ScopeIdSchema.make("scope_relation_build_peer_postgres"),
+        physicalLocator: LOCATOR,
+      });
+      expect(await runEffect(fixture.port.advance(fixture.input)))
+        .toMatchObject({ status: "initialized", lifecycle: "cleaning" });
+      expect(await runEffectFailure(fixture.port.advance({ ...fixture.input,
+        scopeId: ScopeIdSchema.make("scope_relation_build_peer_postgres") })))
+        .toMatchObject({ failure: { reason: "scopeClockMissing" } });
+    });
+  });
+
   it("serializes bounded progress, rolls back faults, replays readiness, and invalidates a moved frontier", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const fixture = await fixtureFor(control, target);
@@ -330,6 +346,7 @@ async function fixtureFor(
   }
   const input = Object.freeze({
     deploymentId,
+    scopeId,
     schemaVersionId: publication.binding.schemaVersionId,
     edgeDefinitionId: definition.edge.edgeDefinitionId,
   });

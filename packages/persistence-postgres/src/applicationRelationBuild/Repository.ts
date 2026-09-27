@@ -46,6 +46,7 @@ import {
 import {
   projectScopeEpochUuidV1Result,
   projectScopeIdUuidV1Result,
+  ScopeIdSchema,
   FlarexDbV1StorageGenerationSchema,
   type CommitSeq,
   type FlarexDbV1StorageGeneration,
@@ -91,6 +92,7 @@ import {
   type LiveAppRowRevisionV1,
 } from "../appRows";
 import type { FlarexMetadataDatabase } from "../deployments";
+import { getScopeMetadata } from "../scopeMetadata";
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
 import { hasExactOwnDataKeys } from "../exactOwnDataKeys";
 import {
@@ -105,7 +107,7 @@ import {
 } from "../applicationRelationServing";
 import {
   captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityResolutionPorts,
 } from "../scopeAuthorityResolution";
@@ -159,6 +161,7 @@ import {
 
 const INPUT_KEYS = Object.freeze([
   "deploymentId",
+  "scopeId",
   "schemaVersionId",
   "edgeDefinitionId",
 ] as const);
@@ -174,6 +177,7 @@ const decodeEdgeDefinitionIdResult = Schema.decodeUnknownResult(
 const decodeDeploymentIdResult = Schema.decodeUnknownResult(
   Schema.toType(TransactionGrantDeploymentIdV1Schema),
 );
+const decodeScopeIdResult = Schema.decodeUnknownResult(ScopeIdSchema);
 const FLAREXDB_V1_STORAGE_GENERATION =
   FlarexDbV1StorageGenerationSchema.make("flarexdb_v1");
 
@@ -233,6 +237,7 @@ interface ApplicationRelationBuildHead {
 
 interface DecodedBuildInput {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly scopeId: ScopeId;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly edgeDefinitionId: CatalogEdgeDefinitionId;
 }
@@ -394,9 +399,10 @@ const locateBuildContext = Effect.fn(
   }>,
   ApplicationRelationBuildError
 > {
-  const locatedAuthority = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    input.deploymentId,
-    state.authority,
+  const locatedAuthority = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: input.deploymentId, scopeId: input.scopeId },
+    { ...state.authority,
+      scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.controlDb, scopeId) } },
   );
   const definitions = yield* state.relationCommit.locate({
     deploymentId: input.deploymentId,
@@ -468,6 +474,8 @@ function decodeInputResult(
         reason: "invalidDeploymentId",
       })
     ));
+    const scopeId = yield* decodeScopeIdResult(input.scopeId).pipe(Result.mapError(() =>
+      new InvalidApplicationRelationBuildInputError({ reason: "invalidScopeId" })));
     const schemaVersionId = yield* decodeSchemaVersionIdResult(
       input.schemaVersionId,
     ).pipe(Result.mapError(() =>
@@ -484,6 +492,7 @@ function decodeInputResult(
     ));
     return Object.freeze({
       deploymentId,
+      scopeId,
       schemaVersionId,
       edgeDefinitionId,
     });

@@ -41,6 +41,7 @@ describePostgres(
         const subject = Object.freeze({
           definitionKind: "unique_constraint" as const,
           deploymentId: fixture.deploymentId,
+          scopeId: fixture.active.basis.authority.scopeId,
           uniqueConstraintDefinitionId,
         });
         const runColdStep = () => runEffect(

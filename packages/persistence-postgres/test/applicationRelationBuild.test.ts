@@ -99,6 +99,20 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("E01-A private application relation builder", () => {
+  it("builds the selected scope after another scope joins its deployment", async () => {
+    const fixture = await fixtureFor("shared_deployment");
+    await fixture.control.insertScopeMetadata({
+      deploymentId: fixture.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_relation_build_peer_pglite"),
+      physicalLocator: LOCATOR,
+    });
+    expect(await runEffect(fixture.port.advance(fixture.input)))
+      .toMatchObject({ status: "initialized", lifecycle: "cleaning" });
+    expect(await runEffectFailure(fixture.port.advance({ ...fixture.input,
+      scopeId: ScopeIdSchema.make("scope_relation_build_peer_pglite") })))
+      .toMatchObject({ failure: { reason: "scopeClockMissing" } });
+  });
+
   it("settles and replays an authenticated immutable receipt for an empty definition", async () => {
     const fixture = await fixtureFor("empty");
     const observed: ApplicationRelationBuildStepResult[] = [];
@@ -770,6 +784,7 @@ describe("E01-A private application relation builder", () => {
     );
     const reusedInput = Object.freeze({
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
       schemaVersionId: reused.binding.schemaVersionId,
       edgeDefinitionId: reusedDefinition.edge.edgeDefinitionId,
     });
@@ -869,6 +884,7 @@ describe("E01-A private application relation builder", () => {
     }).where(eq(fxSystemScopeClocks.scopeId, fixture.scopeId));
     const replacementInput = Object.freeze({
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
       schemaVersionId: replacement.binding.schemaVersionId,
       edgeDefinitionId: replacementDefinition.edge.edgeDefinitionId,
     });
@@ -984,6 +1000,7 @@ async function fixtureFor(
   }
   const input = Object.freeze({
     deploymentId,
+    scopeId,
     schemaVersionId: publication.binding.schemaVersionId,
     edgeDefinitionId: definitions.definitions[0].edge.edgeDefinitionId,
   });

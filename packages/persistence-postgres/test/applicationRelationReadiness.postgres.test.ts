@@ -859,12 +859,13 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       });
       const candidateInput = Object.freeze({
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.scopeId,
         schemaVersionId: relation.binding.schemaVersionId,
       });
       const closure = await runEffect(
         prepareAppUniqueConstraintSetClosureV1Effect(
           fixture.control.drizzle,
-          candidateInput,
+          { deploymentId: candidateInput.deploymentId, schemaVersionId: candidateInput.schemaVersionId },
         ),
       );
       await fixture.control.drizzle.transaction(tx => runEffect(
@@ -1801,12 +1802,13 @@ async function preparePostgresRelationActivationFixture(
   });
   const candidateInput = Object.freeze({
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
     schemaVersionId: relation.binding.schemaVersionId,
   });
   const closure = await runEffect(
     prepareAppUniqueConstraintSetClosureV1Effect(
       fixture.control.drizzle,
-      candidateInput,
+      { deploymentId: candidateInput.deploymentId, schemaVersionId: candidateInput.schemaVersionId },
     ),
   );
   await fixture.control.drizzle.transaction(tx => runEffect(
@@ -1919,6 +1921,7 @@ async function preparePostgresRelationActivationFixture(
     makeActivation,
     buildInput: Object.freeze({
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
       schemaVersionId: relation.binding.schemaVersionId,
       edgeDefinitionId: firstEnabled.edgeDefinitionId,
     }),
@@ -2021,6 +2024,7 @@ async function preparePostgresLegacyReplacement(
   ));
   await settlePostgresCandidateValidation(ready.candidateValidation, {
     deploymentId: ready.fixture.deploymentId,
+    scopeId: ready.fixture.scopeId,
     schemaVersionId: schema.schemaVersionId,
   });
   await enablePostgresApplicationPhysicalBuilds(
@@ -2323,6 +2327,7 @@ async function enablePhysicalReadinessSet(
     }
     const input = Object.freeze({
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
       schemaVersionId: publication.binding.schemaVersionId,
       edgeDefinitionId: definition.edge.edgeDefinitionId,
     });

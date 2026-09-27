@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import {
   canonicalAppUniqueConstraintSpecBytesHexV1ToBytes,
   appUniqueConstraintSpecSha256HexV1ToBytes,
@@ -58,6 +59,11 @@ describePostgres(
         const indexDefinitionId = decodeCatalogIndexDefinitionId(
           definition.rows[0]?.index_definition_id,
         );
+        await control.insertScopeMetadata({
+          deploymentId: fixture.deploymentId,
+          scopeId: ScopeIdSchema.make("scope_physical_lifecycle_peer_postgres"),
+          physicalLocator: fixture.active.basis.authority.physicalLocator,
+        });
         const prepared = await runEffect(
           preparePhysicalDefinitionLifecycleSubjectEffect(
             createPhysicalDefinitionLifecyclePort({
@@ -67,6 +73,7 @@ describePostgres(
             {
               definitionKind: "index",
               deploymentId: fixture.deploymentId,
+              scopeId: fixture.active.basis.authority.scopeId,
               indexDefinitionId,
             },
           ),
@@ -249,6 +256,7 @@ describePostgres(
             {
               definitionKind: "unique_constraint",
               deploymentId: fixture.deploymentId,
+              scopeId: fixture.active.basis.authority.scopeId,
               uniqueConstraintDefinitionId,
             },
           ),

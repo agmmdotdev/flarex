@@ -8,7 +8,7 @@ import { Effect, Result } from "effect";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1ToBytes } from "flarex-protocol/app-document-id";
 import { CommitSyscallSequenceV1Schema, canonicalizeSessionJournalV1Effect, canonicalizeSuccessfulResultV1Effect } from "flarex-protocol/commit-protocol";
 import { type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import { CommitSeqSchema, decodeReplacementScopeIdV1, projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
+import { CommitSeqSchema, decodeReplacementScopeIdV1, projectScopeIdUuidV1, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { expect } from "vitest";
 import { exactRelationCommitRowId, publishExactRelationSourceCommit } from "./applicationRelationSourceCommitFixture";
@@ -443,6 +443,7 @@ export async function relationReadinessFixture(
       relationCommit,
       relationBuild,
       deploymentId,
+      authority.scopeId,
       origin.binding.schemaVersionId,
       1,
     );
@@ -1012,6 +1013,7 @@ export async function enableRelationPhysicalBuilds(
     fixture.relationCommit,
     fixture.relationBuild,
     fixture.deploymentId,
+    fixture.input.scopeId,
     fixture.relation.binding.schemaVersionId,
     fixture.relation.binding.relationBindings.length,
   );
@@ -1023,6 +1025,7 @@ export async function enableRelationPhysicalBuildsFor(
   deploymentId: Parameters<
     ReturnType<typeof createApplicationRelationCommitPort>["locate"]
   >[0]["deploymentId"],
+  scopeId: ScopeId,
   schemaVersionId: CatalogSchemaVersionId,
   expectedCount: number,
 ): Promise<void> {
@@ -1039,6 +1042,7 @@ export async function enableRelationPhysicalBuildsFor(
     for (let step = 0; step < 128; step += 1) {
       const result = await runEffect(relationBuild.advance({
         deploymentId,
+        scopeId,
         schemaVersionId,
         edgeDefinitionId: definition.edge.edgeDefinitionId,
       }));

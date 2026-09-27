@@ -5,8 +5,9 @@ deployment-only lookup refuses ambiguity, and the trusted relational command
 host, Application snapshot/query readers, framework data-binding host,
 Application readiness/activation, the selected point-mutation lifecycle,
 managed-schema candidate validation/planning/application, and ordered-index
-and unique-set builds resolve an exact scope. Some other binding/readiness
-inputs and framework command paths still use deployment-only selection and
+and unique-set builds, relation builds, and physical-definition lifecycle
+subjects resolve an exact scope. Some other binding/readiness inputs and
+framework command paths still use deployment-only selection and
 therefore refuse a multi-scope deployment.
 Full Application/Payload/Medusa same-deployment isolation is not yet claimed.
 
@@ -101,10 +102,21 @@ data-plane scope. PGlite and ordinary-role PostgreSQL witnesses add a peer
 scope before candidate progression and index/unique builds, and the connected
 managed-schema and Medusa Currency consumers exercise the migrated inputs.
 This breaks private builder inputs and their fixture callers; it changes no
-durable format. The shared point-mutation port still carries a deployment
-lookup for other named consumers that have not moved, including relation-build
-and physical-definition lifecycle owners. Remove that method once those
-consumers use exact selection; do not add a fallback or choose a first scope.
+durable format.
+
+Relation-build `advance`, `restart` and `readiness` now require the selected
+scope alongside deployment and definition identity. Physical-definition
+lifecycle subjects likewise carry the selected scope through preparation and
+retirement. Both owners use the existing exact resolver against the control
+catalog, placement, provisioning receipt and located clock before target work;
+they no longer ask for one scope by deployment. The lifecycle request digest
+still includes the resolved scope as before, so its stored request identity is
+unchanged for an identical operation. PGlite and ordinary-role PostgreSQL
+witnesses add a peer scope under the same deployment before building a relation
+or preparing a physical-definition lifecycle subject; a peer without a located
+clock is refused. Affected private input and fixture callers moved together.
+Deployment-only selection remains for named runtime hosts and provisioning
+paths; remove that resolver only after their callers receive exact authority.
 
 ## Alternatives and remaining gate
 
@@ -116,12 +128,10 @@ consumers use exact selection; do not add a fallback or choose a first scope.
 - Copying scope checks into Medusa or Payload would duplicate core authority.
 
 Move the remaining deployment-only runtime owners together with their real
-caller-supplied authority: binding's other readiness inputs, relation-build
-and physical-definition lifecycle operations, followed by Medusa/Payload
-commands. Their
-present deployment-only resolver must continue
-to refuse ambiguity until migrated, and then be removed with its mock ports
-and fixtures. The normal provisioning path also still creates or reuses one
+caller-supplied authority: binding's other readiness inputs and Medusa/Payload
+command hosts. Their present deployment-only resolver must continue to refuse
+ambiguity until migrated, and then be removed with its mock ports and fixtures.
+The normal provisioning path also still creates or reuses one
 scope per deployment; a multi-shop provisioning identity and idempotent
 creation contract must be selected before claiming general hosting support.
 Its bootstrap verifier reports a multi-scope deployment as blocked, including

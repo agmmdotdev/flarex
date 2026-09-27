@@ -49,6 +49,7 @@ export type ApplicationRelationBuildAttemptFence = bigint;
 
 export interface ApplicationRelationBuildInput {
   readonly deploymentId: string;
+  readonly scopeId: ScopeId;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly edgeDefinitionId: CatalogEdgeDefinitionId;
 }
@@ -219,6 +220,7 @@ export class InvalidApplicationRelationBuildInputError extends Data.TaggedError(
   readonly reason:
     | "invalidInputShape"
     | "invalidDeploymentId"
+    | "invalidScopeId"
     | "invalidSchemaVersionId"
     | "invalidEdgeDefinitionId";
 }> {}

@@ -277,6 +277,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
           Object.freeze({
             definitionKind: "index",
             deploymentId: fixture.input.deploymentId,
+            scopeId: fixture.input.scopeId,
             indexDefinitionId: definition.indexDefinitionId,
           }),
         ),

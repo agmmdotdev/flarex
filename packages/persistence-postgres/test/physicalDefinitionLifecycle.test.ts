@@ -20,6 +20,7 @@ import {
   decodeAppIndexPhysicalSpecSha256HexV1,
 } from "flarex-protocol/index-definition";
 import { describe, expect, it } from "vitest";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 import {
   InvalidPreparedPhysicalDefinitionLifecycleSubjectError,
@@ -101,10 +102,16 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       controlDb: fixture.control.drizzle,
       authority: fixture.authorityPorts,
     });
+    await fixture.control.insertScopeMetadata({
+      deploymentId: fixture.deploymentId,
+      scopeId: ScopeIdSchema.make("scope_physical_lifecycle_peer_pglite"),
+      physicalLocator: fixture.active.basis.authority.physicalLocator,
+    });
     const prepared = await runEffect(
       preparePhysicalDefinitionLifecycleSubjectEffect(port, {
         definitionKind: "index",
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.active.basis.authority.scopeId,
         indexDefinitionId,
       }),
     );
@@ -410,6 +417,7 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       preparePhysicalDefinitionLifecycleSubjectEffect(port, {
         definitionKind: "unique_constraint",
         deploymentId: fixture.deploymentId,
+        scopeId: fixture.active.basis.authority.scopeId,
         uniqueConstraintDefinitionId,
       }),
     );

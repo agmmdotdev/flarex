@@ -36,6 +36,7 @@ import {
 } from "./physicalDefinitionRetirementPins";
 import {
   FlarexDbV1StorageGenerationSchema,
+  ScopeIdSchema,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
 
@@ -70,7 +71,6 @@ import {
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
-  resolveLocatedTrustedScopeAuthorityEffect,
   type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
@@ -108,11 +108,13 @@ const PORT_KEYS = Object.freeze(["authority", "controlDb"] as const);
 const INDEX_SUBJECT_KEYS = Object.freeze([
   "definitionKind",
   "deploymentId",
+  "scopeId",
   "indexDefinitionId",
 ] as const);
 const UNIQUE_SUBJECT_KEYS = Object.freeze([
   "definitionKind",
   "deploymentId",
+  "scopeId",
   "uniqueConstraintDefinitionId",
 ] as const);
 const TRANSITION_KEYS = Object.freeze(["expectedTransitionFence"] as const);
@@ -128,6 +130,7 @@ const decodeIndexDefinitionId = Schema.decodeUnknownResult(
 const decodeUniqueDefinitionId = Schema.decodeUnknownResult(
   CatalogUniqueConstraintDefinitionIdSchema,
 );
+const isScopeId = Schema.is(ScopeIdSchema);
 const portBrand: unique symbol = Symbol(
   "FlarexDB/PhysicalDefinitionLifecyclePort",
 );
@@ -142,11 +145,13 @@ export type PhysicalDefinitionLifecycleSubject =
   | Readonly<{
       readonly definitionKind: "index";
       readonly deploymentId: string;
+      readonly scopeId: ScopeId;
       readonly indexDefinitionId: CatalogIndexDefinitionId;
     }>
   | Readonly<{
       readonly definitionKind: "unique_constraint";
       readonly deploymentId: string;
+      readonly scopeId: ScopeId;
       readonly uniqueConstraintDefinitionId:
         CatalogUniqueConstraintDefinitionId;
     }>;
@@ -785,9 +790,10 @@ export const preparePhysicalDefinitionLifecycleSubjectEffect = Effect.fn(
     subject,
     definition.accessKind,
   );
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    subject.deploymentId,
-    state.authority,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    { deploymentId: subject.deploymentId, scopeId: subject.scopeId },
+    { ...state.authority,
+      scopeMetadata: { getScopeMetadata: scopeId => getScopeMetadata(state.controlDb, scopeId) } },
   );
   const prepared = Object.freeze({ [preparedBrand]: true as const });
   preparedStates.set(prepared, Object.freeze({
@@ -1337,11 +1343,13 @@ function captureSubjectResult(
     | Readonly<{
         readonly definitionKind: "index";
         readonly deploymentId: string;
+        readonly scopeId: ScopeId;
         readonly definitionId: unknown;
       }>
     | Readonly<{
         readonly definitionKind: "unique_constraint";
         readonly deploymentId: string;
+        readonly scopeId: ScopeId;
         readonly definitionId: unknown;
       }>;
   const captured: Result.Result<
@@ -1352,22 +1360,24 @@ function captureSubjectResult(
       if (
         input.definitionKind === "index" &&
         hasExactOwnDataKeys(input, INDEX_SUBJECT_KEYS) &&
-        isNonBlankString(input.deploymentId)
+        isNonBlankString(input.deploymentId) && isScopeId(input.scopeId)
       ) {
         return {
           definitionKind: "index" as const,
           deploymentId: input.deploymentId,
+          scopeId: input.scopeId,
           definitionId: input.indexDefinitionId,
         };
       }
       if (
         input.definitionKind === "unique_constraint" &&
         hasExactOwnDataKeys(input, UNIQUE_SUBJECT_KEYS) &&
-        isNonBlankString(input.deploymentId)
+        isNonBlankString(input.deploymentId) && isScopeId(input.scopeId)
       ) {
         return {
           definitionKind: "unique_constraint" as const,
           deploymentId: input.deploymentId,
+          scopeId: input.scopeId,
           definitionId: input.uniqueConstraintDefinitionId,
         };
       }
@@ -1387,6 +1397,7 @@ function captureSubjectResult(
             Object.freeze({
             definitionKind: "index" as const,
             deploymentId: value.deploymentId,
+            scopeId: value.scopeId,
             indexDefinitionId,
           })),
           Result.mapError(() =>
@@ -1400,6 +1411,7 @@ function captureSubjectResult(
             PhysicalDefinitionLifecycleSubject => Object.freeze({
               definitionKind: "unique_constraint" as const,
               deploymentId: value.deploymentId,
+              scopeId: value.scopeId,
               uniqueConstraintDefinitionId,
             })),
           Result.mapError(() =>

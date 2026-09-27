@@ -1322,6 +1322,7 @@ function physicalInput(
 ) {
   return Object.freeze({
     deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
     schemaVersionId: publication.binding.schemaVersionId,
     edgeDefinitionId,
   });

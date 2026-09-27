@@ -773,6 +773,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
         Object.freeze({
           definitionKind: "index",
           deploymentId: fixture.input.deploymentId,
+          scopeId: fixture.input.scopeId,
           indexDefinitionId: definition.indexDefinitionId,
         }),
       ),

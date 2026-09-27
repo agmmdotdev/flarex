@@ -41,6 +41,7 @@ describe("M05-B4 physical-definition retirement coordinator", {
     const subject = Object.freeze({
       definitionKind: "unique_constraint" as const,
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.active.basis.authority.scopeId,
       uniqueConstraintDefinitionId,
     });
     const runColdStep = () => runEffect(
@@ -176,6 +177,7 @@ describe("M05-B4 physical-definition retirement coordinator", {
     const subject = Object.freeze({
       definitionKind: "index" as const,
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.active.basis.authority.scopeId,
       indexDefinitionId,
     });
     const initialPort = createPhysicalDefinitionLifecyclePort({

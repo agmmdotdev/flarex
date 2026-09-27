@@ -2400,6 +2400,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     );
     const buildInput = Object.freeze({
       deploymentId: ready.fixture.deploymentId,
+      scopeId: ready.fixture.input.scopeId,
       schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
       edgeDefinitionId: ready.binding.edgeDefinitionId,
     });
@@ -2460,6 +2461,7 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     if (binding === undefined) throw new Error("Expected a relation binding.");
     const restarted = await runEffect(fixture.relationBuild.restart({
       deploymentId: fixture.deploymentId,
+      scopeId: fixture.input.scopeId,
       schemaVersionId: fixture.relation.binding.schemaVersionId,
       edgeDefinitionId: binding.edgeDefinitionId,
     }));

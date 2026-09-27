@@ -809,6 +809,7 @@ async function createRelationalCoreFixture(
     relationCommit,
     relationBuild,
     input.deploymentId,
+    authority.scopeId,
     relationPublication.binding.schemaVersionId,
     canonicalManifest.manifest.schema.relations.length,
   );
@@ -1124,6 +1125,7 @@ async function createFixture(
     relationCommit,
     relationBuild,
     input.deploymentId,
+    authority.scopeId,
     relationPublication.binding.schemaVersionId,
   );
 
@@ -1760,6 +1762,7 @@ async function enableRelationPhysicalBuilds(
   relationCommit: ReturnType<typeof createApplicationRelationCommitPort>,
   relationBuild: ReturnType<typeof createApplicationRelationBuildPort>,
   deploymentId: ReturnType<typeof TransactionGrantDeploymentIdV1Schema.make>,
+  scopeId: ScopeId,
   schemaVersionId: CatalogSchemaVersionId,
   expectedRelationCount = 1,
 ): Promise<void> {
@@ -1777,6 +1780,7 @@ async function enableRelationPhysicalBuilds(
     for (let step = 0; step < 128; step += 1) {
       const built = await runEffect(relationBuild.advance({
         deploymentId,
+        scopeId,
         schemaVersionId,
         edgeDefinitionId: definition.edge.edgeDefinitionId,
       }));
