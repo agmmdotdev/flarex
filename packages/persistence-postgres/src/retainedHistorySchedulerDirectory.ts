@@ -23,10 +23,10 @@ import {
   type ReplacementScopeDirectoryContinuationV1,
 } from "./replacementScopeDirectoryDiscoveryV1";
 import {
-  captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthorityPortError,
-  type TrustedScopeAuthorityResolutionPorts,
+  type ExactTrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 
 export type RetainedHistorySchedulerDirectoryContinuationV1 =
@@ -63,8 +63,7 @@ export type RetainedHistorySchedulerDirectoryError =
   | TrustedScopeAuthorityPortError;
 
 export type RetainedHistorySchedulerCandidateFailureReason =
-  | "authorityUnavailable"
-  | "candidateScopeMismatch";
+  "authorityUnavailable";
 
 export interface RetainedHistorySchedulerScopeMaintenance {
   readonly runEffect: (
@@ -119,7 +118,7 @@ export interface RetainedHistorySchedulerDirectory {
 }
 
 export interface RetainedHistorySchedulerDirectoryOptions {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedRetainedHistoryFloorTarget
   >;
   readonly maintenance: RetainedHistoryMaintenancePolicy;
@@ -143,7 +142,7 @@ export function createRetainedHistorySchedulerDirectory(
     maximumPages: maintenanceInput.maximumPages,
     maximumElapsedMilliseconds: maintenanceInput.maximumElapsedMilliseconds,
   });
-  const authority = captureTrustedScopeAuthorityResolutionPorts(
+  const authority = captureExactTrustedScopeAuthorityResolutionPorts(
     authorityInput,
   );
   const controlDbOwner = controlDb;
@@ -187,19 +186,15 @@ export function createRetainedHistorySchedulerDirectory(
     const resolveCandidateEffect = Effect.fn(
       "RetainedHistorySchedulerDirectory.resolveCandidate",
     )(function* (candidate: ReplacementScopeDirectoryCandidateV1) {
-      return yield* resolveLocatedTrustedScopeAuthorityEffect(
-        candidate.deploymentId,
+      return yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+        candidate,
         authority,
       ).pipe(
-        Effect.map((located) =>
-          located.authority.scopeId !== candidate.scopeId
-            ? failed(candidate, "candidateScopeMismatch")
-            : ready(
-              candidate,
-              maintenancePolicy.maximumPages,
-              maintenancePort,
-            )
-        ),
+        Effect.map(() => ready(
+          candidate,
+          maintenancePolicy.maximumPages,
+          maintenancePort,
+        )),
         Effect.catchTag(
           "TrustedScopeAuthorityResolutionError",
           () => Effect.succeed(failed(candidate, "authorityUnavailable")),
@@ -252,7 +247,7 @@ function ready(
           );
         const receipt = yield* runRetainedHistoryMaintenanceEffect(
           port,
-          candidate.deploymentId,
+          candidate,
           continuation,
         );
         const nextEvidence = receipt.continuation === null

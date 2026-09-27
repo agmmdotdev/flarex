@@ -1,5 +1,5 @@
 import { Result } from "effect";
-import { decodeReplacementScopeIdV1 } from
+import { decodeReplacementScopeIdV1, ScopeEpochSchema } from
   "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
@@ -14,6 +14,7 @@ import {
   createRetainedHistoryMaintenancePort,
   runRetainedHistoryMaintenanceEffect,
 } from "../src/retainedHistoryMaintenance";
+import { insertInitialScopeClockInTransactionResult } from "../src/scopeClockInitialization";
 import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import { runEffect } from "./effectTestRuntime";
@@ -68,7 +69,7 @@ describePostgres("real PostgreSQL O11-E retained-history maintenance", () => {
       );
 
       const receipt = await runEffect(
-        runRetainedHistoryMaintenanceEffect(cleanup, deploymentId, null),
+        runRetainedHistoryMaintenanceEffect(cleanup, { deploymentId, scopeId }, null),
       );
       expect(receipt).toMatchObject({
         status: "maintenanceComplete",
@@ -94,6 +95,44 @@ describePostgres("real PostgreSQL O11-E retained-history maintenance", () => {
           appCurrent: ["3"],
         },
       );
+    });
+  }, 120_000);
+
+  it("compacts one selected shop without deleting its same-deployment peer", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      const locator = sharedLocator("o11e-maintenance-two-shops-postgres");
+      const deploymentId = TransactionGrantDeploymentIdV1Schema.make("deployment_retained_history_two_shops_pg");
+      const provisioned = await createPostgresSharedScopeAuthorityProvisioner(persistence,
+        { physicalLocator: locator, randomUuid: uuidFactory() }).ensure({
+          deploymentId, projectId: "project_retained_history_two_shops_pg",
+        });
+      const selected = { deploymentId, scopeId: decodeReplacementScopeIdV1(provisioned.scope.scopeId) };
+      const peer = { deploymentId, scopeId: decodeReplacementScopeIdV1("scope_9e000000-0000-4000-8000-000000009911") };
+      await persistence.insertScopeMetadata({ ...peer, physicalLocator: locator });
+      Result.getOrThrow(await insertInitialScopeClockInTransactionResult(persistence.drizzle, {
+        scopeId: peer.scopeId, initialEpoch: ScopeEpochSchema.make("epoch_9e000000-0000-4000-8000-000000009912"),
+      }));
+      await setFlarexActivationClock(persistence, selected.scopeId);
+      await setFlarexActivationClock(persistence, peer.scopeId);
+      await seedConnectedHistory(persistence, selected.scopeId);
+      await seedConnectedHistory(persistence, peer.scopeId);
+      const peerBefore = await readConnectedHistory(persistence, peer.scopeId);
+      const cleanup = Result.getOrThrow(createRetainedHistoryMaintenancePort({
+        authority: { scopeMetadata: persistence,
+          provisioningReceipts: { getScopeAuthorityProvisioningReceipt: async () => {
+            throw new Error("Shared scope must not read split receipts.");
+          } },
+          scopeClockTargets: { resolve: async physicalLocator =>
+            createPostgresLocatedRetainedHistoryFloorTarget(persistence, physicalLocator) } },
+        policy: { maximumPages: 16, maximumElapsedMilliseconds: 30_000 },
+      }));
+      const selectedReceipt = await runEffect(runRetainedHistoryMaintenanceEffect(cleanup, selected, null));
+      expect(selectedReceipt).toMatchObject({ status: "maintenanceComplete", scopeId: selected.scopeId,
+        deletedCommitCount: 1, deletedIndexRevisionCount: 2, deletedAppRowRevisionCount: 1 });
+      expect(await readConnectedHistory(persistence, peer.scopeId)).toEqual(peerBefore);
+      const peerReceipt = await runEffect(runRetainedHistoryMaintenanceEffect(cleanup, peer, null));
+      expect(peerReceipt).toMatchObject({ status: "maintenanceComplete", scopeId: peer.scopeId,
+        deletedCommitCount: 1, deletedIndexRevisionCount: 2, deletedAppRowRevisionCount: 1 });
     });
   }, 120_000);
 });

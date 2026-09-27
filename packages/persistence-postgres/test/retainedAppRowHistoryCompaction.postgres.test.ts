@@ -51,7 +51,9 @@ describePostgres(
         await expect(
           incomingForeignKeys(persistence, "fx_app_row_rev"),
         ).resolves.toEqual([
+          "fx_app_json_entry_current_revision_fk",
           "fx_app_row_current_revision_fk",
+          "fx_app_search_entry_current_revision_fk",
           "fx_commit_preference_deletion_content_fk",
           "fx_system_commit_app_row_change_revision_fk",
         ]);
@@ -79,7 +81,7 @@ describePostgres(
         });
 
         const first = await runEffect(
-          compactRetainedAppRowHistoryPageEffect(cleanup, deploymentId, {
+          compactRetainedAppRowHistoryPageEffect(cleanup, { deploymentId, scopeId }, {
             kind: "start",
           }),
         );
@@ -104,7 +106,7 @@ describePostgres(
 
         let cursor: RetainedAppRowHistoryCursor = first.continuation;
         const second = await runEffect(
-          compactRetainedAppRowHistoryPageEffect(cleanup, deploymentId, cursor),
+          compactRetainedAppRowHistoryPageEffect(cleanup, { deploymentId, scopeId }, cursor),
         );
         expect(second).toMatchObject({
           disposition: "deleted",
@@ -116,7 +118,7 @@ describePostgres(
         }
         cursor = second.continuation;
         const third = await runEffect(
-          compactRetainedAppRowHistoryPageEffect(cleanup, deploymentId, cursor),
+          compactRetainedAppRowHistoryPageEffect(cleanup, { deploymentId, scopeId }, cursor),
         );
         expect(third).toMatchObject({
           disposition: "deleted",

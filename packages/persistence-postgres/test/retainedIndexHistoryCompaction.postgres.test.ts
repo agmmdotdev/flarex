@@ -120,7 +120,7 @@ describePostgres(
         });
 
         const first = await runEffect(
-          compactRetainedIndexHistoryPageEffect(cleanup, deploymentId, {
+          compactRetainedIndexHistoryPageEffect(cleanup, { deploymentId, scopeId }, {
             kind: "start",
           }),
         );
@@ -146,7 +146,7 @@ describePostgres(
 
         let cursor: RetainedIndexHistoryCursor = first.continuation;
         const second = await runEffect(
-          compactRetainedIndexHistoryPageEffect(cleanup, deploymentId, cursor),
+          compactRetainedIndexHistoryPageEffect(cleanup, { deploymentId, scopeId }, cursor),
         );
         expect(second).toMatchObject({
           disposition: "deleted",
@@ -158,7 +158,7 @@ describePostgres(
         }
         cursor = second.continuation;
         const third = await runEffect(
-          compactRetainedIndexHistoryPageEffect(cleanup, deploymentId, cursor),
+          compactRetainedIndexHistoryPageEffect(cleanup, { deploymentId, scopeId }, cursor),
         );
         expect(third).toMatchObject({
           disposition: "deleted",

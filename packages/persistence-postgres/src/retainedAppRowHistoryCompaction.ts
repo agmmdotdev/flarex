@@ -37,11 +37,12 @@ import {
   type ScopeClockRecord,
 } from "./scopeClock";
 import {
-  captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
-  type TrustedScopeAuthorityResolutionPorts,
+  type ExactTrustedScopeAuthorityResolutionPorts,
+  type TrustedScopeSelection,
 } from "./scopeAuthorityResolution";
 import { fxAppRowRevisions } from "./schema";
 import { LocatedReadCommittedTransactionFailureV1 } from
@@ -103,7 +104,7 @@ export interface RetainedAppRowHistoryCompactionPort {
 }
 
 interface RetainedAppRowHistoryCompactionPortState {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedRetainedHistoryFloorTarget
   >;
   readonly observeQuery?: (
@@ -118,7 +119,7 @@ const portStates = new WeakMap<
 
 /** Private, production-inert O11-D authoritative app-row cleanup authority. */
 export function createRetainedAppRowHistoryCompactionPort(input: {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedRetainedHistoryFloorTarget
   >;
   readonly observeQuery?: (
@@ -130,7 +131,7 @@ export function createRetainedAppRowHistoryCompactionPort(input: {
     [retainedAppRowHistoryCompactionPortBrand]: true as const,
   });
   portStates.set(port, Object.freeze({
-    authority: captureTrustedScopeAuthorityResolutionPorts(input.authority),
+    authority: captureExactTrustedScopeAuthorityResolutionPorts(input.authority),
     ...(observeQuery === undefined ? {} : { observeQuery }),
   }));
   return port;
@@ -194,7 +195,7 @@ export type CompactRetainedAppRowHistoryPageError =
 
 export function compactRetainedAppRowHistoryPageEffect(
   port: RetainedAppRowHistoryCompactionPort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   cursorInput: unknown,
 ): Effect.Effect<
   RetainedAppRowHistoryCompactionResult,
@@ -202,7 +203,7 @@ export function compactRetainedAppRowHistoryPageEffect(
 >;
 export function compactRetainedAppRowHistoryPageEffect(
   port: RetainedAppRowHistoryCompactionPort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   cursorInput: unknown,
   expectation: RetainedHistoryPageExpectation,
 ): Effect.Effect<
@@ -211,7 +212,7 @@ export function compactRetainedAppRowHistoryPageEffect(
 >;
 export function compactRetainedAppRowHistoryPageEffect(
   port: RetainedAppRowHistoryCompactionPort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   cursorInput: unknown,
   expectation: RetainedHistoryPageExpectation | null = null,
 ): Effect.Effect<
@@ -220,7 +221,7 @@ export function compactRetainedAppRowHistoryPageEffect(
 > {
   return compactRetainedAppRowHistoryPageWithExpectationEffect(
     port,
-    deploymentId,
+    selection,
     cursorInput,
     expectation,
   );
@@ -230,7 +231,7 @@ const compactRetainedAppRowHistoryPageWithExpectationEffect = Effect.fn(
   "RetainedAppRowHistory.compactPage",
 )(function* (
   port: RetainedAppRowHistoryCompactionPort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   cursorInput: unknown,
   expectation: RetainedHistoryPageExpectation | null = null,
 ): Effect.fn.Return<
@@ -241,25 +242,25 @@ const compactRetainedAppRowHistoryPageWithExpectationEffect = Effect.fn(
   if (state === undefined) {
     return yield* Effect.fail(new RetainedAppRowHistoryCompactionError({
       reason: "invalidPort",
-      deploymentId,
+      deploymentId: selection.deploymentId,
     }));
   }
   const cursor = yield* decodeCursorResult(cursorInput).pipe(
     Result.mapError(cause => new RetainedAppRowHistoryCompactionError({
       reason: "invalidCursor",
-      deploymentId,
+      deploymentId: selection.deploymentId,
       cause,
     })),
     Effect.fromResult,
   );
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    deploymentId,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    selection,
     state.authority,
   );
   if (!isLocatedRetainedHistoryFloorTargetInternal(located.target)) {
     return yield* Effect.fail(new RetainedAppRowHistoryCompactionError({
       reason: "invalidTarget",
-      deploymentId,
+      deploymentId: selection.deploymentId,
       scopeId: located.authority.scopeId,
     }));
   }

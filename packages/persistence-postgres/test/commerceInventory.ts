@@ -8,8 +8,10 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { createRetainedCommitHistoryCompactionPort, compactRetainedCommitHistoryPageEffect } from "../src/retainedCommitHistoryCompaction";
-import { createLocatedRetainedHistoryFloorTargetInternal } from "../src/retainedHistoryFloorObservation";
+import { createLocatedRetainedHistoryFloorTargetInternal, type LocatedRetainedHistoryFloorTarget } from "../src/retainedHistoryFloorObservation";
+import type { ExactTrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../src/transactionSessionActivation";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 import { runEffect } from "./effectTestRuntime";
 
 /** Physical-layout inspector for cross-framework assertions. Dynamic identifiers
@@ -53,7 +55,7 @@ export async function compactCommerceHistory(fixture: CommerceHostTestFixture) {
 
 /** Drive the shared commit-history owner for physical or logical test hosts. */
 export async function compactRetainedCommitHistory(
-  owner: Pick<CommerceHostTestFixture["hostInput"], "authority" | "deploymentId">,
+  owner: Readonly<{ authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedRetainedHistoryFloorTarget>; deploymentId: string; scopeId: ScopeId }>,
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence,
   before: Pick<Awaited<ReturnType<typeof commerceInventory>>, "commits" | "clocks">,
 ) {
@@ -67,7 +69,7 @@ export async function compactRetainedCommitHistory(
   } } });
   const exhausted = await runEffect(Effect.gen(function* () {
     for (let page = 0; page < before.commits.length; page++) {
-      const result = yield* compactRetainedCommitHistoryPageEffect(port, owner.deploymentId);
+      const result = yield* compactRetainedCommitHistoryPageEffect(port, { deploymentId: owner.deploymentId, scopeId: owner.scopeId });
       if (result.disposition === "exhausted") return true;
     }
     return false;

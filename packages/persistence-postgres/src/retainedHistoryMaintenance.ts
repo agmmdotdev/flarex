@@ -36,10 +36,11 @@ import {
   type RetainedIndexHistoryCursor,
 } from "./retainedIndexHistoryCompaction";
 import {
-  captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,
-  type TrustedScopeAuthorityResolutionPorts,
+  type ExactTrustedScopeAuthorityResolutionPorts,
+  type TrustedScopeSelection,
 } from "./scopeAuthorityResolution";
 import {
   captureScopePhysicalLocator,
@@ -109,7 +110,7 @@ export const inspectRetainedHistoryMaintenanceContinuationEffect = Effect.fn(
 > {
   const state = yield* captureContinuationEffect(
     port,
-    continuation.deploymentId,
+    { deploymentId: continuation.deploymentId, scopeId: continuation.scopeId },
     continuation,
   );
   if (state === null) {
@@ -133,7 +134,7 @@ export const restoreRetainedHistoryMaintenanceContinuationEffect = Effect.fn(
 > => Effect.fromResult(restoreContinuationResult(port, evidence)));
 
 interface RetainedHistoryMaintenancePortState {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedRetainedHistoryFloorTarget
   >;
   readonly commitHistory: RetainedCommitHistoryCompactionPort;
@@ -178,7 +179,7 @@ const decodeEvidenceStorageGenerationFenceResult = Schema.decodeUnknownResult(
  * supplied independently.
  */
 export function createRetainedHistoryMaintenancePort(input: {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedRetainedHistoryFloorTarget
   >;
   readonly policy: RetainedHistoryMaintenancePolicy;
@@ -189,7 +190,7 @@ export function createRetainedHistoryMaintenancePort(input: {
   const authorityInput = input.authority;
   const policyInput = input.policy;
   return capturePolicyResult(policyInput).pipe(Result.map((policy) => {
-    const authority = captureTrustedScopeAuthorityResolutionPorts(
+    const authority = captureExactTrustedScopeAuthorityResolutionPorts(
       authorityInput,
     );
     const port = Object.freeze({
@@ -239,6 +240,7 @@ export class RetainedHistoryMaintenanceError extends Data.TaggedError(
     | "invalidContinuation"
     | "continuationIssuerMismatch"
     | "continuationDeploymentMismatch"
+    | "continuationScopeMismatch"
     | "ownerDeploymentMismatch"
     | "ownerScopeMismatch"
     | "retainedFloorRegressed";
@@ -293,12 +295,13 @@ export const runRetainedHistoryMaintenanceEffect = Effect.fn(
   "RetainedHistoryMaintenance.run",
 )(function* (
   port: RetainedHistoryMaintenancePort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   continuation: RetainedHistoryMaintenanceContinuation | null,
 ): Effect.fn.Return<
   RetainedHistoryMaintenanceReceipt,
   RunRetainedHistoryMaintenanceError
 > {
+  const { deploymentId } = selection;
   const state = portStates.get(port);
   if (state === undefined) {
     return yield* Effect.fail(new RetainedHistoryMaintenanceError({
@@ -308,12 +311,12 @@ export const runRetainedHistoryMaintenanceEffect = Effect.fn(
   }
   const resumed = yield* captureContinuationEffect(
     port,
-    deploymentId,
+    selection,
     continuation,
   );
   const initialAuthority = captureAuthorityPin((yield*
-    resolveLocatedTrustedScopeAuthorityEffect(
-      deploymentId,
+    resolveLocatedTrustedScopeAuthorityByIdEffect(
+      selection,
       state.authority,
     )).authority);
   if (
@@ -381,7 +384,7 @@ export const runRetainedHistoryMaintenanceEffect = Effect.fn(
 
     const ownerResult = yield* runOwnerPageEffect(
       state,
-      deploymentId,
+      selection,
       phase,
       pin === null ? null : pageExpectation(authorityPin, pin.retainedFloor),
     );
@@ -406,13 +409,13 @@ export const runRetainedHistoryMaintenanceEffect = Effect.fn(
       );
     }
     const nextPin = yield* requireOwnerPinEffect(
-      deploymentId,
+      selection,
       pin,
       ownerResult.result,
     );
     const currentAuthority = captureAuthorityPin((yield*
-      resolveLocatedTrustedScopeAuthorityEffect(
-        deploymentId,
+      resolveLocatedTrustedScopeAuthorityByIdEffect(
+        selection,
         state.authority,
       )).authority);
     if (!authorityPinsEqual(authorityPin, currentAuthority)) {
@@ -504,12 +507,13 @@ function capturePolicyResult(
 
 function captureContinuationEffect(
   port: RetainedHistoryMaintenancePort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   continuation: RetainedHistoryMaintenanceContinuation | null,
 ): Effect.Effect<
   RetainedHistoryMaintenanceContinuationState | null,
   RetainedHistoryMaintenanceError
 > {
+  const { deploymentId, scopeId } = selection;
   if (continuation === null) return Effect.succeed(null);
   const state = continuationStates.get(continuation);
   if (state === undefined) {
@@ -532,12 +536,19 @@ function captureContinuationEffect(
       scopeId: state.scopeId,
     }));
   }
+  if (state.scopeId !== scopeId) {
+    return Effect.fail(new RetainedHistoryMaintenanceError({
+      reason: "continuationScopeMismatch",
+      deploymentId,
+      scopeId: state.scopeId,
+    }));
+  }
   return Effect.succeed(state);
 }
 
 function runOwnerPageEffect(
   state: RetainedHistoryMaintenancePortState,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   phase: RetainedHistoryMaintenancePhase,
   expectation: RetainedHistoryPageExpectation | null,
 ): Effect.Effect<OwnerResult, RunRetainedHistoryMaintenanceError> {
@@ -546,11 +557,11 @@ function runOwnerPageEffect(
       const page = expectation === null
         ? compactRetainedCommitHistoryPageEffect(
             state.commitHistory,
-            deploymentId,
+            selection,
           )
         : compactRetainedCommitHistoryPageEffect(
             state.commitHistory,
-            deploymentId,
+            selection,
             expectation,
           );
       return page.pipe(Effect.map(result => Object.freeze({
@@ -562,12 +573,12 @@ function runOwnerPageEffect(
       const page = expectation === null
         ? compactRetainedIndexHistoryPageEffect(
             state.indexHistory,
-            deploymentId,
+            selection,
             phase.cursor,
           )
         : compactRetainedIndexHistoryPageEffect(
             state.indexHistory,
-            deploymentId,
+            selection,
             phase.cursor,
             expectation,
           );
@@ -580,12 +591,12 @@ function runOwnerPageEffect(
       const page = expectation === null
         ? compactRetainedAppRowHistoryPageEffect(
             state.appRowHistory,
-            deploymentId,
+            selection,
             phase.cursor,
           )
         : compactRetainedAppRowHistoryPageEffect(
             state.appRowHistory,
-            deploymentId,
+            selection,
             phase.cursor,
             expectation,
           );
@@ -628,13 +639,21 @@ function chargeOwnerResult(
 }
 
 function requireOwnerPinEffect(
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   expected: RunPin | null,
   result: OwnerResult["result"],
 ): Effect.Effect<RunPin, RetainedHistoryMaintenanceError> {
+  const { deploymentId, scopeId } = selection;
   if (result.deploymentId !== deploymentId) {
     return Effect.fail(new RetainedHistoryMaintenanceError({
       reason: "ownerDeploymentMismatch",
+      deploymentId,
+      scopeId: result.scopeId,
+    }));
+  }
+  if (result.scopeId !== scopeId) {
+    return Effect.fail(new RetainedHistoryMaintenanceError({
+      reason: "ownerScopeMismatch",
       deploymentId,
       scopeId: result.scopeId,
     }));

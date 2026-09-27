@@ -7,8 +7,10 @@ Application readiness/activation, the selected point-mutation lifecycle,
 managed-schema candidate validation/planning/application, and ordered-index
 and unique-set builds, relation builds, and physical-definition lifecycle
 subjects, plus the private three-source Currency announcement host and the
-standalone and atomic commerce command hosts, the CMS command host, and
-commit-event delivery resolve an exact scope. Some other binding/readiness inputs and framework command paths
+standalone and atomic commerce command hosts, the CMS command host,
+commit-event delivery, and retained-history scheduler discovery, maintenance,
+and its three compaction pages resolve an exact scope. Some other
+binding/readiness inputs and framework command paths
 still use deployment-only selection and therefore refuse a multi-scope deployment.
 Full Application/Payload/Medusa same-deployment isolation is not yet claimed.
 
@@ -156,9 +158,14 @@ require a trusted `(deploymentId, scopeId)` selection and revalidate that exact
 scope before each short transaction. An unprovisioned peer in the same deployment
 cannot discover, claim, or deliver the selected scope's events; metadata-read
 and target-location outages are resource failures. The selected native Product-tag event path
-still delivers and replays after the peer is added. The shared test fixture
-retains both metadata reader ports for its named retained-history maintenance
-consumer until that owner's exact-selection cutover.
+still delivers and replays after the peer is added. Retained-history maintenance
+now passes the scheduler candidate's exact pair through commit, index, and
+app-row compaction. A process-local continuation cannot resume under a different
+scope of the same deployment; the durable continuation evidence format and
+page transaction guards are unchanged. PGlite and ordinary-role PostgreSQL
+two-shop witnesses verify that compacting one selected shop leaves the peer's
+history untouched. The private input break migrates scheduler, compaction, and
+fixture callers together.
 
 ## Alternatives and remaining gate
 
@@ -170,10 +177,13 @@ consumer until that owner's exact-selection cutover.
 - Copying scope checks into Medusa or Payload would duplicate core authority.
 
 Move the remaining deployment-only runtime owners together with their real
-caller-supplied authority: binding's other readiness inputs and retained-history
-maintenance. Their present deployment-only
+caller-supplied authority, including binding's other readiness inputs. Their present deployment-only
 resolver must continue to refuse ambiguity until migrated, and then be removed
 with its mock ports and fixtures.
+The retained-history floor observation and publication ports still resolve by
+deployment alone and currently have only private test consumers. They must
+receive an exact trusted selection before production floor advancement is wired;
+the compaction cutover above does not authorize that deferred publisher.
 The normal provisioning path also still creates or reuses one
 scope per deployment; a multi-shop provisioning identity and idempotent
 creation contract must be selected before claiming general hosting support.

@@ -159,7 +159,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     const cleanup = port({ observeQuery: (query) => queries.push(query.name) });
 
     const first = await runEffect(
-      compactRetainedIndexHistoryPageEffect(cleanup, context.deploymentId, {
+      compactRetainedIndexHistoryPageEffect(cleanup, context, {
         kind: "start",
       }),
     );
@@ -175,7 +175,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     const second = await runEffect(
       compactRetainedIndexHistoryPageEffect(
         cleanup,
-        context.deploymentId,
+        context,
         first.continuation,
       ),
     );
@@ -190,7 +190,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     const third = await runEffect(
       compactRetainedIndexHistoryPageEffect(
         cleanup,
-        context.deploymentId,
+        context,
         second.continuation,
       ),
     );
@@ -206,7 +206,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       runEffect(
         compactRetainedIndexHistoryPageEffect(
           cleanup,
-          context.deploymentId,
+          context,
           third.continuation,
         ),
       ),
@@ -253,7 +253,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       const result: RetainedIndexHistoryCompactionResult = await runEffect(
         compactRetainedIndexHistoryPageEffect(
           cleanup,
-          context.deploymentId,
+          context,
           cursor,
         ),
       );
@@ -270,7 +270,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       runEffect(
         compactRetainedIndexHistoryPageEffect(
           cleanup,
-          context.deploymentId,
+          context,
           cursor,
         ),
       ),
@@ -310,7 +310,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     await setClock(persistence, context.scopeId, 2n, 2n);
     await expect(
       runEffect(
-        compactRetainedIndexHistoryPageEffect(port(), context.deploymentId, {
+        compactRetainedIndexHistoryPageEffect(port(), context, {
           kind: "start",
         }),
       ),
@@ -379,7 +379,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       runEffect(
         compactRetainedIndexHistoryPageEffect(
           port(),
-          missingAnchor.deploymentId,
+          missingAnchor,
           { kind: "start" },
         ),
       ),
@@ -407,7 +407,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       runEffectFailure(
         compactRetainedIndexHistoryPageEffect(
           port(),
-          evidenceDrift.deploymentId,
+          evidenceDrift,
           { kind: "start" },
         ),
       ),
@@ -428,7 +428,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     await setClock(persistence, blocked.scopeId, 2n, 2n);
     await expect(
       runEffectFailure(
-        compactRetainedIndexHistoryPageEffect(port(), blocked.deploymentId, {
+        compactRetainedIndexHistoryPageEffect(port(), blocked, {
           kind: "start",
         }),
       ),
@@ -457,7 +457,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       runEffectFailure(
         compactRetainedIndexHistoryPageEffect(
           port({ runReadCommitted: rollbackRunner }),
-          rollback.deploymentId,
+          rollback,
           { kind: "start" },
         ),
       ),
@@ -510,7 +510,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       runEffect(
         compactRetainedIndexHistoryPageEffect(
           capturedObserverPort,
-          observerCapture.deploymentId,
+          observerCapture,
           { kind: "start" },
         ),
       ),
@@ -522,7 +522,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       runEffectFailure(
         compactRetainedIndexHistoryPageEffect(
           { ...port() },
-          copiedPort.deploymentId,
+          copiedPort,
           { kind: "start" },
         ),
       ),
@@ -533,7 +533,7 @@ describe("O11-D retained ordered-index history compaction", () => {
       runEffectFailure(
         compactRetainedIndexHistoryPageEffect(
           port({ targetCopy: true }),
-          copiedTarget.deploymentId,
+          copiedTarget,
           { kind: "start" },
         ),
       ),
@@ -569,7 +569,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     const cleanup = port({ runReadCommitted: uncertainRunner });
     await expect(
       runEffectFailure(
-        compactRetainedIndexHistoryPageEffect(cleanup, uncertain.deploymentId, {
+        compactRetainedIndexHistoryPageEffect(cleanup, uncertain, {
           kind: "start",
         }),
       ),
@@ -579,7 +579,7 @@ describe("O11-D retained ordered-index history compaction", () => {
     ).resolves.toEqual(["99:2"]);
     await expect(
       runEffect(
-        compactRetainedIndexHistoryPageEffect(cleanup, uncertain.deploymentId, {
+        compactRetainedIndexHistoryPageEffect(cleanup, uncertain, {
           kind: "start",
         }),
       ),

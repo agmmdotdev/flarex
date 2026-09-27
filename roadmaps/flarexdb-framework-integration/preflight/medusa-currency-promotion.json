@@ -1092,7 +1092,7 @@
     {
       "target": "packages/medusa-adapter/test/support/live-checks.ts",
       "classification": "authored",
-      "targetSha256": "aaf98b0df974e4df9157f6790abac2142c92a80c4e52df1a35b5bb12107c4379"
+      "targetSha256": "9a34725a6ba85e5cf46497084698c7f2f6445646a45bff7fb69431769b2c6963"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-internal-category-runner.ts",
@@ -4391,7 +4391,7 @@
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
       "classification": "authored",
-      "targetSha256": "e7d1ec690e44728e41cf364a7dfeb0ec4d482bc079ff174f2f46d8a7ca602a09"
+      "targetSha256": "a8cab3fb905cab3bc58e6ff5cec379dce60286b4964b31eb4940dd9e36798a1f"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-currency-inventory.ts",

@@ -119,7 +119,7 @@ describe("O11-D retained commit-history compaction", () => {
 
     await expect(runEffect(compactRetainedCommitHistoryPageEffect(
       port({ observeQuery: query => queries.set(query.name, query) }),
-      context.deploymentId,
+      context,
     ))).resolves.toEqual({
       status: "compacted",
       disposition: "deleted",
@@ -152,7 +152,7 @@ describe("O11-D retained commit-history compaction", () => {
 
     await expect(runEffect(compactRetainedCommitHistoryPageEffect(
       port(),
-      context.deploymentId,
+      context,
     ))).resolves.toMatchObject({
       disposition: "exhausted",
       retainedFloor: 2n,
@@ -185,7 +185,7 @@ describe("O11-D retained commit-history compaction", () => {
 
     await expect(runEffectFailure(compactRetainedCommitHistoryPageEffect(
       port(),
-      context.deploymentId,
+      context,
     ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
     await expect(readHistoryCounts(persistence, context.scopeId)).resolves
       .toMatchObject({ commits: ["1", "2"], changes: [] });
@@ -208,7 +208,7 @@ describe("O11-D retained commit-history compaction", () => {
 
     await expect(runEffectFailure(compactRetainedCommitHistoryPageEffect(
       port(),
-      relationContext.deploymentId,
+      relationContext,
     ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
     await expect(readHistoryCounts(persistence, relationContext.scopeId))
       .resolves.toMatchObject({
@@ -221,13 +221,13 @@ describe("O11-D retained commit-history compaction", () => {
     const copiedPort = await provision("copied_port");
     await expect(runEffectFailure(compactRetainedCommitHistoryPageEffect(
       { ...port() },
-      copiedPort.deploymentId,
+      copiedPort,
     ))).resolves.toMatchObject({ reason: "invalidPort" });
 
     const copiedTarget = await provision("copied_target");
     await expect(runEffectFailure(compactRetainedCommitHistoryPageEffect(
       port({ targetCopy: true }),
-      copiedTarget.deploymentId,
+      copiedTarget,
     ))).resolves.toMatchObject({ reason: "invalidTarget" });
 
     const stale = await provision("stale");
@@ -250,7 +250,7 @@ describe("O11-D retained commit-history compaction", () => {
     };
     await expect(runEffectFailure(compactRetainedCommitHistoryPageEffect(
       port({ runReadCommitted: staleRunner }),
-      stale.deploymentId,
+      stale,
     ))).resolves.toMatchObject({ reason: "staleAuthority" });
   });
 
@@ -274,7 +274,7 @@ describe("O11-D retained commit-history compaction", () => {
 
     await expect(runEffectFailure(compactRetainedCommitHistoryPageEffect(
       port({ runReadCommitted: rollbackRunner }),
-      context.deploymentId,
+      context,
     ))).resolves.toMatchObject({ issue: { kind: "callbackRolledBack" } });
     await expect(readHistoryCounts(persistence, context.scopeId)).resolves
       .toEqual({
@@ -313,7 +313,7 @@ describe("O11-D retained commit-history compaction", () => {
 
     await expect(runEffectFailure(compactRetainedCommitHistoryPageEffect(
       uncertainPort,
-      context.deploymentId,
+      context,
     ))).resolves.toMatchObject({ issue: { kind: "decisionUncertain" } });
     await expect(readHistoryCounts(persistence, context.scopeId)).resolves
       .toEqual({
@@ -324,7 +324,7 @@ describe("O11-D retained commit-history compaction", () => {
       });
     await expect(runEffect(compactRetainedCommitHistoryPageEffect(
       uncertainPort,
-      context.deploymentId,
+      context,
     ))).resolves.toMatchObject({
       disposition: "exhausted",
       retainedFloor: 2n,

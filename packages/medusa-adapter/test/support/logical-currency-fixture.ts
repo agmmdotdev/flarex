@@ -35,7 +35,7 @@ import { makeDataBindingHost, dataBindingActivationRequest } from
   "../../../persistence-postgres/src/frameworkSchema/binding/host";
 import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
 import type { LogicalCommerceHostInput } from "../../../persistence-postgres/src/commerceTransaction/host";
-import type { ExactTrustedScopeAuthorityResolutionPorts, TrustedScopeAuthorityResolutionPorts } from "../../../persistence-postgres/src/scopeAuthorityResolution";
+import type { ExactTrustedScopeAuthorityResolutionPorts } from "../../../persistence-postgres/src/scopeAuthorityResolution";
 import type { LocatedReadCommittedAttemptTargetV1 } from "../../../persistence-postgres/src/transactionSessionAttemptKernel";
 import type { CommerceHost } from "../../../persistence-postgres/src/commerceTransaction/commands";
 import type { PGliteFlarexPersistence } from "../../../persistence-postgres/src/pglite";
@@ -86,8 +86,7 @@ export interface LogicalCurrencyFixture {
   readonly applicationSource: Readonly<{ sourceKey: string; writeProfile: string; definition: unknown; evidence: unknown }>;
   readonly session: RelationalSession;
   readonly hostInput: LogicalCommerceHostInput<unknown> & Readonly<{
-    authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
-      TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
+    authority: ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   }>;
   readonly host: CommerceHost;
   readonly service: ReturnType<typeof makeCurrencyService>;

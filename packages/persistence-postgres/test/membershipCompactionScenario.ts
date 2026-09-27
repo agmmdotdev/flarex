@@ -121,7 +121,7 @@ export async function verifyTerminalMembershipCompaction(input: {
   const first = await runEffect(
     compactRetainedIndexHistoryPageEffect(
       input.port(input.runReadCommitted),
-      deploymentId,
+      { deploymentId, scopeId },
       { kind: "start" },
     ),
   );
@@ -144,7 +144,7 @@ export async function verifyTerminalMembershipCompaction(input: {
     runEffect(
       compactRetainedIndexHistoryPageEffect(
         input.port(rollback),
-        deploymentId,
+        { deploymentId, scopeId },
         cursor,
       ),
     ),
@@ -161,7 +161,7 @@ export async function verifyTerminalMembershipCompaction(input: {
     await runEffectFailure(
       compactRetainedIndexHistoryPageEffect(
         input.port(uncertain),
-        deploymentId,
+        { deploymentId, scopeId },
         cursor,
       ),
     ),
@@ -170,7 +170,7 @@ export async function verifyTerminalMembershipCompaction(input: {
   const replay = await runEffect(
     compactRetainedIndexHistoryPageEffect(
       input.port(input.runReadCommitted),
-      deploymentId,
+      { deploymentId, scopeId },
       cursor,
     ),
   );
@@ -185,7 +185,7 @@ export async function verifyTerminalMembershipCompaction(input: {
   const later = await runEffect(
     compactRetainedIndexHistoryPageEffect(
       input.port(input.runReadCommitted),
-      deploymentId,
+      { deploymentId, scopeId },
       replay.continuation,
     ),
   );

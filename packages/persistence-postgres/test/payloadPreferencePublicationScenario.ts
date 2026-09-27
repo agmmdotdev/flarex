@@ -13,7 +13,7 @@ import { makePostgresRelationalSession } from "../src/relationalTransaction/sess
 import { compactRetainedCommitHistoryPageEffect, createRetainedCommitHistoryCompactionPort } from "../src/retainedCommitHistoryCompaction";
 import { createLocatedRetainedHistoryFloorTargetInternal } from "../src/retainedHistoryFloorObservation";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from "../src/transactionSessionActivation";
-import type { TrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
+import type { ExactTrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
 import type { LocatedRetainedHistoryFloorTarget } from "../src/retainedHistoryFloorObservation";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -22,7 +22,7 @@ import { runEffect, runEffectFailure } from "./effectTestRuntime";
 export async function payloadPreferencePublicationScenario(input: {
   persistence: PGliteFlarexPersistence | PostgresFlarexPersistence;
   hostInput: Omit<CmsHostInput<unknown>, "commands">;
-  retentionAuthority: TrustedScopeAuthorityResolutionPorts<LocatedRetainedHistoryFloorTarget>;
+  retentionAuthority: ExactTrustedScopeAuthorityResolutionPorts<LocatedRetainedHistoryFloorTarget>;
   seed: (postId: string, preferenceIds: readonly string[]) => Promise<void>;
   readPreferenceIds: () => Promise<readonly (string | null)[]>;
   inventory: () => Promise<unknown>;
@@ -158,15 +158,15 @@ export async function payloadPreferencePublicationScenario(input: {
       scopeClockTargets: { resolve: async locator => createLocatedRetainedHistoryFloorTargetInternal(persistence.drizzle, locator,
         createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle)) } } });
     const headers = await persistence.drizzle.select().from(fxSystemCommits).where(eq(fxSystemCommits.scopeUuid, first.scopeUuid)).orderBy(asc(fxSystemCommits.commitSeq));
-    for (const prior of headers) if (prior.commitSeq < first.commitSeq) await runEffect(compactRetainedCommitHistoryPageEffect(compactor, hostInput.deploymentId));
+    for (const prior of headers) if (prior.commitSeq < first.commitSeq) await runEffect(compactRetainedCommitHistoryPageEffect(compactor, { deploymentId: hostInput.deploymentId, scopeId: hostInput.scopeId }));
     await persistence.drizzle.delete(fxSystemCommitPayloadPreferenceDeletions).where(and(eq(fxSystemCommitPayloadPreferenceDeletions.scopeUuid, first.scopeUuid),
       eq(fxSystemCommitPayloadPreferenceDeletions.commitSeq, first.commitSeq), eq(fxSystemCommitPayloadPreferenceDeletions.changeOrdinal, first.changeOrdinal)));
     const corrupt = await inventory();
-    expect(await runEffectFailure(compactRetainedCommitHistoryPageEffect(compactor, hostInput.deploymentId))).toMatchObject({ reason: "storedEvidenceInvalid" });
+    expect(await runEffectFailure(compactRetainedCommitHistoryPageEffect(compactor, { deploymentId: hostInput.deploymentId, scopeId: hostInput.scopeId }))).toMatchObject({ reason: "storedEvidenceInvalid" });
     expect(await inventory()).toEqual(corrupt);
     await persistence.drizzle.insert(fxSystemCommitPayloadPreferenceDeletions).values(first);
     for (let index = 0; index < headers.length; index++) {
-      const result = await runEffect(compactRetainedCommitHistoryPageEffect(compactor, hostInput.deploymentId));
+      const result = await runEffect(compactRetainedCommitHistoryPageEffect(compactor, { deploymentId: hostInput.deploymentId, scopeId: hostInput.scopeId }));
       if (result.disposition === "exhausted") break;
     }
     expect(await facts()).toEqual([]);

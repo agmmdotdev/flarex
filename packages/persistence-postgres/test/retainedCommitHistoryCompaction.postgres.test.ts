@@ -88,7 +88,7 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
 
       await expect(runEffect(compactRetainedCommitHistoryPageEffect(
         port,
-        deploymentId,
+        { deploymentId, scopeId },
       ))).resolves.toMatchObject({
         disposition: "deleted",
         retainedFloor: 2n,
@@ -129,7 +129,7 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
 
       await expect(runEffect(compactRetainedCommitHistoryPageEffect(
         port,
-        deploymentId,
+        { deploymentId, scopeId },
       ))).resolves.toMatchObject({
         disposition: "exhausted",
         retainedFloor: 2n,

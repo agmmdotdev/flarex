@@ -134,7 +134,7 @@ describe("O11-D retained app-row history compaction", () => {
     const cleanup = port({ observeQuery: query => queries.push(query.name) });
 
     const first = await runEffect(compactRetainedAppRowHistoryPageEffect(
-      cleanup, context.deploymentId, { kind: "start" },
+      cleanup, context, { kind: "start" },
     ));
     expect(first).toMatchObject({
       disposition: "deleted",
@@ -145,21 +145,21 @@ describe("O11-D retained app-row history compaction", () => {
     });
     if (first.disposition === "exhausted") throw new Error("Missing row A.");
     const second = await runEffect(compactRetainedAppRowHistoryPageEffect(
-      cleanup, context.deploymentId, first.continuation,
+      cleanup, context, first.continuation,
     ));
     expect(second).toMatchObject({
       disposition: "advanced", rootCommitSeq: 1n, anchorCommitSeq: 1n,
     });
     if (second.disposition === "exhausted") throw new Error("Missing row B.");
     const third = await runEffect(compactRetainedAppRowHistoryPageEffect(
-      cleanup, context.deploymentId, second.continuation,
+      cleanup, context, second.continuation,
     ));
     expect(third).toMatchObject({
       disposition: "advanced", rootCommitSeq: 4n, anchorCommitSeq: null,
     });
     if (third.disposition === "exhausted") throw new Error("Missing row C.");
     await expect(runEffect(compactRetainedAppRowHistoryPageEffect(
-      cleanup, context.deploymentId, third.continuation,
+      cleanup, context, third.continuation,
     ))).resolves.toMatchObject({ disposition: "exhausted" });
     expect(queries).toEqual([
       "identityDirectory", "anchor", "candidateDirectory",
@@ -193,7 +193,7 @@ describe("O11-D retained app-row history compaction", () => {
     for (let page = 0; page < 3; page += 1) {
       const result: RetainedAppRowHistoryCompactionResult = await runEffect(
         compactRetainedAppRowHistoryPageEffect(
-          port(), context.deploymentId, cursor,
+          port(), context, cursor,
         ),
       );
       expect(result.disposition).toBe("deleted");
@@ -219,7 +219,7 @@ describe("O11-D retained app-row history compaction", () => {
     });
     await setClock(persistence, context.scopeId, 3n, 3n);
     await expect(runEffect(compactRetainedAppRowHistoryPageEffect(
-      port(), context.deploymentId, { kind: "start" },
+      port(), context, { kind: "start" },
     ))).resolves.toMatchObject({
       disposition: "deleted", rootCommitSeq: 1n, anchorCommitSeq: 3n,
     });
@@ -269,7 +269,7 @@ describe("O11-D retained app-row history compaction", () => {
     });
     await setClock(persistence, missingRoot.scopeId, 3n, 3n);
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
-      port(), missingRoot.deploymentId, { kind: "start" },
+      port(), missingRoot, { kind: "start" },
     ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
 
     const drift = await provision("creation_time_drift");
@@ -279,7 +279,7 @@ describe("O11-D retained app-row history compaction", () => {
     });
     await setClock(persistence, drift.scopeId, 3n, 3n);
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
-      port(), drift.deploymentId, { kind: "start" },
+      port(), drift, { kind: "start" },
     ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
     await expect(readHistory(persistence, drift.scopeId)).resolves.toEqual([
       `${rowIdHex(7)}:1`, `${rowIdHex(7)}:2`, `${rowIdHex(7)}:3`,
@@ -294,7 +294,7 @@ describe("O11-D retained app-row history compaction", () => {
     );
     await setClock(persistence, candidateBelowRoot.scopeId, 7n, 7n);
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
-      port(), candidateBelowRoot.deploymentId, { kind: "start" },
+      port(), candidateBelowRoot, { kind: "start" },
     ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
     await expect(readHistory(
       persistence,
@@ -312,7 +312,7 @@ describe("O11-D retained app-row history compaction", () => {
     );
     await setClock(persistence, anchorBelowRoot.scopeId, 6n, 6n);
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
-      port(), anchorBelowRoot.deploymentId, { kind: "start" },
+      port(), anchorBelowRoot, { kind: "start" },
     ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
     await expect(readHistory(
       persistence,
@@ -329,7 +329,7 @@ describe("O11-D retained app-row history compaction", () => {
     });
     await setClock(persistence, blocked.scopeId, 3n, 3n);
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
-      port(), blocked.deploymentId, { kind: "start" },
+      port(), blocked, { kind: "start" },
     ))).resolves.toMatchObject({ operation: "revisionDeletion" });
     await expect(readHistory(persistence, blocked.scopeId)).resolves.toEqual([
       `${rowIdHex(8)}:1`, `${rowIdHex(8)}:2`, `${rowIdHex(8)}:3`,
@@ -350,7 +350,7 @@ describe("O11-D retained app-row history compaction", () => {
       });
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
       port({ runReadCommitted: rollbackRunner }),
-      rollback.deploymentId,
+      rollback,
       { kind: "start" },
     ))).resolves.toMatchObject({ issue: { kind: "callbackRolledBack" } });
     await expect(readHistory(persistence, rollback.scopeId)).resolves.toEqual([
@@ -393,17 +393,17 @@ describe("O11-D retained app-row history compaction", () => {
     const captured = createRetainedAppRowHistoryCompactionPort(input);
     expect(observerReads).toBe(1);
     await expect(runEffect(compactRetainedAppRowHistoryPageEffect(
-      captured, observerCapture.deploymentId, { kind: "start" },
+      captured, observerCapture, { kind: "start" },
     ))).resolves.toMatchObject({ disposition: "exhausted" });
     expect(observed).toEqual(["identityDirectory"]);
 
     const copiedPort = await provision("copied_port");
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
-      { ...port() }, copiedPort.deploymentId, { kind: "start" },
+      { ...port() }, copiedPort, { kind: "start" },
     ))).resolves.toMatchObject({ reason: "invalidPort" });
     const copiedTarget = await provision("copied_target");
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
-      port({ targetCopy: true }), copiedTarget.deploymentId, { kind: "start" },
+      port({ targetCopy: true }), copiedTarget, { kind: "start" },
     ))).resolves.toMatchObject({ reason: "invalidTarget" });
 
     const uncertain = await provision("uncertain");
@@ -428,13 +428,13 @@ describe("O11-D retained app-row history compaction", () => {
     };
     const cleanup = port({ runReadCommitted: uncertainRunner });
     await expect(runEffectFailure(compactRetainedAppRowHistoryPageEffect(
-      cleanup, uncertain.deploymentId, { kind: "start" },
+      cleanup, uncertain, { kind: "start" },
     ))).resolves.toMatchObject({ issue: { kind: "decisionUncertain" } });
     await expect(readHistory(persistence, uncertain.scopeId)).resolves.toEqual([
       `${rowIdHex(10)}:1`, `${rowIdHex(10)}:3`,
     ]);
     await expect(runEffect(compactRetainedAppRowHistoryPageEffect(
-      cleanup, uncertain.deploymentId, { kind: "start" },
+      cleanup, uncertain, { kind: "start" },
     ))).resolves.toMatchObject({
       disposition: "advanced", deletedRevisionCount: 0,
       rootCommitSeq: 1n, anchorCommitSeq: 3n,

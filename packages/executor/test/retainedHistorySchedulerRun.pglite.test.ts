@@ -110,7 +110,7 @@ describe("O11-F2 connected PGlite retained-history scheduler", () => {
         authority: {
           ...authorityPorts(persistence),
           scopeMetadata: {
-            getScopeMetadataByDeploymentId: async () => {
+            getScopeMetadata: async () => {
               throw new Error("control metadata unavailable");
             },
           },

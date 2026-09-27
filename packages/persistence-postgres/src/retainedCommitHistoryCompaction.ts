@@ -31,11 +31,12 @@ import {
   type ScopeClockRecord,
 } from "./scopeClock";
 import {
-  captureTrustedScopeAuthorityResolutionPorts,
-  resolveLocatedTrustedScopeAuthorityEffect,
+  captureExactTrustedScopeAuthorityResolutionPorts,
+  resolveLocatedTrustedScopeAuthorityByIdEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
-  type TrustedScopeAuthorityResolutionPorts,
+  type ExactTrustedScopeAuthorityResolutionPorts,
+  type TrustedScopeSelection,
 } from "./scopeAuthorityResolution";
 import {
   fxSystemCommitAppRowChanges,
@@ -80,7 +81,7 @@ export interface RetainedCommitHistoryCompactionPort {
 }
 
 interface RetainedCommitHistoryCompactionPortState {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedRetainedHistoryFloorTarget
   >;
   readonly observeQuery?: (
@@ -98,7 +99,7 @@ const portStates = new WeakMap<
  * Production composition remains blocked on the later reconnect pin owner.
  */
 export function createRetainedCommitHistoryCompactionPort(input: {
-  readonly authority: TrustedScopeAuthorityResolutionPorts<
+  readonly authority: ExactTrustedScopeAuthorityResolutionPorts<
     LocatedRetainedHistoryFloorTarget
   >;
   readonly observeQuery?: (
@@ -109,7 +110,7 @@ export function createRetainedCommitHistoryCompactionPort(input: {
     [retainedCommitHistoryCompactionPortBrand]: true as const,
   });
   portStates.set(port, Object.freeze({
-    authority: captureTrustedScopeAuthorityResolutionPorts(input.authority),
+    authority: captureExactTrustedScopeAuthorityResolutionPorts(input.authority),
     ...(input.observeQuery === undefined
       ? {}
       : { observeQuery: input.observeQuery }),
@@ -178,14 +179,14 @@ export type CompactRetainedCommitHistoryPageError =
 
 export function compactRetainedCommitHistoryPageEffect(
   port: RetainedCommitHistoryCompactionPort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
 ): Effect.Effect<
   RetainedCommitHistoryCompactionResult,
   CompactRetainedCommitHistoryPageError
 >;
 export function compactRetainedCommitHistoryPageEffect(
   port: RetainedCommitHistoryCompactionPort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   expectation: RetainedHistoryPageExpectation,
 ): Effect.Effect<
   GuardedRetainedCommitHistoryCompactionResult,
@@ -193,7 +194,7 @@ export function compactRetainedCommitHistoryPageEffect(
 >;
 export function compactRetainedCommitHistoryPageEffect(
   port: RetainedCommitHistoryCompactionPort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   expectation: RetainedHistoryPageExpectation | null = null,
 ): Effect.Effect<
   GuardedRetainedCommitHistoryCompactionResult,
@@ -201,7 +202,7 @@ export function compactRetainedCommitHistoryPageEffect(
 > {
   return compactRetainedCommitHistoryPageWithExpectationEffect(
     port,
-    deploymentId,
+    selection,
     expectation,
   );
 }
@@ -210,7 +211,7 @@ const compactRetainedCommitHistoryPageWithExpectationEffect = Effect.fn(
   "RetainedCommitHistory.compactPage",
 )(function* (
   port: RetainedCommitHistoryCompactionPort,
-  deploymentId: string,
+  selection: TrustedScopeSelection,
   expectation: RetainedHistoryPageExpectation | null = null,
 ): Effect.fn.Return<
   GuardedRetainedCommitHistoryCompactionResult,
@@ -220,17 +221,17 @@ const compactRetainedCommitHistoryPageWithExpectationEffect = Effect.fn(
   if (state === undefined) {
     return yield* Effect.fail(new RetainedCommitHistoryCompactionError({
       reason: "invalidPort",
-      deploymentId,
+      deploymentId: selection.deploymentId,
     }));
   }
-  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
-    deploymentId,
+  const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+    selection,
     state.authority,
   );
   if (!isLocatedRetainedHistoryFloorTargetInternal(located.target)) {
     return yield* Effect.fail(new RetainedCommitHistoryCompactionError({
       reason: "invalidTarget",
-      deploymentId,
+      deploymentId: selection.deploymentId,
       scopeId: located.authority.scopeId,
     }));
   }

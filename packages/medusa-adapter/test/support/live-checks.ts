@@ -182,7 +182,7 @@ export function registerLiveCurrencyChecks(get: () => LogicalCurrencyFixture): v
         let deletedCommits = 0;
         for (let attempt = 0; attempt < 10; attempt++) {
           const receipt: RetainedHistoryMaintenanceReceipt = await runEffect(runRetainedHistoryMaintenanceEffect(
-            maintenance, fixture.deploymentId, continuation));
+            maintenance, { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId }, continuation));
           deletedCommits += receipt.deletedCommitCount;
           continuation = receipt.continuation;
           if (receipt.status === "maintenanceComplete") break;
