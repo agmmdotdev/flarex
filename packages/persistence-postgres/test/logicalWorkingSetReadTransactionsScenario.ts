@@ -101,16 +101,21 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
       }, firstTime, [], [], { observeQuery: () => expect(active).toBe(true) });
       expect(checkedReads).toBe(1);
-      expect(admissionTransactions).toBeGreaterThanOrEqual(2);
+      // The constructor checks once. Pending hydration uses its own checked
+      // storage transaction instead of opening an empty admission transaction.
+      expect(admissionTransactions).toBe(1);
       expect(active).toBe(false);
       const id = yield* lifetime.begin(lifetime.context);
       expect(yield* working.documents.getMany(lifetime.context, id, "notes", [firstId, absentId]))
         .toMatchObject([{ label: "pending" }, null]);
       expect(checkedReads).toBe(2);
+      expect(admissionTransactions).toBe(2);
       expect(yield* working.documents.getMany(lifetime.context, id, "labels", [secondId])).toEqual([null]);
       expect(checkedReads).toBe(2);
+      expect(admissionTransactions).toBe(3);
       expect(yield* working.documents.getMany(lifetime.context, id, "notes", [absentId])).toEqual([null]);
       expect(checkedReads).toBe(2);
+      expect(admissionTransactions).toBe(4);
       const snapshot = yield* working.activitySnapshot();
       expect(snapshot.observedRows).toMatchObject([{ tableName: "notes", value: { label: "pending" } }]);
       allowed = false;

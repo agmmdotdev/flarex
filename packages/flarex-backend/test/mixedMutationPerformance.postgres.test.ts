@@ -20,6 +20,7 @@ import { renderMixedMutationPerformanceReport, summarizeMixedMutationTrace,
 const enabled = process.env.FLAREX_MIXED_PERF === "1" &&
   process.env.FLAREX_POSTGRES_DATABASE_URL !== undefined;
 const smoke = process.env.FLAREX_MIXED_PERF_SMOKE === "1";
+const observationMode = process.env.FLAREX_MIXED_PERF_OBSERVATION ?? "traced";
 const planned = smoke ? { warmups: 1, warm: 2, cold: 1 } : { warmups: 3, warm: 20, cold: 3 };
 const allWorkloads: readonly PerformanceWorkload[] = ["product", "productPayload",
   "mixedWorkflow", "standaloneWorkflow"];
@@ -238,6 +239,8 @@ function traceCoverageIssue(summary: NonNullable<PerformanceSample["trace"]>,
 
 describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baseline", () => {
   it("records four comparable workload series and a sanitized owner report", async () => {
+    if (observationMode !== "traced" && observationMode !== "untraced")
+      throw new Error("Invalid performance observation mode");
     const requestedWorkload = process.env.FLAREX_MIXED_PERF_WORKLOAD;
     const selectedWorkload = allWorkloads.find(workload => workload === requestedWorkload);
     if (requestedWorkload !== undefined && selectedWorkload === undefined)
@@ -260,17 +263,23 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
     const raw: PerformanceRawReport = {
       format: "flarex.mixed-mutation-performance", revision,
       workingDiffSha256: workingFingerprint.digest("hex"),
-      mode: smoke ? "smoke" : "full", planned, plannedWorkloads,
+      mode: smoke ? "smoke" : "full", observationMode, planned, plannedWorkloads,
       environment: {},
       interpretation: [
         "Standalone workflow includes the same selected Product/Pricing/Link/Tag graph but has no Application, Payload, journal or OCC obligations.",
-        "The first warmup is reconnaissance for owner attribution and is excluded from warm distributions.",
+        observationMode === "traced"
+          ? "The first warmup is reconnaissance for owner attribution and is excluded from warm distributions."
+          : "The first warmup is excluded from warm distributions.",
         "Per-request test grant issuer/signing and private bridge overhead are included in mixed request admission and Worker intervals.",
         "Warm mixed samples reuse prepared modules, scope, and pools; every request creates, readies, invokes once, and disposes a fresh Worker under the exact runtime one-invocation guard.",
         "Signed business arguments are parsed by the fixed benchmark Worker source inside the measured request; that private test-harness cost is included.",
         "Workflow tags are unique: each graph is seeded immediately before its invocation and its launched tag is renamed outside measurement before the next seed. Product/Payload graphs are preseeded.",
-        "The trace's DB wait union is a union of observed awaited intervals, not a server critical-path or network round-trip count.",
-        "Request duration is the inner trace span; outer wall also includes trace aggregation. Their difference is reported separately.",
+        ...(observationMode === "traced" ? [
+          "The trace's DB wait union is a union of observed awaited intervals, not a server critical-path or network round-trip count.",
+          "Request duration is the inner trace span; outer wall also includes trace aggregation. Their difference is reported separately.",
+        ] : [
+          "No SQL or phase observer is installed. Outer invocation wall time uses the same workload boundaries and business checks as the traced series.",
+        ]),
         "Sealed attempt bytes come from the canonical journal at successful seal through a delegating test store port; the capture adds no database query.",
       ],
       unavailable: [
@@ -279,7 +288,9 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
         "Exact inner OCC/materialization phase duration where the existing owner has no test observation hook.",
         "Exact scope-clock lock acquisition wait and lock-hold interval; transaction duration is only a BEGIN-to-settlement envelope.",
         "Sealed attempt bytes for failed attempts and standalone workflow; settled journal rows are removed, so inventory separately records only remaining live journal bytes.",
-        "Client SQL that loses trace context during an active invocation is detected and invalidates that sample, but SQL through uninstrumented pools or outside the invocation cannot be counted; named phase checks do not prove universal SQL coverage.",
+        ...(observationMode === "traced" ? [
+          "Client SQL that loses trace context during an active invocation is detected and invalidates that sample, but SQL through uninstrumented pools or outside the invocation cannot be counted; named phase checks do not prove universal SQL coverage.",
+        ] : ["SQL dispatches, awaited time, phase spans, transaction intervals and trace coverage in untraced mode."]),
         "Hosted Cloudflare transport, native ORM parity, and production capacity.",
       ],
       sqlTemplates: [], ownerMappings: [], setupFailures: [], samples: [],
@@ -336,9 +347,9 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
         throw new Error("Expected ordinary PostgreSQL series");
       }
       const target = series.currency.resource.target;
-      const trace = createMixedMutationPerformanceTrace({
-        controlPool: series.currency.resource.control.pool, targetPool: target.pool });
-      series.setTrace(trace);
+      const trace = observationMode === "traced" ? createMixedMutationPerformanceTrace({
+        controlPool: series.currency.resource.control.pool, targetPool: target.pool }) : undefined;
+      if (trace !== undefined) series.setTrace(trace);
       try {
         if (Object.keys(measuredEnvironment).length === 0) measuredEnvironment = await environment(target);
         profileSelections[workload] = { revisions: series.profileRevisions,
@@ -369,9 +380,9 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             const started = now();
             try {
               stage = "invoke";
-              const outcome = await trace.withInvocation({ id,
+              const outcome = await (trace === undefined ? series.runAttempt(index) : trace.withInvocation({ id,
                 mode: kind === "warmup" && index === 0 ? "recon" : "measured" },
-              () => series.runAttempt(index));
+              () => series.runAttempt(index)));
               wallMs = now() - started;
               requestWorkerConstructionMs = outcome.workerConstructionMilliseconds;
               sealedJournalBytes = outcome.sealedJournalBytes;
@@ -386,9 +397,11 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
               if (workload === "mixedWorkflow") verifyWorkflowGraph(outcome.returnedValue,
                 outcome.seed.productId, outcome.seed.tagId, outcome.seed.newTitle);
             } catch (cause) { wallMs = now() - started; throw cause; }
-            stage = "traceReconciliation";
-            recorded = traceRecord(trace, id);
-            if (recorded === null || recorded.outcome !== "ok") throw new Error("MissingSuccessfulTraceRecord");
+            if (trace !== undefined) {
+              stage = "traceReconciliation";
+              recorded = traceRecord(trace, id);
+              if (recorded === null || recorded.outcome !== "ok") throw new Error("MissingSuccessfulTraceRecord");
+            }
             stage = "inventoryAfter";
             after = await inventory(target, true);
           } catch (cause) {
@@ -399,13 +412,15 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             failureDiagnosticTokens = safeDiagnosticTokens(cause);
             console.error("Mixed performance sample failed", { id, stage, failureName, failureCode,
               failureReason, failureDiagnosticTokens });
-            try { recorded ??= traceRecord(trace, id); }
-            catch { failureName = "TraceReconciliationFailure"; failureStage = "traceReconciliation"; }
+            if (trace !== undefined) {
+              try { recorded ??= traceRecord(trace, id); }
+              catch { failureName = "TraceReconciliationFailure"; failureStage = "traceReconciliation"; }
+            }
             if (before !== null && after === null) after = await inventory(target, true).catch(() => null);
           }
-          collect(trace, recorded, `${workload}-${temperature}-${seriesOrdinal}`);
+          if (trace !== undefined) collect(trace, recorded, `${workload}-${temperature}-${seriesOrdinal}`);
           let summary: PerformanceSample["trace"] = null;
-          if (recorded !== null) {
+          if (recorded !== null && trace !== undefined) {
             try {
               summary = summarizeMixedMutationTrace(recorded, trace.ownerMappings().map(sanitizeOwnerMapping));
               const issue = failureName === null ? traceCoverageIssue(summary, workload) : null;
@@ -440,7 +455,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
           if (failureName !== null) throw new Error(`Performance sample ${id} failed at ${failureStage}: ${failureName}`);
         }
       } finally {
-        try { trace.close(); } finally { await series.close(); }
+        try { trace?.close(); } finally { await series.close(); }
       }
     }
 
@@ -461,8 +476,8 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
         throw new Error("Expected ordinary PostgreSQL standalone series");
       }
       const target = series.currency.resource.target;
-      const trace = createMixedMutationPerformanceTrace({
-        controlPool: series.currency.resource.control.pool, targetPool: target.pool });
+      const trace = observationMode === "traced" ? createMixedMutationPerformanceTrace({
+        controlPool: series.currency.resource.control.pool, targetPool: target.pool }) : undefined;
       try {
         if (Object.keys(measuredEnvironment).length === 0) measuredEnvironment = await environment(target);
         profileSelections.standaloneWorkflow = { revision: series.profileRevision,
@@ -492,16 +507,18 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             const invocationStarted = now();
             try {
               stage = "invoke";
-              const result = await trace.withInvocation({ id,
+              const result = await (trace === undefined ? series.run(seed) : trace.withInvocation({ id,
                 mode: kind === "warmup" && index === 0 ? "recon" : "measured" },
-              () => trace.withPhase("standalone native workflow", () => series.run(seed)));
+              () => trace.withPhase("standalone native workflow", () => series.run(seed))));
               wallMs = now() - invocationStarted;
               stage = "verifyWorkflowGraph";
               verifyWorkflowGraph({ workflow: result }, seed.productId, seed.tagId);
             } catch (cause) { wallMs = now() - invocationStarted; throw cause; }
-            stage = "traceReconciliation";
-            recorded = traceRecord(trace, id);
-            if (recorded === null || recorded.outcome !== "ok") throw new Error("MissingSuccessfulTraceRecord");
+            if (trace !== undefined) {
+              stage = "traceReconciliation";
+              recorded = traceRecord(trace, id);
+              if (recorded === null || recorded.outcome !== "ok") throw new Error("MissingSuccessfulTraceRecord");
+            }
             stage = "inventoryAfter";
             after = await inventory(target, false);
             stage = "retireLaunchedTag";
@@ -514,13 +531,15 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             failureDiagnosticTokens = safeDiagnosticTokens(cause);
             console.error("Standalone performance sample failed", { id, stage, failureName, failureCode,
               failureReason, failureDiagnosticTokens });
-            try { recorded ??= traceRecord(trace, id); }
-            catch { failureName = "TraceReconciliationFailure"; failureStage = "traceReconciliation"; }
+            if (trace !== undefined) {
+              try { recorded ??= traceRecord(trace, id); }
+              catch { failureName = "TraceReconciliationFailure"; failureStage = "traceReconciliation"; }
+            }
             if (before !== null && after === null) after = await inventory(target, false).catch(() => null);
           }
-          collect(trace, recorded, `standaloneWorkflow-${temperature}-${seriesOrdinal}`);
+          if (trace !== undefined) collect(trace, recorded, `standaloneWorkflow-${temperature}-${seriesOrdinal}`);
           let summary: PerformanceSample["trace"] = null;
-          if (recorded !== null) {
+          if (recorded !== null && trace !== undefined) {
             try {
               summary = summarizeMixedMutationTrace(recorded, trace.ownerMappings().map(sanitizeOwnerMapping));
               const issue = failureName === null ? traceCoverageIssue(summary, "standaloneWorkflow") : null;
@@ -553,7 +572,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
           if (failureName !== null) throw new Error(`Performance sample ${id} failed at ${failureStage}: ${failureName}`);
         }
       } finally {
-        try { trace.close(); } finally { await series.close(); }
+        try { trace?.close(); } finally { await series.close(); }
       }
     }
 

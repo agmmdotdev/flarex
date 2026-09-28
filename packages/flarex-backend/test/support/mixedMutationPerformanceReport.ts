@@ -94,6 +94,7 @@ export interface PerformanceRawReport {
   readonly revision: string;
   readonly workingDiffSha256: string;
   readonly mode: "smoke" | "full";
+  readonly observationMode: "traced" | "untraced";
   readonly planned: Readonly<{ warmups: number; warm: number; cold: number }>;
   readonly plannedWorkloads: readonly PerformanceWorkload[];
   readonly environment: Readonly<Record<string, unknown>>;
@@ -191,10 +192,12 @@ export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport):
   const lines = [
     "# Private mixed mutation performance baseline",
     "",
-    `Revision: \`${raw.revision}\`; working diff SHA-256: \`${raw.workingDiffSha256}\`; mode: **${raw.mode}**.`,
+    `Revision: \`${raw.revision}\`; working diff SHA-256: \`${raw.workingDiffSha256}\`; mode: **${raw.mode}**, observation: **${raw.observationMode}**.`,
     `Plan: ${raw.planned.warmups} warmups, ${raw.planned.warm} measured warm samples, ${raw.planned.cold} cold samples per workload.`,
     "",
-    "The request interval starts before fresh admission and ends after authoritative publication and retained-outcome resolution. The outer wall envelope includes trace finalization, which is reported separately. SQL awaited time includes driver and database wait; it is not server execution time. Nested phases and overlapping query waits are non-additive. The standalone graph has fewer root obligations, so its latency delta does not isolate framework overhead. No native ORM parity or hosted transport claim is made.",
+    raw.observationMode === "traced"
+      ? "The request interval starts before fresh admission and ends after authoritative publication and retained-outcome resolution. The outer invocation wall envelope includes trace finalization, which is reported separately. SQL awaited time includes driver and database wait; it is not server execution time. Nested phases and overlapping query waits are non-additive. The standalone graph has fewer root obligations, so its latency delta does not isolate framework overhead. No native ORM parity or hosted transport claim is made."
+      : "The outer invocation wall interval uses the same workload boundaries, from before fresh admission through authoritative publication and retained-outcome resolution. No SQL or phase observer is installed, so request trace spans, dispatches, awaits, transaction intervals and trace finalization are unavailable. The standalone graph has fewer root obligations; no native ORM parity or hosted transport claim is made.",
     "",
     "## Environment",
     "",
@@ -204,14 +207,16 @@ export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport):
     "",
     "## Sample distributions",
     "",
-    "| Workload | Series | Successful / observed | Request median (ms) | Range (ms) | Descriptive p95 (ms) | Fresh Worker startup median (ms) | Trace finalization median (ms) | Dispatch median | Known statement median | Awaited DB median (ms) | DB wait interval union median (ms) |",
-    "| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| Workload | Series | Successful / observed | Request median (ms) | Range (ms) | Descriptive p95 (ms) | Outer invocation wall median (ms) | Outer range (ms) | Outer descriptive p95 (ms) | Fresh Worker startup median (ms) | Trace finalization median (ms) | Dispatch median | Known statement median | Awaited DB median (ms) | DB wait interval union median (ms) |",
+    "| --- | --- | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
   ];
   const workloads = raw.plannedWorkloads;
   for (const workload of workloads) for (const temperature of ["warm", "cold"] as const) {
     const observed = raw.samples.filter(sample => sample.workload === workload && sample.temperature === temperature);
-    const good = observed.filter(sample => sample.status === "ok" && sample.wallMs !== null && sample.trace !== null);
+    const good = observed.filter(sample => sample.status === "ok" && sample.wallMs !== null &&
+      (raw.observationMode === "untraced" || sample.trace !== null));
     const wall = distribution(good.flatMap(sample => sample.trace === null ? [] : [sample.trace.durationMs]));
+    const outerWall = distribution(good.flatMap(sample => sample.wallMs === null ? [] : [sample.wallMs]));
     const workerStartup = distribution(good.flatMap(sample => sample.requestWorkerConstructionMs === null
       ? [] : [sample.requestWorkerConstructionMs]));
     const finalization = distribution(good.flatMap(sample => sample.instrumentationFinalizationMs === null
@@ -222,7 +227,8 @@ export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport):
     const sequential = distribution(good.flatMap(sample => sample.trace?.awaitedDispatchUnionMs == null
       ? [] : [sample.trace.awaitedDispatchUnionMs]));
     lines.push(`| ${workload} | ${temperature} | ${good.length}/${observed.length} | ${shown(wall.median)} | ` +
-      `${shown(wall.min)}–${shown(wall.max)} | ${shown(wall.p95)} | ${shown(workerStartup.median)} | ` +
+      `${shown(wall.min)}–${shown(wall.max)} | ${shown(wall.p95)} | ${shown(outerWall.median)} | ` +
+      `${shown(outerWall.min)}–${shown(outerWall.max)} | ${shown(outerWall.p95)} | ${shown(workerStartup.median)} | ` +
       `${shown(finalization.median)} | ${shown(dispatch.median)} | ` +
       `${shown(statements.median)} | ${shown(awaited.median)} | ${shown(sequential.median)} |`);
   }

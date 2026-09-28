@@ -42,10 +42,12 @@ export interface LogicalDocumentWrite {
   readonly document: CanonicalFlarexValueV1;
 }
 
-/** Trusted profile construction only. Framework admission supplies exact table
- * bindings and a validator; this owner cannot acquire or settle a transaction.
- * The guard rechecks the captured admission/transaction pair on each entry.
- * Failure projection shares the existing lifetime and its first-failure latch. */
+/** Trusted borrowed profile construction only. Each invocation must acquire a
+ * fresh short SQL transaction, authenticate the exact source/attempt/fence in
+ * that transaction before calling work, and keep the authentication lock until
+ * work finishes. The working set does not separately open an empty admission
+ * transaction before these checked reads. State-only operations still use
+ * requireAdmission and its existing first-failure latch. */
 export type LogicalDocumentReadTransaction<Failure> = <A, E>(
   work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>,
 ) => Effect.Effect<A, E | Failure>;

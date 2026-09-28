@@ -113,6 +113,7 @@ export async function verifyLogicalSearchBuildBatch(
   // same prepared source selection and coverage rows are reused.
   await persistence.query("alter index fx_app_search_entry_current_lookup_gin rename to fx_test_changed_search_gin");
   try {
+    expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
     await persistence.query(`create index fx_app_search_entry_current_lookup_gin
       on fx_app_search_entry_current using gin
         (scope_uuid public.uuid_ops, logical_index_id public.int4_ops, field_id public.gin_trgm_ops)`);
@@ -120,6 +121,20 @@ export async function verifyLogicalSearchBuildBatch(
   } finally {
     await persistence.query("drop index if exists fx_app_search_entry_current_lookup_gin");
     await persistence.query("alter index fx_test_changed_search_gin rename to fx_app_search_entry_current_lookup_gin");
+  }
+  expect((await inspect()).verdict).toEqual({ status: "ready", definitionCount: 70 });
+
+  // A same-name JSON index with a different operator class is not the
+  // declared containment path, even though it remains a valid GIN index.
+  await persistence.query("alter index fx_app_json_entry_current_lookup_gin rename to fx_test_changed_json_gin");
+  try {
+    await persistence.query(`create index fx_app_json_entry_current_lookup_gin
+      on fx_app_json_entry_current using gin
+        (scope_uuid public.uuid_ops, logical_index_id public.int4_ops, value_json jsonb_ops)`);
+    expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+  } finally {
+    await persistence.query("drop index if exists fx_app_json_entry_current_lookup_gin");
+    await persistence.query("alter index fx_test_changed_json_gin rename to fx_app_json_entry_current_lookup_gin");
   }
   expect((await inspect()).verdict).toEqual({ status: "ready", definitionCount: 70 });
 

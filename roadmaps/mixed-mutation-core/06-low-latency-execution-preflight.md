@@ -1,13 +1,14 @@
-# Low latency mixed execution: proposed preflight
+# Low latency mixed execution: approved preflight
 
-Status: **proposal for owner discussion; implementation is not approved.** This
-document requests a new cross-owner design decision. It does not amend the
+Status: **the first connected package is complete.** It keeps fresh selected
+dependency verification, makes the physical-search proof cheaper, and removes
+redundant internal admission transactions before checked reads. Later packages
+depend on the retained traced and untraced results. This document does not amend the
 [accepted database design](../../design-notes/flarex-db-accepted-design.md),
 relax the [connected execution integrity decision](../shared-transaction-core/70-connected-execution-acceptance.md),
 or extend the completed [core query cost correction](./05-core-query-cost-preflight.md).
-No runtime, schema, migration, host or benchmark change follows from this
-preflight until the owner agrees the exact scope and the accepted design is
-explicitly revised where needed.
+No broader integrity, durable protocol or host change follows from this
+preflight without its own evidence and required accepted-design revision.
 
 ## Outcome, boundary and reason to act
 
@@ -39,6 +40,19 @@ well above the proposed product latency goal:
 | Application + Product + Payload + finite workflow | 10.108 / 10.750 s | 11,442 | 5.982 s | 259 |
 | Independently settling standalone workflow | 0.362 / 0.992 s | 480 | 0.171 s | 6 |
 
+The [first connected package artifact](../../packages/flarex-backend/benchmarks/mixed-mutation-core/admission-cost/README.md)
+retains two new full **104/104 successful** series. With the same traced
+observer, the warm request-span medians changed from the table above to
+**2.337 / 3.210 / 6.755 / 0.332 s** respectively. Candidate traced outer
+wall medians were **2.341 / 3.216 / 6.767 / 0.333 s**; a subsequent untraced
+candidate series measured the same outer boundary at **2.231 / 3.095 /
+6.761 / 0.345 s**. The latter series has no SQL or phase observations and
+there is no untraced historical optimized baseline. Sequential observer-mode
+differences are descriptive, with cache and system drift possible; they do not
+isolate a precise tracing cost. Product and mixed warm candidate traced
+dispatch/transaction medians are **3,842 / 97** and **10,410 / 235**.
+The proposed mixed warm latency budgets below remain unmet.
+
 The standalone graph lacks the mixed root's Application, Payload, journal and
 OCC obligations; it is neither parity nor a native ORM baseline. These are
 driver dispatches and awaited intervals, not network round trips or PostgreSQL
@@ -53,14 +67,15 @@ The benchmark has no server execution, precise lock wait/hold or hosted
 transport timings; collect those only to resolve a named implementation or
 acceptance decision.
 
-The mixed workflow's approximately 10.1 s median includes about 6.0 s of
+The optimized mixed workflow's approximately 10.1 s median includes about 6.0 s of
 summed driver SQL await, but the remainder is not proven native ORM, CPU or
 Worker work: nested phases, observer cost and overlapping waits prevent that
-subtraction. Before changing an execution owner, run matched traced and
-untraced requests with identical business assertions, request start/end and
-host temperature on both the retained path and each candidate. Quantify
-observer overhead without silently removing instrumentation only for the
-candidate. Profile CPU, hashing and allocation only for a named dominant
+subtraction. The first package ran matching candidate traced and untraced
+requests with identical business assertions, request start/end and host
+temperature, after a prior optimized traced series. The candidate-only
+calibration cannot infer an untraced before/after speedup. Retain both modes
+when later candidates need observer calibration; do not silently remove
+instrumentation only for one side of a comparison. Profile CPU, hashing and allocation only for a named dominant
 phase; use PostgreSQL `EXPLAIN` and bounded lock sampling only where query
 execution versus checkout, scheduling or lock wait changes a decision. Keep
 this a focused calibration, not a new benchmark platform.
@@ -286,11 +301,50 @@ priority at their measured cost.
 
 ## Connected delivery proposal and stop gates
 
-These are proposed **large connected packages**, not standing implementation
-approval or helper-only turns. Each needs an exact call graph, owner review,
-contract/data inventory and agreed measurable exit gate before runtime edits.
+### Approved first connected package
 
-1. **Enforced integrity and real admission.** Audit selected dependencies and
+The two shared search GIN indexes receive an exact fresh physical check in
+`logicalSearchBuild.ts` for every accepting transaction. A measured OID-anchored
+query shape retains the existing index/table/column/operator-class, validity,
+readiness and current-schema predicates while avoiding the expensive multi-join
+planner path. On isolated PostgreSQL 18 the 20-query median was approximately
+0.85 ms against 5.0 ms for the old shape; these are isolated query measurements,
+not an end-to-end request result. Keep the selected metadata and installation
+hashes, scope/placement/revocation checks, mutable search coverage and row
+frontiers fresh. Preserve immediate unchanged-root tamper refusal. No schema,
+role, certificate, repair or accepted integrity-boundary change is needed.
+
+The same connected package removes redundant empty admission transactions at
+the working-set/participant owner only where the actual storage I/O performs its
+own fresh checked admission. State-only operations retain a live check; no SQL
+transaction crosses a native callback. Validate PGlite and ordinary-role
+PostgreSQL refusal/serving cases, malformed and replaced GIN definitions,
+current-schema identity, real Worker Product/Payload/workflow behavior, and
+per-operation transaction intervals. The retained candidate traced and
+untraced series above complete the four-workload comparison. This package is
+a query and transaction-ownership change, not a claim that the full latency
+target is met.
+
+The next measured candidate is selected Application evidence reuse within one
+**short, already checked transaction** and a bounded load of its target
+revision/candidate/analysis/publication/function/task metadata. The candidate
+mixed warm series still has 10,410 dispatches and 235 transaction intervals;
+its fresh physical catalog proof is now 224 dispatches and 286.4 ms median
+summed await, down from 248 and 3,143.2 ms. Application head, activation,
+publication and revision-schema reads now dominate repeated metadata work.
+The owner must prove same-transaction selection/clock identity, preserve all
+row hashes and first refusal order, and end reusable evidence before a mutable
+callback. Control-database observations remain separate from target-database
+acceptance. A batched SQL error must not silently preempt an earlier known
+corrupt-row refusal. This is a focused next contract discussion, not an
+approved cross-transaction cache or an endpoint latency promise.
+
+The following later connected packages remain conditional on measured owner
+costs. They are not helper-only turns. Each needs an exact call
+graph, owner review, contract/data inventory and measurable exit gate before
+runtime edits.
+
+1. **Enforced metadata preparation, only if still needed.** Audit selected dependencies and
    all writer/repair/DDL/placement paths; agree the privileged threat boundary
    and amend the accepted design. Enforce ordinary-role writer routing and
    same-transaction invalidation at the existing metadata owners; connect the
@@ -298,11 +352,11 @@ contract/data inventory and agreed measurable exit gate before runtime edits.
    compiled framework source. Preserve or deliberately revise every
    unchanged-digest tamper witness. Stop if a complete writer proof or
    cross-database placement protocol cannot be established; physical checks
-   remain in force. Measure the real catalog/selected-evidence cost after this
-   package before setting the next query budget.
+   remain in force. The first package retains the fresh physical query and all
+   selected hashes; a protected-root design needs its own measured reason.
 2. **Per-attempt execution across real consumers.** Combine checked storage I/O
-   with admission and remove redundant helper transactions at the shared
-   working-set/participant owners. Reuse bounded pending/dependency state
+   with admission beyond the five redundant read guards removed in the first
+   package. Reuse bounded pending/dependency state
    under exact attempt/fence/journal position and durable restore rules; migrate
    the selected Application, Payload Local API, Product and finite workflow
    callers together. Prove native callback and hook boundaries, conflict,
@@ -345,11 +399,10 @@ temperature.
 
 ## Contracts, cutover and approval questions
 
-Necessary internal breaks are allowed **after** the focused implementation
-scope is approved; compatibility wrappers, dual writes or a fallback engine
-are not a substitute for migrating consumers. Before the first package,
-inventory and classify each affected contract as retain, extend, replace or
-delete:
+Necessary internal breaks are allowed within an approved focused implementation
+scope; compatibility wrappers, dual writes or a fallback engine are not a
+substitute for migrating consumers. The disposition for the first package and
+conditional later work is:
 
 | Contract or data | Proposed disposition and required proof |
 | --- | --- |
@@ -370,7 +423,7 @@ named retained consumer and removal gate for any temporary old path. Publication
 and recovery must not accept one protocol while normal execution emits another
 without an approved cutover.
 
-Owner decisions required **before implementation**:
+Owner decisions required **before a later material contract change**:
 
 1. Which concrete writer, DDL and privileged-repair contract can enforce every
    selected dependency, and which synchronous tamper refusals may, if any, move
@@ -384,10 +437,7 @@ Owner decisions required **before implementation**:
 4. Does the traced lower bound justify each connected package, and which
    unavailable measurement is essential to that choice?
 
-The accepted integrity decision and this roadmap remain in force until those
-answers are documented, the accepted design is amended where necessary, and
-the owner approves the first connected implementation package. After that
-approval, ordinary in-scope implementation, tests, review fixes and cleanup
-proceed without another permission request. Return to the owner for a
-materially different authority, trust, durable protocol/data or host lifecycle
-decision.
+The accepted integrity decision remains in force. The first package preserves
+it and needs no additional permission for its ordinary implementation, tests,
+review fixes and cleanup. Return to the owner for a materially different
+authority, trust, durable protocol/data or host lifecycle decision.

@@ -162,6 +162,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     relationalCapabilities: configuration.relationalCapabilities === undefined ? undefined : Object.freeze(structuredClone(configuration.relationalCapabilities)),
     tables: Object.freeze(configuration.tables.map(table => Object.freeze({ ...table,
       ...(table.relational === undefined ? {} : { relational: structuredClone(table.relational) }) }))) });
+  // Borrowed readTransaction authenticates inside its storage transaction;
+  // only a directly supplied native transaction needs this separate guard.
+  const requireReadAdmission = state.tx === undefined ? Effect.void : state.requireAdmission;
   const uniqueDefinitions = Object.freeze([...uniqueInput]);
   const indexDefinitions = Object.freeze([...indexInput]);
   yield* state.requireAdmission;
@@ -324,13 +327,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   });
   const readBase = Effect.fn("LogicalDocuments.readBase")(function* (tableId: CatalogTableId,
     rowId?: AppRowIdHexV1, rowIds?: readonly AppRowIdHexV1[]) {
-      yield* state.requireAdmission;
       if (state.snapshotCommitSeq !== undefined && rowId === undefined && rowIds === undefined) {
+        yield* state.requireAdmission;
         if (closed) return yield* Effect.fail(error("closed"));
         yield* Effect.fromResult(tableForId(tableId));
         if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("scan");
         return yield* Effect.fail(error("invalidInput"));
       }
+      yield* requireReadAdmission;
       return yield* runRead(tx => readBaseInTransaction(tx, tableId, rowId, rowIds));
     });
   if (state.pendingRows !== undefined) {
@@ -339,7 +343,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     const seen = new Set<string>();
     const pendingRows = state.pendingRows;
     if (pendingRows.length > 0) {
-      yield* state.requireAdmission;
+      yield* requireReadAdmission;
       yield* runRead(tx => Effect.gen(function* () {
         for (const seed of pendingRows) {
           const documentId = appDocumentIdV1FromRowIdentity(seed);
@@ -597,7 +601,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
           let read = indexReads.get(selection.identity);
           if (read === undefined) {
             if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-            yield* state.requireAdmission;
+            yield* requireReadAdmission;
             const entries = yield* runRead(tx => Effect.gen(function* () {
               const rangeEntries = yield* readLogicalIndexRange(tx, state.scopeId, selection, limits.identities, error,
                 testHooks?.observeIndexQuery, state.snapshotCommitSeq);
@@ -696,7 +700,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       if (definition === undefined)
         return yield* Effect.fail(error("invalidInput"));
       if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-      yield* state.requireAdmission;
+      yield* requireReadAdmission;
       // Candidate evidence and its previously unseen row revisions share one
       // checked read. A later operation obtains a fresh authority check.
       const entries = yield* runRead(tx => Effect.gen(function* () {
@@ -831,7 +835,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       // Batch residual filtering while charging the actual hidden lookahead.
       const limit = Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, Math.max(16, needed - matched.size), remaining);
       if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-      yield* state.requireAdmission;
+      yield* requireReadAdmission;
       const page = yield* runRead(tx => Effect.gen(function* () {
         const window = yield* readLogicalIndexPage(tx, state.scopeId, { ...selection, ...(after === undefined ? {} : { after }) },
           limit, error, testHooks?.observeIndexQuery, state.snapshotCommitSeq);

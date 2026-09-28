@@ -1,0 +1,57 @@
+{
+  "format": "flarex.mixed-mutation-performance-artifacts",
+  "dataset": "admission-cost-traced",
+  "measuredRevision": "277ced644780a6980dd3f986c032e4985a9d163a",
+  "measuredWorkingDiffSha256": "316714f8647405cfb666ca54c02cbcc559b96dbdc72174725492273344f098e0",
+  "mode": "full",
+  "observationMode": "traced",
+  "planned": {
+    "warmups": 3,
+    "warm": 20,
+    "cold": 3
+  },
+  "plannedWorkloads": [
+    "product",
+    "productPayload",
+    "mixedWorkflow",
+    "standaloneWorkflow"
+  ],
+  "sampleCount": 104,
+  "successfulSamples": 104,
+  "failedSamples": 0,
+  "setupFailures": 0,
+  "sourceHashes": {
+    "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts": "9eaca2b299945a434c7cc7db201989c5698804e4b7c00181d397d1cd5375e784",
+    "packages/flarex-backend/test/support/mixedMutationProductFixture.ts": "299b0b9a2b87610c1837bfea19b5c00c74b5fa1930659d3c852440fb4fd84887",
+    "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts": "2a580cb7015a0faf38b2669ad7cc031ad9656597eef7ca0dc1fb35166a40a642",
+    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts": "e891829bfbd48aa9bc8c9f5765c3ce5a7d752877cfd10088d52c5fe3b0b21c35",
+    "packages/persistence-postgres/src/appRows.ts": "ca7a2a67f70e587da10b5a796bfdde20f84bcb0cd7dc4e0bc22e27bcbac6ad0e",
+    "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts": "27cbb62d616c3c6a9413bab17903a3975da1edc7821f911a27048bd541676fd5",
+    "packages/persistence-postgres/src/indexBuildStates.ts": "717297da4b03f890c18698bb488a4a21f5f90fb1ca286c46b16dbc214e68a299",
+    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts": "8872e57cdfa37474c5a710e4eb58a1cc23f796ad73031ba3e40ad9530a051d52",
+    "packages/persistence-postgres/src/logicalSearchBuild.ts": "c30e410ac6d28fdbc4c35e2387d0ff544c5edf5c7449f1ee788fcedb678e9934",
+    "packages/persistence-postgres/src/logicalStorageReadiness.ts": "d93c09c2faa661749de858679fdb1261441bcbcfcf4ec92f7b65ff68b60f9958",
+    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts": "a633ba98dfcc3c0b786a0b95e269510bc2ca2f54903c1e3812ba89445f522476"
+  },
+  "files": {
+    "raw.json.gz": {
+      "bytes": 1678012,
+      "sha256": "d36ef9e5d9e93a2ff174fea71a6baa43d7a3594e0d07ae2ef9e9ae8a9e586fec",
+      "uncompressedBytes": 25212319,
+      "uncompressedSha256": "760b65254fffdfd60d3f50ce569308e4991ac8aada080385618a4b765e373788"
+    },
+    "report.md": {
+      "bytes": 45877,
+      "sha256": "54b27288d34ee005e4756a5ac9b7cd42c3e48ce7871e21492b5a7d0eb1b1d810"
+    },
+    "samples.csv": {
+      "bytes": 17297,
+      "sha256": "b9f312a837cbd0b419adbfa611a37bc305ec0539ce4eb8536fd3de06a598ff32",
+      "rows": 104
+    },
+    "exclusions.json": {
+      "bytes": 186,
+      "sha256": "ca10cb2bc4f86ba4f0bc84ca5ae83d88224e7701a380824f1f55e235d6fbfbdd"
+    }
+  }
+}

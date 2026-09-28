@@ -17,36 +17,33 @@ import { readAppTableWriteFrontiersInTransactionEffect, type AppRowTableFrontier
 const physicalSearchIndexReady = (physical: Readonly<{
   index: string; table: string; column: string; operator: string;
 }>) => sql<boolean>`exists (
-  select 1 from pg_catalog.pg_class index_class
-  join pg_catalog.pg_namespace index_namespace on index_namespace.oid = index_class.relnamespace
-  join pg_catalog.pg_index physical_index on physical_index.indexrelid = index_class.oid
-  join pg_catalog.pg_class source_table on source_table.oid = physical_index.indrelid
-  join pg_catalog.pg_namespace source_namespace on source_namespace.oid = source_table.relnamespace
-  join pg_catalog.pg_am access_method on access_method.oid = index_class.relam
-  join pg_catalog.pg_attribute scope_attribute on scope_attribute.attrelid = source_table.oid
-    and scope_attribute.attnum = physical_index.indkey[0]
-  join pg_catalog.pg_attribute index_attribute on index_attribute.attrelid = source_table.oid
-    and index_attribute.attnum = physical_index.indkey[1]
-  join pg_catalog.pg_attribute text_attribute on text_attribute.attrelid = source_table.oid
-    and text_attribute.attnum = physical_index.indkey[2]
-  join pg_catalog.pg_opclass scope_opclass on scope_opclass.oid = physical_index.indclass[0]
-  join pg_catalog.pg_opclass index_opclass on index_opclass.oid = physical_index.indclass[1]
-  join pg_catalog.pg_opclass text_opclass on text_opclass.oid = physical_index.indclass[2]
-  where index_namespace.nspname = current_schema()
-    and source_namespace.nspname = current_schema()
-    and index_class.relname = ${physical.index}
-    and source_table.relname = ${physical.table}
-    and access_method.amname = 'gin'
+  select 1 from pg_catalog.pg_index physical_index
+  where physical_index.indexrelid = pg_catalog.to_regclass(
+      pg_catalog.quote_ident(current_schema()) || '.' || pg_catalog.quote_ident(${physical.index}))
+    and physical_index.indrelid = pg_catalog.to_regclass(
+      pg_catalog.quote_ident(current_schema()) || '.' || pg_catalog.quote_ident(${physical.table}))
     and physical_index.indisvalid and physical_index.indisready
     and physical_index.indpred is null
     and physical_index.indnatts = 3
     and physical_index.indnkeyatts = 3
-    and scope_attribute.attname = 'scope_uuid'
-    and index_attribute.attname = 'logical_index_id'
-    and text_attribute.attname = ${physical.column}
-    and scope_opclass.opcname = 'uuid_ops'
-    and index_opclass.opcname = 'int4_ops'
-    and text_opclass.opcname = ${physical.operator}
+    and (select access_method.amname from pg_catalog.pg_class index_class
+      join pg_catalog.pg_am access_method on access_method.oid = index_class.relam
+      where index_class.oid = physical_index.indexrelid) = 'gin'
+    and (select attribute.attname from pg_catalog.pg_attribute attribute
+      where attribute.attrelid = physical_index.indrelid
+        and attribute.attnum = physical_index.indkey[0]) = 'scope_uuid'
+    and (select attribute.attname from pg_catalog.pg_attribute attribute
+      where attribute.attrelid = physical_index.indrelid
+        and attribute.attnum = physical_index.indkey[1]) = 'logical_index_id'
+    and (select attribute.attname from pg_catalog.pg_attribute attribute
+      where attribute.attrelid = physical_index.indrelid
+        and attribute.attnum = physical_index.indkey[2]) = ${physical.column}
+    and (select opclass.opcname from pg_catalog.pg_opclass opclass
+      where opclass.oid = physical_index.indclass[0]) = 'uuid_ops'
+    and (select opclass.opcname from pg_catalog.pg_opclass opclass
+      where opclass.oid = physical_index.indclass[1]) = 'int4_ops'
+    and (select opclass.opcname from pg_catalog.pg_opclass opclass
+      where opclass.oid = physical_index.indclass[2]) = ${physical.operator}
 )`;
 
 const jsonPhysicalReady = physicalSearchIndexReady({

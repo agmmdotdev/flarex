@@ -11,6 +11,12 @@ failed or excluded request; all selected cold workflows completed under the
 existing deadline. The original failed cold request remains in its own
 historical record, with no proven COMMIT-delay cause.
 
+The subsequent [fresh-admission cost and observer calibration](./admission-cost/README.md)
+retains separate traced and untraced 104-sample full series for the approved
+low latency query/checked-read package. It preserves this optimized series and
+the original partial record; its untraced wall measurements have no historical
+untraced baseline.
+
 ## Workloads and measurement boundary
 
 | Workload filter | Selected work |

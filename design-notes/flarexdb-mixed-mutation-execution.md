@@ -554,10 +554,18 @@ does not establish arbitrary Payload hooks or Medusa workflow compatibility.
 The completed bounded cost correction and 104-sample private PostgreSQL series
 are recorded in the [core query cost preflight](../roadmaps/mixed-mutation-core/05-core-query-cost-preflight.md).
 The further [low latency execution preflight](../roadmaps/mixed-mutation-core/06-low-latency-execution-preflight.md)
-is **proposed, not approved**. Its protected-writer/integrity, attempt-lifetime,
-durability and host options require explicit scope agreement; in particular,
-the accepted immediate selected-dependency checks remain authoritative unless
-the accepted database design is deliberately amended.
+has completed its first connected package, retaining fresh selected dependency
+verification while making the physical-search catalog query cheaper and
+removing redundant empty checked-read admission transactions. The
+[full traced and untraced candidate series](../packages/flarex-backend/benchmarks/mixed-mutation-core/admission-cost/README.md)
+show lower cost against the prior optimized series under the same traced
+observer contract, while the candidate calibration remains above the proposed
+mixed warm latency budgets. The next measured direction is bounded selected
+Application evidence reuse inside one checked transaction, subject to exact
+hash, first-failure and callback-lifetime proof. Wider protected-writer/integrity, attempt-lifetime,
+durability and host options depend on further evidence and any required
+contract approval. The accepted immediate selected-dependency checks remain
+authoritative unless the accepted database design is deliberately amended.
 
 The owner wants representative workflows to approach native Medusa performance
 where practical. This is an engineering target, not a measured result or a
