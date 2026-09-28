@@ -1,0 +1,27 @@
+{
+  "format": "flarex.mixed-mutation-cpu-measured-source",
+  "purpose": "Exact frozen benchmark source before failure-only diagnostic fixes",
+  "files": {
+    "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts": {
+      "file": "packages__flarex-backend__test__mixedMutationPerformance.postgres.test.ts.gz",
+      "bytes": 39936,
+      "sha256": "05335a65551e161a84c54a9bbd26de3dc9d82dfc0d1ce76dd8ada1a1a3a3272d",
+      "gzipBytes": 9159,
+      "gzipSha256": "bea0802e11535fa8985fc33a679aea8a645b86a3f013d2ca35b7efbf652e750b"
+    },
+    "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts": {
+      "file": "packages__flarex-backend__test__support__mixedMutationCpuProfile.ts.gz",
+      "bytes": 5616,
+      "sha256": "b3a6d5f42492a66316eb9c3d2804de8d0d99191ec23eaef360a6122d2c5a96ac",
+      "gzipBytes": 2025,
+      "gzipSha256": "781ab448efa0eb8ae9590eea7d44df9c87ef0337044c97727f00c6fc38aee544"
+    },
+    "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts": {
+      "file": "packages__flarex-backend__test__support__mixedMutationPerformanceReport.ts.gz",
+      "bytes": 24362,
+      "sha256": "1ff079da5c937ba1988107fc4233abc03d9b43015069dc3f197d6e664fd610a3",
+      "gzipBytes": 5961,
+      "gzipSha256": "e2ffd3101130d5b6d694a658d25ee2f6c4a589bc437250f566e24ce340b8f23f"
+    }
+  }
+}

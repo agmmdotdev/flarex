@@ -38,7 +38,12 @@ The proposed mixed warm latency goals remain unmet. Any next connected latency
 package needs a measured dominant owner and focused contract; broader
 integrity, writer, attempt, durability and host decisions remain gated by
 evidence. The accepted immediate selected-dependency verification and threat
-boundary remain in force.
+boundary remain in force. The [fundamental latency redesign preflight](./08-fundamental-latency-redesign-preflight.md)
+records the owner-approved direction for a finite restartable root, protected
+immutable preparation under a separately amended writer/threat contract,
+fresh live admission and one authoritative recovery/settlement path.
+Implementation remains gated by concrete writer and durable recovery proofs;
+the proposed latency budgets are not achieved.
 Payload's required unique `posts.title` field needs a retained ordered index for
 historical uniqueness checks. Adding that compiler index changes the compiled
 Payload source definition and digest. Isolated proof scopes can be reprovisioned;

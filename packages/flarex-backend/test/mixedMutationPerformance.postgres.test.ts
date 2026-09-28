@@ -13,6 +13,8 @@ import { createMixedMutationPerformanceTrace, type MixedMutationPerformanceTrace
 import { prepareStandaloneProductLaunchPerformanceSeries } from
   "../../medusa-adapter/test/support/product-launch-performance-fixture";
 import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationProductFixture";
+import { captureMixedMutationCpuProfile, MixedMutationCpuDiagnosticFailure } from
+  "./support/mixedMutationCpuProfile";
 import { renderMixedMutationPerformanceReport, summarizeMixedMutationTrace,
   type PerformanceInventory, type PerformanceRawReport, type PerformanceSample,
   type PerformanceTemperature, type PerformanceWorkload } from "./support/mixedMutationPerformanceReport";
@@ -21,6 +23,7 @@ const enabled = process.env.FLAREX_MIXED_PERF === "1" &&
   process.env.FLAREX_POSTGRES_DATABASE_URL !== undefined;
 const smoke = process.env.FLAREX_MIXED_PERF_SMOKE === "1";
 const observationMode = process.env.FLAREX_MIXED_PERF_OBSERVATION ?? "traced";
+const cpuDiagnostic = process.env.FLAREX_MIXED_PERF_CPU === "1";
 const planned = smoke ? { warmups: 1, warm: 2, cold: 1 } : { warmups: 3, warm: 20, cold: 3 };
 const allWorkloads: readonly PerformanceWorkload[] = ["product", "productPayload",
   "mixedWorkflow", "standaloneWorkflow"];
@@ -73,6 +76,8 @@ const mixedPayloadResult = Schema.decodeUnknownSync(Schema.Struct({
 function now(): number { return performance.now(); }
 
 function safeFailureName(cause: unknown): string {
+  if (cause instanceof MixedMutationCpuDiagnosticFailure && cause.hasPrimaryFailure)
+    return safeFailureName(cause.primaryFailure);
   const candidate = typeof cause === "object" && cause !== null && "_tag" in cause
     ? cause._tag : cause instanceof Error ? cause.name : null;
   return typeof candidate === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,100}$/.test(candidate)
@@ -80,12 +85,16 @@ function safeFailureName(cause: unknown): string {
 }
 
 function safeFailureCode(cause: unknown): string | null {
+  if (cause instanceof MixedMutationCpuDiagnosticFailure && cause.hasPrimaryFailure)
+    return safeFailureCode(cause.primaryFailure);
   if (typeof cause !== "object" || cause === null || !("code" in cause)) return null;
   const code = cause.code;
   return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? code : null;
 }
 
 function safeFailureReason(cause: unknown): string | null {
+  if (cause instanceof MixedMutationCpuDiagnosticFailure && cause.hasPrimaryFailure)
+    return safeFailureReason(cause.primaryFailure);
   if (typeof cause !== "object" || cause === null || !("reason" in cause)) return null;
   const reason = cause.reason;
   return typeof reason === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,100}$/.test(reason)
@@ -93,6 +102,8 @@ function safeFailureReason(cause: unknown): string | null {
 }
 
 function safeDiagnosticTokens(cause: unknown): readonly string[] {
+  if (cause instanceof MixedMutationCpuDiagnosticFailure && cause.hasPrimaryFailure)
+    return safeDiagnosticTokens(cause.primaryFailure);
   if (!(cause instanceof Error)) return [];
   const known = ["Native Worker failed", "PointMutationExactRuntimeUserCodeV1Error",
     "PointMutationExactRuntimeV1Error", "LogicalParticipantInvocationError",
@@ -162,7 +173,9 @@ function verifyWorkflowGraph(value: unknown, productId: string, tagId: string,
     ...(productTitle === undefined ? {} : { title: productTitle }) });
 }
 
-async function environment(target: PostgresFlarexPersistence): Promise<Readonly<Record<string, unknown>>> {
+async function environment(target: PostgresFlarexPersistence): Promise<Readonly<Record<string, unknown> & {
+  sourceHashes: Readonly<Record<string, string>>;
+}>> {
   const settings = (await target.query<{ serverVersion: string; fsync: string; synchronousCommit: string;
     fullPageWrites: string; sharedBuffers: string; role: string; superuser: boolean }>(
     `select current_setting('server_version') as "serverVersion",
@@ -177,6 +190,7 @@ async function environment(target: PostgresFlarexPersistence): Promise<Readonly<
   const sourcePaths = [
     "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts",
     "packages/flarex-backend/test/support/mixedMutationProductFixture.ts",
+    "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts",
     "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts",
     "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
     "packages/persistence-postgres/src/appRows.ts",
@@ -248,6 +262,9 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
     const selectedWorkload = allWorkloads.find(workload => workload === requestedWorkload);
     if (requestedWorkload !== undefined && selectedWorkload === undefined)
       throw new Error("Invalid selected performance workload");
+    if (cpuDiagnostic && (!smoke || observationMode !== "untraced" ||
+      (selectedWorkload !== "mixedWorkflow" && selectedWorkload !== "standaloneWorkflow")))
+      throw new Error("CPU diagnostic requires untraced smoke and one mixed or standalone workload");
     const plannedWorkloads = selectedWorkload === undefined ? allWorkloads : [selectedWorkload];
     await mkdir(outputDirectory, { recursive: true });
     const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root,
@@ -256,17 +273,21 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
       windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
     const workingFingerprint = createHash("sha256").update(diff);
     for (const path of ["packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts",
+      "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts",
       "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts",
       "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
       "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts"]) {
       workingFingerprint.update(path).update(await readFile(join(root, path)));
     }
     let measuredEnvironment: Readonly<Record<string, unknown>> = {};
+    let measuredSourceHashes: Readonly<Record<string, string>> = {};
     const profileSelections: Record<string, unknown> = {};
     const raw: PerformanceRawReport = {
       format: "flarex.mixed-mutation-performance", revision,
       workingDiffSha256: workingFingerprint.digest("hex"),
       mode: smoke ? "smoke" : "full", observationMode, planned, plannedWorkloads,
+      ...(cpuDiagnostic ? { diagnostic: { kind: "node-inspector-cpu" as const,
+        latencyAcceptance: false as const } } : {}),
       environment: {},
       interpretation: [
         "Standalone workflow includes the same selected Product/Pricing/Link/Tag graph but has no Application, Payload, journal or OCC obligations.",
@@ -276,6 +297,9 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
         "Per-request test grant issuer/signing and private bridge overhead are included in mixed request admission and Worker intervals.",
         "Warm mixed samples reuse prepared modules, scope, and pools; every request creates, readies, invokes once, and disposes a fresh Worker under the exact runtime one-invocation guard.",
         "Signed business arguments are parsed by the fixed benchmark Worker source inside the measured request; that private test-harness cost is included.",
+        ...(cpuDiagnostic ? [
+          "Node Inspector CPU profiling is enabled only for this diagnostic smoke. Its observer overhead is included; the run cannot judge latency acceptance or separate Workerd CPU, allocations or async waits.",
+        ] : []),
         "Workflow tags are unique: each graph is seeded immediately before its invocation and its launched tag is renamed outside measurement before the next seed. Product/Payload graphs are preseeded.",
         ...(observationMode === "traced" ? [
           "The trace's DB wait union is a union of observed awaited intervals, not a server critical-path or network round-trip count.",
@@ -354,7 +378,11 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
         controlPool: series.currency.resource.control.pool, targetPool: target.pool }) : undefined;
       if (trace !== undefined) series.setTrace(trace);
       try {
-        if (Object.keys(measuredEnvironment).length === 0) measuredEnvironment = await environment(target);
+        if (Object.keys(measuredEnvironment).length === 0) {
+          const recordedEnvironment = await environment(target);
+          measuredEnvironment = recordedEnvironment;
+          measuredSourceHashes = recordedEnvironment.sourceHashes;
+        }
         profileSelections[workload] = { revisions: series.profileRevisions,
           workerLifecycle: "fresh single-use Worker per request" };
         for (let index = 0; index < count; index++) {
@@ -373,6 +401,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
           let failureCode: string | null = null;
           let failureReason: string | null = null;
           let failureDiagnosticTokens: readonly string[] = [];
+          let cpuDiagnosticSecondaryFailures: readonly Readonly<{ stage: string; name: string }>[] = [];
           let stage = "prepareAttempt";
           try {
             const seedStarted = now();
@@ -383,10 +412,15 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             const started = now();
             try {
               stage = "invoke";
-              const outcome = await (trace === undefined ? series.runAttempt(index) : trace.withInvocation({ id,
+              const invoke = () => trace === undefined ? series.runAttempt(index) : trace.withInvocation({ id,
                 mode: kind === "warmup" && index === 0 ? "recon" : "measured" },
-              () => series.runAttempt(index)));
-              wallMs = now() - started;
+              () => series.runAttempt(index));
+              const outcome = cpuDiagnostic && workload === "mixedWorkflow"
+                ? await captureMixedMutationCpuProfile({ id, workload,
+                temperature: kind, root, outputDirectory, revision,
+                workingDiffSha256: raw.workingDiffSha256, sourceHashes: measuredSourceHashes },
+              invoke, elapsed => { wallMs = elapsed; }) : await invoke();
+              if (!cpuDiagnostic) wallMs = now() - started;
               requestWorkerConstructionMs = outcome.workerConstructionMilliseconds;
               sealedJournalBytes = outcome.sealedJournalBytes;
               stage = "verifyPublication";
@@ -399,7 +433,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
               stage = "verifyWorkflowGraph";
               if (workload === "mixedWorkflow") verifyWorkflowGraph(outcome.returnedValue,
                 outcome.seed.productId, outcome.seed.tagId, outcome.seed.newTitle);
-            } catch (cause) { wallMs = now() - started; throw cause; }
+            } catch (cause) { if (!cpuDiagnostic) wallMs = now() - started; throw cause; }
             if (trace !== undefined) {
               stage = "traceReconciliation";
               recorded = traceRecord(trace, id);
@@ -408,11 +442,16 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             stage = "inventoryAfter";
             after = await inventory(target, true);
           } catch (cause) {
+            if (cause instanceof MixedMutationCpuDiagnosticFailure && !cause.hasPrimaryFailure &&
+              wallMs === null && cause.secondaryFailures.some(item => item.stage === "setup"))
+              stage = "cpuDiagnosticSetup";
             failureName = safeFailureName(cause);
             failureStage = stage;
             failureCode = safeFailureCode(cause);
             failureReason = safeFailureReason(cause);
             failureDiagnosticTokens = safeDiagnosticTokens(cause);
+            if (cause instanceof MixedMutationCpuDiagnosticFailure)
+              cpuDiagnosticSecondaryFailures = cause.secondaryFailures;
             console.error("Mixed performance sample failed", { id, stage, failureName, failureCode,
               failureReason, failureDiagnosticTokens });
             if (trace !== undefined) {
@@ -445,6 +484,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
           samples.push({ id, workload, temperature: kind, index,
             status: failureName === null ? "ok" : "error", failureName, failureStage,
             failureCode, failureReason, failureDiagnosticTokens, wallMs,
+            ...(cpuDiagnostic ? { cpuDiagnosticSecondaryFailures } : {}),
             requestWorkerConstructionMs, sealedJournalBytes,
             instrumentationFinalizationMs: wallMs === null || recorded === null ? null :
               Math.max(0, wallMs - recorded.durationMs),
@@ -482,7 +522,11 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
       const trace = observationMode === "traced" ? createMixedMutationPerformanceTrace({
         controlPool: series.currency.resource.control.pool, targetPool: target.pool }) : undefined;
       try {
-        if (Object.keys(measuredEnvironment).length === 0) measuredEnvironment = await environment(target);
+        if (Object.keys(measuredEnvironment).length === 0) {
+          const recordedEnvironment = await environment(target);
+          measuredEnvironment = recordedEnvironment;
+          measuredSourceHashes = recordedEnvironment.sourceHashes;
+        }
         profileSelections.standaloneWorkflow = { revision: series.profileRevision,
           resourceCalls: series.resourceCalls };
         for (let index = 0; index < count; index++) {
@@ -499,6 +543,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
           let failureCode: string | null = null;
           let failureReason: string | null = null;
           let failureDiagnosticTokens: readonly string[] = [];
+          let cpuDiagnosticSecondaryFailures: readonly Readonly<{ stage: string; name: string }>[] = [];
           let stage = "prepareSeed";
           const suffix = `standalone-${temperature}-${seriesOrdinal}-${index}`;
           try {
@@ -510,13 +555,18 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             const invocationStarted = now();
             try {
               stage = "invoke";
-              const result = await (trace === undefined ? series.run(seed) : trace.withInvocation({ id,
+              const invoke = () => trace === undefined ? series.run(seed) : trace.withInvocation({ id,
                 mode: kind === "warmup" && index === 0 ? "recon" : "measured" },
-              () => trace.withPhase("standalone native workflow", () => series.run(seed))));
-              wallMs = now() - invocationStarted;
+              () => trace.withPhase("standalone native workflow", () => series.run(seed)));
+              const result = cpuDiagnostic ? await captureMixedMutationCpuProfile({ id,
+                workload: "standaloneWorkflow", temperature: kind, root, outputDirectory,
+                revision, workingDiffSha256: raw.workingDiffSha256,
+                sourceHashes: measuredSourceHashes }, invoke,
+              elapsed => { wallMs = elapsed; }) : await invoke();
+              if (!cpuDiagnostic) wallMs = now() - invocationStarted;
               stage = "verifyWorkflowGraph";
               verifyWorkflowGraph({ workflow: result }, seed.productId, seed.tagId);
-            } catch (cause) { wallMs = now() - invocationStarted; throw cause; }
+            } catch (cause) { if (!cpuDiagnostic) wallMs = now() - invocationStarted; throw cause; }
             if (trace !== undefined) {
               stage = "traceReconciliation";
               recorded = traceRecord(trace, id);
@@ -527,11 +577,16 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             stage = "retireLaunchedTag";
             if (index + 1 < count) await series.retireLaunchedTag(seed, suffix);
           } catch (cause) {
+            if (cause instanceof MixedMutationCpuDiagnosticFailure && !cause.hasPrimaryFailure &&
+              wallMs === null && cause.secondaryFailures.some(item => item.stage === "setup"))
+              stage = "cpuDiagnosticSetup";
             failureName = safeFailureName(cause);
             failureStage = stage;
             failureCode = safeFailureCode(cause);
             failureReason = safeFailureReason(cause);
             failureDiagnosticTokens = safeDiagnosticTokens(cause);
+            if (cause instanceof MixedMutationCpuDiagnosticFailure)
+              cpuDiagnosticSecondaryFailures = cause.secondaryFailures;
             console.error("Standalone performance sample failed", { id, stage, failureName, failureCode,
               failureReason, failureDiagnosticTokens });
             if (trace !== undefined) {
@@ -564,6 +619,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
           samples.push({ id, workload: "standaloneWorkflow", temperature: kind, index,
             status: failureName === null ? "ok" : "error", failureName, failureStage,
             failureCode, failureReason, failureDiagnosticTokens, wallMs,
+            ...(cpuDiagnostic ? { cpuDiagnosticSecondaryFailures } : {}),
             requestWorkerConstructionMs: null, sealedJournalBytes: null,
             instrumentationFinalizationMs: wallMs === null || recorded === null ? null :
               Math.max(0, wallMs - recorded.durationMs),

@@ -68,6 +68,8 @@ export interface PerformanceSample {
   readonly failureReason: string | null;
   /** Fixed known tokens observed in the native Worker error, never raw messages or SQL. */
   readonly failureDiagnosticTokens: readonly string[];
+  /** Named secondary profiler failures, while failureName/code retain the request's primary cause. */
+  readonly cpuDiagnosticSecondaryFailures?: readonly Readonly<{ stage: string; name: string }>[];
   readonly wallMs: number | null;
   readonly requestWorkerConstructionMs: number | null;
   /** Encoded canonical journal bytes captured at a successful seal through the test store port. */
@@ -95,6 +97,7 @@ export interface PerformanceRawReport {
   readonly workingDiffSha256: string;
   readonly mode: "smoke" | "full";
   readonly observationMode: "traced" | "untraced";
+  readonly diagnostic?: Readonly<{ kind: "node-inspector-cpu"; latencyAcceptance: false }>;
   readonly planned: Readonly<{ warmups: number; warm: number; cold: number }>;
   readonly plannedWorkloads: readonly PerformanceWorkload[];
   readonly environment: Readonly<Record<string, unknown>>;
@@ -190,10 +193,14 @@ const shown = (value: number | null) => value === null ? "unavailable" : value.t
 /** A descriptive report only: nested phase and SQL wait totals are not added to wall time. */
 export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport): string {
   const lines = [
-    "# Private mixed mutation performance baseline",
+    raw.diagnostic === undefined ? "# Private mixed mutation performance baseline"
+      : "# Private mixed mutation Node CPU diagnostic — excluded from latency acceptance",
     "",
     `Revision: \`${raw.revision}\`; working diff SHA-256: \`${raw.workingDiffSha256}\`; mode: **${raw.mode}**, observation: **${raw.observationMode}**.`,
     `Plan: ${raw.planned.warmups} warmups, ${raw.planned.warm} measured warm samples, ${raw.planned.cold} cold samples per workload.`,
+    ...(raw.diagnostic === undefined ? [] : [
+      "Node Inspector samples the current Node isolate and adds observer overhead. The profile window includes profiler start/stop sampling outside the request wall; separate Workerd CPU, allocation accounting and async waits are unavailable. This diagnostic is not a latency distribution or acceptance run.",
+    ]),
     "",
     raw.observationMode === "traced"
       ? "The request interval starts before fresh admission and ends after authoritative publication and retained-outcome resolution. The outer invocation wall envelope includes trace finalization, which is reported separately. SQL awaited time includes driver and database wait; it is not server execution time. Nested phases and overlapping query waits are non-additive. The standalone graph has fewer root obligations, so its latency delta does not isolate framework overhead. No native ORM parity or hosted transport claim is made."
@@ -363,6 +370,9 @@ export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport):
     `${failure.failureReason === null ? "" : `, ${failure.failureReason}`}` +
     (failure.failureDiagnosticTokens.length === 0 ? "" :
       `; observed diagnostic tokens ${failure.failureDiagnosticTokens.join(", ")}`) +
+    ((failure.cpuDiagnosticSecondaryFailures?.length ?? 0) === 0 ? "" :
+      `; secondary CPU diagnostic failures ${failure.cpuDiagnosticSecondaryFailures?.map(item =>
+        `${item.stage}:${item.name}`).join(", ")}`) +
     (failure.trace === null ? "" : `; observed query errors ${failure.trace.queryErrors}, ` +
       `open transactions ${failure.trace.transactionGroups.filter(group => group.outcome === "open-at-end")
         .reduce((count, group) => count + group.count, 0)}`));

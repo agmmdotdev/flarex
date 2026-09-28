@@ -1,0 +1,90 @@
+{
+  "format": "flarex.mixed-mutation-cpu-diagnostic-artifacts",
+  "dataset": "standalone",
+  "revision": "33a6056ebf82bf1006bb7df81ff732de1dd87c20",
+  "workingDiffSha256": "63d9f1feb51701a057686db04bbb410b429af457d8bd9bdc3907aadf96749265",
+  "diagnostic": {
+    "kind": "node-inspector-cpu",
+    "latencyAcceptance": false
+  },
+  "sampleCount": 4,
+  "successfulSamples": 4,
+  "sourceHashes": {
+    "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts": "05335a65551e161a84c54a9bbd26de3dc9d82dfc0d1ce76dd8ada1a1a3a3272d",
+    "packages/flarex-backend/test/support/mixedMutationProductFixture.ts": "299b0b9a2b87610c1837bfea19b5c00c74b5fa1930659d3c852440fb4fd84887",
+    "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts": "b3a6d5f42492a66316eb9c3d2804de8d0d99191ec23eaef360a6122d2c5a96ac",
+    "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts": "1ff079da5c937ba1988107fc4233abc03d9b43015069dc3f197d6e664fd610a3",
+    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts": "e891829bfbd48aa9bc8c9f5765c3ce5a7d752877cfd10088d52c5fe3b0b21c35",
+    "packages/persistence-postgres/src/appRows.ts": "ca7a2a67f70e587da10b5a796bfdde20f84bcb0cd7dc4e0bc22e27bcbac6ad0e",
+    "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts": "27cbb62d616c3c6a9413bab17903a3975da1edc7821f911a27048bd541676fd5",
+    "packages/persistence-postgres/src/applicationActivation.ts": "af29252779772604269b21a36ff19f200a46cc686918be7c29dd7d673bf7db8d",
+    "packages/persistence-postgres/src/applicationReadiness.ts": "b74697ade7ef0112031b90d56b740cace179715480f0665b8873e39d8e3a36b5",
+    "packages/persistence-postgres/src/applicationRelationReadinessFold.ts": "c9e3c34a1d7eb4de52d47c04480c0bd290530cbd4c1ea17bb83ccd61709ce06f",
+    "packages/persistence-postgres/src/indexBuildStates.ts": "717297da4b03f890c18698bb488a4a21f5f90fb1ca286c46b16dbc214e68a299",
+    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts": "8872e57cdfa37474c5a710e4eb58a1cc23f796ad73031ba3e40ad9530a051d52",
+    "packages/persistence-postgres/src/logicalSearchBuild.ts": "c30e410ac6d28fdbc4c35e2387d0ff544c5edf5c7449f1ee788fcedb678e9934",
+    "packages/persistence-postgres/src/logicalStorageReadiness.ts": "d93c09c2faa661749de858679fdb1261441bcbcfcf4ec92f7b65ff68b60f9958",
+    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts": "a633ba98dfcc3c0b786a0b95e269510bc2ca2f54903c1e3812ba89445f522476"
+  },
+  "measuredSourceSnapshot": "../measurement-source/manifest.json",
+  "files": {
+    "raw.json.gz": {
+      "bytes": 3299,
+      "sha256": "c73e27a9d06a7ff3e23174016c5fb6d2c930c8f4947e2cf86d7736241dd86bc3",
+      "uncompressedBytes": 10649,
+      "uncompressedSha256": "35e69b0219f65c5518269a4fa0a1aec2e191028913e35500939c8b1fa02b707e"
+    },
+    "report.md": {
+      "bytes": 9016,
+      "sha256": "1e79ee8a3d89bbca1923d04bd1048c242ec2cb5e3ed9695c9935d95435cdbc05"
+    },
+    "cpu/standaloneWorkflow-warm-0-0.cpuprofile.gz": {
+      "bytes": 25452,
+      "sha256": "5729964023744e4b5369e8e61d74e326af2e9b807e014e1b4604a75708b8ad86",
+      "uncompressedBytes": 325025,
+      "uncompressedSha256": "2580feb667582ce34eece58a99d849f4e91738e4fa517b4767a4a1209f78e64f"
+    },
+    "cpu/standaloneWorkflow-warm-0-0.json": {
+      "bytes": 2831,
+      "sha256": "8820bf20a1a0187b3e015054487879acc3a34a1abaed3f0881cfcb4c7412c8be"
+    },
+    "cpu/standaloneWorkflow-warm-0-1.cpuprofile.gz": {
+      "bytes": 22350,
+      "sha256": "60eb5e76f4ff69967112549df850ffa210f51986f0cfe636ad47d92ec4c363a0",
+      "uncompressedBytes": 267053,
+      "uncompressedSha256": "05b0d9215858deda7a780d3f63c41be7f225d1a512a05274298bb72b665e8801"
+    },
+    "cpu/standaloneWorkflow-warm-0-1.json": {
+      "bytes": 2829,
+      "sha256": "07f9fd6ea7c2b1765ca3cb02849c217123a52deb4072d395fa6027224fe3a5d6"
+    },
+    "cpu/standaloneWorkflow-warm-0-2.cpuprofile.gz": {
+      "bytes": 19070,
+      "sha256": "92ac0b4e1f265776f0742fb3162a727f11798b3dff574fd3b6426d640b7a34bd",
+      "uncompressedBytes": 220891,
+      "uncompressedSha256": "3ba972554389565fd1a48de26f82161e294ac34141b827fdc9e1c6fc885bd280"
+    },
+    "cpu/standaloneWorkflow-warm-0-2.json": {
+      "bytes": 2829,
+      "sha256": "ef2fc4a3d726d55b2c091829a3b52c3eaaef6b6a260dc0e85567f6a3f5cecb16"
+    },
+    "cpu/standaloneWorkflow-cold-0-0.cpuprofile.gz": {
+      "bytes": 22193,
+      "sha256": "1c9be5ce93d2cdaa8c38a82154efc218d8810964271833e5290df1435b114552",
+      "uncompressedBytes": 279583,
+      "uncompressedSha256": "fb01d3b25c65ea4cfcb8123065f5a203118a93900b3e407f2960ad5970fc9f8a"
+    },
+    "cpu/standaloneWorkflow-cold-0-0.json": {
+      "bytes": 2829,
+      "sha256": "e85e5114370b1ad2aa05ff2001e6178e748c37c4b207885614d693af185d0251"
+    },
+    "summary.json": {
+      "bytes": 2913,
+      "sha256": "0915727fcd0975c8a95869b1165720904b8aecf73d4e02e1f4c4005bebf371b8"
+    },
+    "exclusions.json": {
+      "bytes": 314,
+      "sha256": "37a4e2295f7b3db5a3042a5d7d22f1f2af98921c4b6c22b2d37ade92fb9a2fcd"
+    }
+  }
+}
