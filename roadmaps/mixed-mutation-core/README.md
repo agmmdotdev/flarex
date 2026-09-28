@@ -23,6 +23,13 @@ Named-environment activation and public authoring APIs remain separate gates.
 The [core query cost preflight](./05-core-query-cost-preflight.md) owns the
 implemented bounded persistence correction and its cost comparison. It does
 not change the original baseline record or admit another framework operation.
+The [low latency execution preflight](./06-low-latency-execution-preflight.md)
+is a **proposal for owner discussion, not approved implementation**. The
+corrected 104-sample private PostgreSQL series closes the selected cold gate
+but remains above its proposed warm latency goals. That preflight inventories
+the integrity, writer, attempt, durability and host decisions required before
+any further core runtime change; the accepted immediate selected-dependency
+verification remains in force meanwhile.
 Payload's required unique `posts.title` field needs a retained ordered index for
 historical uniqueness checks. Adding that compiler index changes the compiled
 Payload source definition and digest. Isolated proof scopes can be reprovisioned;

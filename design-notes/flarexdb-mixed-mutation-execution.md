@@ -551,6 +551,14 @@ does not establish arbitrary Payload hooks or Medusa workflow compatibility.
 
 ## Performance Evidence And Optimization Sequence
 
+The completed bounded cost correction and 104-sample private PostgreSQL series
+are recorded in the [core query cost preflight](../roadmaps/mixed-mutation-core/05-core-query-cost-preflight.md).
+The further [low latency execution preflight](../roadmaps/mixed-mutation-core/06-low-latency-execution-preflight.md)
+is **proposed, not approved**. Its protected-writer/integrity, attempt-lifetime,
+durability and host options require explicit scope agreement; in particular,
+the accepted immediate selected-dependency checks remain authoritative unless
+the accepted database design is deliberately amended.
+
 The owner wants representative workflows to approach native Medusa performance
 where practical. This is an engineering target, not a measured result or a
 promise of parity. Mixed execution adds snapshot, journal, recovery and
