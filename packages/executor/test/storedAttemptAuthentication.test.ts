@@ -1,4 +1,4 @@
-import { Cause, Effect, Encoding, Exit, Fiber, Random, Result, Schema } from "effect";
+import { Cause, Deferred, Effect, Encoding, Exit, Fiber, Random, Result, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import {
   PointCommitConfirmedPreDecisionRollbackV1Error,
@@ -155,6 +155,9 @@ import type {
   PointMutationSessionAttemptLoadResultV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
+  PointMutationSessionAttemptTerminalizationPersistenceV1Error,
+} from "@flarex/persistence-postgres/transaction-session-activation";
+import {
   TransactionExecutionClaimFenceV1Schema,
   TransactionExecutionClaimOwnerV1Schema,
 } from "@flarex/persistence-postgres/transaction-execution-claim";
@@ -218,6 +221,7 @@ import {
 } from "../src/storedAttemptAuthentication";
 import {
   makeExactPointMutationExecutionOperationsV1,
+  PointMutationOccUserCodeV1Error,
   type ExactPointMutationExecutionOperationDependenciesV1,
 } from "../src/storedAttemptAuthentication/exactPointMutationExecutionOperations";
 import {
@@ -242,6 +246,7 @@ import {
 } from "./effectTestRuntime";
 import {
   InvalidPointMutationJournalCapabilityV1Error,
+  PointMutationJournalPersistenceV1Error,
   PointMutationJournalRelationConflictError,
 } from "../src/pointMutationJournal";
 
@@ -975,6 +980,7 @@ describe("C04A stored-attempt authentication", () => {
               throw new Error("claim a relation conflict");
             },
             sealSuccessfulResult: () => neverRun("seal a result"),
+            discardTentativeRoot: () => neverRun("discard a tentative root"),
           },
           terminalization: {
             abort: () => neverRun("abort"),
@@ -2214,6 +2220,7 @@ describe("C04A stored-attempt authentication", () => {
         anchor: {
           ...selector,
           requestKey,
+          executionProfile: "durableOperations",
           storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
           storageGenerationFence: STORAGE_FENCE,
           snapshotToken: SNAPSHOT,
@@ -2247,6 +2254,7 @@ describe("C04A stored-attempt authentication", () => {
           expect(result).toBe("sealed-application-result");
           return current.fixture.envelope;
         }),
+        discardTentativeRoot: () => Effect.die("must not discard a successful root"),
       },
       runner: { run: (input: { readonly executionAuthorityGeneration: string }) => {
         expect(input.executionAuthorityGeneration).toBe("application_v1");
@@ -2296,6 +2304,159 @@ describe("C04A stored-attempt authentication", () => {
     expect(result).toEqual({ kind: "completed", result: publicationResult });
     expect(sealCalls).toBe(1);
     expect(planningCalls).toBe(1);
+  });
+
+  it("discards a finite root after ambiguous child transport and preserves cleanup causes", async () => {
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("exact-cleanup-cause"),
+      returnsValidator: { type: "string" },
+    });
+    const validatedArgsSha256 = new Uint8Array(32).fill(3);
+    const requestKey = TransactionRequestKeyV1Schema.make("request:exact-cleanup-cause");
+    const canonicalRequest = await canonicalizePointMutationRequestV1({
+      deploymentId: DEPLOYMENT_ID,
+      functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+      validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
+        validatedArgsSha256,
+      ),
+      requestKey,
+    });
+    const applicationSession = Object.freeze({
+      executionAuthorityGeneration: "application_v1" as const,
+      functionPath: "users:create",
+      validatedArgsSha256,
+      requestKey,
+      requestSha256: canonicalRequest.sha256,
+    });
+    const selector = Object.freeze({
+      deploymentId: DEPLOYMENT_ID,
+      scopeId: SCOPE_ID,
+      sessionId: SESSION_ID,
+      attemptFence: ATTEMPT_FENCE,
+    });
+    const attemptLoading = createPointMutationSessionAttemptLoadingV1({
+      loadEffect: () => Effect.succeed({
+        status: "loaded",
+        anchor: {
+          ...selector,
+          requestKey,
+          executionProfile: "finiteRoot",
+          storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+          storageGenerationFence: STORAGE_FENCE,
+          snapshotToken: SNAPSHOT,
+          hardExpiresAt: "2099-01-01T00:00:00.000Z",
+          leaseExpiresAt: "2098-12-31T23:59:00.000Z",
+          createdAt: "2026-08-13T00:00:00.000Z",
+          updatedAt: "2026-08-13T00:00:00.000Z",
+        },
+        executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
+        attemptFacet: { kind: "nonPristine" },
+      }),
+    });
+    const verifiedEvidence = Object.freeze({
+      executionAuthorityGeneration: "application_v1" as const,
+      argumentsJson: Object.freeze({}),
+      argumentArraySemanticBytes: 2,
+      verifiedGrant: Object.freeze({}),
+      schemaManifest: current.commitEvidence.schema.manifest,
+      stableBindings: current.commitEvidence.schema.stableBindings,
+      application: Object.freeze({}),
+    });
+    const primary = new PointMutationOccUserCodeV1Error({
+      cause: new Error("ambiguous child bridge transport"),
+    });
+    const discardFailure = new PointMutationJournalPersistenceV1Error({
+      cause: new Error("tentative root discard failed"),
+    });
+    const abortFailure =
+      new PointMutationSessionAttemptTerminalizationPersistenceV1Error({
+        operation: "attemptAbortTransaction",
+        cause: new Error("attempt abort failed"),
+      });
+    const events: string[] = [];
+    const execute = (runnerEffect: Effect.Effect<never, PointMutationOccUserCodeV1Error>) => {
+      const operations = makeExactPointMutationExecutionOperationsV1({
+        contextFactory: { make: () => Effect.succeed({
+          executionId: "exact-cleanup-cause-execution",
+          logScopeId: "exact-cleanup-cause-log",
+          randomSeed: new Uint8Array(32).fill(7),
+        }) },
+        attemptLoading,
+        journal: {
+          openAttempt: () => Effect.succeed(Object.freeze({}) as never),
+          resolvePointTable: () => Effect.die("runner must not read"),
+          runPointOperation: () => Effect.die("runner must not write"),
+          resolveDeveloperIndex: () => Effect.die("runner must not query"),
+          runIndexedQuery: () => Effect.die("runner must not query"),
+          sealSuccessfulResult: () => Effect.die("failed runner must not seal"),
+          discardTentativeRoot: () => Effect.sync(() => {
+            events.push("discard");
+          }).pipe(Effect.andThen(Effect.fail(discardFailure))),
+        },
+        runner: { run: () => Effect.sync(() => {
+          events.push("runner");
+        }).pipe(Effect.andThen(runnerEffect)) },
+        terminalization: { abort: () => Effect.sync(() => {
+          events.push("abort");
+        }).pipe(Effect.andThen(Effect.fail(abortFailure))) },
+        deriveAuthority: () => Effect.die("failed runner must not derive"),
+        authenticate: () => Effect.die("failed runner must not authenticate"),
+        authenticateCommitAuthority: () => Effect.die("failed runner must not authenticate"),
+        verifyCommitInput: () => Effect.die("failed runner must not verify"),
+        planPointCommit: () => Effect.die("failed runner must not plan"),
+        enterPointCommitFinishing: () => Effect.die("failed runner must not finish"),
+        publishFinishingPointCommit: () => Effect.die("failed runner must not publish"),
+      } as unknown as ExactPointMutationExecutionOperationDependenciesV1);
+      return operations.executeExactPointMutationAttempt({
+        selector,
+        attemptFence: ATTEMPT_FENCE,
+        snapshotToken: SNAPSHOT,
+        executionScope: makeTestExecutionScope(),
+        executionClaim: TEST_EXECUTION_CLAIM_OBSERVATION,
+        liveness: { enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect },
+        executionEvidence: Object.freeze({
+          ...current.commitEvidence,
+          session: applicationSession,
+          creationTimeSeed: AppCreationTimeV1Schema.make(1_800_000_000_000),
+        }),
+        verificationState: Object.freeze({
+          authority: Object.freeze({ deploymentId: DEPLOYMENT_ID }),
+          session: applicationSession,
+        }),
+        verifiedEvidence,
+        currentInspectionUnavailable: () => new Error("attempt missing"),
+        validateCurrent: () => Effect.void,
+      } as unknown as ExecuteExactPointMutationAttemptInputV1<Error, never>);
+    };
+
+    const failed = await runEffect(Effect.exit(execute(Effect.fail(primary))));
+    expect(Exit.isFailure(failed)).toBe(true);
+    if (Exit.isFailure(failed)) {
+      expect(failed.cause.reasons.map(reason =>
+        Cause.isFailReason(reason) ? reason.error : reason._tag
+      )).toEqual([primary, discardFailure, abortFailure]);
+    }
+    expect(events).toEqual(["runner", "discard", "abort"]);
+
+    events.length = 0;
+    const interrupted = await runEffect(Effect.gen(function* () {
+      const runnerStarted = yield* Deferred.make<void>();
+      const fiber = yield* execute(Effect.gen(function* () {
+        yield* Deferred.succeed(runnerStarted, undefined);
+        return yield* Effect.never;
+      })).pipe(Effect.forkChild);
+      yield* Deferred.await(runnerStarted);
+      yield* Fiber.interrupt(fiber);
+      return yield* Fiber.await(fiber);
+    }));
+    expect(Exit.isFailure(interrupted)).toBe(true);
+    if (Exit.isFailure(interrupted)) {
+      expect(interrupted.cause.reasons.map(reason =>
+        Cause.isInterruptReason(reason) ? "interrupt" :
+          Cause.isFailReason(reason) ? reason.error : reason._tag
+      )).toEqual(["interrupt", discardFailure, abortFailure]);
+    }
+    expect(events).toEqual(["runner", "discard", "abort"]);
   });
 
   it("captures an exact running relation conflict before seal or abort", async () => {
@@ -2362,6 +2523,7 @@ describe("C04A stored-attempt authentication", () => {
           requestKey: TransactionRequestKeyV1Schema.make(
             source.session.requestKey,
           ),
+          executionProfile: "durableOperations",
           storageGeneration: source.authority.storageGeneration,
           storageGenerationFence: source.authority.storageGenerationFence,
           snapshotToken: source.authority.snapshotToken,
@@ -2428,6 +2590,7 @@ describe("C04A stored-attempt authentication", () => {
           counters.seal += 1;
           return current.fixture.envelope;
         }),
+        discardTentativeRoot: () => Effect.void,
       },
       runner: { run: (input: {
         readonly journal: {
@@ -6004,6 +6167,7 @@ async function pointMutationOccAuthorizationFixture(
           requestKey: TransactionRequestKeyV1Schema.make(
             current.fixture.evidence.session.requestKey,
           ),
+          executionProfile: "durableOperations",
           storageGeneration: FlarexDbV1StorageGenerationSchema.make(
             "flarexdb_v1",
           ),
@@ -6871,6 +7035,7 @@ async function deriveAuthority(authentication: StoredAttemptAuthenticationV1) {
         scopeId: selector.scopeId,
         sessionId: selector.sessionId,
         requestKey: TransactionRequestKeyV1Schema.make("request:c04a"),
+        executionProfile: "durableOperations",
         storageGeneration:
           FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
         storageGenerationFence: STORAGE_FENCE,

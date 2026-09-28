@@ -138,6 +138,7 @@ import {
   type PostgresFlarexPersistence,
 } from "../../src/postgres";
 import type { FlarexMetadataDatabase } from "../../src/deployments";
+import type { ProtectedMetadataPreparation } from "../../src/preparedMetadataEpoch";
 import type { FlarexPersistence } from "../../src/index";
 import type { LocatedScopeClockReader } from
   "../../src/scopeAuthorityResolution";
@@ -172,6 +173,8 @@ export interface ApplicationNativeMutationAnalysis {
 }
 
 export interface ApplicationNativeMutationFixtureOptions {
+  readonly protectedMetadata?: Readonly<{ database: FlarexMetadataDatabase;
+    token: ProtectedMetadataPreparation }>;
   readonly physicalLocator?: SplitScopePhysicalLocator;
   /** Test-only identity selection for independent scopes sharing one target. */
   readonly fixtureIdentity?: Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
@@ -1470,7 +1473,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 /** Reuses the exact readiness composition for initial setup and process-restart proof. */
 export function composeApplicationNativeMutationReadiness(
-  options: Pick<ApplicationNativeMutationFixtureOptions, "runtimeHostIdentity" | "compatibilityDate">,
+  options: Pick<ApplicationNativeMutationFixtureOptions, "runtimeHostIdentity" | "compatibilityDate" | "protectedMetadata">,
   control: ApplicationNativeMutationPersistence,
   authorityPorts: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> & ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>,
   sessionAuthority: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>["sessionAuthority"],
@@ -1506,6 +1509,7 @@ export function composeApplicationNativeMutationReadiness(
   });
   const readiness = makeApplicationReadinessRepository(Object.freeze({
     controlDb: control.drizzle,
+    ...(options.protectedMetadata === undefined ? {} : { protectedMetadata: options.protectedMetadata }),
     authority: authorityPorts,
     schema,
     taskCatalog: createApplicationTaskCatalogSnapshotPort(),

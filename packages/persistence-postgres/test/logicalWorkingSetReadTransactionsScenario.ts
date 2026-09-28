@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { expect } from "vitest";
 import { canonicalizeAppDocumentV1, AppCreationTimeV1Schema } from "flarex-protocol/app-document";
+import { isJsonObject } from "flarex-protocol/json";
 import { appDocumentIdV1FromRowIdentity, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { decodeCatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
@@ -11,6 +12,9 @@ import { makeBoundedRequestLifetime } from "../src/boundedRequestLifetime";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { runEffectTransaction } from "../src/effectTransaction";
 import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
+import { makeLogicalDocumentRootEvaluator } from "../src/logicalDocuments/rootEvaluator";
+import { projectLogicalDocumentJournalContribution } from "../src/logicalDocuments/journalContribution";
+import type { SessionJournalAttempt } from "../src/sessionJournalStore";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { getScopeClock } from "../src/scopeClock";
 import { lockScopeClockForSnapshotReadInTransactionEffect } from "../src/scopeClock";
@@ -37,6 +41,8 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       creationTime: secondTime, fields: { label: "deleted" } });
     const pending = await canonicalizeAppDocumentV1({ tableId: firstTable, rowId: firstRow,
       creationTime: firstTime, fields: { label: "pending" } });
+    const laterPending = await canonicalizeAppDocumentV1({ tableId: firstTable, rowId: firstRow,
+      creationTime: firstTime, fields: { label: "later-pending" } });
     const append = (input: Parameters<typeof appendAppRowRevisionAndAdvanceCurrentInTransaction>[1]) =>
       db.transaction(tx => appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, input));
     const evidence = (document: typeof original) => ({ codecVersion: document.codecVersion,
@@ -125,5 +131,142 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       ]))).toMatchObject({ _tag: "Failure", failure: { message: "sourceMismatch" } });
       expect(checkedReads).toBe(3);
       expect(active).toBe(false);
+    })));
+    allowed = true;
+    const attempt = {} as SessionJournalAttempt;
+    const snapshotCommitSeq = CommitSeqSchema.make(3n);
+    const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence: "working-set-root-1" };
+    const root = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
+    const seedDocument = structuredClone(pending);
+    const seed = { tableId: firstTable, rowId: firstRow,
+      observed: { kind: "present" as const, revisionCommitSeq: CommitSeqSchema.make(1n) },
+      overlay: { kind: "live" as const, creationTime: firstTime, document: seedDocument } };
+    expect(root.stageAppPoint(seed)).toBe(true);
+    if (!isJsonObject(seedDocument.valueJson)) throw new Error("Expected seed object");
+    Reflect.set(seedDocument.valueJson, "label", "input-tampered");
+    const firstReadCount = checkedReads;
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const open = (tableId: typeof firstTable, logicalName: string,
+        evaluator = root, identities = 8) => Effect.gen(function* () {
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+          { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, attempt, {}, `root-${logicalName}`, "write"),
+        resource => resource.close);
+        const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, readTransaction,
+          snapshotCommitSeq, rootEvaluator: evaluator, rootAttempt: attempt, rootAttemptFence: pins.attemptFence,
+          tables: [{ tableId, logicalName }], requireAdmission, validateDocument: () => Effect.void,
+          error: failure, uniqueConflict: () => failure("uniqueConflict"),
+          limits: { pageRows: 8, identities, documentBytes: 65_536 },
+        }, firstTime, [], []);
+        const id = yield* lifetime.begin(lifetime.context);
+        return { working, lifetime, id };
+      });
+      const first = yield* open(firstTable, "notes");
+      expect(yield* first.working.documents.get(first.lifetime.context, first.id, firstId, "notes"))
+        .toMatchObject({ label: "pending" });
+      expect(yield* first.working.documents.patch(first.lifetime.context, first.id, firstId,
+        { label: "native-first" }, "notes")).toMatchObject({ label: "native-first" });
+      yield* first.lifetime.seal;
+      const firstChanges = yield* first.working.close();
+      expect(firstChanges.attempts).toHaveLength(1);
+      expect(firstChanges.attempts[0]?.ordinal).toBe(0);
+      yield* projectLogicalDocumentJournalContribution(firstChanges);
+      expect((yield* Effect.result(first.working.documents.get(first.lifetime.context, first.id, firstId)))
+        ._tag).toBe("Failure");
+
+      const second = yield* open(secondTable, "labels");
+      expect(yield* second.working.documents.get(second.lifetime.context, second.id, secondId, "labels"))
+        .toEqual(null);
+      expect(yield* second.working.documents.get(second.lifetime.context, second.id, secondId, "labels"))
+        .toEqual(null);
+      yield* second.lifetime.seal;
+      const secondChanges = yield* second.working.close();
+      expect(secondChanges.attempts).toHaveLength(0);
+      expect(secondChanges.dependencies.map(dependency => dependency.documentId)).toEqual([secondId]);
+      expect((yield* Effect.result(second.working.documents.get(second.lifetime.context, second.id, firstId)))
+        ._tag).toBe("Failure");
+
+      const third = yield* open(firstTable, "notes");
+      expect(yield* third.working.documents.get(third.lifetime.context, third.id, firstId, "notes"))
+        .toMatchObject({ label: "native-first" });
+      expect(yield* third.working.documents.patch(third.lifetime.context, third.id, firstId,
+        { label: "native-second" }, "notes")).toMatchObject({ label: "native-second" });
+      yield* third.lifetime.seal;
+      const thirdChanges = yield* third.working.close();
+      expect(thirdChanges.attempts).toHaveLength(1);
+      expect(thirdChanges.attempts[0]?.ordinal).toBe(0);
+      expect(thirdChanges.dependencies.map(dependency => dependency.documentId)).toContain(firstId);
+      yield* projectLogicalDocumentJournalContribution(thirdChanges);
+      expect(checkedReads - firstReadCount).toBe(2);
+      const detached = root.snapshot();
+      expect(detached.changes).toHaveLength(1);
+      expect(detached.changes[0]).toMatchObject({ documentId: firstId, kind: "live" });
+      const live = detached.changes[0];
+      if (live?.kind !== "live") throw new Error("Expected live root change");
+      if (!isJsonObject(live.document.valueJson)) throw new Error("Expected result object");
+      const originalByte = live.document.canonicalBytes[0];
+      Reflect.set(live.document.valueJson, "label", "tampered");
+      live.document.canonicalBytes[0] = (originalByte ?? 0) ^ 0xff;
+      expect(root.snapshot().changes[0]).toMatchObject({ kind: "live", document: { valueJson: { label: "native-second" } } });
+      const nextLive = root.snapshot().changes[0];
+      if (nextLive?.kind !== "live") throw new Error("Expected retained live root change");
+      expect(nextLive.document.canonicalBytes[0]).toBe(originalByte);
+      expect(root.stageAppPoint({ tableId: firstTable, rowId: firstRow,
+        observed: seed.observed, overlay: { kind: "live", creationTime: firstTime, document: laterPending } })).toBe(false);
+      expect((yield* Effect.result(makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime: third.lifetime,
+        readTransaction, snapshotCommitSeq, rootEvaluator: root, rootAttempt: {} as SessionJournalAttempt,
+        rootAttemptFence: pins.attemptFence, tables: [{ tableId: firstTable, logicalName: "notes" }],
+        requireAdmission, validateDocument: () => Effect.void, error: failure,
+        uniqueConflict: () => failure("uniqueConflict"), limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
+      }, firstTime, [], [])))._tag).toBe("Failure");
+      expect((yield* Effect.result(makeLogicalDocumentWorkingSet({ scopeId: ScopeIdSchema.make("scope_53000000-0000-0000-0000-000000000099"),
+        clock, lifetime: third.lifetime, readTransaction, snapshotCommitSeq, rootEvaluator: root,
+        rootAttempt: attempt, rootAttemptFence: pins.attemptFence,
+        tables: [{ tableId: firstTable, logicalName: "notes" }], requireAdmission,
+        validateDocument: () => Effect.void, error: failure,
+        uniqueConflict: () => failure("uniqueConflict"), limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
+      }, firstTime, [], [])))._tag).toBe("Failure");
+      root.close();
+      expect(() => root.snapshot()).toThrow("closed");
+      const limited = makeLogicalDocumentRootEvaluator(pins, { identities: 2, workingBytes: 1_048_576 });
+      const limitedFirst = yield* open(firstTable, "notes", limited);
+      expect(yield* limitedFirst.working.documents.get(limitedFirst.lifetime.context, limitedFirst.id, firstId))
+        .toMatchObject({ label: "original" });
+      yield* limitedFirst.lifetime.seal;
+      yield* limitedFirst.working.close();
+      const limitedSecond = yield* open(secondTable, "labels", limited);
+      expect(yield* limitedSecond.working.documents.get(limitedSecond.lifetime.context, limitedSecond.id, secondId))
+        .toEqual(null);
+      yield* limitedSecond.lifetime.seal;
+      yield* limitedSecond.working.close();
+      const limitedThird = yield* open(firstTable, "notes", limited);
+      expect((yield* Effect.result(limitedThird.working.documents.get(limitedThird.lifetime.context,
+        limitedThird.id, absentId)))._tag).toBe("Failure");
+      limited.close();
+      const smallCallRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
+      const smallCall = yield* open(firstTable, "notes", smallCallRoot, 1);
+      expect((yield* Effect.result(smallCall.working.documents.getMany(smallCall.lifetime.context,
+        smallCall.id, "notes", [firstId, absentId])))._tag).toBe("Failure");
+      expect(smallCallRoot.snapshot().dependencies).toHaveLength(0);
+      smallCallRoot.close();
+      const appUpdates = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
+      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow, observed: seed.observed,
+        overlay: { kind: "live", creationTime: firstTime, document: pending } })).toBe(true);
+      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow, observed: seed.observed,
+        overlay: { kind: "live", creationTime: firstTime, document: laterPending } })).toBe(true);
+      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow,
+        observed: { kind: "missing", basis: { kind: "noVisibleRevision" } },
+        overlay: { kind: "live", creationTime: firstTime, document: pending } })).toBe(false);
+      const latestApp = yield* open(firstTable, "notes", appUpdates);
+      expect(yield* latestApp.working.documents.get(latestApp.lifetime.context, latestApp.id, firstId))
+        .toMatchObject({ label: "later-pending" });
+      yield* latestApp.lifetime.seal;
+      yield* latestApp.working.close();
+      appUpdates.close();
+      const deniedRoot = makeLogicalDocumentRootEvaluator(pins, { identities: 8, workingBytes: 1_048_576 });
+      const denied = yield* open(secondTable, "labels", deniedRoot);
+      expect((yield* Effect.result(denied.working.documents.get(denied.lifetime.context,
+        denied.id, firstId)))._tag).toBe("Failure");
+      expect(deniedRoot.snapshot().dependencies).toHaveLength(0);
+      deniedRoot.close();
     })));
 }

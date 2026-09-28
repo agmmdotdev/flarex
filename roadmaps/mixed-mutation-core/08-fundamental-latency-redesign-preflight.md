@@ -1,15 +1,18 @@
 # Fundamental latency redesign for finite mixed attempts
 
-Status: **owner-approved design direction; core runtime implementation not yet
-active.** The request-scoped CPU diagnostic harness is implemented and its
+Status: **private finite-root implementation delivered; proposed latency goals
+unmet.** The
+request-scoped CPU diagnostic harness is implemented and its
 [retained records](../../packages/flarex-backend/benchmarks/mixed-mutation-core/fundamental-latency/cpu/README.md)
-inform the next owner choice. This preflight defines the proposed connected attempt/admission/recovery redesign and
-its proof gates. The current private mixed profile and the [accepted prepared
-execution integrity rule](../../design-notes/flarex-db-accepted-design.md#prepared-execution-integrity)
-remain authoritative until an explicit integrity amendment and a complete
-writer/recovery proof are accepted. No existing source may skip selected
-dependency hashes, change a durable format, pool a Worker invocation or move a
-framework effect merely because this document records a lower-cost target.
+and the [finite-root measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/fundamental-latency/finite-root/README.md)
+inform the next owner choice. This preflight records the accepted connected
+attempt/admission/recovery contract and its remaining gates. The
+[accepted prepared execution integrity rule](../../design-notes/flarex-db-accepted-design.md#prepared-execution-integrity)
+permits the first protected exception for the ten legacy target Application
+tables described below, under its authenticated writer contract and final
+acceptance guard. All other selected evidence remains freshly verified. A
+durable format change, pooled Worker invocation, or moved framework effect
+requires its own connected proof under this preflight.
 
 ## Outcome and measured reason
 
@@ -68,12 +71,64 @@ SQL construction are the first connected owners to challenge; current
 search-write, OCC and scope-clock ideas remain unranked without their missing
 server/lock/WAL evidence.
 
-## Proposed authority and execution contract
+## Delivered finite root and measured outcome
 
-1. **One restartable finite root.** Replace the repeated per-child admission,
-   snapshot and journal dispatch pattern for the explicitly supported,
-   deterministic, database-only Product/Payload/workflow graph with one bounded
-   root evaluator. It owns a snapshot, pending writes, complete positive and
+The private selected Application/Product, Payload and finite workflow graph now
+uses one fenced, bounded evaluator across its provisional calls. Trusted
+activation records `finiteRoot`; existing independently durable callers retain
+`durableOperations`. Child results stay local until an aggregate successful
+seal or early relation-conflict terminal transaction. A lost final COMMIT is
+resolved from authoritative stored evidence; an abandoned preseal evaluator
+cannot be resumed under its old fence. The first protected preparation covers
+only the ten legacy target Application tables through an invalidating epoch,
+attested installation, and an authenticated restricted runtime login. Final
+settlement retains its live guard, and framework, physical, relation and
+control evidence still take their fresh paths. No named environment or public
+authoring API is activated by this package.
+
+The [retained finite-root series](../../packages/flarex-backend/benchmarks/mixed-mutation-core/fundamental-latency/finite-root/README.md)
+uses the same four business graphs and local PostgreSQL host as the prior
+selected-evidence comparison, with a newly restricted per-fixture runtime
+login. The first traced smoke overlapped a repository root inventory scan;
+all its timing samples are retained but excluded from latency conclusions.
+The clean trace has 16/16 successful samples and warm SQL dispatch/transaction
+counts of 2,748/85 Product, 3,802/112 Product plus Payload, 7,228/205 mixed
+workflow, and 470/6 standalone. The full 104/104 untraced run has warm outer
+p50 of **1,758.7 / 2,420.2 / 5,284.0 / 342.7 ms**, descriptive p95 of
+**1,815.9 / 2,682.7 / 5,533.7 / 386.1 ms**, and cold p50 of
+**1,754.2 / 2,703.5 / 5,896.5 / 350.8 ms**. These are sequential
+cross-revision measurements, not an isolated causal speedup. The proposed
+mixed 100 / 200 / 500 ms p50 targets remain unmet; the standalone p50 stays
+below its 400 ms regression ceiling. Untraced SQL and phase costs are
+unavailable, not zero. The private local harness does not establish native ORM
+parity, hosted Cloudflare latency, throughput, or production capacity.
+
+The clean trace still has repeated checked operation work, with Product update
+and workflow paths carrying many short target transactions. The next connected
+measured owner is **checked operation composition**: combine pre-callback
+source/bundle verification with working-set construction and pending hydration
+in one short checked transaction, and combine a pure read's leading admission
+with its historical read in one checked transaction. The current
+[participant admission](../../packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts)
+starts with an empty checked transaction before invoking work;
+[working-set construction and operations](../../packages/persistence-postgres/src/logicalDocuments/workingSet.ts)
+and later reads acquire separate checked transactions. Preserve refusal and
+evaluation order, fresh checks for later state-only or cached operations and
+after separate I/O, the final metadata guard, and the rule against holding SQL
+transactions across framework callbacks. Source admission already shares
+evidence inside one transaction; do not duplicate that mechanism. The trace
+does not isolate each transaction to one named function, so the next package
+must measure this owner after its connected correctness proof rather than
+promise that composition alone meets the latency target.
+
+## Finite-root authority and execution contract
+
+1. **One restartable finite root.** Replace repeated per-child snapshot,
+   pending-state and provisional journal lifetimes for the explicitly
+   supported, deterministic, database-only Product/Payload/workflow graph with
+   one bounded root evaluator. Checked source and operation admission still
+   occur at their live boundaries; composing repeated checks is the next
+   measured owner. The evaluator owns a snapshot, pending writes, complete positive and
    missing/predicate/range dependencies, ordered child results and source
    rights. Replace all provisional per-syscall Application and native receipts
    for this new profile together, not only the seven outer native-call triads.
@@ -104,23 +159,25 @@ server/lock/WAL evidence.
    no cached admission verdict crosses a transaction, callback, retry, source
    change, eviction or host handoff. Do not replace every live check with a
    preparation token. State-only observable operations need live admission too.
-3. **Protected metadata contract is a separate integrity decision.** The
-   current accepted rule synchronously reads/hashes selected dependencies,
-   including unchanged-digest tamper in replay and recovery. A compact
+3. **Protected metadata contract is a separate integrity decision.** Outside
+   the first ten-table exception below, the accepted rule still synchronously
+   reads/hashes selected dependencies, including unchanged-digest tamper in
+   replay and recovery. A broader compact
    immutable **structural** preparation can replace those reads only after an exhaustive
    inventory of schema, index, unique, search, publication, readiness, task,
    placement, repair and DDL writers and an enforceable invalidation proof.
-   Today migration and runtime share one PostgreSQL pool/credential; existing
-   framework-history protection is not a complete selected-metadata writer
-   protocol. The proposed replacement separates runtime and controlled writer
-   roles, binds prepared structure to a protected placement incarnation and
+   The original baseline shared one PostgreSQL pool/credential for migration
+   and runtime; existing framework-history protection was not a complete
+   selected-metadata writer protocol. The first cutover below now separates a
+   restricted runtime login from the privileged migration/repair connection
+   for its ten target tables. Broader coverage would bind prepared structure to a protected placement incarnation and
    monotonic generation, and keeps mutable search/index coverage, backfill,
    retention, clock, head, attempt fence and revocation checks fresh. Runtime
    must lack metadata owner membership, DDL/TRUNCATE and generation DML rights;
    the installation gate verifies grants, triggers and controlled writer paths.
-   This is a new mechanism, not an existing role guarantee. The known
-   framework migration-history guard does not cover the selected Application
-   and physical structures. Controlled writers include Application analysis,
+   This role guarantee is implemented for the ten-table private projection,
+   not for framework or physical metadata generally. Controlled writers for
+   broader coverage include Application analysis,
    publication, functions/tasks, active head, index/unique/search builds,
    framework installation, migration and structural DDL; raw SQL, restore,
    administrative and predicate-entry paths still need a complete inventory.
@@ -142,6 +199,58 @@ server/lock/WAL evidence.
    selected physical checks are removed. If that boundary is not approved or
    enforcement is incomplete, retain immediate selected hashes and measure
    the resulting lower bound. No TTL, owner-mode fast path or fallback reader.
+
+   **First connected protected cutover.** The measured private mixed root uses
+   only the ten legacy target Application rows: candidate, analysis, revision,
+   publication, function, task catalog, task definition, revision schema,
+   readiness, and readiness function. The target schema has one coarse
+   incarnation and generation, invalidated in the same SQL transaction by
+   enabled `BEFORE STATEMENT` triggers for `INSERT`, `UPDATE`, `DELETE`, and
+   `TRUNCATE` on each of those ten tables. This deliberately invalidates other
+   scopes in the same target schema; metadata writes are rare, and business
+   row writes do not bump the generation. A restricted authenticated runtime
+   login may perform legitimate metadata DML through those triggers, but owns
+   no covered table or schema, cannot mutate the epoch, truncate, disable
+   triggers, change role, or run DDL. Migration and repair retain a separate
+   privileged connection. Installation attestation pins the trigger and
+   lock-helper bodies, owner, grants, and exact covered table list. A
+   preparation takes generation before the first structural read and after
+   the last across target read transactions; mismatch rejects. The accepting
+   exact-running SQL transaction registers one deduplicated guard per target,
+   locks the epoch `FOR SHARE NOWAIT` through its narrow definer helper only
+   after all other owned SQL, and rejects/rolls back on contention or change.
+   An abandoned finite evaluator is discarded and any retry uses a new
+   attempt/fence. Initial active selection and final publication retain full
+   live verification because they have no protected final guard scope.
+   Framework installation evidence, relation Application tables, control
+   catalogs, physical definitions, search/index/unique coverage, scope clock,
+   active head, revocation, claim, and journal position remain live reads.
+   Separate control and target databases claim no joint generation. A later
+   framework or physical cache needs its own measured consumer and writer/DDL
+   proof. Privileged repair or DDL must quiesce this private protected profile;
+   it is not an ordinary runtime writer and no physical-catalog cache is
+   certified by this cutover.
+
+   Journal roots persist an immutable `executionProfile`. Existing roots and
+   ordinary callers are `durableOperations`; trusted finite mixed activation
+   explicitly records `finiteRoot`. Replay and checked operations compare the
+   stored marker. An expired pristine finite root is abort-only because child
+   results may have existed tentatively in memory even if journal rows look
+   pristine; it cannot execute again under the old fence. No old open root is
+   silently reinterpreted as finite.
+
+   A successful aggregate seal and an early relation conflict are the two
+   terminal journal transitions for the finite evaluator. Earlier child
+   results remain local until either transition. The relation-conflict
+   transaction stages preceding finite evidence together with the existing
+   `relation_conflicted` receipt and root state, preserving the existing
+   durable conflict replacement and crash-recovery authority. It does not
+   resume a child or repeat its side effects. The stored conflict can be
+   reconstructed and replaced under the existing durable recovery authority.
+   The local exact-claim registry
+   retains closed claims as inert tombstones. It is bounded to 1,024 claims;
+   saturation may require a sweep of up to 1,024 checked transactions, so
+   bounded capacity alone is not a hot-path latency result.
 4. **One authoritative commit and outcome.** Postgres continues to own the
    scope-local commit, row/index/unique/relation facts, event intent and
    retained root return value atomically. Child sequence and pending results
@@ -162,7 +271,7 @@ server/lock/WAL evidence.
    across the sandbox, Payload hook, native callback, workflow pause or remote
    effect.
 
-This is a proposed replacement of internal execution mechanics, not a single
+This is a replacement of internal execution mechanics, not a single
 universal API for Application OCC, Payload and Medusa. Framework adapters keep
 access, validation, hook/request transaction ownership, service methods,
 workflow result and event semantics. Shared core owns admission, evidence,
@@ -249,32 +358,26 @@ OCC or search-write change.
 
 ## Implementation activation and acceptance
 
-The owner has approved this **direction**, including necessary internal
-breaking changes; implementation begins only after writer coverage, the
-privileged-repair/threat amendment and durable recovery/cutover proof are
-concrete and reviewed as one connected package. These are implementation
-gates for the approved direction, not a generic request for a second approval.
-A materially different trust, schema/data disposition, retryable effect set
-or host lifecycle returns for an explicit decision. Ordinary in-scope
-file/test work needs no repeated permission.
+The owner-approved private implementation replaces the finite mixed graph's
+per-child durable acknowledgement with a single aggregate terminal journal
+transition. Its protected metadata writer/repair contract, restricted runtime
+role, checked admission, whole-root retry, cancellation, pending and negative
+evidence, Payload hook and Medusa workflow behavior, successful final-COMMIT
+recovery, and publication remain part of the connected private proof. The
+dedicated early relation-conflict **COMMIT response loss** injection has not
+been run: the checked atomic transition and stored conflict
+replacement/recovery paths have connected proof, but that specific ambiguity
+is a targeted coverage gap. Do not describe it as tested.
 
-The first implementation package must include its real Application/Product,
-Payload and finite workflow consumers, the admission and journal owners, a
-single settlement/recovery path, displaced-path cleanup, and ordinary-role
-PostgreSQL plus PGlite correctness. Required witnesses: unchanged-digest
-tamper under the decided threat boundary; unauthorized DML, maintenance
-quarantine and restore; selected-source and placement changes; concurrent
-writer/activation/revocation and deadlock order; stale fence and journal
-position across hosts, retry, eviction and cancellation; pending/missing and
-predicate dependencies; OCC conflict rerun without callback duplication;
-Payload nested transaction/hook order; Medusa graph/events; precommit crash,
-lease loss and ambiguous child transport without old-root reinvocation; lost
-final COMMIT with authoritative retained result; and native callbacks
-outside SQL transactions. Add a neutral extra definition/source and larger
-graph witness so the core is reusable beyond the named fixtures. Typecheck,
-source guards, both project reviewers and lint precede the same four-workload
-ordinary-PG measurements. Report warm p50/p95, cold/retry/contention and
-throughput separately, total work per successful root, retained inventory,
-WAL/journal bytes and host preparation costs. Passing tests or one isolated
-SQL speedup does not establish the 100 / 200 / 500 ms goals, native ORM parity
-or hosted production capacity.
+This package does not activate a named environment, ship a public API, admit
+arbitrary framework effects, or establish the proposed latency budgets. Any
+materially different trust, schema/data disposition, retryable effect set or
+host lifecycle still needs its own connected decision. The next checked
+operation composition package must keep its authority and failure-order proof
+with the measurement; throughput, hosted transport, native ORM parity and
+production capacity remain separate gates. Server execution and buffer cost,
+lock wait and hold intervals, WAL bytes, preparation hit/miss and contention,
+retry latency, saturation behavior, and larger or neutral graph limits were
+not established by the retained four-workload series. The decision table above
+continues to own their measurement or correctness gates; none can be inferred
+from lower client-observed SQL dispatch counts alone.

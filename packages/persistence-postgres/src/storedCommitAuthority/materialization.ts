@@ -743,6 +743,7 @@ function materializeStoredAuthorityEffect(
         hardExpiresAtMilliseconds: sessionTiming.hardExpiresAtMilliseconds,
         leaseDurationMilliseconds:
           leaseExpiresAtMilliseconds - sessionTiming.updatedAtMilliseconds,
+        executionProfile: root.executionProfile,
       });
       const journalRootOutcome = Result.match(expectedFacet, {
         onSuccess: (facet) =>

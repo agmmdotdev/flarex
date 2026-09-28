@@ -1213,6 +1213,7 @@ function anchor(
     scopeId: selector.scopeId,
     sessionId: selector.sessionId,
     requestKey: TransactionRequestKeyV1Schema.make("request:point:journal"),
+    executionProfile: "durableOperations",
     storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(3n),
     attemptFence: selector.attemptFence,

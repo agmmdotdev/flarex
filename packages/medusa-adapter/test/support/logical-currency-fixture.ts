@@ -7,7 +7,10 @@ import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   "../../../persistence-postgres/test/fixtures/applicationNativeMutationTestFixture";
 import { createMigratedPGlitePersistence } from "../../../persistence-postgres/test/pgliteTestFixture";
 import { createRelationalPGliteFixture } from "../../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
-import { createFileScopedPostgresFixture } from "../../../persistence-postgres/test/postgresHelpers";
+import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixture } from
+  "../../../persistence-postgres/test/postgresHelpers";
+import type { ProtectedMetadataPreparation } from
+  "../../../persistence-postgres/src/preparedMetadataEpoch";
 import { makePGliteFrameworkSchemaArtifactAdmissionFixture } from
   "../../../persistence-postgres/test/frameworkSchemaArtifactAdmissionTestSupport";
 import { makeApplicationAnalysisRepository } from "../../../persistence-postgres/src/applicationAnalysisRegistration";
@@ -61,7 +64,8 @@ import { currencyAnnouncementWrite, currencyCommands, makeCurrencyService } from
 type LogicalCurrencyResource =
   | Readonly<{ kind: "pglite"; control: PGliteFlarexPersistence; target: PGliteFlarexPersistence;
     session: RelationalSession; observeSql: (observer: ((text: string) => Promise<void> | void) | undefined) => void }>
-  | Readonly<{ kind: "postgres"; control: PostgresFlarexPersistence; target: PostgresFlarexPersistence }>;
+  | Readonly<{ kind: "postgres"; control: PostgresFlarexPersistence; target: PostgresFlarexPersistence;
+    protectedMetadata?: ProtectedMetadataPreparation }>;
 
 type FixtureIdentity = Readonly<{ deploymentId: string; projectId: string; uuidOffset: number }>;
 type LogicalCurrencyFixtureOptions = Readonly<{
@@ -73,6 +77,7 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeProductSalesChannelLink?: boolean;
   includeShippingProfile?: boolean;
   includeProductShippingProfileLink?: boolean;
+  protectedRuntime?: boolean;
 }> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
   | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
 
@@ -121,9 +126,12 @@ export async function logicalCurrencyFixture(
   })() : await (async () => {
       const control = await createFileScopedPostgresFixture();
       registerCleanup(control.dispose);
-      const target = await createFileScopedPostgresFixture();
+      const target = options?.protectedRuntime === true
+        ? await createProtectedFileScopedPostgresFixture()
+        : await createFileScopedPostgresFixture();
       registerCleanup(target.dispose);
-      return { kind: "postgres" as const, control: control.persistence, target: target.persistence };
+      return { kind: "postgres" as const, control: control.persistence, target: target.persistence,
+        ...("protectedMetadata" in target ? { protectedMetadata: target.protectedMetadata } : {}) };
     })());
   const { control, target } = pair;
   const schemaName = (await target.query<{ schema: string }>("select current_schema() as schema")).rows[0]?.schema;
@@ -132,6 +140,8 @@ export async function logicalCurrencyFixture(
     ...(options?.includeUserNameIndex === true ? { includeUserNameIndex: true } : {}),
     ...(options?.includeProductLaunch === true ? { includeProductLaunch: true } : {}),
     ...(options?.fixtureIdentity === undefined ? {} : { fixtureIdentity: options.fixtureIdentity }),
+    ...(pair.kind === "postgres" && pair.protectedMetadata !== undefined
+      ? { protectedMetadata: { database: target.drizzle, token: pair.protectedMetadata } } : {}),
     physicalLocator: { kind: "database_per_scope" as const, databaseKey: "logical_currency_target", schemaName } };
   const application = pair.kind === "postgres"
     ? await createApplicationNativeMutationPostgresFixture(applicationOptions, { control: pair.control, target: pair.target })

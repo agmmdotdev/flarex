@@ -834,6 +834,13 @@
       "when": 1790516723500,
       "tag": "0118_admitted_operation_journal",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1790583202337,
+      "tag": "0119_protected_metadata_epoch",
+      "breakpoints": true
     }
   ]
 }

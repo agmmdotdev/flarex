@@ -9,7 +9,7 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
-import type { LogicalPendingDocumentSeed } from "../logicalDocuments/model";
+import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
 import { hasLogicalParticipantAttemptAdmission, withLogicalParticipantAdmissionBundleEffect,
   type LogicalParticipantAdmissionBundle, type LogicalParticipantAttemptAdmission } from
   "../logicalDocuments/participantAdmission";
@@ -29,19 +29,18 @@ import { captureCommerceJsonData, projectCommerceRequestFailure } from "./reques
 import { projectLogicalCommerceActivity } from "./logicalParticipant";
 
 type LogicalMember = Extract<AtomicCommerceParticipantInput, { readonly logicalStorage: unknown }>;
-export interface BorrowedWorkflowAttemptInput {
+export type BorrowedWorkflowAttemptInput = Readonly<{
   readonly bundle: LogicalParticipantAdmissionBundle;
   readonly admissions: readonly LogicalParticipantAttemptAdmission[];
   readonly attempt: SessionJournalAttempt;
   readonly participant: string;
   readonly method: string;
   readonly profileRevision: string;
-  readonly pendingRows: readonly LogicalPendingDocumentSeed[];
   readonly members: readonly LogicalMember[];
   readonly events: AtomicCommerceEvents;
   readonly resources?: CommerceResources;
   readonly requestCommandMs?: number;
-}
+}> & LogicalDocumentBorrowView;
 
 /** One transient pending view and lifetime for all independently admitted
  * sources. The journal owns the only durable overlay and final settlement. */
@@ -109,7 +108,10 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           const working = yield* makeLogicalDocumentWorkingSet({
             readTransaction: checkedRead, requireAdmission,
             scopeId: root.scopeId, clock: states[0]!.clock, snapshotCommitSeq: root.snapshotCommitSeq,
-            pendingRows: input.pendingRows, lifetime, tables,
+            ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
+              { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
+                rootAttemptFence: input.rootAttemptFence }),
+            lifetime, tables,
             relationalCapabilities: states.flatMap(state => state.schema.capabilities),
             searchDefinitions: states.flatMap(state => state.search),
             validateDocument: write => {

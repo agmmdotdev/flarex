@@ -43,6 +43,14 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
     const replayed = await Effect.runPromise(runAdmitted(updateRequest));
     expect(replayed).toMatchObject({ id: seed.productId, title: seed.newTitle,
       handle: seed.newHandle });
+    const reopened = await Effect.runPromise(fixture.reopenJournalAttempt());
+    const reopenedRunner = fixture.journal.runAdmittedOperation;
+    if (reopenedRunner === undefined) throw new Error("Missing admitted Product runner");
+    const replayedFromReopened = await Effect.runPromise(reopenedRunner(reopened,
+      updateRequest));
+    expect(replayedFromReopened).toMatchObject({ id: seed.productId,
+      title: seed.newTitle, handle: seed.newHandle });
+    expect(fixture.nativeInvokeCount.get("update")).toBe(1);
     expect(fixture.hasSqlObserver).toBe(driver === "pglite");
     if (fixture.hasSqlObserver) {
       expect(serviceTransactionDepth).toEqual([0, 0, 0]);
@@ -150,15 +158,40 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
       expect(roots).toHaveLength(1);
-      expect(roots[0]).toMatchObject({ state: "operation_failed", lastSyscallSequence: 2n });
+      expect(roots[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
       const receipts = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId))
         .orderBy(asc(fxSystemTransactionJournalReceipts.lastSyscallSequence));
-      expect(receipts.map(receipt => receipt.outcomeKind)).toEqual(["inserted", "admittedLogicalError"]);
+      expect(receipts).toHaveLength(0);
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
       await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
         fixture.attempt, { caught: true }))).rejects.toBeDefined();
     } finally { await fixture.close(); }
   }, 180_000);
+
+  it.skipIf(driver !== "postgres")(
+    "detects a held runtime SQL transaction during the native callback", async () => {
+      const fixture = await createMixedMutationProductFixture({ driver,
+        suffix: "held-native-sql-negative-control" });
+      if (fixture.currency.resource.kind !== "postgres")
+        throw new Error("PostgreSQL fixture required");
+      const held = await fixture.currency.resource.target.pool.connect();
+      try {
+        await held.query("BEGIN");
+        await held.query("SELECT 1");
+        const observed = await fixture.observePgNativeSqlTransactions();
+        expect(observed?.targetBackends).toBeGreaterThan(1);
+        expect(observed?.openTransactions).toBeGreaterThan(0);
+        const failure = await fixture.runWorkerd().then(() => null, cause => cause);
+        expect(failure).toBeInstanceOf(Error);
+        expect(fixture.bridgeFailures.join("\n"))
+          .toContain("Product native callback overlapped target SQL transaction");
+        expect(fixture.nativeInvokeCount.get("update") ?? 0).toBe(0);
+      } finally {
+        await held.query("ROLLBACK");
+        held.release();
+        await fixture.close();
+      }
+    }, 180_000);
 });

@@ -13,6 +13,8 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { RelationalPersistenceCapability, RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import type { LogicalSearchDefinition } from "./searchEntries";
 import type { ApplicationDocumentObservation } from "../applicationDocumentMaterialization/model";
+import type { SessionJournalAttempt } from "../sessionJournalStore";
+import type { LogicalDocumentRootEvaluator } from "./rootEvaluator";
 
 export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
   | "documentMissing" | "documentInvalid" | "uniqueConflict" | "writeConflict" | "storedCorruption"
@@ -62,12 +64,25 @@ export type LogicalPendingDocumentSeed = Readonly<{
     Readonly<{ kind: "deleted" }>;
 }>;
 
+/** The admitted journal supplies exactly one pending-view authority to each
+ * borrowed native call. The finite branch binds the caller's exact attempt. */
+export type LogicalDocumentBorrowView =
+  | Readonly<{ pendingRows: readonly LogicalPendingDocumentSeed[];
+      rootEvaluator?: never; rootAttemptFence?: never }>
+  | Readonly<{ pendingRows?: never;
+      rootEvaluator: LogicalDocumentRootEvaluator; rootAttemptFence: string }>;
+
+type LogicalDocumentWorkingSetRoot =
+  | Readonly<{ pendingRows?: readonly LogicalPendingDocumentSeed[];
+      rootEvaluator?: never; rootAttempt?: never; rootAttemptFence?: never }>
+  | Readonly<{ pendingRows?: never; rootEvaluator: LogicalDocumentRootEvaluator;
+      rootAttempt: SessionJournalAttempt; rootAttemptFence: string }>;
+
 export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly scopeId: ScopeId;
   readonly clock: ScopeClockRecord;
   /** Fixed historical view for a logical attempt. Unsupported candidate paths refuse. */
   readonly snapshotCommitSeq?: CommitSeq;
-  readonly pendingRows?: readonly LogicalPendingDocumentSeed[];
   readonly tables: readonly Readonly<{ tableId: CatalogTableId; logicalName: string; relational?: RelationalTableDefinition }>[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
@@ -77,7 +92,7 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly error: LogicalDocumentFailure<Failure>;
   readonly uniqueConflict: (constraint: Readonly<{ tableName: string; orderedFields: readonly string[] }>) => Failure;
   readonly limits: Readonly<{ pageRows: number; identities: number; documentBytes: number }>;
-}> & (
+}> & LogicalDocumentWorkingSetRoot & (
   | Readonly<{ readonly tx: FlarexMetadataTransaction; readonly readTransaction?: never }>
   | Readonly<{ readonly tx?: never; readonly readTransaction: LogicalDocumentReadTransaction<Failure> }>
 );

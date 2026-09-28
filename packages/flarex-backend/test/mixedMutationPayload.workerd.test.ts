@@ -8,7 +8,8 @@ import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-sessi
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
-import { fxAppRowRevisions, fxSystemIdempotency, fxSystemTransactionJournals } from
+import { fxAppRowRevisions, fxSystemIdempotency, fxSystemTransactionJournalReceipts,
+  fxSystemTransactionJournals } from
   "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
@@ -37,7 +38,17 @@ async function assertNoPublishedMixedOutput(fixture: MixedFixture,
   const roots = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournals)
     .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
   expect(roots).toHaveLength(1);
-  expect(roots[0]?.state).toBe("operation_failed");
+  expect(roots[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n,
+    executionProfile: "finiteRoot" });
+  const receipts = await fixture.currency.persistence.drizzle.select()
+    .from(fxSystemTransactionJournalReceipts)
+    .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId));
+  expect(receipts).toHaveLength(0);
+  const accepted = fixture.getUpdateRequest();
+  if (accepted === undefined) throw new Error("Missing accepted Product operation");
+  await expect(Effect.runPromise(fixture.runAdmitted(accepted))).rejects.toBeDefined();
+  await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+    fixture.attempt, null))).rejects.toBeDefined();
 }
 
 async function waitUntil(observe: () => boolean, description: string): Promise<void> {
@@ -193,7 +204,7 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       suffix: `payload-hook-sql-${driver}`, payloadProfile: "inspection" });
     const runtime = () => fixture.payload?.current();
     let running: Promise<unknown> | undefined;
-    const checkSql = async () => {
+    const checkSql = async (expectedOpenTransactions = 0) => {
       if (fixture.currency.resource.kind === "pglite") {
         expect(fixture.getOpenTransactionDepth()).toBe(0);
         expect(fixture.getTransactionCounts().beginCount).toBeGreaterThan(0);
@@ -204,16 +215,26 @@ describe.each(drivers)("native Payload Local API in one Product and Application 
       const applicationName = (await resource.target.query<{ applicationName: string }>(
         'select current_setting(\'application_name\') as "applicationName"')).rows[0]?.applicationName;
       if (!applicationName) throw new Error("Missing target PostgreSQL application_name");
-      const observed = (await resource.control.query<{ targetBackends: number; openTransactions: number }>(
+      const observed = (await resource.target.query<{ targetBackends: number; openTransactions: number }>(
         `select count(*)::int as "targetBackends",
-                count(*) filter (where xact_start is not null)::int as "openTransactions"
+                count(*) filter (where pid <> pg_backend_pid() and xact_start is not null)::int as "openTransactions"
            from pg_stat_activity
-          where datname = current_database() and usename = current_user
-            and application_name = $1 and pid <> pg_backend_pid()`, [applicationName])).rows[0];
+          where datname = current_database()
+            and application_name = $1`, [applicationName])).rows[0];
       expect(observed?.targetBackends).toBeGreaterThan(0);
-      expect(observed?.openTransactions).toBe(0);
+      expect(observed?.openTransactions).toBe(expectedOpenTransactions);
     };
     try {
+      if (fixture.currency.resource.kind === "postgres") {
+        const witness = await fixture.currency.resource.target.pool.connect();
+        try {
+          await witness.query("BEGIN");
+          await checkSql(1);
+        } finally {
+          await witness.query("ROLLBACK");
+          witness.release();
+        }
+      }
       running = fixture.runWorkerd();
       await waitUntil(() => runtime()?.observations.hookEntryHeld() === true,
         "fixed Payload hook entry");

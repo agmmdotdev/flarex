@@ -97,7 +97,13 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
           .from(fxSystemTransactionJournals)
           .where(eq(fxSystemTransactionJournals.sessionId,
             fixture.activation.anchor.sessionId));
-        expect(roots).toMatchObject([{ state: "operation_failed", lastSyscallSequence: 1n }]);
+        expect(roots).toMatchObject([{ state: "open", lastSyscallSequence: 0n,
+          executionProfile: "finiteRoot" }]);
+        const receipts = await fixture.currency.persistence.drizzle.select()
+          .from(fxSystemTransactionJournalReceipts)
+          .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+            fixture.activation.anchor.sessionId));
+        expect(receipts).toHaveLength(0);
         expect(await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions)
           .where(eq(fxAppRowRevisions.scopeUuid, scopeUuid))).toEqual(beforeRows);
         const events = await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents)
@@ -121,7 +127,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       }
     }, 180_000);
 
-  it("replays a durable workflow receipt after bridge acknowledgement loss without rerunning children", async () => {
+  it("replays a tentative workflow result after bridge acknowledgement loss within the same root", async () => {
     let loseAcknowledgement = true;
     const fixture = await createMixedMutationProductFixture({ driver, workflow: true,
       suffix: `launch-ack-loss-${driver}`, payloadProfile: "success",
@@ -156,8 +162,15 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
         .where(eq(fxSystemTransactionJournalReceipts.sessionId,
           fixture.activation.anchor.sessionId));
       expect(receipts.filter(receipt => receipt.outcomeKind === "admittedLogicalResult"))
+        .toHaveLength(0);
+      const publication = await fixture.preparePublication(result);
+      const sealedReceipts = await fixture.currency.persistence.drizzle.select()
+        .from(fxSystemTransactionJournalReceipts)
+        .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+          fixture.activation.anchor.sessionId));
+      expect(sealedReceipts.filter(receipt => receipt.outcomeKind === "admittedLogicalResult"))
         .toHaveLength(7);
-      expect(await fixture.publish(result)).toMatchObject({ kind: "published" });
+      expect(await Effect.runPromise(publication)).toMatchObject({ kind: "published" });
     } finally { await fixture.close(); }
   }, 240_000);
 
@@ -168,14 +181,17 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
       const result = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
         success.result.result))).value;
+      expect(fixture.bridgeFailures).toEqual([]);
       expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
-      await Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, result));
+      const envelope = await Effect.runPromise(fixture.journal.sealSuccessfulResult(
+        fixture.attempt, result));
       const sealed = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
       expect(sealed[0]?.state).toBe("sealed");
-      expect(await fixture.publish(result)).toMatchObject({ kind: "published" });
+      expect(await Effect.runPromise(await fixture.prepareSealedPublication(envelope)))
+        .toMatchObject({ kind: "published" });
       expect(await fixture.replayPublication()).toMatchObject({ kind: "replayed" });
       expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
     } finally { await fixture.close(); }
@@ -281,7 +297,15 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(0);
       const roots = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-      expect(roots).toMatchObject([{ state: "operation_failed" }]);
+      expect(roots).toMatchObject([{ state: "open", lastSyscallSequence: 0n,
+        executionProfile: "finiteRoot" }]);
+      const receipts = await fixture.currency.persistence.drizzle.select()
+        .from(fxSystemTransactionJournalReceipts)
+        .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+          fixture.activation.anchor.sessionId));
+      expect(receipts).toHaveLength(0);
+      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+        fixture.attempt, null))).rejects.toBeDefined();
     } finally { await fixture.close(); }
   }, 180_000);
 
@@ -324,7 +348,15 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(0);
       const roots = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-      expect(roots).toMatchObject([{ state: "operation_failed" }]);
+      expect(roots).toMatchObject([{ state: "open", lastSyscallSequence: 0n,
+        executionProfile: "finiteRoot" }]);
+      const receipts = await fixture.currency.persistence.drizzle.select()
+        .from(fxSystemTransactionJournalReceipts)
+        .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+          fixture.activation.anchor.sessionId));
+      expect(receipts).toHaveLength(0);
+      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+        fixture.attempt, null))).rejects.toBeDefined();
     } finally { await fixture.close(); }
   }, 180_000);
 
@@ -353,7 +385,15 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
       expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(0);
       const roots = await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-      expect(roots).toMatchObject([{ state: "operation_failed" }]);
+      expect(roots).toMatchObject([{ state: "open", lastSyscallSequence: 0n,
+        executionProfile: "finiteRoot" }]);
+      const receipts = await fixture.currency.persistence.drizzle.select()
+        .from(fxSystemTransactionJournalReceipts)
+        .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+          fixture.activation.anchor.sessionId));
+      expect(receipts).toHaveLength(0);
+      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+        fixture.attempt, null))).rejects.toBeDefined();
     } finally { await fixture.close(); }
   }, 180_000);
 
@@ -495,7 +535,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
 
 describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
   "finite workflow PostgreSQL acknowledgement recovery", () => {
-    it("recovers a committed workflow receipt when the driver loses COMMIT acknowledgement", async () => {
+    it("retains the sealed workflow graph when aggregate-seal COMMIT acknowledgement is lost", async () => {
       const fixture = await createMixedMutationProductFixture({ driver: "postgres", workflow: true,
         suffix: "launch-driver-commit-loss", payloadProfile: "success" });
       if (fixture.currency.resource.kind !== "postgres") throw new Error("PostgreSQL fixture required");
@@ -508,22 +548,17 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
         if (!isPostgresClient(candidate)) return;
         const originalQuery = candidate.query;
         const descriptor = Object.getOwnPropertyDescriptor(candidate, "query");
-        let workflowReceiptAccepted = false;
+        let aggregateReceiptsInserted = false;
         if (!Reflect.set(candidate, "query", (...args: readonly unknown[]): unknown => {
           const statement = args[0];
           const sql = typeof statement === "string" ? statement :
             typeof statement === "object" && statement !== null &&
               "text" in statement && typeof statement.text === "string"
               ? statement.text : "";
-          const parameters = typeof statement === "object" && statement !== null &&
-            "values" in statement && Array.isArray(statement.values)
-            ? statement.values : args.find(Array.isArray) ?? [];
           if (sql.toLowerCase().includes("fx_system_tx_journal_receipt") &&
-            sql.trimStart().toLowerCase().startsWith("update") &&
-            parameters.some((value: unknown) => value === "admittedLogicalResult") &&
-            fixture.nativeInvokeCount.get("workflow:run") === 1) workflowReceiptAccepted = true;
+            sql.trimStart().toLowerCase().startsWith("insert")) aggregateReceiptsInserted = true;
           const result: unknown = Reflect.apply(originalQuery, candidate, args);
-          if (sql.trim().toLowerCase() === "commit" && workflowReceiptAccepted &&
+          if (sql.trim().toLowerCase() === "commit" && aggregateReceiptsInserted &&
             !lostAcknowledgement) {
             return Promise.resolve(result).then(() => {
               lostAcknowledgement = true;
@@ -551,26 +586,30 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
       })) throw new Error("Could not instrument PostgreSQL pool");
       try {
         const success = Schema.decodeUnknownSync(WorkerSuccess)(await fixture.runWorkerd());
-        expect(lostAcknowledgement).toBe(true);
-        expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
-        const request = fixture.getAdmittedRequest("medusa.workflow", "run");
-        if (request === undefined) throw new Error("Missing workflow request");
-        const replay = await Effect.runPromise(fixture.runAdmitted(request));
-        expect(replay).toMatchObject({ tags: [expect.objectContaining({
-          id: fixture.seed.tagId, value: "launched" })] });
         expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
         const value = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
           success.result.result))).value;
-        expect(await fixture.publish(value)).toMatchObject({ kind: "published" });
+        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+          fixture.attempt, value))).rejects.toBeDefined();
+        expect(lostAcknowledgement).toBe(true);
+        const roots = await fixture.currency.persistence.drizzle.select()
+          .from(fxSystemTransactionJournals)
+          .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
+        expect(roots).toMatchObject([{ state: "sealed", lastSyscallSequence: 9n }]);
+        const receipts = await fixture.currency.persistence.drizzle.select()
+          .from(fxSystemTransactionJournalReceipts)
+          .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+            fixture.activation.anchor.sessionId));
+        expect(receipts.filter(receipt => receipt.outcomeKind === "admittedLogicalResult"))
+          .toHaveLength(7);
+        const request = fixture.getAdmittedRequest("medusa.workflow", "run");
+        if (request === undefined) throw new Error("Missing workflow request");
+        await expect(Effect.runPromise(fixture.runAdmitted(request))).rejects.toBeDefined();
+        expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
         const scopeUuid = projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid;
         const events = await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents)
           .where(eq(fxSystemCommitEvents.scopeUuid, scopeUuid));
-        const count = events.filter(event => event.envelope.group === fixture.eventGroup).length;
-        expect(count).toBeGreaterThan(0);
-        expect(await fixture.replayPublication()).toMatchObject({ kind: "replayed" });
-        const afterReplay = await fixture.currency.persistence.drizzle.select().from(fxSystemCommitEvents)
-          .where(eq(fxSystemCommitEvents.scopeUuid, scopeUuid));
-        expect(afterReplay.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(count);
+        expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(0);
       } finally {
         for (const restore of restores.toReversed()) restore();
         if (connectDescriptor === undefined) Reflect.deleteProperty(pool, "connect");

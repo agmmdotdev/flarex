@@ -846,6 +846,7 @@ const rootScalarFields = {
   sessionId: fxSystemTransactionJournals.sessionId,
   attemptFence: fxSystemTransactionJournals.attemptFence,
   journalFormat: fxSystemTransactionJournals.journalFormat,
+  executionProfile: fxSystemTransactionJournals.executionProfile,
   state: fxSystemTransactionJournals.state,
   lastSyscallSequence: fxSystemTransactionJournals.lastSyscallSequence,
   creationTimeSeed: fxSystemTransactionJournals.creationTimeSeed,

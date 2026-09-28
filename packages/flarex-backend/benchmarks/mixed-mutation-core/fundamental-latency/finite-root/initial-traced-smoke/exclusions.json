@@ -1,0 +1,85 @@
+{
+  "format": "flarex.mixed-mutation-performance-exclusions",
+  "observationMode": "traced",
+  "latencyExclusion": {
+    "scope": "entireSeries",
+    "reason": "A repository root file inventory scan overlapped this smoke run. Interference was observed; the cause of the high mixed warm sample was not established. All 16 samples remain retained. Structural SQL counts may be used with coverage checks."
+  },
+  "excludedSamples": [
+    {
+      "id": "product-warm-0-0",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "product-warm-0-1",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "product-warm-0-2",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "product-cold-0-0",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "productPayload-warm-0-0",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "productPayload-warm-0-1",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "productPayload-warm-0-2",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "productPayload-cold-0-0",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "mixedWorkflow-warm-0-0",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "mixedWorkflow-warm-0-1",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "mixedWorkflow-warm-0-2",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "mixedWorkflow-cold-0-0",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "standaloneWorkflow-warm-0-0",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "standaloneWorkflow-warm-0-1",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "standaloneWorkflow-warm-0-2",
+      "use": "excludeFromLatencyConclusions"
+    },
+    {
+      "id": "standaloneWorkflow-cold-0-0",
+      "use": "excludeFromLatencyConclusions"
+    }
+  ],
+  "failedSamples": [],
+  "setupFailures": [],
+  "unavailable": [
+    "PostgreSQL server execution time (driver await includes transport and scheduling).",
+    "Exact native workflow child inclusive/exclusive spans; native steps are not instrumented, so SQL owner mapping is used instead.",
+    "Exact inner OCC/materialization phase duration where the existing owner has no test observation hook.",
+    "Exact scope-clock lock acquisition wait and lock-hold interval; transaction duration is only a BEGIN-to-settlement envelope.",
+    "Sealed attempt bytes for failed attempts and standalone workflow; settled journal rows are removed, so inventory separately records only remaining live journal bytes.",
+    "Client SQL that loses trace context during an active invocation is detected and invalidates that sample, but SQL through uninstrumented pools or outside the invocation cannot be counted; named phase checks do not prove universal SQL coverage.",
+    "Hosted Cloudflare transport, native ORM parity, and production capacity."
+  ]
+}

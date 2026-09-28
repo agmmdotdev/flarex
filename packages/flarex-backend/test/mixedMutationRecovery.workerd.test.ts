@@ -185,7 +185,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
     }
   });
 
-  it("durably poisons the root after the Product service stages an update", async () => {
+  it("discards the finite root after the Product service stages an update", async () => {
     const fixture = await createMixedMutationProductFixture({
       driver,
       suffix: `after-service-${driver}`,
@@ -222,15 +222,15 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
       expect(roots).toHaveLength(1);
-      expect(roots[0]).toMatchObject({ state: "operation_failed", lastSyscallSequence: 2n });
+      expect(roots[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
       const receipts = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId,
           fixture.activation.anchor.sessionId))
         .orderBy(asc(fxSystemTransactionJournalReceipts.lastSyscallSequence));
-      expect(receipts.map(receipt => receipt.outcomeKind)).toEqual([
-        "inserted", "admittedLogicalError",
-      ]);
+      expect(receipts).toHaveLength(0);
+      await expect(Effect.runPromise(fixture.reopenJournalAttempt()))
+        .rejects.toBeDefined();
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
       expect(fixture.nativeInvokeCount.get("retrieve") ?? 0).toBe(0);
       const events = await fixture.currency.persistence.drizzle.select()
@@ -271,7 +271,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
     }
   });
 
-  it("interrupts a staged Product call and durably refuses settlement", async () => {
+  it("interrupts a staged Product call and refuses finite settlement", async () => {
     const entered = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
     const fixture = await createMixedMutationProductFixture({
@@ -312,17 +312,15 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(roots[0]).toMatchObject({ state: "operation_failed",
-        lastSyscallSequence: 1n });
-      expect(await classifyCurrentExecutionRoot(fixture)).toMatchObject({
-        kind: "notExecutable", reason: "notPristine",
-      });
+      expect(roots[0]).toMatchObject({ state: "open",
+        lastSyscallSequence: 0n });
+      await expect(Effect.runPromise(fixture.reopenJournalAttempt()))
+        .rejects.toBeDefined();
       const receipts = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(receipts).toHaveLength(1);
-      expect(receipts[0]?.outcomeKind).toBe("admittedLogicalError");
+      expect(receipts).toHaveLength(0);
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
       const events = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemCommitEvents)
@@ -356,7 +354,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
     }
   });
 
-  it("replays a retained Product result when the bridge loses its acknowledgement", async () => {
+  it("does not durably acknowledge a Product child on bridge response loss", async () => {
     let loseAcknowledgement = true;
     const fixture = await createMixedMutationProductFixture({
       driver,
@@ -380,27 +378,17 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         expect(fixture.bridgeFailures.at(-1)).toContain("injected lost bridge acknowledgement");
       }
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
-      const updateRequest = fixture.getUpdateRequest();
-      if (updateRequest === undefined) throw new Error("Missing Product update request");
-      const retained = await Effect.runPromise(fixture.runAdmitted(updateRequest));
-      expect(retained).toMatchObject({ id: fixture.seed.productId,
-        title: fixture.seed.newTitle, handle: fixture.seed.newHandle });
-      expect(fixture.nativeInvokeCount.get("update")).toBe(1);
-
-      const second = await fixture.runWorkerd();
-      expect(second).toMatchObject({ kind: "result", result: { kind: "success" } });
-      expect(fixture.nativeInvokeCount.get("update")).toBe(1);
       const receipts = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(receipts.filter(receipt => receipt.outcomeKind ===
-        "admittedLogicalResult")).toHaveLength(3);
+      expect(receipts).toHaveLength(0);
       const roots = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(roots[0]).toMatchObject({ state: "open", lastSyscallSequence: 5n });
+      expect(roots[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
+      expect(fixture.nativeInvokeCount.get("update")).toBe(1);
     } finally {
       await fixture.close();
     }
@@ -458,15 +446,13 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         decodePointMutationExactRuntimeResultV1Effect(success.result.result),
       )).value;
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
-      await Effect.runPromise(fixture.journal.sealSuccessfulResult(
-        fixture.attempt, returnedValue,
-      ));
+      const publication = await fixture.preparePublication(returnedValue);
       const sealed = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
       expect(sealed[0]?.state).toBe("sealed");
-      const published = await fixture.publish(returnedValue);
+      const published = await Effect.runPromise(publication);
       expect(published).toMatchObject({ kind: "published" });
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
       expect(fixture.nativeInvokeCount.get("retrieve")).toBe(1);
@@ -489,7 +475,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
     }
   });
 
-  it("treats an expired in-flight marker as an abort-only claim takeover", async () => {
+  it("treats an expired finite root as an abort-only claim takeover", async () => {
     const entered = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
     const fixture = await createMixedMutationProductFixture({
@@ -516,7 +502,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(before[0]?.state).toBe("operation_invoking");
+      expect(before[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
       await fixture.currency.persistence.drizzle.update(fxSystemTransactionExecutionClaims)
         .set({ claimedAt: sql`clock_timestamp() - interval '2 minutes'`,
           claimExpiresAt: sql`clock_timestamp() - interval '1 minute'` })
@@ -530,13 +516,13 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         ).acquireEffect(selectorFromRelationAnchor(fixture.activation.anchor)),
       );
       expect(next).toMatchObject({ kind: "acquired", mode: "abortOnly",
-        reason: "failedRoot" });
+        reason: "dirtyOpen" });
       if (next.kind !== "acquired") throw new Error("Expected replacement claim");
       const after = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(after[0]?.state).toBe("operation_invoking");
+      expect(after[0]).toMatchObject({ state: "open", lastSyscallSequence: 0n });
       expect(fixture.nativeInvokeCount.get("update")).toBe(1);
       await Effect.runPromise(Deferred.succeed(release, undefined));
       const oldCompletion = await running.catch(cause => cause);
@@ -590,10 +576,9 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
 
 describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
   "native mixed mutation PostgreSQL driver uncertainty", () => {
-    it("resolves a committed Product receipt after the driver loses the COMMIT acknowledgement", async () => {
+    it("retains the sealed Product root after aggregate-seal COMMIT acknowledgement loss", async () => {
       let lostAcknowledgement = false;
       let acquiredClients = 0;
-      const observedReceiptQueries: string[] = [];
       const fixture = await createMixedMutationProductFixture({
         driver: "postgres",
         suffix: "driver-commit-ack-loss",
@@ -601,6 +586,11 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
       if (fixture.currency.resource.kind !== "postgres") {
         throw new Error("PostgreSQL fixture required");
       }
+      const workerd = Schema.decodeUnknownSync(Schema.Struct({ kind: Schema.Literal("result"),
+        result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(
+        await fixture.runWorkerd());
+      const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
+        workerd.result.result))).value;
       const pool = fixture.currency.resource.target.pool;
       const connectDescriptor = Object.getOwnPropertyDescriptor(pool, "connect");
       const connect = pool.connect;
@@ -610,29 +600,17 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
         acquiredClients += 1;
         const queryDescriptor = Object.getOwnPropertyDescriptor(candidate, "query");
         const query = candidate.query;
-        let acceptanceUpdated = false;
+        let aggregateReceiptsInserted = false;
         if (!Reflect.set(candidate, "query", (...args: readonly unknown[]): unknown => {
           const statement = args[0];
           const sql = typeof statement === "string" ? statement :
             typeof statement === "object" && statement !== null &&
               "text" in statement && typeof statement.text === "string"
               ? statement.text : "";
-          const configuredValues = typeof statement === "object" &&
-            statement !== null && "values" in statement &&
-            Array.isArray(statement.values) ? statement.values : [];
-          const acceptedResultParameter = configuredValues.some(value =>
-            value === "admittedLogicalResult") || args.some(value =>
-            Array.isArray(value) && value.some(parameter =>
-              parameter === "admittedLogicalResult"));
-          if (sql.toLowerCase().includes("fx_system_tx_journal_receipt")) {
-            observedReceiptQueries.push(`${sql.slice(0, 120)} | values=${configuredValues.length}` +
-              ` | args=${args.length} | accepted=${acceptedResultParameter}`);
-          }
           if (sql.toLowerCase().includes("fx_system_tx_journal_receipt") &&
-            sql.trimStart().toLowerCase().startsWith("update") &&
-            acceptedResultParameter) acceptanceUpdated = true;
+            sql.trimStart().toLowerCase().startsWith("insert")) aggregateReceiptsInserted = true;
           const result: unknown = Reflect.apply(query, candidate, args);
-          if (sql.trim().toLowerCase() === "commit" && acceptanceUpdated &&
+          if (sql.trim().toLowerCase() === "commit" && aggregateReceiptsInserted &&
             !lostAcknowledgement) {
             return Promise.resolve(result).then(() => {
               lostAcknowledgement = true;
@@ -662,18 +640,30 @@ describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)(
         });
       })) throw new Error("Could not install PostgreSQL connection fault");
       try {
-        const outcome = await fixture.runWorkerd();
-        expect(lostAcknowledgement,
-          `acquired=${acquiredClients}; receipt=${observedReceiptQueries.join("; ")}`)
-          .toBe(true);
-        expect(outcome).toMatchObject({ kind: "result", result: { kind: "success" } });
+        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+          fixture.attempt, returnedValue))).rejects.toBeDefined();
+        expect(lostAcknowledgement, `acquired=${acquiredClients}`).toBe(true);
         expect(fixture.nativeInvokeCount.get("update")).toBe(1);
+        const roots = await fixture.currency.persistence.drizzle.select()
+          .from(fxSystemTransactionJournals)
+          .where(eq(fxSystemTransactionJournals.sessionId,
+            fixture.activation.anchor.sessionId));
+        expect(roots).toMatchObject([{ state: "sealed", lastSyscallSequence: 5n }]);
+        const receipts = await fixture.currency.persistence.drizzle.select()
+          .from(fxSystemTransactionJournalReceipts)
+          .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+            fixture.activation.anchor.sessionId));
+        expect(receipts.filter(receipt => receipt.outcomeKind ===
+          "admittedLogicalResult")).toHaveLength(3);
         const request = fixture.getUpdateRequest();
         if (request === undefined) throw new Error("Missing accepted Product request");
-        const replayed = await Effect.runPromise(fixture.runAdmitted(request));
-        expect(replayed).toMatchObject({ id: fixture.seed.productId,
-          title: fixture.seed.newTitle, handle: fixture.seed.newHandle });
+        await expect(Effect.runPromise(fixture.runAdmitted(request))).rejects.toBeDefined();
         expect(fixture.nativeInvokeCount.get("update")).toBe(1);
+        const events = await fixture.currency.persistence.drizzle.select()
+          .from(fxSystemCommitEvents)
+          .where(eq(fxSystemCommitEvents.scopeUuid,
+            projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid));
+        expect(events.filter(event => event.envelope.group === fixture.eventGroup)).toHaveLength(0);
       } finally {
         for (const restore of restoreQueries.toReversed()) restore();
         if (connectDescriptor === undefined) Reflect.deleteProperty(pool, "connect");

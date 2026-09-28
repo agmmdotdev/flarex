@@ -90,6 +90,11 @@ import {
 } from "flarex-protocol/value";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import {
+  closeProtectedMetadataFinalGuardScope,
+  flushProtectedMetadataFinalGuards,
+  openProtectedMetadataFinalGuardScope,
+} from "./preparedMetadataEpoch";
 import type { AppRowTransaction } from "./appRows";
 import {
   createCommittedPointOutcomeResolverV1,
@@ -216,6 +221,10 @@ const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const INITIAL_ATTEMPT_FENCE = TransactionAttemptFenceSchema.make(1n);
+
+export type PointMutationExecutionProfile =
+  | "durableOperations"
+  | "finiteRoot";
 
 const ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1 = Symbol(
   "flarex.persistence-postgres.activatePreparedPointMutationSessionEffectV1",
@@ -362,12 +371,14 @@ type PreparedStoredMutationSessionEvidenceV1 =
 interface PreparedStoredMutationSessionActivationV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
+  readonly executionProfile: PointMutationExecutionProfile;
   readonly evidence: PreparedStoredMutationSessionEvidenceV1;
 }
 
 export interface PreparedPointMutationSessionActivationV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
+  readonly executionProfile?: PointMutationExecutionProfile;
   readonly evidence: PreparedPointMutationSessionEvidenceV1;
 }
 
@@ -383,6 +394,7 @@ export interface PointMutationSessionAnchorV1 {
   readonly scopeId: ReplacementScopeIdV1;
   readonly sessionId: TransactionSessionIdV1;
   readonly requestKey: TransactionRequestKeyV1;
+  readonly executionProfile: PointMutationExecutionProfile;
   readonly storageGeneration: FlarexDbV1StorageGeneration;
   readonly storageGenerationFence: StorageGenerationFence;
   readonly attemptFence: TransactionAttemptFence;
@@ -623,6 +635,7 @@ export type PreparedApplicationMutationSessionEvidenceV1 = Readonly<
 export interface PreparedApplicationMutationSessionActivationV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
+  readonly executionProfile?: PointMutationExecutionProfile;
   readonly activeSelection: ApplicationActiveSelection;
   readonly evidence: PreparedApplicationMutationSessionEvidenceV1;
 }
@@ -2166,17 +2179,22 @@ async function acquireExecutionClaimInTransaction(
   } else if (root.state === "relation_conflicted") {
     disposition = { mode: "replaceRelationConflict" };
   } else if (root.state === "open") {
-    const facet = await observePointMutationSessionAttemptFacet(
-      tx,
-      clock,
-      session,
-      locked,
-      root,
-    );
-    if (facet.kind !== "pristineOpen") {
+    // A finite root can have tentative child results in its lost evaluator
+    // while its durable journal still looks pristine. Never resume that root
+    // under the same attempt fence after the execution claim expires.
+    if (root.executionProfile === "finiteRoot") {
       disposition = { mode: "abortOnly", reason: "dirtyOpen" };
     } else {
-      disposition = { mode: "execute" };
+      const facet = await observePointMutationSessionAttemptFacet(
+        tx,
+        clock,
+        session,
+        locked,
+        root,
+      );
+      disposition = facet.kind !== "pristineOpen"
+        ? { mode: "abortOnly", reason: "dirtyOpen" }
+        : { mode: "execute" };
     }
   } else {
     disposition = { mode: "abortOnly", reason: "failedRoot" };
@@ -2520,7 +2538,7 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
   clockProtection: "share" | "attempt",
 ): Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error> {
   return Effect.suspend(() => {
-    let callbackCause: EffectCause<Failure> | undefined;
+    let callbackCause: EffectCause<Failure | ExactRunningAttemptTransactionV1Error> | undefined;
     const rollbackSignal = new Error(
       "Effect exact-attempt work failed; roll back the transaction.",
     );
@@ -2533,14 +2551,24 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
             afterLoadLock,
             clockProtection,
           );
-          const exit = await Effect.runPromise(Effect.exit(
-            Effect.uninterruptible(Effect.suspend(() => work(tx, context))),
-          ));
-          if (Exit.isFailure(exit)) {
-            callbackCause = exit.cause;
-            throw rollbackSignal;
+          openProtectedMetadataFinalGuardScope(tx);
+          try {
+            const exit = await Effect.runPromise(Effect.exit(
+              Effect.uninterruptible(Effect.gen(function* () {
+                const value = yield* Effect.suspend(() => work(tx, context));
+                yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(cause =>
+                  new ExactRunningAttemptTransactionV1Error({ cause, callbackCause: undefined })));
+                return value;
+              })),
+            ));
+            if (Exit.isFailure(exit)) {
+              callbackCause = exit.cause;
+              throw rollbackSignal;
+            }
+            return exit.value;
+          } finally {
+            closeProtectedMetadataFinalGuardScope(tx);
           }
-          return exit.value;
         }),
         catch: (cause) => new ExactRunningAttemptTransactionV1Error({
           cause,
@@ -2690,6 +2718,7 @@ async function createSession(
     sessionId: input.candidateSessionId,
     attemptFence: INITIAL_ATTEMPT_FENCE,
     journalFormat: SESSION_JOURNAL_FORMAT,
+    executionProfile: input.prepared.executionProfile,
     state: "open",
     lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
     receiptEvidenceBytes: 0,
@@ -2745,6 +2774,7 @@ async function createSession(
     scopeId: input.prepared.scopeId,
     sessionId: input.candidateSessionId,
     requestKey: evidence.requestKey,
+    executionProfile: input.prepared.executionProfile,
     storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
     storageGenerationFence: clock.record.storageGenerationFence,
     attemptFence: INITIAL_ATTEMPT_FENCE,
@@ -2786,6 +2816,9 @@ async function replayExistingSession(
     clock,
     session,
   );
+  if (loaded.anchor.executionProfile !== prepared.executionProfile) {
+    return Promise.reject(activationError({ reason: "requestKeyConflict" }));
+  }
   return activationResult("busy", loaded.anchor);
 }
 
@@ -3025,6 +3058,7 @@ async function loadLockedRunningAttempt<Failure extends Error>(
       scopeId: input.scopeId,
       sessionId: locked.sessionId,
       requestKey: session.requestKey,
+      executionProfile: journalRoot.executionProfile,
       storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
       storageGenerationFence: locked.storageGenerationFence,
       attemptFence: locked.attemptFence,
@@ -3151,6 +3185,7 @@ async function observePointMutationSessionAttemptFacet(
     scopeUuid: clock.scopeUuid,
     sessionId: locked.sessionId,
     attemptFence: locked.attemptFence,
+    executionProfile: root.executionProfile,
     snapshotEpochUuid: clock.epochUuid,
     snapshotCommitSeq: locked.snapshotCommitSeq,
     databaseNowMilliseconds: sessionUpdatedAtMilliseconds,
@@ -4081,6 +4116,11 @@ function capturePreparedActivation(
   PreparedStoredMutationSessionActivationV1,
   PointMutationSessionActivationV1Error
 > {
+  if (input.executionProfile !== undefined &&
+    input.executionProfile !== "durableOperations" &&
+    input.executionProfile !== "finiteRoot") {
+    return Result.fail(activationError({ reason: "invalidPreparedEvidence" }));
+  }
   const evidence = input.evidence;
   return capturePreparedCommonEvidence(
     input.deploymentId,
@@ -4088,6 +4128,7 @@ function capturePreparedActivation(
     input.evidence,
   ).pipe(Result.map(common => Object.freeze({
     ...common,
+    executionProfile: input.executionProfile ?? "durableOperations",
     evidence: Object.freeze({
       ...common.evidence,
       executionAuthorityGeneration:
@@ -4177,6 +4218,9 @@ function capturePreparedCommonEvidence(
 const capturePreparedApplicationActivation = Effect.fn(
   "ApplicationMutationSessionActivation.capture",
 )(function* (input: PreparedApplicationMutationSessionActivationV1) {
+  if (input.executionProfile !== undefined &&
+    input.executionProfile !== "durableOperations" && input.executionProfile !== "finiteRoot")
+    return yield* Effect.fail(activationError({ reason: "invalidPreparedEvidence" }));
   const claimedSelection = yield* Effect.fromResult(
     claimApplicationExecutableActiveSelection(input.activeSelection),
   );
@@ -4273,6 +4317,7 @@ const capturePreparedApplicationActivation = Effect.fn(
     activation: Object.freeze({
       deploymentId: common.deploymentId,
       scopeId: common.scopeId,
+      executionProfile: input.executionProfile ?? "durableOperations",
       evidence: Object.freeze({
         ...common.evidence,
         executionAuthorityGeneration: "application_v1" as const,

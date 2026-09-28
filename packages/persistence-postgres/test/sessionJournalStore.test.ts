@@ -192,6 +192,7 @@ const SECOND_ROW_ID = decodeAppRowIdHexV1(
 const SECOND_CREATION_TIME = decodeAppCreationTimeV1(1_725_000_000_001.25);
 
 interface ScenarioOptions {
+  readonly executionProfile?: "durableOperations" | "finiteRoot";
   readonly grantRetentionPolicy?: GrantRetentionPolicyV1;
   readonly randomUuid?: () => string;
   readonly seedFields?: unknown;
@@ -477,11 +478,11 @@ describe("C03 Postgres SessionJournalStore", () => {
           randomUuid: () => nextInfrastructureUuid(),
         },
       ),
-      pointMutationSessionActivationFixture(
+      Object.freeze({ ...pointMutationSessionActivationFixture(
         deploymentId,
         scopeId,
         { evidence: { schemaVersionId } },
-      ),
+      ), ...(options.executionProfile === undefined ? {} : { executionProfile: options.executionProfile }) }),
     );
     const randomUuid = options.randomUuid ?? (() => nextInfrastructureUuid());
     if (activation.status !== "created") {
@@ -517,6 +518,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         executionClaim: activation.executionClaim,
         snapshotToken: activation.anchor.snapshotToken,
         schemaVersionId,
+        ...(options.executionProfile === undefined ? {} : { executionProfile: options.executionProfile }),
       }),
     );
     const table = await runEffect(
@@ -803,6 +805,43 @@ describe("C03 Postgres SessionJournalStore", () => {
       [current.anchor.sessionId],
     );
     expect(ranges.rows[0]?.count).toBe(1);
+  });
+
+  it("holds Application point and index evidence until one finite root seal", async () => {
+    const current = await scenario("finite_app_point_index", {
+      executionProfile: "finiteRoot", seedFields: { name: "before" }, developerIndex: true,
+    });
+    if (current.developerIndex === null) throw new Error("Missing developer index handle");
+    const documentId = requireSeededDocumentId(current);
+    expect(await runPointOperation(current.store, current.table, {
+      kind: "get", syscallSequence: syscallSequence(1n), documentId,
+    })).toMatchObject({ kind: "completed", delivery: "executed",
+      outcome: { kind: "present", document: { name: "before" } } });
+    expect(await runPointOperation(current.store, current.table, {
+      kind: "patch", syscallSequence: syscallSequence(2n), documentId,
+      patch: { name: "after" },
+    })).toMatchObject({ kind: "completed", delivery: "executed",
+      outcome: { kind: "unit", operation: "patch" } });
+    const page = await runEffect(current.store.runIndexedQueryEffect(current.developerIndex, {
+      kind: "indexRange", syscallSequence: syscallSequence(3n), bounds: Object.freeze({}), limit: 8,
+    }));
+    expect(page).toMatchObject({ kind: "completed", delivery: "executed",
+      outcome: { kind: "indexRangePage", documents: [{ name: "after" }], isDone: true } });
+    expect(await runPointOperation(current.store, current.table, {
+      kind: "get", syscallSequence: syscallSequence(4n), documentId,
+    })).toMatchObject({ kind: "completed", outcome: { kind: "present", document: { name: "after" } } });
+    const beforeSeal = await persistence.query<{ count: number }>(
+      `select count(*)::int as count from fx_system_tx_journal_receipt where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    expect(beforeSeal.rows[0]?.count).toBe(0);
+    await runEffect(current.store.sealFiniteRootEffect(current.attempt,
+      await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }))));
+    const afterSeal = await persistence.query<{ count: number }>(
+      `select count(*)::int as count from fx_system_tx_journal_receipt where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    expect(afterSeal.rows[0]?.count).toBe(4);
   });
 
   it("orders staged inserts, patches, and deletes before applying the page limit", async () => {

@@ -7,6 +7,7 @@ import { ApplicationActivationSequenceV1Schema, CommitSyscallSequenceV1Schema, c
 import { CatalogSchemaVersionSchema } from "flarex-protocol/schema-manifest";
 import { decodeCatalogEdgeDefinitionId } from "flarex-protocol/catalog";
 import { CommitSeqSchema, decodeReplacementScopeIdV1, LegacyV1StorageGenerationSchema, projectScopeIdUuidV1, ScopeEpochSchema, ScopeIdSchema, StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
+import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 import { exactRelationCommitRowId } from "./applicationRelationSourceCommitFixture";
@@ -21,7 +22,7 @@ import { createPointCommitFinishingTransitionPortV1, createPointCommitRollbackPr
 import type { SplitScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { lockScopeClockForShareInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
-import { fxControlApplicationSchemaAuthoritiesV1, fxSystemApplicationPublicationsV1, fxSystemApplicationReadinessV1, fxSystemApplicationTaskCatalogsV1, fxSystemApplicationTaskDefinitionsV1, fxSystemApplicationRelationSemanticReadiness, fxSystemEdgeDefinitionReadiness, fxSystemScopeClocks, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournals } from "../src/schema";
+import { fxControlApplicationSchemaAuthoritiesV1, fxSystemApplicationPublicationsV1, fxSystemApplicationReadinessV1, fxSystemApplicationTaskCatalogsV1, fxSystemApplicationTaskDefinitionsV1, fxSystemApplicationRelationSemanticReadiness, fxSystemEdgeDefinitionReadiness, fxSystemScopeClocks, fxSystemTransactionJournalReceipts, fxSystemTransactionJournalRelationIncomingDependencies, fxSystemTransactionJournals } from "../src/schema";
 import { createSessionJournalStorePersistence, SessionJournalSealV1Error, SessionJournalStorageCorruptionV1Error } from "../src/sessionJournalStore";
 import { createPointMutationExecutionClaimAcquisitionV1, createPointMutationSessionActivationPersistenceV1, createPointMutationSessionAttemptLoadPersistenceV1 } from "../src/transactionSessionActivation";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
@@ -536,6 +537,257 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
       operation: "validateSelection",
       reason: "concurrentHead",
     });
+  });
+
+  it("seals finite relation pages and their positive and missing adjacency evidence together", async () => {
+    const ready = await readyExactRelationReadFixture();
+    const targetRowId = exactRelationCommitRowId(9_041);
+    const sourceDocumentId = await applyExactRelationSourceCommit(
+      ready, targetRowId, 9_042, CommitSeqSchema.make(1n),
+    );
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ready.fixture.pointCommitAuthority,
+        { leaseDurationMilliseconds: 60_000, randomUuid: uuidSequence(91, 92, 93),
+          randomExecutionClaimOwner: uuidSequence(94) },
+      ),
+      pointMutationSessionActivationFixture(
+        ready.fixture.deploymentId,
+        decodeReplacementScopeIdV1(ready.readiness.scopeId),
+        { executionProfile: "finiteRoot", evidence: {
+          schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+        } },
+      ),
+    );
+    if (activation.status !== "created") throw new Error("Expected a finite relation attempt.");
+    expect(activation.anchor.executionProfile).toBe("finiteRoot");
+    const store = createSessionJournalStorePersistence(
+      ready.fixture.pointCommitAuthority,
+      { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        applicationRelations: ready.reads },
+    );
+    const attempt = await runEffect(store.openAttemptEffect({
+      selector: selectorFromRelationAnchor(activation.anchor),
+      executionClaim: activation.executionClaim,
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+      executionProfile: "finiteRoot",
+    }));
+    const relation = await runEffect(store.resolveApplicationRelationReadEffect(
+      attempt, ready.capability,
+    ));
+    const positive = await runEffect(store.runApplicationRelationIncomingReadEffect(
+      relation, { kind: "relationIncoming", syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        targetDocumentId: appDocumentIdV1FromRowIdentity({
+          tableId: ready.binding.targetTableId, rowId: targetRowId,
+        }), limit: 2 },
+    ));
+    expect(positive).toMatchObject({ kind: "completed", delivery: "executed",
+      outcome: { kind: "relationIncomingPage", exhausted: true,
+        items: [{ sourceDocumentId }] } });
+    const missingRowId = relationBuildRowId(9_043);
+    const missing = await runEffect(store.runApplicationRelationIncomingReadEffect(
+      relation, { kind: "relationIncoming", syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+        targetDocumentId: appDocumentIdV1FromRowIdentity({
+          tableId: ready.binding.targetTableId, rowId: missingRowId,
+        }), limit: 2 },
+    ));
+    expect(missing).toMatchObject({ kind: "completed", delivery: "executed",
+      outcome: { kind: "relationIncomingPage", items: [], exhausted: true } });
+    const receiptsBeforeSeal = await ready.fixture.persistence.drizzle.select()
+      .from(fxSystemTransactionJournalReceipts).where(eq(
+        fxSystemTransactionJournalReceipts.sessionId, activation.anchor.sessionId,
+      ));
+    const dependenciesBeforeSeal = await ready.fixture.persistence.drizzle.select()
+      .from(fxSystemTransactionJournalRelationIncomingDependencies).where(eq(
+        fxSystemTransactionJournalRelationIncomingDependencies.sessionId,
+        activation.anchor.sessionId,
+      ));
+    expect(receiptsBeforeSeal).toHaveLength(0);
+    expect(dependenciesBeforeSeal).toHaveLength(0);
+
+    const envelope = await runEffect(store.sealFiniteRootEffect(attempt,
+      await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }))));
+    expect(envelope.envelope).toMatchObject({ finalSyscallSequence: 2n,
+      journal: { kind: "storedForSessionAttempt" } });
+    const receiptsAfterSeal = await ready.fixture.persistence.drizzle.select()
+      .from(fxSystemTransactionJournalReceipts).where(eq(
+        fxSystemTransactionJournalReceipts.sessionId, activation.anchor.sessionId,
+      ));
+    const dependenciesAfterSeal = await ready.fixture.persistence.drizzle.select()
+      .from(fxSystemTransactionJournalRelationIncomingDependencies).where(eq(
+        fxSystemTransactionJournalRelationIncomingDependencies.sessionId,
+        activation.anchor.sessionId,
+      ));
+    expect(receiptsAfterSeal).toHaveLength(2);
+    expect(dependenciesAfterSeal).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetRowId: appRowIdHexV1ToBytes(targetRowId),
+        observedAdjacencyVersion: 1n }),
+      expect.objectContaining({ targetRowId: appRowIdHexV1ToBytes(missingRowId),
+        observedAdjacencyVersion: 0n }),
+    ]));
+    expect(dependenciesAfterSeal).toHaveLength(2);
+
+    const authority = relationAuthorityFromAnchor(activation.anchor,
+      ready.fixture.relation.binding.schemaVersionId, activation.executionClaim);
+    const loader = createStoredAttemptEvidenceLoaderV1(ready.fixture.pointCommitAuthority);
+    const running = await runEffect(loader.loadEffect(authority));
+    if (running.kind !== "loaded") throw new Error("Expected sealed finite relation evidence.");
+    await runEffect(createPointCommitFinishingTransitionPortV1(
+      ready.fixture.pointCommitAuthority,
+    ).enterFinishing(await pointCommitFinishingCommandFromStoredAttemptV1(
+      authority, running.evidence,
+    )));
+    const finishing = await runEffect(loader.loadFinishingEffect(
+      selectorFromRelationAnchor(activation.anchor),
+    ));
+    if (finishing.kind !== "loaded") throw new Error("Expected finite finishing evidence.");
+    const command = await pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(
+      authority, finishing.evidence,
+    );
+    expect(command.relationDependencies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "appRelationIncoming", targetRowId,
+        observedAdjacencyVersion: 1n }),
+      expect.objectContaining({ kind: "appRelationIncoming", targetRowId: missingRowId,
+        observedAdjacencyVersion: 0n }),
+    ]));
+    expect(command.relationDependencies).toHaveLength(2);
+
+    const older = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ready.fixture.pointCommitAuthority,
+        { leaseDurationMilliseconds: 60_000, randomUuid: uuidSequence(95, 96, 97),
+          randomExecutionClaimOwner: uuidSequence(98) },
+      ),
+      pointMutationSessionActivationFixture(
+        ready.fixture.deploymentId,
+        decodeReplacementScopeIdV1(ready.readiness.scopeId),
+        { executionProfile: "finiteRoot", evidence: {
+          schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+          requestKey: TransactionRequestKeyV1Schema.make("request:finite-relation-conflict"),
+        } },
+      ),
+    );
+    if (older.status !== "created") throw new Error("Expected an older finite snapshot.");
+    expect(older.anchor.snapshotToken.commitSeq).toBe(1n);
+    const olderAttempt = await runEffect(store.openAttemptEffect({
+      selector: selectorFromRelationAnchor(older.anchor),
+      executionClaim: older.executionClaim,
+      snapshotToken: older.anchor.snapshotToken,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+      executionProfile: "finiteRoot",
+    }));
+    const olderRelation = await runEffect(store.resolveApplicationRelationReadEffect(
+      olderAttempt, ready.capability,
+    ));
+    expect(await runEffect(store.runApplicationRelationIncomingReadEffect(
+      olderRelation, { kind: "relationIncoming", syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        targetDocumentId: appDocumentIdV1FromRowIdentity({
+          tableId: ready.binding.targetTableId, rowId: missingRowId,
+        }), limit: 2 },
+    ))).toMatchObject({ kind: "completed", delivery: "executed",
+      outcome: { kind: "relationIncomingPage", items: [], exhausted: true } });
+    const secondSourceDocumentId = await applyExactRelationSourceCommit(
+      ready, targetRowId, 9_044, CommitSeqSchema.make(2n), false,
+    );
+    const conflictOperation = { kind: "relationIncoming" as const,
+      syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+      targetDocumentId: appDocumentIdV1FromRowIdentity({
+        tableId: ready.binding.targetTableId, rowId: targetRowId,
+      }), limit: 2 };
+    const conflicted = await runEffect(store.runApplicationRelationIncomingReadEffect(
+      olderRelation, conflictOperation,
+    ));
+    expect(conflicted).toMatchObject({ kind: "conflicted", delivery: "executed",
+      conflict: { kind: "relationConflict", edgeDefinitionId: ready.binding.edgeDefinitionId,
+        targetRowId, expectedAdjacencyVersion: 1n, actualAdjacencyVersion: 2n,
+        snapshotCommitSeq: 1n } });
+    const conflictReceipts = await ready.fixture.persistence.drizzle.select()
+      .from(fxSystemTransactionJournalReceipts).where(eq(
+        fxSystemTransactionJournalReceipts.sessionId, older.anchor.sessionId,
+      )).orderBy(fxSystemTransactionJournalReceipts.lastSyscallSequence);
+    expect(conflictReceipts).toHaveLength(2);
+    expect(conflictReceipts.map(receipt => receipt.outcomeKind))
+      .toEqual(["relationIncomingPage", "relationConflict"]);
+    expect(await ready.fixture.persistence.drizzle.select()
+      .from(fxSystemTransactionJournalRelationIncomingDependencies).where(eq(
+        fxSystemTransactionJournalRelationIncomingDependencies.sessionId,
+        older.anchor.sessionId,
+      ))).toHaveLength(2);
+    expect(await ready.fixture.persistence.drizzle.select({
+      state: fxSystemTransactionJournals.state,
+      lastSyscallSequence: fxSystemTransactionJournals.lastSyscallSequence,
+      executionProfile: fxSystemTransactionJournals.executionProfile,
+    }).from(fxSystemTransactionJournals).where(eq(
+      fxSystemTransactionJournals.sessionId, older.anchor.sessionId,
+    ))).toEqual([{ state: "relation_conflicted", lastSyscallSequence: 2n,
+      executionProfile: "finiteRoot" }]);
+
+    // Reconstruct the conflict solely from committed evidence, then replace
+    // the whole finite root. The old fence cannot resume its tentative calls.
+    const conflictAuthority = Object.freeze({
+      ...relationAuthorityFromAnchor(older.anchor,
+        ready.fixture.relation.binding.schemaVersionId,
+        older.executionClaim),
+      scopeUuid: projectScopeIdUuidV1(older.anchor.scopeId).scopeUuid,
+      executionClaim: older.executionClaim,
+      kind: "claimedRelationConflict" as const,
+    });
+    const conflictLoader = createStoredOccExecutionEvidenceLoaderV1(
+      ready.fixture.pointCommitAuthority);
+    const storedConflict = await runEffect(conflictLoader.loadEffect(conflictAuthority));
+    if (storedConflict.kind !== "loaded") throw new Error("Expected stored finite conflict evidence.");
+    const replacement = createPointMutationAttemptReplacementPortV1(
+      ready.fixture.pointCommitAuthority, {
+        leaseDurationMilliseconds: 60_000,
+        randomExecutionClaimOwner: uuidSequence(99, 100),
+      });
+    const recovered = await runEffect(replacement.recoverRunningRelationConflict(
+      runningRelationConflictRecoveryCommandFromStoredOccExecutionV1(
+        conflictAuthority, storedConflict.evidence),
+    ));
+    expect(recovered.conflict).toMatchObject({
+      expectedAdjacencyVersion: 1n, actualAdjacencyVersion: 2n,
+    });
+    const replaced = await runEffect(replacement.replaceRunningRelationConflict(
+      runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1(
+        conflictAuthority, storedConflict.evidence, recovered),
+    ));
+    if (replaced.kind !== "replaced") throw new Error("Expected finite root replacement.");
+    const oldFenceRead = await runEffectFailure(store.runApplicationRelationIncomingReadEffect(
+      olderRelation, conflictOperation));
+    expect(oldFenceRead).toBeDefined();
+    const freshAttempt = await runEffect(createPointMutationSessionAttemptLoadPersistenceV1(
+      ready.fixture.pointCommitAuthority).loadEffect({
+        deploymentId: older.anchor.deploymentId,
+        scopeId: older.anchor.scopeId,
+        sessionId: older.anchor.sessionId,
+        attemptFence: replaced.attemptFence,
+      }));
+    if (freshAttempt.status !== "loaded") throw new Error("Expected replacement finite attempt.");
+    expect(freshAttempt.anchor.executionProfile).toBe("finiteRoot");
+    const retryStore = createSessionJournalStorePersistence(
+      ready.fixture.pointCommitAuthority,
+      { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        applicationRelations: ready.reads },
+    );
+    const retryAttempt = await runEffect(retryStore.openAttemptEffect({
+      selector: selectorFromRelationAnchor(freshAttempt.anchor),
+      executionClaim: replaced.executionClaim,
+      snapshotToken: freshAttempt.anchor.snapshotToken,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+      executionProfile: "finiteRoot",
+    }));
+    const retryRelation = await runEffect(retryStore.resolveApplicationRelationReadEffect(
+      retryAttempt, ready.capability));
+    expect(await runEffect(retryStore.runApplicationRelationIncomingReadEffect(
+      retryRelation, { ...conflictOperation,
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n) },
+    ))).toMatchObject({ kind: "completed", outcome: {
+      kind: "relationIncomingPage", items: [
+        { sourceDocumentId }, { sourceDocumentId: secondSourceDocumentId },
+      ], exhausted: true,
+    } });
   });
 
   it("reads through staged insert, retarget, and delete overlays", async () => {

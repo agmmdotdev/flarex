@@ -642,6 +642,11 @@ describe("O03-B1 point-mutation session activation", () => {
 
   it("acquires only an expired pristine claim and advances its fence exactly once", async () => {
     const current = await activateClaimScenario("claim_takeover");
+    expect(current.anchor.executionProfile).toBe("durableOperations");
+    expect((await persistence.query<{ execution_profile: string }>(
+      "select execution_profile from fx_system_tx_journal where session_id = $1",
+      [current.anchor.sessionId])).rows)
+      .toEqual([{ execution_profile: "durableOperations" }]);
     const selector = selectorFromAnchor(current.anchor);
     const busy = await runEffect(
       executionClaimAcquisition("42000000-0000-4000-8000-000000008001")
@@ -682,6 +687,37 @@ describe("O03-B1 point-mutation session activation", () => {
     )).resolves.toEqual({
       kind: "busy",
       observation: acquired.observation,
+    });
+  });
+
+  it("pins finite roots durably and forbids same-fence execution after claim loss", async () => {
+    const context = await provisionContext("finite_root_claim_takeover");
+    const input = pointMutationSessionActivationFixture(context.deploymentId, context.scopeId,
+      { executionProfile: "finiteRoot" });
+    const activation = activationPersistence();
+    const current = await activatePointMutationSession(activation, input);
+    expect(current.status).toBe("created");
+    if (current.status !== "created") throw new Error("Expected a finite root activation");
+    expect(current.anchor.executionProfile).toBe("finiteRoot");
+    const stored = await persistence.query<{ execution_profile: string }>(
+      "select execution_profile from fx_system_tx_journal where session_id = $1",
+      [current.anchor.sessionId]);
+    expect(stored.rows).toEqual([{ execution_profile: "finiteRoot" }]);
+    await expect(persistence.query(
+      "update fx_system_tx_journal set execution_profile = 'durableOperations' where session_id = $1",
+      [current.anchor.sessionId])).rejects.toThrow();
+    await expect(activatePointMutationSession(activation,
+      { ...input, executionProfile: "durableOperations" })).rejects.toMatchObject({
+        issue: { reason: "requestKeyConflict" },
+      });
+
+    await expireExecutionClaim(current.anchor.sessionId);
+    const acquired = await runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008004")
+        .acquireEffect(selectorFromAnchor(current.anchor)));
+    expect(acquired).toMatchObject({
+      kind: "acquired", mode: "abortOnly", reason: "dirtyOpen",
+      observation: { claimFence: 2n },
     });
   });
 

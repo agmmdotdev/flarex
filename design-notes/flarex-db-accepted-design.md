@@ -77,14 +77,17 @@ transaction, including replay and recovery. Reuse bounded immutable preparation
 under explicit host lifetime; always authenticate live scope, placement, binding,
 generation, revocation and readiness. Preparation is not an admission verdict.
 
-An unchanged readiness root cannot replace the selected-dependency checks under
-the current writer and privileged-repair contract. Ordinary framework history
-protection does not establish a dependency-complete invalidation protocol for all
-Application catalog/publication/build writers or privileged edits. Existing
-unchanged-digest tamper refusals stay synchronous; none moves to an audit. Retain
-the corresponding selected-evidence read/hash cost without claiming constant-size
-warm admission. A protected-root replacement requires a separately enforced writer
-contract and an explicit new integrity-detection boundary.
+The [mixed-core 08 protected cutover](../roadmaps/mixed-mutation-core/08-fundamental-latency-redesign-preflight.md)
+permits one narrow exception to repeated structural reads and hashes: the ten
+legacy target Application metadata tables under an authenticated nonowner runtime,
+same-transaction invalidating triggers, preparation epoch capture, and a final
+nonblocking epoch guard in the accepting SQL transaction. A consumer without
+that final guard retains full selected checks. Control catalogs, physical facts,
+framework evidence and the other named live checks remain freshly verified.
+An unchanged readiness root alone cannot replace those checks, and privileged
+owner or superuser repair must quiesce protected preparation. The protected
+epoch does not certify privileged edits, other tables, or a joint control and
+target database snapshot.
 
 ### Overall Direction
 
@@ -2097,6 +2100,26 @@ single bounded SQL transaction. The private Application and Product mixed
 sandbox OCC profile is separately admitted under its focused preflight; it is
 not the default framework migration. Consolidate actual
 duplication and retire what it displaces under the replacement policy.
+The private finite mixed root persists an immutable `finiteRoot` execution
+profile on its journal root; existing and ordinary roots default to
+`durableOperations`. Replay must match that profile. After host or claim loss,
+even a row-pristine finite root is abort-only and can be rerun only as a new
+attempt under a new fence, because child results may have been tentative in
+the lost evaluator.
+
+The first prepared metadata reuse is limited to the ten legacy Application
+target tables named in the mixed-core 08 preflight. Its ordinary runtime uses
+an authenticated nonowner PostgreSQL login; same-transaction statement
+triggers invalidate one protected target-schema epoch for all ten tables.
+The accepting transaction guards that epoch at its tail with a nonblocking
+row lock and fails closed on contention or change. Control catalogs, physical
+catalog facts, framework evidence, coverage, clocks, heads, revocation, claims,
+and journal position remain freshly checked. This profile makes no joint
+control/target generation claim and no full-system metadata certificate.
+Owner or superuser repair and structural DDL are separate privileged activity
+that must quiesce protected preparation; they cannot be certified by runtime
+grants or a compact epoch alone. A private consumer without the final guard
+uses its complete live verification.
 The [framework execution profiles](../roadmaps/flarexdb-framework-integration/preflight/14-transaction-execution-profiles.md)
 and [shared-owner preflight](./flarexdb-commerce-occ-migration-preflight.md)
 own the detailed distinction and gates.

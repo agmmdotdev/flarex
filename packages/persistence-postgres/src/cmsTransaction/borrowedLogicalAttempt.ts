@@ -8,7 +8,7 @@ import { LogicalDocumentSourceAdmissionError, withLogicalDocumentAttemptAdmissio
   "../logicalDocuments/documentAdmission";
 import { LogicalParticipantAdmissionError, type LogicalParticipantAttemptAdmission } from
   "../logicalDocuments/participantAdmission";
-import type { LogicalDocumentReadTransaction, LogicalPendingDocumentSeed } from "../logicalDocuments/model";
+import type { LogicalDocumentBorrowView, LogicalDocumentReadTransaction } from "../logicalDocuments/model";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
 import { makeCmsCommandContext } from "./context";
 import type { CmsCommandContext } from "./host";
@@ -23,13 +23,11 @@ const projectCheckedReadFailure = (cause: unknown): CmsTransactionError =>
     cause instanceof LogicalParticipantAdmissionError || cause instanceof LogicalDocumentSourceAdmissionError
       ? projectSourceFailure(cause) : cmsError("resourceFailure", cause);
 
-export interface BorrowedCmsAttemptInput {
+export type BorrowedCmsAttemptInput = Readonly<{
   readonly admission: LogicalParticipantAttemptAdmission;
   readonly attempt: SessionJournalAttempt;
   readonly method: string;
-  /** The journal owns this pending point overlay and all durable receipts. */
-  readonly pendingRows: readonly LogicalPendingDocumentSeed[];
-}
+}> & LogicalDocumentBorrowView;
 
 /** One Payload Local API invocation borrows the root's historical view. All
  * checked reads use short transactions; Payload callbacks see no open SQL
@@ -53,7 +51,10 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
         const working = yield* makeLogicalDocumentWorkingSet({
           readTransaction,
           scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
-          pendingRows: input.pendingRows, lifetime, requireAdmission,
+          ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
+            { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
+              rootAttemptFence: input.rootAttemptFence }),
+          lifetime, requireAdmission,
           tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName })),
           limits: { pageRows: cmsLimits.pageRows, identities: cmsLimits.identities,
             documentBytes: cmsLimits.documentBytes },

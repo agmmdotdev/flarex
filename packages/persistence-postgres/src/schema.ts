@@ -2383,6 +2383,23 @@ export const fxSystemRetainedHistoryScheduler = pgTable(
   ],
 );
 
+/** One installation-wide immutable-metadata invalidation root. Only guarded
+ * metadata statements advance it; ordinary business writes never touch it. */
+export const fxSystemPreparedMetadataEpoch = pgTable(
+  "fx_system_prepared_metadata_epoch",
+  {
+    singletonId: integer("singleton_id").primaryKey(),
+    databaseName: text("database_name").notNull(),
+    namespaceOid: bigint("namespace_oid", { mode: "bigint" }).notNull(),
+    incarnation: uuid("incarnation").notNull(),
+    generation: bigint("generation", { mode: "bigint" }).notNull(),
+  },
+  (table) => [
+    check("fx_system_prepared_metadata_singleton_check", sql`${table.singletonId} = 1`),
+    check("fx_system_prepared_metadata_generation_check", sql`${table.generation} >= 1`),
+  ],
+);
+
 /**
  * Located request-level authority for one replacement point-mutation session.
  * O03-B, not this schema gate, owns creation and fenced lifecycle operations.
@@ -2755,6 +2772,10 @@ export const fxSystemTransactionJournals = pgTable(
       .$type<TransactionAttemptFence>()
       .notNull(),
     journalFormat: text("journal_format").$type<typeof SESSION_JOURNAL_FORMAT>().notNull(),
+    executionProfile: text("execution_profile")
+      .$type<"durableOperations" | "finiteRoot">()
+      .notNull()
+      .default("durableOperations"),
     state: text("state")
       .$type<"open" | "sealed" | "failed" | "operation_invoking" | "operation_failed" | "relation_conflicted">()
       .notNull(),
@@ -2827,6 +2848,7 @@ export const fxSystemTransactionJournals = pgTable(
       sql`${table.attemptFence} >= 1`,
     ),
     check("fx_system_tx_journal_format_check", sql`${table.journalFormat} = 'flarex.session-journal'`),
+    check("fx_system_tx_journal_execution_profile_check", sql`${table.executionProfile} in ('durableOperations', 'finiteRoot')`),
     check(
       "fx_system_tx_journal_state_check",
       sql`${table.state} in ('open', 'sealed', 'failed', 'operation_invoking', 'operation_failed', 'relation_conflicted')`,

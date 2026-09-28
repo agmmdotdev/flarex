@@ -1,8 +1,10 @@
 import { openPreparedHostTestRuntime, closePreparedHostTestRuntime } from "./preparedHostRuntimeTestSupport";
+import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { sql } from "drizzle-orm";
+import { Effect } from "effect";
 import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { afterAll, beforeAll } from "vitest";
 import { closeFrameworkMigrationFixture, assertFrameworkMigrationFixtureIdle } from "./frameworkMigrationPostgresFixture";
@@ -18,6 +20,7 @@ import {
 import {
   withHistoricalApplicationAnalysisMigrations,
 } from "../src/systemTestHistoricalApplicationAnalysisMigrations";
+import { prepareProtectedMetadata, type ProtectedMetadataPreparation } from "../src/preparedMetadataEpoch";
 
 export const postgresUrl = trimToNonBlankOrNull(
   process.env.FLAREX_POSTGRES_DATABASE_URL,
@@ -507,6 +510,8 @@ export async function withTemporaryPostgresPersistencePair(
 
 interface FileScopedPostgresFixture {
   readonly persistence: PostgresFlarexPersistence;
+  readonly schemaName: string;
+  readonly migrationsSchema: string;
   readonly reset: () => Promise<void>;
   readonly dispose: () => Promise<void>;
 }
@@ -556,6 +561,8 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
 
   return {
     persistence: migratedPersistence,
+    schemaName,
+    migrationsSchema,
     async reset(): Promise<void> {
       if (disposed) throw new Error("File-scoped Postgres fixture is closed.");
       const pool = migratedPersistence.pool;
@@ -595,6 +602,10 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
           await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} disable trigger fx_framework_history_no_truncate`));
         }
         await transaction.execute(sql.raw(`truncate table ${qualifiedTables.join(", ")} restart identity cascade`));
+        await transaction.execute(sql.raw(`insert into ${quoteIdentifier(schemaName)}.fx_system_prepared_metadata_epoch
+          (singleton_id, database_name, namespace_oid, incarnation, generation)
+          select 1, current_database(), n.oid::bigint, gen_random_uuid(), 1
+          from pg_catalog.pg_namespace n where n.nspname = '${schemaName}'`));
         for (const { tablename } of guarded.rows) {
           await transaction.execute(sql.raw(`alter table ${quoteIdentifier(schemaName)}.${quoteIdentifier(tablename)} enable trigger fx_framework_history_no_truncate`));
         }
@@ -630,6 +641,81 @@ export async function createFileScopedPostgresFixture(): Promise<FileScopedPostg
   };
 }
 
+/** A disposable owner-migrated schema with a separate authenticated runtime
+ * login. The runtime credential owns no schema or table and cannot switch to
+ * the migration owner. Tests use its persistence for ordinary core APIs. */
+export async function createProtectedFileScopedPostgresFixture(): Promise<Readonly<{
+  persistence: PostgresFlarexPersistence;
+  protectedMetadata: ProtectedMetadataPreparation;
+  schemaName: string;
+  dispose: () => Promise<void>;
+}>> {
+  const provisionUrl = trimToNonBlankOrNull(process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL);
+  if (provisionUrl === null) throw new Error("FLAREX_POSTGRES_PROVISIONING_DATABASE_URL is required.");
+  const owner = await createFileScopedPostgresFixture();
+  const provision = new Pool({ connectionString: provisionUrl });
+  const roleName = temporaryIdentifier("flarex_runtime");
+  const password = randomBytes(24).toString("base64url");
+  let roleCreated = false;
+  let runtime: PostgresFlarexPersistence | undefined;
+  try {
+    await provision.query(`create role ${quoteIdentifier(roleName)} login password ${quoteLiteral(password)}
+      nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls`);
+    roleCreated = true;
+    await owner.persistence.pool.query(`grant usage on schema ${quoteIdentifier(owner.schemaName)} to ${quoteIdentifier(roleName)}`);
+    await owner.persistence.pool.query(`grant select, insert, update, delete on all tables in schema
+      ${quoteIdentifier(owner.schemaName)} to ${quoteIdentifier(roleName)}`);
+    await owner.persistence.pool.query(`grant usage, select on all sequences in schema
+      ${quoteIdentifier(owner.schemaName)} to ${quoteIdentifier(roleName)}`);
+    await owner.persistence.pool.query(`revoke all on ${quoteIdentifier(owner.schemaName)}.fx_system_prepared_metadata_epoch
+      from ${quoteIdentifier(roleName)}`);
+    await owner.persistence.pool.query(`grant select on ${quoteIdentifier(owner.schemaName)}.fx_system_prepared_metadata_epoch
+      to ${quoteIdentifier(roleName)}`);
+    await owner.persistence.pool.query(`grant execute on function ${quoteIdentifier(owner.schemaName)}.
+      fx_lock_prepared_metadata_epoch() to ${quoteIdentifier(roleName)}`);
+    const runtimeUrl = new URL(requiredPostgresUrl());
+    runtimeUrl.username = roleName;
+    runtimeUrl.password = password;
+    runtime = await createPostgresPersistence({
+      connectionString: runtimeUrl.toString(),
+      migrationsSchema: owner.migrationsSchema,
+      migrationPool: owner.persistence.pool,
+      poolConfig: { options: `-c search_path=${owner.schemaName}`, application_name: `${roleName}_test` },
+    });
+    await openPreparedHostTestRuntime(runtime.drizzle);
+    const protectedMetadata = await Effect.runPromise(prepareProtectedMetadata(runtime.drizzle));
+    const activeRuntime = runtime;
+    let disposed = false;
+    return Object.freeze({ persistence: activeRuntime, protectedMetadata, schemaName: owner.schemaName,
+      async dispose() {
+        if (disposed) return;
+        disposed = true;
+        const errors: unknown[] = [];
+        await recordCleanupError(errors, () => closePreparedHostTestRuntime(activeRuntime.drizzle));
+        await recordCleanupError(errors, () => closeFrameworkMigrationFixture(activeRuntime));
+        await recordCleanupError(errors, () => activeRuntime.close());
+        await recordCleanupError(errors, () => owner.dispose());
+        await recordCleanupError(errors, () => provision.query(`drop role ${quoteIdentifier(roleName)}`));
+        await recordCleanupError(errors, () => provision.end());
+        if (errors.length > 0) throw new Error(`Protected fixture cleanup failed: ${errors.map(errorMessage).join("; ")}`);
+      } });
+  } catch (error) {
+    const cleanupErrors: unknown[] = [];
+    if (runtime !== undefined) {
+      const failedRuntime = runtime;
+      await recordCleanupError(cleanupErrors, () => closePreparedHostTestRuntime(failedRuntime.drizzle));
+      await recordCleanupError(cleanupErrors, () => failedRuntime.close());
+    }
+    await recordCleanupError(cleanupErrors, () => owner.dispose());
+    if (roleCreated) await recordCleanupError(cleanupErrors,
+      () => provision.query(`drop role ${quoteIdentifier(roleName)}`));
+    await recordCleanupError(cleanupErrors, () => provision.end());
+    if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors],
+      "Protected fixture creation and cleanup failed");
+    throw error;
+  }
+}
+
 function requiredPostgresUrl(): string {
   if (postgresUrl === null) {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
@@ -643,6 +729,10 @@ function temporaryIdentifier(prefix: string): string {
 
 function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
+}
+
+function quoteLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 async function recordCleanupError(

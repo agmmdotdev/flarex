@@ -173,6 +173,43 @@ function verifyWorkflowGraph(value: unknown, productId: string, tagId: string,
     ...(productTitle === undefined ? {} : { title: productTitle }) });
 }
 
+const measuredSourcePaths = [
+  "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts",
+  "packages/flarex-backend/test/support/mixedMutationProductFixture.ts",
+  "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts",
+  "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts",
+  "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
+  "packages/executor/src/pointMutationJournal.ts",
+  "packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts",
+  "packages/persistence-postgres/drizzle/0119_protected_metadata_epoch.sql",
+  "packages/persistence-postgres/src/appRows.ts",
+  "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts",
+  "packages/persistence-postgres/src/applicationActivation.ts",
+  "packages/persistence-postgres/src/applicationReadiness.ts",
+  "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+  "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+  "packages/persistence-postgres/src/commerceTransaction/borrowedWorkflowAttempt.ts",
+  "packages/persistence-postgres/src/cmsTransaction/borrowedLogicalAttempt.ts",
+  "packages/persistence-postgres/src/drizzleSchema.ts",
+  "packages/persistence-postgres/src/indexBuildStates.ts",
+  "packages/persistence-postgres/src/logicalDocuments/detachChanges.ts",
+  "packages/persistence-postgres/src/logicalDocuments/model.ts",
+  "packages/persistence-postgres/src/logicalDocuments/rootEvaluator.ts",
+  "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+  "packages/persistence-postgres/src/logicalSearchBuild.ts",
+  "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+  "packages/persistence-postgres/src/pointCommitTransaction.ts",
+  "packages/persistence-postgres/src/postgres.ts",
+  "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+  "packages/persistence-postgres/src/schema.ts",
+  "packages/persistence-postgres/src/sessionJournalStore.ts",
+  "packages/persistence-postgres/src/storedCommitAuthority/materialization.ts",
+  "packages/persistence-postgres/src/storedCommitAuthority/postgresLoader.ts",
+  "packages/persistence-postgres/src/transactionSessionActivation.ts",
+  "packages/persistence-postgres/src/transactionSessionAttemptFacet.ts",
+  "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts",
+] as const;
+
 async function environment(target: PostgresFlarexPersistence): Promise<Readonly<Record<string, unknown> & {
   sourceHashes: Readonly<Record<string, string>>;
 }>> {
@@ -187,24 +224,7 @@ async function environment(target: PostgresFlarexPersistence): Promise<Readonly<
       (select rolsuper from pg_roles where rolname = current_user) as superuser`)).rows[0];
   if (settings === undefined || settings.superuser || settings.fsync !== "on" ||
     settings.synchronousCommit !== "on") throw new Error("Non-comparable PostgreSQL performance host");
-  const sourcePaths = [
-    "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts",
-    "packages/flarex-backend/test/support/mixedMutationProductFixture.ts",
-    "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts",
-    "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts",
-    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
-    "packages/persistence-postgres/src/appRows.ts",
-    "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts",
-    "packages/persistence-postgres/src/applicationActivation.ts",
-    "packages/persistence-postgres/src/applicationReadiness.ts",
-    "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
-    "packages/persistence-postgres/src/indexBuildStates.ts",
-    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
-    "packages/persistence-postgres/src/logicalSearchBuild.ts",
-    "packages/persistence-postgres/src/logicalStorageReadiness.ts",
-    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts",
-  ];
-  const sourceHashes = Object.fromEntries(await Promise.all(sourcePaths.map(async path =>
+  const sourceHashes = Object.fromEntries(await Promise.all(measuredSourcePaths.map(async path =>
     [path, createHash("sha256").update(await readFile(join(root, path))).digest("hex")])));
   const driver = createRequire(import.meta.url)("pg/package.json") as Readonly<{ version: string }>;
   return { postgres: settings, node: process.version, pgDriver: driver.version,
@@ -272,11 +292,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
     const diff = execFileSync("git", ["diff", "--binary", "HEAD", "--"], { cwd: root,
       windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
     const workingFingerprint = createHash("sha256").update(diff);
-    for (const path of ["packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts",
-      "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts",
-      "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts",
-      "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
-      "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts"]) {
+    for (const path of measuredSourcePaths) {
       workingFingerprint.update(path).update(await readFile(join(root, path)));
     }
     let measuredEnvironment: Readonly<Record<string, unknown>> = {};

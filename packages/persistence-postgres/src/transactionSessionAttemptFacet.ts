@@ -40,7 +40,10 @@ import type {
 } from "./schema";
 
 type SnapshotLeaseInsertV1 = typeof fxSystemSnapshotLeases.$inferInsert;
-type JournalRootInsertV1 = typeof fxSystemTransactionJournals.$inferInsert;
+type JournalRootInsertV1 =
+  Omit<typeof fxSystemTransactionJournals.$inferInsert, "executionProfile"> & {
+    readonly executionProfile: "durableOperations" | "finiteRoot";
+  };
 type JournalRootRowV1 = typeof fxSystemTransactionJournals.$inferSelect;
 
 const decodeAppCreationTimeV1Result = Schema.decodeUnknownResult(
@@ -100,6 +103,7 @@ export interface FreshTransactionAttemptFacetInputV1 {
   readonly scopeUuid: ScopeUuidV1;
   readonly sessionId: TransactionSessionIdV1;
   readonly attemptFence: TransactionAttemptFence;
+  readonly executionProfile: "durableOperations" | "finiteRoot";
   readonly snapshotEpochUuid: ScopeEpochUuidV1;
   readonly snapshotCommitSeq: CommitSeq;
   readonly databaseNowMilliseconds: number;
@@ -185,6 +189,7 @@ export function buildFreshTransactionAttemptFacetV1(
           sessionId: input.sessionId,
           attemptFence: input.attemptFence,
           journalFormat: SESSION_JOURNAL_FORMAT,
+          executionProfile: input.executionProfile,
           state: "open" as const,
           lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
           receiptEvidenceBytes: 0,
@@ -226,6 +231,7 @@ export function isPristineFreshTransactionAttemptJournalRootV1(
     root.sessionId === expected.sessionId &&
     root.attemptFence === expected.attemptFence &&
     root.journalFormat === expected.journalFormat &&
+    root.executionProfile === expected.executionProfile &&
     root.state === "open" &&
     root.lastSyscallSequence === 0n &&
     root.receiptEvidenceBytes === 0 &&

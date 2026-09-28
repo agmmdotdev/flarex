@@ -62,6 +62,7 @@ export const TEST_GRANT_RETENTION_POLICY_V1: GrantRetentionPolicyV1 =
 export interface ActivationFixtureOverrides {
   readonly deploymentId?: TransactionGrantDeploymentIdV1;
   readonly scopeId?: ReplacementScopeIdV1;
+  readonly executionProfile?: NonNullable<PreparedPointMutationSessionActivationV1["executionProfile"]>;
   readonly evidence?: Partial<ActivationEvidence>;
 }
 
@@ -127,6 +128,7 @@ export function pointMutationSessionActivationFixture(
   return Object.freeze({
     deploymentId: overrides.deploymentId ?? deploymentId,
     scopeId: overrides.scopeId ?? scopeId,
+    ...(overrides.executionProfile === undefined ? {} : { executionProfile: overrides.executionProfile }),
     evidence: Object.freeze({
       packageId:
         evidence.packageId ??

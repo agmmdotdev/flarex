@@ -211,6 +211,7 @@ export interface MixedMutationProductFixture {
   readonly store: ReturnType<typeof createSessionJournalStorePersistence>;
   readonly executionClaims: ReturnType<typeof createPointMutationExecutionClaimVaultV1>;
   readonly attempt: Effect.Success<ReturnType<Journal["openAttempt"]>>;
+  readonly reopenJournalAttempt: () => ReturnType<Journal["openAttempt"]>;
   readonly bound: BoundJournal;
   readonly runAdmitted: NonNullable<BoundJournal["runAdmittedOperation"]>;
   readonly selector: ReturnType<typeof decodePointMutationSessionAttemptSelectorV1>;
@@ -220,6 +221,9 @@ export interface MixedMutationProductFixture {
   readonly pgTransactionObservations: Array<Readonly<{
     targetBackends: number; openTransactions: number;
   }>>;
+  readonly observePgNativeSqlTransactions: () => Promise<Readonly<{
+    targetBackends: number; openTransactions: number;
+  }> | undefined>;
   readonly standalonePayloadPgConnections: Array<Readonly<{
     primaryTargetPid: number; standalonePid: number;
   }>>;
@@ -249,6 +253,9 @@ export interface MixedMutationProductFixture {
   readonly makePublisher: () => ReturnType<typeof createPointCommitPublisherPortV1>;
   readonly preparePublication: (returnedValue: Parameters<Journal["sealSuccessfulResult"]>[1],
     publisherOverride?: ReturnType<typeof createPointCommitPublisherPortV1>) =>
+    Promise<ReturnType<ReturnType<typeof createStoredPointCommitExecutorV1>["publishPointCommit"]>>;
+  readonly prepareSealedPublication: (envelope: Effect.Success<ReturnType<Journal[
+    "sealSuccessfulResult"]>>) =>
     Promise<ReturnType<ReturnType<typeof createStoredPointCommitExecutorV1>["publishPointCommit"]>>;
   readonly publish: (returnedValue: Parameters<Journal["sealSuccessfulResult"]>[1],
     publisherOverride?: ReturnType<typeof createPointCommitPublisherPortV1>) =>
@@ -288,6 +295,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
   const currency = await logicalCurrencyFixture(input.driver, close => cleanup.push(close),
     input.resource === undefined
       ? { includeProduct: true,
+        protectedRuntime: input.driver === "postgres",
         ...(input.workflow === true ? { includeProductLaunch: true } : {}),
         ...(input.workflow === true ? { includePricing: true,
           includeVariantPricingLink: true } : {}),
@@ -295,6 +303,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
         ...(input.fixtureIdentity === undefined ? {} :
         { fixtureIdentity: input.fixtureIdentity }) }
       : { includeProduct: true, resource: input.resource, fixtureIdentity: input.fixtureIdentity,
+        protectedRuntime: input.driver === "postgres",
         ...(input.workflow === true ? { includeProductLaunch: true } : {}),
         ...(input.workflow === true ? { includePricing: true,
           includeVariantPricingLink: true } : {}),
@@ -320,7 +329,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     });
     const activation = await Effect.runPromise(createApplicationMutationSessionActivationPersistenceV1(
       application.sessionAuthority, { leaseDurationMilliseconds: 60_000 }).activateEffect(
-      activationInput));
+      { ...activationInput, executionProfile: "finiteRoot" }));
     if (activation.status !== "created") throw new Error("Expected fresh mixed attempt");
     return { active, applicationAdmission, activationInput, activation };
   };
@@ -394,7 +403,7 @@ async function prepareMixedMutationProductContext(input: MixedMutationProductFix
     { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       indexedQueries: application.indexedQueries });
   const pgTarget = currency.resource.kind === "postgres"
-    ? Object.freeze({ control: currency.resource.control,
+    ? Object.freeze({ observer: currency.resource.target,
       applicationName: (await currency.resource.target.query<{ applicationName: string }>(
         'select current_setting(\'application_name\') as "applicationName"')).rows[0]?.applicationName })
     : undefined;
@@ -684,6 +693,18 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     const pgTransactionObservations: Array<Readonly<{
       targetBackends: number; openTransactions: number;
     }>> = [];
+    const observePgNativeSqlTransactions = async () => {
+      if (pgTarget === undefined) return undefined;
+      const reading = await pgTarget.observer.query<{
+        targetBackends: number; openTransactions: number;
+      }>(`select count(*)::int as "targetBackends",
+                count(*) filter (where pid <> pg_backend_pid() and
+                  xact_start is not null)::int as "openTransactions"
+           from pg_stat_activity
+          where datname = current_database() and application_name = $1`,
+        [pgTarget.applicationName]);
+      return reading.rows[0];
+    };
     const standalonePayloadPgConnections: Array<Readonly<{
       primaryTargetPid: number; standalonePid: number;
     }>> = [];
@@ -720,7 +741,11 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     const journalStore = performance === undefined ? store : Object.freeze({ ...store,
       completeSealEffect: (...args: Parameters<typeof store.completeSealEffect>) =>
         store.completeSealEffect(...args).pipe(Effect.tap(() => Effect.sync(() =>
-          performance.onSealBytes(args[1].canonicalBytes.byteLength)))) });
+          performance.onSealBytes(args[1].canonicalBytes.byteLength)))),
+      sealFiniteRootEffect: (...args: Parameters<typeof store.sealFiniteRootEffect>) =>
+        store.sealFiniteRootEffect(...args).pipe(Effect.tap(sealed => Effect.sync(() =>
+          performance.onSealBytes(sealed.journalByteLength)))),
+    });
     const journal = createPointMutationJournalV1(journalStore, executionClaims.admission,
       issueSetupSeededSyscallValidatorProofV1({ scopeId: application.authority.scopeId,
         schemaVersionId, schemaManifest: applicationAdmission.schema.manifest }), [{
@@ -739,21 +764,14 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
             invoke: (method: string, args: Json) => Effect.gen(function* () {
               if (pgTarget !== undefined && performance === undefined) {
                 const reading = yield* Effect.tryPromise({
-                  try: () => pgTarget.control.query<{ targetBackends: number; openTransactions: number }>(
-                    `select count(*)::int as "targetBackends",
-                            count(*) filter (where xact_start is not null)::int as "openTransactions"
-                       from pg_stat_activity
-                      where datname = current_database() and usename = current_user
-                        and application_name = $1 and pid <> pg_backend_pid()`,
-                    [pgTarget.applicationName]),
+                  try: observePgNativeSqlTransactions,
                   catch: cause => commerceError("resourceFailure", cause),
                 });
-                const observed = reading.rows[0];
-                if (observed === undefined || observed.targetBackends < 1 ||
-                  observed.openTransactions !== 0)
+                if (reading === undefined || reading.targetBackends < 1 ||
+                  reading.openTransactions !== 0)
                   return yield* Effect.fail(commerceError("resourceFailure",
-                    new Error(`Product native callback overlapped target SQL transaction: ${JSON.stringify(observed)}`)));
-                pgTransactionObservations.push(Object.freeze(observed));
+                    new Error(`Product native callback overlapped target SQL transaction: ${JSON.stringify(reading)}`)));
+                pgTransactionObservations.push(Object.freeze(reading));
               }
               serviceTransactionDepth.push(openTransactionDepth);
               nativeInvokeCount.set(method, (nativeInvokeCount.get(method) ?? 0) + 1);
@@ -818,21 +836,14 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
                 if (method !== "run") return yield* Effect.fail(commerceError("invalidAuthority"));
                 if (pgTarget !== undefined && performance === undefined) {
                   const reading = yield* Effect.tryPromise({
-                    try: () => pgTarget.control.query<{ targetBackends: number; openTransactions: number }>(
-                      `select count(*)::int as "targetBackends",
-                              count(*) filter (where xact_start is not null)::int as "openTransactions"
-                         from pg_stat_activity
-                        where datname = current_database() and usename = current_user
-                          and application_name = $1 and pid <> pg_backend_pid()`,
-                      [pgTarget.applicationName]),
+                    try: observePgNativeSqlTransactions,
                     catch: cause => commerceError("resourceFailure", cause),
                   });
-                  const observed = reading.rows[0];
-                  if (observed === undefined || observed.targetBackends < 1 ||
-                    observed.openTransactions !== 0)
+                  if (reading === undefined || reading.targetBackends < 1 ||
+                    reading.openTransactions !== 0)
                     return yield* Effect.fail(commerceError("resourceFailure",
-                      new Error(`Workflow callback overlapped target SQL transaction: ${JSON.stringify(observed)}`)));
-                  pgTransactionObservations.push(Object.freeze(observed));
+                      new Error(`Workflow callback overlapped target SQL transaction: ${JSON.stringify(reading)}`)));
+                  pgTransactionObservations.push(Object.freeze(reading));
                 }
                 serviceTransactionDepth.push(openTransactionDepth);
                 nativeInvokeCount.set("workflow:run", (nativeInvokeCount.get("workflow:run") ?? 0) + 1);
@@ -844,7 +855,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
               });
             }),
             Effect.mapError(mapProductInvocationFailure)),
-      }])]);
+      }])], "finiteRoot");
     const rawSelector = Object.freeze({
       deploymentId: String(activation.anchor.deploymentId),
       scopeId: String(activation.anchor.scopeId),
@@ -1166,11 +1177,10 @@ export default { async fetch(_request, env) {
         catch: cause => new ApplicationPointMutationRunnerHostV1Error({ reason: "terminalFailed", cause }),
       }),
   });
-  async function preparePublicationInternal(returnedValue: Parameters<Journal["sealSuccessfulResult"]>[1],
+  async function preparePublicationFromEnvelope(envelope: Effect.Success<ReturnType<Journal[
+    "sealSuccessfulResult"]>>,
     publisherOverride: ReturnType<typeof createPointCommitPublisherPortV1> | undefined,
     withOccRetry: boolean) {
-    sqlPhase = "seal";
-    const envelope = await Effect.runPromise(journal.sealSuccessfulResult(attempt, returnedValue));
     await Effect.runPromise(closePayloadScopes);
     const publisher = publisherOverride ?? createPointCommitPublisherPortV1(
       application.sessionAuthority, publisherOptions);
@@ -1233,6 +1243,17 @@ export default { async fetch(_request, env) {
     publication = Object.freeze({ executor, finishing });
     sqlPhase = "publish";
     return executor.publishPointCommit(finishing);
+  }
+  async function preparePublicationInternal(returnedValue: Parameters<Journal["sealSuccessfulResult"]>[1],
+    publisherOverride: ReturnType<typeof createPointCommitPublisherPortV1> | undefined,
+    withOccRetry: boolean) {
+    sqlPhase = "seal";
+    const envelope = await Effect.runPromise(journal.sealSuccessfulResult(attempt, returnedValue));
+    return preparePublicationFromEnvelope(envelope, publisherOverride, withOccRetry);
+  }
+  async function prepareSealedPublication(envelope: Effect.Success<ReturnType<Journal[
+    "sealSuccessfulResult"]>>) {
+    return preparePublicationFromEnvelope(envelope, undefined, false);
   }
   async function preparePublication(returnedValue: Parameters<Journal["sealSuccessfulResult"]>[1],
     publisherOverride?: ReturnType<typeof createPointCommitPublisherPortV1>) {
@@ -1303,7 +1324,7 @@ export default { async fetch(_request, env) {
         throw new Error("Standalone command used wrong PostgreSQL connection");
       const sameTargetBackend = (await primary.query<{ present: boolean }>(
         `select exists(select 1 from pg_stat_activity where pid = $1 and application_name = $2
-          and datname = current_database() and usename = current_user) as present`,
+          and datname = current_database()) as present`,
         [standalone.pid, applicationName])).rows[0]?.present;
       if (sameTargetBackend !== true)
         throw new Error("Standalone command PostgreSQL backend was not connected");
@@ -1419,13 +1440,16 @@ export default { async fetch(_request, env) {
     ...(workflowBinding === undefined ? {} : { workflowBinding }),
     schemaVersionId, logicalSchemaVersionId,
     eventPolicy, eventGroup, store, executionClaims, journal, attempt, bound, runAdmitted, selector,
+    reopenJournalAttempt: () => journal.openAttempt(loaded, execution),
     serviceTransactionDepth, pgTransactionObservations,
+    observePgNativeSqlTransactions,
     standalonePayloadPgConnections, standaloneProductPgConnections, standaloneLinkPgConnections,
     nativeInvokeCount, retryContexts, retryReturnedValues, sqlByPhase,
     hasSqlObserver, bridgeFailures, runWorkerd,
     participantAuthority, publisherOptions, pointCommitPorts: application.sessionAuthority,
     makePublisher: () => createPointCommitPublisherPortV1(application.sessionAuthority, publisherOptions),
-    preparePublication, publish, replayPublication, prepareOccPublication, retryWholeAttempt,
+    preparePublication, prepareSealedPublication, publish, replayPublication,
+    prepareOccPublication, retryWholeAttempt,
     runStandaloneProductUpdate, runStandaloneProductMutation, runStandaloneLinkCreate,
     runStandalonePayloadCreate,
     retryClosedWorkflow: value => lastBorrowedWorkflowInvoke === undefined

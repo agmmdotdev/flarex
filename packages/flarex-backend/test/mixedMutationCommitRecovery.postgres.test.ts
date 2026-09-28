@@ -40,9 +40,8 @@ async function waitForBlockedScopeClock(
       select count(*)::int as blocked
       from pg_stat_activity
       where datname = current_database()
-        and wait_event_type = 'Lock'
+        and application_name = 'flarex_product_standalone'
         and cardinality(pg_blocking_pids(pid)) > 0
-        and query ilike '%fx_system_scope_clock%'
     `);
     if ((result.rows[0]?.blocked ?? 0) >= 1) return;
     await new Promise(resolve => setTimeout(resolve, 25));
@@ -94,7 +93,8 @@ describePostgres("mixed Product commit recovery on real PostgreSQL", () => {
           handle: `${fixture.seed.newHandle}-later`,
         }).then(value => ({ kind: "succeeded" as const, value }),
           error => ({ kind: "failed" as const, error })).finally(() => { standaloneSettled = true; });
-        await Promise.race([waitForBlockedScopeClock(fixture), standalone.then(() => {
+        await Promise.race([waitForBlockedScopeClock(fixture), standalone.then(outcome => {
+          if (outcome.kind === "failed") throw outcome.error;
           throw new Error("Standalone Product writer settled before the scope-clock wait");
         })]);
         expect(standaloneSettled).toBe(false);

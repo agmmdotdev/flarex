@@ -71,8 +71,26 @@ function heldPayloadCreateRequest(fixture: MixedFixture, title: string) {
     requestSha256: createHash("sha256").update(encoded.bytes).digest() };
 }
 
+async function assertPoisonedFiniteRoot(fixture: MixedFixture): Promise<void> {
+  const roots = await fixture.currency.persistence.drizzle.select()
+    .from(fxSystemTransactionJournals)
+    .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
+  expect(roots).toMatchObject([{ state: "open", lastSyscallSequence: 0n,
+    executionProfile: "finiteRoot" }]);
+  const receipts = await fixture.currency.persistence.drizzle.select()
+    .from(fxSystemTransactionJournalReceipts)
+    .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+      fixture.activation.anchor.sessionId));
+  expect(receipts).toHaveLength(0);
+  const accepted = fixture.getUpdateRequest();
+  if (accepted === undefined) throw new Error("Missing accepted Product operation");
+  await expect(Effect.runPromise(fixture.runAdmitted(accepted))).rejects.toBeDefined();
+  await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+    fixture.attempt, null))).rejects.toBeDefined();
+}
+
 describe.each(drivers)("mixed native Payload recovery on %s", driver => {
-  it("replays the exact Payload create receipt and finishes a sealed mixed root without another hook", async () => {
+  it("replays a tentative Payload create result and seals the mixed root without another hook", async () => {
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-receipt-${driver}`, payloadProfile: "success" });
     try {
@@ -94,14 +112,19 @@ describe.each(drivers)("mixed native Payload recovery on %s", driver => {
         .from(fxSystemTransactionJournalReceipts)
         .where(eq(fxSystemTransactionJournalReceipts.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(receipts.filter(row => row.outcomeKind === "admittedLogicalResult")).toHaveLength(7);
+      expect(receipts.filter(row => row.outcomeKind === "admittedLogicalResult")).toHaveLength(0);
 
-      await Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, returnedValue));
+      const publication = await fixture.preparePublication(returnedValue);
       const roots = await fixture.currency.persistence.drizzle.select()
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
       expect(roots[0]?.state).toBe("sealed");
-      expect(await fixture.publish(returnedValue)).toMatchObject({ kind: "published" });
+      const sealedReceipts = await fixture.currency.persistence.drizzle.select()
+        .from(fxSystemTransactionJournalReceipts)
+        .where(eq(fxSystemTransactionJournalReceipts.sessionId,
+          fixture.activation.anchor.sessionId));
+      expect(sealedReceipts.filter(row => row.outcomeKind === "admittedLogicalResult")).toHaveLength(7);
+      expect(await Effect.runPromise(publication)).toMatchObject({ kind: "published" });
       expect(await fixture.replayPublication()).toMatchObject({ kind: "replayed" });
       expect(runtime.observations.hookRuns()).toBe(1);
       expect(fixture.nativeInvokeCount.get("payload-create")).toBe(beforeReplay);
@@ -205,10 +228,6 @@ describe.each(drivers)("mixed native Payload refusal and interruption on %s", dr
         const outcome = await fixture.runWorkerd().catch(cause => cause);
         if (!(outcome instanceof Error)) expect(outcome).not.toMatchObject({ kind: "result",
           result: { kind: "success" } });
-        const roots = await fixture.currency.persistence.drizzle.select()
-          .from(fxSystemTransactionJournals)
-          .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-        expect(roots[0]?.state).toBe("operation_failed");
         const runtime = fixture.payload?.runtimeHistory.at(-1);
         if (runtime === undefined) throw new Error(`Payload runtime absent for ${payloadProfile}; ` +
           `native calls ${JSON.stringify([...fixture.nativeInvokeCount])}; ` +
@@ -218,8 +237,7 @@ describe.each(drivers)("mixed native Payload refusal and interruption on %s", dr
           ? "reason: 'invalidInput'" : "reason: 'invalidAuthority'");
         expect(await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions)
           .where(eq(fxAppRowRevisions.scopeUuid, scopeUuid))).toEqual(before);
-        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
-          .rejects.toBeDefined();
+        await assertPoisonedFiniteRoot(fixture);
       } finally { await fixture.close(); }
     }, 180_000);
 
@@ -254,12 +272,7 @@ describe.each(drivers)("mixed native Payload refusal and interruption on %s", dr
         "revoked native Payload request refusal");
       expect(runtime.observations.hookRuns()).toBe(1);
       if (fixture.hasSqlObserver) expect(fixture.getOpenTransactionDepth()).toBe(0);
-      const roots = await fixture.currency.persistence.drizzle.select()
-        .from(fxSystemTransactionJournals)
-        .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-      expect(roots[0]?.state).toBe("operation_failed");
-      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
-        .rejects.toBeDefined();
+      await assertPoisonedFiniteRoot(fixture);
     } finally {
       fixture.payload?.current()?.observations.releaseHeldId();
       fixture.payload?.current()?.observations.releasePostCancelProbe();
@@ -296,12 +309,7 @@ describe.each(drivers)("mixed native Payload refusal and interruption on %s", dr
       await waitUntil(() => runtime.observations.postCancellationRefusals() === 1,
         "expired native Payload request refusal");
       expect(runtime.observations.hookRuns()).toBe(1);
-      const roots = await fixture.currency.persistence.drizzle.select()
-        .from(fxSystemTransactionJournals)
-        .where(eq(fxSystemTransactionJournals.sessionId, fixture.activation.anchor.sessionId));
-      expect(roots[0]?.state).toBe("operation_failed");
-      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
-        .rejects.toBeDefined();
+      await assertPoisonedFiniteRoot(fixture);
     } finally {
       fixture.payload?.current()?.observations.releaseHeldId();
       fixture.payload?.current()?.observations.releasePostCancelProbe();

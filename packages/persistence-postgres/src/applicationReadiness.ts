@@ -2,6 +2,8 @@ import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBui
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
+import { captureProtectedMetadataEpoch, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
+  type ProtectedMetadataEpochIdentity, type ProtectedMetadataPreparation } from "./preparedMetadataEpoch";
 import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
@@ -163,6 +165,9 @@ export interface ApplicationReadinessColdMaterializationPort<Failure> {
 
 export interface ApplicationReadinessContext<SchemaFailure, ColdFailure> {
   readonly controlDb: FlarexMetadataDatabase;
+  /** Optional authenticated target installation for bounded structural reuse. */
+  readonly protectedMetadata?: Readonly<{ database: FlarexMetadataDatabase;
+    token: ProtectedMetadataPreparation }>;
   readonly authority: TrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1> &
     ExactTrustedScopeAuthorityResolutionPorts<LocatedReadCommittedAttemptTargetV1>;
   readonly schema: ApplicationSchemaAuthorityPublisher<SchemaFailure>;
@@ -397,6 +402,9 @@ interface StoredReadinessAuthority {
   readonly readinessSha256: Uint8Array;
   readonly readinessBytes: Uint8Array;
   readonly readyAt: Date;
+  readonly physicalReadinessSha256: Uint8Array;
+  readonly protectedMetadata?: Readonly<{ database: FlarexMetadataDatabase;
+    token: ProtectedMetadataPreparation; epoch: ProtectedMetadataEpochIdentity }>;
 }
 
 interface StoredIssuedApplicationReadinessState {
@@ -440,6 +448,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
 ): ApplicationReadinessRepository<SchemaFailure, ColdFailure> {
   const capturedContext = Object.freeze({
     controlDb: context.controlDb,
+    ...(context.protectedMetadata === undefined ? {} : { protectedMetadata: context.protectedMetadata }),
     authority: context.authority,
     schema: context.schema,
     taskCatalog: context.taskCatalog,
@@ -666,16 +675,23 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
         storageGeneration:
           FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
       });
-      const reserved = yield* runLocatedTransaction(
+      const protection = capturedContext.protectedMetadata;
+      if (protection !== undefined &&
+        !hasLocatedReadCommittedTargetDatabaseV1(located.target, protection.database))
+        return yield* readinessFailure("invalidComposition");
+      const protectedTarget = protection !== undefined &&
+        hasLocatedReadCommittedTargetDatabaseV1(located.target, protection.database) ? protection : undefined;
+      const first = yield* runLocatedTransaction(
         located.target,
-        tx => reserveBundle(
-          tx,
-          authority,
-          captured,
-          capturedContext.taskCatalog,
-          "share",
-        ),
+        tx => Effect.gen(function* () {
+          const epoch = protectedTarget === undefined ? undefined :
+            yield* captureProtectedMetadataEpoch(protectedTarget.token, protectedTarget.database, tx)
+              .pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+          const reserved = yield* reserveBundle(tx, authority, captured, capturedContext.taskCatalog, "share");
+          return { reserved, epoch };
+        }),
       );
+      const { reserved } = first;
       if ("status" in reserved) return reserved;
       const schema = yield* capturedContext.schema.readPublished({
         deploymentId: reserved.deploymentId,
@@ -724,7 +740,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
         capturedContext.controlDb,
         tx => readSchemaBinding(tx, reserved, schemaVersion, schema),
       );
-      const stored = yield* runLocatedTransaction(
+      const second = yield* runLocatedTransaction(
         located.target,
         tx => Effect.gen(function* () {
           const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(
@@ -739,7 +755,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
             physicalDefinitionLifecycle,
             clock,
           );
-          if (physical.status === "not_ready") return physical;
+          if (physical.status === "not_ready") return { stored: physical };
           const storedAuthority = yield* loadStoredReadinessAuthority(
             tx,
             reserved,
@@ -754,18 +770,26 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
             // serialize fresh selection behind an ordinary data publication.
             clock,
           );
-          return storedAuthority === null
-            ? yield* readinessFailure("storedState")
-            : storedAuthority;
+          if (storedAuthority === null) return yield* readinessFailure("storedState");
+          const epoch = protectedTarget === undefined ? undefined :
+            yield* captureProtectedMetadataEpoch(protectedTarget.token, protectedTarget.database, tx)
+              .pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+          return { stored: storedAuthority, epoch };
         }),
       );
+      const { stored } = second;
+      if (first.epoch !== undefined && second.epoch !== undefined &&
+        first.epoch.generation !== second.epoch.generation)
+        return yield* readinessFailure("authorityChanged");
       return "status" in stored
         ? notReady(
             reserved.revision.revisionId,
             stored.reason,
             stored.detail,
           )
-        : storedReadyProjection(stored, issuer);
+        : storedReadyProjection(second.epoch === undefined || protectedTarget === undefined ? stored :
+          Object.freeze({ ...stored, protectedMetadata: Object.freeze({ database: protectedTarget.database,
+            token: protectedTarget.token, epoch: second.epoch }) }), issuer);
     },
   );
   const readReady: ApplicationReadinessRepository<
@@ -918,20 +942,28 @@ const validateStoredIssuedReadiness = Effect.fn(
   | ValidatePhysicalDefinitionLifecycleReadinessError
   | LockScopeClockForShareError
 > {
-  const currentBundle = yield* reserveBundle(
-    tx,
-    issuedState.stored.bundle.authority,
-    Object.freeze({
-      deploymentId: issuedState.stored.bundle.deploymentId,
-      revisionId: issuedState.stored.bundle.revision.revisionId,
-    }),
-    repositoryState.context.taskCatalog,
-    "share",
-    clock,
-  );
-  if ("status" in currentBundle ||
-    !storedBundlesEqual(currentBundle, issuedState.stored.bundle)) {
-    return yield* readinessFailure("authorityChanged");
+  const protection = issuedState.stored.protectedMetadata;
+  let currentBundle: StoredBundle;
+  const useProtectedProjection = protection !== undefined && hasProtectedMetadataFinalGuardScope(tx);
+  if (useProtectedProjection) {
+    yield* registerProtectedMetadataFinalGuard(tx, protection.token, protection.database, protection.epoch)
+      .pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+    currentBundle = issuedState.stored.bundle;
+  } else {
+    const loaded = yield* reserveBundle(
+      tx,
+      issuedState.stored.bundle.authority,
+      Object.freeze({
+        deploymentId: issuedState.stored.bundle.deploymentId,
+        revisionId: issuedState.stored.bundle.revision.revisionId,
+      }),
+      repositoryState.context.taskCatalog,
+      "share",
+      clock,
+    );
+    if ("status" in loaded || !storedBundlesEqual(loaded, issuedState.stored.bundle))
+      return yield* readinessFailure("authorityChanged");
+    currentBundle = loaded;
   }
   const physical = yield* loadPhysicalReadiness(
     tx,
@@ -943,6 +975,13 @@ const validateStoredIssuedReadiness = Effect.fn(
   );
   if (physical.status === "not_ready") {
     return yield* readinessFailure("authorityChanged");
+  }
+  if (useProtectedProjection) {
+    if (repositoryState.context.cold.runtimeHostIdentity !== issuedState.stored.cold.runtimeHostIdentity ||
+      repositoryState.context.cold.compatibilityDate !== issuedState.stored.cold.compatibilityDate ||
+      !bytesEqualFullScan(physical.physicalReadinessSha256, issuedState.stored.physicalReadinessSha256))
+      return yield* readinessFailure("authorityChanged");
+    return Object.freeze({ status: "ready", basis: activationBasis(issuedState) });
   }
   const replay = yield* loadStoredReadinessAuthority(
     tx,
@@ -1605,6 +1644,7 @@ const loadStoredReadinessAuthority = Effect.fn(
     readinessSha256: copyBytes(readinessSha256),
     readinessBytes: copyBytes(readinessBytes),
     readyAt: new Date(readyAt.getTime()),
+    physicalReadinessSha256: copyBytes(physicalReadinessSha256),
   });
 });
 

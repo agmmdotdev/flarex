@@ -32,6 +32,8 @@ import {
 import type {
   RecoveredRunningRelationConflictEvidence,
 } from "@flarex/persistence-postgres/point-commit-transaction";
+import type { PointMutationExecutionProfile } from
+  "@flarex/persistence-postgres/transaction-session-activation";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
   ApplicationRevisionSyscallValidatorCorruptionV1Error,
@@ -302,6 +304,9 @@ export interface PointMutationJournalV1 {
     StoredForSessionAttemptCommitEnvelopeV1,
     PointMutationJournalBoundaryV1Error | CommitProtocolV1Error
   >;
+  readonly discardTentativeRoot: (
+    attempt: PointMutationJournalAttemptV1,
+  ) => Effect.Effect<void, PointMutationJournalBoundaryV1Error>;
 }
 
 export interface PointMutationJournalRelationConflictRecovery {
@@ -361,6 +366,7 @@ export function createPointMutationJournalV1(
   executionClaims: PointMutationExecutionClaimAdmissionV1,
   syscallValidator: ApplicationRevisionSyscallValidatorV1,
   admittedParticipants: readonly PointMutationJournalAdmittedParticipantV1[] = [],
+  executionProfile: PointMutationExecutionProfile = "durableOperations",
 ): PointMutationJournalV1 & PointMutationJournalRelationConflictRecovery {
   const selectedParticipants = new Map<string, PointMutationJournalAdmittedParticipantV1>();
   let participantSetError: PointMutationJournalParticipantSetV1Error | undefined;
@@ -450,7 +456,6 @@ export function createPointMutationJournalV1(
       executionClaims.inspect(executionClaim, "execute"),
     );
     const existing = openedByExecutionClaim.get(executionClaim);
-    if (existing !== undefined) return existing;
     const inspection = yield* Effect.try({
       try: () => inspectLoadedPointMutationSessionAttemptV1(loadedAttempt),
       catch: mapPersistenceFailure,
@@ -461,6 +466,9 @@ export function createPointMutationJournalV1(
         reason: "immutablePinsMismatch",
       }));
     }
+    // A finite root's cached handle cannot bypass its local poison/tombstone
+    // or the authoritative exact-running check on same-claim redelivery.
+    if (existing !== undefined && executionProfile !== "finiteRoot") return existing;
     const existingReference = coordinatorsByExactAttempt.get(identityKey);
     const existingCoordinator = existingReference?.deref();
     if (existingReference !== undefined && existingCoordinator === undefined) {
@@ -491,7 +499,17 @@ export function createPointMutationJournalV1(
       snapshotToken: inspection.snapshotToken,
       schemaVersionId: inspection.schemaVersionId,
       executionClaim: claimState.observation,
+      executionProfile,
     }).pipe(Effect.mapError(mapPersistenceFailure));
+    if (existing !== undefined) {
+      const prior = attemptStates.get(existing);
+      if (prior?.persistenceAttempt !== persistenceAttempt) {
+        return yield* Effect.fail(new PointMutationJournalAttemptPinsV1Error({
+          reason: "immutablePinsMismatch",
+        }));
+      }
+      return existing;
+    }
     const participantAdmissions = new Map<string, Effect.Success<ReturnType<
       SessionJournalStorePersistence["admitLogicalParticipantsEffect"]>>>();
     for (const participant of selectedParticipants.values()) {
@@ -772,6 +790,15 @@ export function createPointMutationJournalV1(
         });
         return yield* state.coordinator.semaphore.withPermit(
           Effect.gen(function* () {
+            if (executionProfile === "finiteRoot") {
+              const result = yield*
+                canonicalizeSuccessfulResultV1Effect(successfulResult);
+              return yield* Effect.uninterruptible(
+                persistence.sealFiniteRootEffect(state.persistenceAttempt,
+                  result).pipe(Effect.mapError(mapPersistenceFailure),
+                    Effect.map(sealed => sealed.envelope)),
+              );
+            }
             const prepared = yield* Effect.uninterruptible(
               persistence
                 .prepareSealEffect(state.persistenceAttempt)
@@ -792,6 +819,19 @@ export function createPointMutationJournalV1(
       },
     );
 
+  const discardTentativeRoot: PointMutationJournalV1["discardTentativeRoot"] =
+    Effect.fn("PointMutationJournal.discardTentativeRoot")(function* (attempt) {
+      if (executionProfile !== "finiteRoot") return;
+      const state = yield* Effect.try({
+        try: () => requireAttempt(attempt), catch: mapPersistenceFailure,
+      });
+      return yield* state.coordinator.semaphore.withPermit(
+        persistence.discardFiniteRootEffect(state.persistenceAttempt).pipe(
+          Effect.mapError(mapPersistenceFailure),
+        ),
+      );
+    });
+
   const journal = Object.freeze({
     openAttempt,
     ...(selectedParticipants.size === 0 ? {} : { runAdmittedOperation }),
@@ -804,6 +844,7 @@ export function createPointMutationJournalV1(
     captureRecoveredRelationConflict,
     claimPersistedRelationConflictForRetry,
     sealSuccessfulResult,
+    discardTentativeRoot,
   });
   return journal;
 }

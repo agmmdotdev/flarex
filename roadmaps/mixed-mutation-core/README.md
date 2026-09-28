@@ -2,8 +2,10 @@
 
 ## Status And Scope
 
-Status: the Application, Product and selected Payload Local API slices are
-implemented as a private, isolated-scope execution profile. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
+Status: the Application, Product, selected Payload Local API, and finite
+Medusa workflow slices are implemented as a private, isolated-scope execution
+profile. The finite-root redesign is delivered for that graph; its proposed
+latency goal is unmet. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
 owns architecture and open contract questions. This roadmap owns current status,
 sequencing and finite delivery gates. Numbered slice preflights own their
 specific scope, decisions, affected contracts and remaining gates. The implemented
@@ -34,16 +36,42 @@ its ordered-failure contract. Its [traced smoke and full untraced records](../..
 show fewer selected-metadata dispatches with unchanged transaction counts, but
 no overall endpoint gain: the mixed warm untraced median is 6.699 s versus
 6.761 s in the prior candidate, while Product and Product plus Payload rise.
-The proposed mixed warm latency goals remain unmet. Any next connected latency
-package needs a measured dominant owner and focused contract; broader
-integrity, writer, attempt, durability and host decisions remain gated by
-evidence. The accepted immediate selected-dependency verification and threat
-boundary remain in force. The [fundamental latency redesign preflight](./08-fundamental-latency-redesign-preflight.md)
-records the owner-approved direction for a finite restartable root, protected
-immutable preparation under a separately amended writer/threat contract,
-fresh live admission and one authoritative recovery/settlement path.
-Implementation remains gated by concrete writer and durable recovery proofs;
-the proposed latency budgets are not achieved.
+The [fundamental latency redesign preflight](./08-fundamental-latency-redesign-preflight.md)
+owns the delivered finite restartable root, first protected immutable
+Application preparation under the amended writer/threat contract, fresh live
+admission, and authoritative recovery/settlement. Its
+[retained measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/fundamental-latency/finite-root/README.md)
+include clean traced smoke and 104/104 successful full untraced requests. Full
+warm outer medians are 1.759 / 2.420 / 5.284 / 0.343 s for Product, Product
+plus Payload, mixed workflow, and standalone workflow. The first traced smoke
+overlapped a repository root inventory scan; its samples are retained but its
+timings are excluded from latency conclusions. The three proposed mixed warm
+latency goals remain unmet. The next measured owner is repeated checked
+operation admission: compose pre-callback source/bundle verification with
+working-set construction and pending hydration, and combine a pure read's
+leading admission with its historical read in one short checked transaction.
+Failure order, later fresh checks, and callback transaction boundaries remain
+proof requirements; the measured trace does not attribute every transaction
+to one function.
+
+The finite root has an immutable journal marker and a first protected legacy
+Application target projection. That projection has ten trigger-covered tables
+and an authenticated restricted runtime role; standalone selection and final
+publication still perform full live checks. Framework, relation Application,
+control and physical evidence remain fresh. Privileged repair and structural
+DDL require quiescence before protected preparation can resume. The local
+PostgreSQL measurements do not establish native ORM parity, hosted latency,
+throughput or production capacity.
+The finite evaluator keeps child results local until one atomic aggregate
+terminal journal transition: successful seal or an early relation conflict.
+The latter stages preceding finite evidence with the existing
+`relation_conflicted` receipt and state; durable conflict replacement and
+crash recovery remain with their existing owners. A dedicated COMMIT-response
+loss injection for this early conflict transition remains a targeted coverage
+gap. Closed local claim tombstones retain exact
+fencing without the pending graph; the bounded 1,024-claim registry can require
+up to 1,024 checked transactions to sweep at saturation, so its bound does
+not establish a low latency saturation path.
 Payload's required unique `posts.title` field needs a retained ordered index for
 historical uniqueness checks. Adding that compiler index changes the compiled
 Payload source definition and digest. Isolated proof scopes can be reprovisioned;

@@ -5,7 +5,7 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
-import type { LogicalPendingDocumentSeed } from "../logicalDocuments/model";
+import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
 import { withLogicalRelationalAttemptAdmissionEffect } from "../logicalDocuments/relationalAdmission";
 import type { LogicalParticipantAttemptAdmission } from "../logicalDocuments/participantAdmission";
 import { prepareLogicalRelationalRows } from "../logicalDocuments/relationalRows";
@@ -19,14 +19,12 @@ import type { CommerceCommandContext } from "./commands";
 const refuseNested: Parameters<typeof makeCommerceCommandContext>[4] = () =>
   Effect.fail(commerceError("invalidAuthority"));
 
-export interface BorrowedLogicalAttemptInput {
+export type BorrowedLogicalAttemptInput = Readonly<{
   readonly admission: LogicalParticipantAttemptAdmission;
   readonly attempt: SessionJournalAttempt;
   readonly method: string;
-  /** Decoded from the canonical journal point table by the journal owner. */
-  readonly pendingRows: readonly LogicalPendingDocumentSeed[];
   readonly resources?: CommerceResources;
-}
+}> & LogicalDocumentBorrowView;
 
 /** A disposable evaluator for one admitted framework invocation. The root
  * journal owns its sequence, durable overlay, budgets and final settlement. */
@@ -47,7 +45,9 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
       const working = yield* makeLogicalDocumentWorkingSet({
         readTransaction: work => checkedRead(work).pipe(Effect.mapError(projectCommerceRequestFailure)),
         scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
-        pendingRows: input.pendingRows,
+        ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
+          { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
+            rootAttemptFence: input.rootAttemptFence }),
         lifetime, requireAdmission,
         tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })),
         relationalCapabilities: state.schema.capabilities, searchDefinitions: state.search,

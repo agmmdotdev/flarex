@@ -4,7 +4,7 @@ import {
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
+import { Data, Effect, Exit, Result, Schema } from "effect";
 
 import type {
   PointCommitOutcomeResolutionV1Error,
@@ -411,8 +411,11 @@ export function makeExactPointMutationExecutionOperationsV1(
                 ),
               ),
           ),
+          effect => discardTentativeRootOnFailure(effect, journal,
+            journalAttempt),
         );
         if (runnerOutcome.kind === "runningRelationConflict") {
+          yield* journal.discardTentativeRoot(journalAttempt);
           return runnerOutcome;
         }
         const envelope = yield* journal.sealSuccessfulResult(
@@ -420,7 +423,8 @@ export function makeExactPointMutationExecutionOperationsV1(
           runnerOutcome.successfulResult === undefined
             ? null
             : runnerOutcome.successfulResult,
-        );
+        ).pipe(effect => discardTentativeRootOnFailure(effect, journal,
+          journalAttempt));
         const encodedEnvelope = yield* Effect.sync(() =>
           encodeCommitEnvelopeV1(envelope)
         );
@@ -610,6 +614,17 @@ function capturePointMutationOccRunnerInput(
   });
 }
 
+function discardTentativeRootOnFailure<A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  journal: Pick<PointMutationJournalV1, "discardTentativeRoot">,
+  attempt: PointMutationJournalAttemptV1,
+): Effect.Effect<A, E | PointMutationJournalBoundaryV1Error, R> {
+  return Effect.onExit(effect, primaryExit => {
+    if (Exit.isSuccess(primaryExit)) return Effect.void;
+    return Effect.uninterruptible(journal.discardTentativeRoot(attempt));
+  });
+}
+
 function abortOnPreFinishingFailure<A, E, R>(
   effect: Effect.Effect<A, E, R>,
   attempt: LoadedPointMutationSessionAttemptV1,
@@ -627,15 +642,6 @@ function abortOnPreFinishingFailure<A, E, R>(
     if (Exit.isSuccess(primaryExit)) return Effect.void;
     return Effect.uninterruptible(
       terminalization.abort(attempt, executionClaim),
-    ).pipe(
-      Effect.exit,
-      Effect.flatMap((cleanupExit) =>
-        Exit.isFailure(cleanupExit)
-          ? Effect.failCause(
-              Cause.combine(primaryExit.cause, cleanupExit.cause),
-            )
-          : Effect.void,
-      ),
     );
   });
 }

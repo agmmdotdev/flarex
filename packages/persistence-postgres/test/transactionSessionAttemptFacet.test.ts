@@ -30,6 +30,7 @@ const VALID_INPUT = Object.freeze({
     "89000000-0000-4000-8000-000000000002",
   ),
   attemptFence: TransactionAttemptFenceSchema.make(2n),
+  executionProfile: "durableOperations",
   snapshotEpochUuid: ScopeEpochUuidV1Schema.make(
     "89000000-0000-0000-0000-000000000003",
   ),
@@ -61,6 +62,14 @@ describe("fresh transaction-attempt facet", () => {
     expect(facet.journalRoot.state).toBe("open");
     expect(facet.journalRoot.participantWorkBytes).toBe(0);
     expect(facet.journalRoot.participantWorkCalls).toBe(0);
+  });
+
+  it("retains the explicitly selected finite execution profile", () => {
+    const facet = Result.getOrThrow(buildFreshTransactionAttemptFacetV1({
+      ...VALID_INPUT,
+      executionProfile: "finiteRoot",
+    }));
+    expect(facet.journalRoot.executionProfile).toBe("finiteRoot");
   });
 
   it("refuses a fresh root with native work counters already charged", () => {

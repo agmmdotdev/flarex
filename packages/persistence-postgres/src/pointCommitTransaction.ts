@@ -3330,7 +3330,7 @@ async function runPointMutationAttemptReplacement(
 
     const lease = await lockPointCommitLease(tx, command, sharedOptions);
     await emitReplacementStep(options, command, "leaseLocked");
-    await lockPointCommitJournalRoot(tx, command, sharedOptions);
+    const executionProfile = await lockPointCommitJournalRoot(tx, command, sharedOptions);
     await emitReplacementStep(options, command, "journalRootLocked");
     await requireNoFinishingExecutionClaim(
       tx,
@@ -3373,6 +3373,7 @@ async function runPointMutationAttemptReplacement(
       sharedOptions,
       executionClaimOwner,
       executionClaimDurationMilliseconds,
+      executionProfile,
     );
   });
 }
@@ -3519,6 +3520,7 @@ async function runRunningRelationConflictAttemptReplacement(
       sharedOptions,
       executionClaimOwner,
       executionClaimDurationMilliseconds,
+      conflictJournal.executionProfile,
       mutationTimeMilliseconds,
     );
   });
@@ -3595,6 +3597,7 @@ async function runRunningRelationConflictRecovery(
 }
 
 interface LockedRunningRelationConflictJournalV1 {
+  readonly executionProfile: "durableOperations" | "finiteRoot";
   readonly lastSyscallSequence: bigint;
   readonly relationDependencyCount: number;
   readonly createdAtMilliseconds: number;
@@ -3689,6 +3692,7 @@ async function lockRunningRelationConflictJournal(
     throw replacementCorruption("journalRootInvalid");
   }
   return Object.freeze({
+    executionProfile: row.executionProfile,
     lastSyscallSequence: row.lastSyscallSequence,
     relationDependencyCount: row.relationDependencyCount,
     createdAtMilliseconds,
@@ -4031,6 +4035,7 @@ async function replaceLockedPointMutationAttempt(
   sharedOptions: PointCommitTransactionProofOptionsV1,
   executionClaimOwner: TransactionExecutionClaimOwnerV1,
   executionClaimDurationMilliseconds: number,
+  executionProfile: "durableOperations" | "finiteRoot",
   knownMutationTimeMilliseconds?: number,
 ): Promise<PointMutationAttemptReplacementObservationV1> {
 const sourceLifecycle = "scopeUuid" in command ? "running" : "finishing";
@@ -4059,6 +4064,7 @@ const freshFacet = projectPointCommitTransactionResult(
     scopeUuid: clock.scopeUuid,
     sessionId: command.authorityPins.sessionId,
     attemptFence: replacementFence,
+    executionProfile,
     snapshotEpochUuid: clock.epochUuid,
     snapshotCommitSeq: clock.record.lastCommitSeq,
     databaseNowMilliseconds: mutationTimeMilliseconds,
@@ -4128,15 +4134,18 @@ const journalDelete = tx.delete(fxSystemTransactionJournals).where(and(
     fxSystemTransactionJournals.attemptFence,
     command.authorityPins.attemptFence,
   ),
-)).returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
+)).returning({ attemptFence: fxSystemTransactionJournals.attemptFence,
+  executionProfile: fxSystemTransactionJournals.executionProfile });
 observeReplacementQuery("deleteRetryJournal", journalDelete, options);
 const deletedJournal = await replacementSqlCall(
   "deleteRetryJournal",
   () => journalDelete,
 );
+const deletedRoot = deletedJournal[0];
 if (
   deletedJournal.length !== 1 ||
-  deletedJournal[0]?.attemptFence !== command.authorityPins.attemptFence
+  deletedRoot === undefined ||
+  deletedRoot.attemptFence !== command.authorityPins.attemptFence
 ) {
   throw replacementCorruption("replacementMutationInvalid");
 }
@@ -4210,6 +4219,9 @@ if (
 }
 await emitReplacementStep(options, command, "leaseInserted");
 
+if (deletedRoot.executionProfile !== executionProfile) {
+  throw replacementCorruption("replacementMutationInvalid");
+}
 const rootInsert = tx.insert(fxSystemTransactionJournals)
   .values({ ...freshFacet.journalRoot, journalFormat: SESSION_JOURNAL_FORMAT })
   .returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
@@ -4366,11 +4378,31 @@ async function observeReplacedPointMutationAttempt(
   ) {
     throw replacementCorruption("replacementConvergenceInvalid");
   }
+  await emitReplacementStep(options, command, "leaseLocked");
+
+  const rootQuery = tx.select().from(fxSystemTransactionJournals).where(and(
+    eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
+    eq(
+      fxSystemTransactionJournals.sessionId,
+      command.authorityPins.sessionId,
+    ),
+    eq(fxSystemTransactionJournals.attemptFence, expectedFence),
+  )).limit(2).for("update");
+  observeReplacementQuery("validatePristineAttempt", rootQuery, options);
+  const rootRows = await replacementSqlCall(
+    "validatePristineAttempt",
+    () => rootQuery,
+  );
+  const root = rootRows[0];
+  if (rootRows.length !== 1 || root === undefined) {
+    throw replacementCorruption("replacementConvergenceInvalid");
+  }
   const expectedFacet = projectPointCommitTransactionResult(
     buildFreshTransactionAttemptFacetV1({
       scopeUuid: clock.scopeUuid,
       sessionId: command.authorityPins.sessionId,
       attemptFence: expectedFence,
+      executionProfile: root.executionProfile,
       snapshotEpochUuid: lease.snapshotEpochUuid,
       snapshotCommitSeq: lease.snapshotCommitSeq,
       databaseNowMilliseconds: session.updatedAtMilliseconds,
@@ -4389,27 +4421,8 @@ async function observeReplacedPointMutationAttempt(
   ) {
     throw replacementCorruption("replacementConvergenceInvalid");
   }
-  await emitReplacementStep(options, command, "leaseLocked");
-
-  const rootQuery = tx.select().from(fxSystemTransactionJournals).where(and(
-    eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
-    eq(
-      fxSystemTransactionJournals.sessionId,
-      command.authorityPins.sessionId,
-    ),
-    eq(fxSystemTransactionJournals.attemptFence, expectedFence),
-  )).limit(2).for("update");
-  observeReplacementQuery("validatePristineAttempt", rootQuery, options);
-  const rootRows = await replacementSqlCall(
-    "validatePristineAttempt",
-    () => rootQuery,
-  );
-  const root = rootRows[0];
-  const expectedRoot = expectedFacet.journalRoot;
   if (
-    rootRows.length !== 1 ||
-    root === undefined ||
-    !isPristineFreshTransactionAttemptJournalRootV1(root, expectedRoot)
+    !isPristineFreshTransactionAttemptJournalRootV1(root, expectedFacet.journalRoot)
   ) {
     throw replacementCorruption("replacementConvergenceInvalid");
   }
@@ -6129,12 +6142,13 @@ async function lockPointCommitJournalRoot(
   tx: AppRowTransaction,
   command: PreparedPointCommitAttemptScalarCommandV1,
   options: PointCommitTransactionProofOptionsV1,
-): Promise<void> {
+): Promise<"durableOperations" | "finiteRoot"> {
   const query = tx
     .select({
       scopeUuid: fxSystemTransactionJournals.scopeUuid,
       sessionId: fxSystemTransactionJournals.sessionId,
       attemptFence: fxSystemTransactionJournals.attemptFence,
+      executionProfile: fxSystemTransactionJournals.executionProfile,
       state: fxSystemTransactionJournals.state,
       lastSyscallSequence:
         fxSystemTransactionJournals.lastSyscallSequence,
@@ -6201,7 +6215,7 @@ async function lockPointCommitJournalRoot(
     .for("update");
   observeDrizzleQuery("lockJournalRoot", query, options);
   const rows = await sqlCall("lockJournalRoot", () => query);
-  projectPointCommitTransactionResult(Result.gen(function* () {
+  return projectPointCommitTransactionResult(Result.gen(function* () {
     if (rows.length !== 1) {
       return yield* Result.fail(
         corruption("journalRootMissingOrDuplicate"),
@@ -6266,6 +6280,7 @@ async function lockPointCommitJournalRoot(
     ) {
       return yield* Result.fail(corruption("journalRootInvalid"));
     }
+    return row.executionProfile;
   }));
 }
 

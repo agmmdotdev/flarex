@@ -76,6 +76,7 @@ export {
   fxSystemPhysicalDefinitionLifecycles,
   fxSystemCommitWakes,
   fxSystemPointMutationRedeliveryScheduler,
+  fxSystemPreparedMetadataEpoch,
   fxSystemRetainedHistoryScheduler,
   fxSystemScopeClocks,
   fxSystemSearchBuildStates,

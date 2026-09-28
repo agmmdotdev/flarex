@@ -72,6 +72,8 @@ export {
 
 export interface PostgresPersistenceOptions {
   pool?: Pool;
+  /** Privileged schema migration connection for a restricted runtime pool. */
+  migrationPool?: Pool;
   poolConfig?: PoolConfig;
   connectionString?: string;
   migrationsFolder?: string;
@@ -275,6 +277,9 @@ export async function createPostgresPersistence(
     });
   const migrationsFolder = options.migrationsFolder ?? defaultMigrationsFolder();
   const drizzleDb = drizzle(pool, { schema: flarexSchema });
+  const migrationDb = options.migrationPool === undefined
+    ? drizzleDb
+    : drizzle(options.migrationPool, { schema: flarexSchema });
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPostgresSqlClient(drizzleDb, pool),
@@ -318,7 +323,7 @@ export async function createPostgresPersistence(
     drizzle: drizzleDb,
     pool,
     async migrate(): Promise<void> {
-      await migrateNodePg(drizzleDb, {
+      await migrateNodePg(migrationDb, {
         migrationsFolder,
         ...(options.migrationsSchema === undefined
           ? {}

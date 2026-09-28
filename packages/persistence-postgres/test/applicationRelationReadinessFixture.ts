@@ -116,7 +116,7 @@ export async function readyExactRelationReadFixture(
   const binding = fixture.relation.binding.relationBindings[0];
   if (binding === undefined) throw new Error("Expected a relation binding.");
   const reads = createApplicationRelationReadPort(
-    fixture.persistence.drizzle,
+    fixture.control.drizzle,
     fixture.pointCommitAuthority,
     fixture.relationCommit,
     fixture.fold,

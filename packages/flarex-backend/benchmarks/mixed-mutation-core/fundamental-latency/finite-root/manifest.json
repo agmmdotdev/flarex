@@ -1,0 +1,27 @@
+{
+  "format": "flarex.mixed-mutation-performance-package",
+  "datasets": [
+    "initial-traced-smoke",
+    "traced-smoke",
+    "untraced"
+  ],
+  "latencyExcludedDataset": "initial-traced-smoke",
+  "files": {
+    "README.md": {
+      "bytes": 3693,
+      "sha256": "c069a1c0fbf914608c29d3e9c746e473b169c486b332f35671ef9d35dae60dbd"
+    },
+    "initial-traced-smoke/manifest.json": {
+      "bytes": 7165,
+      "sha256": "235fb002b153d75162e7c547823734aa3286a65a5eb3a35eb5bc4e799537ebf2"
+    },
+    "traced-smoke/manifest.json": {
+      "bytes": 7156,
+      "sha256": "ff6af9181a900fa666bc9ed07fd435e179dd6ddbf4ba1756ca6516b5b7668860"
+    },
+    "untraced/manifest.json": {
+      "bytes": 7153,
+      "sha256": "ea181d4d8a97fcb3e2b647ad46fc105e4e81677faacce9ecb79b506cee2ae2d6"
+    }
+  }
+}

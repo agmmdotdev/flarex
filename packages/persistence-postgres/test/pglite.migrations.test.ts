@@ -159,6 +159,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_logical_source_initialization",
       "fx_system_physical_definition_lifecycle",
       "fx_system_point_mutation_redelivery_scheduler",
+      "fx_system_prepared_metadata_epoch",
       "fx_system_relational_physical_name_assignment",
       "fx_system_retained_history_scheduler",
       "fx_system_scope_clock",
@@ -167,8 +168,8 @@ describe("createPGlitePersistence", () => {
       "fx_system_tx_execution_claim",
       "fx_system_tx_journal",
       "fx_system_tx_journal_index_range",
-      "fx_system_tx_journal_receipt",
       "fx_system_tx_journal_point",
+      "fx_system_tx_journal_receipt",
       "fx_system_tx_journal_relation_incoming",
       "fx_system_tx_journal_write_event",
       "fx_system_tx_session",
@@ -1027,7 +1028,7 @@ describe("createPGlitePersistence", () => {
     }
   }, 30_000);
 
-  it("upgrades a pre-0060 legacy transaction session without changing its authority", async () => {
+  it("retains a pre-0060 session through 0117 and refuses its unsafe replacement", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-aa-r6-upgrade-"));
     const migrationsFolder = resolve(testRoot, "drizzle");
     const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1075,7 +1076,9 @@ describe("createPGlitePersistence", () => {
         transactionSessionFixture(sessionId),
       );
 
-      await copyFile(currentJournal, copiedJournal);
+      await writeFile(copiedJournal, `${JSON.stringify({ ...parsed,
+        entries: parsed.entries.filter((entry) => isNonArrayRecord(entry) &&
+          typeof entry.idx === "number" && entry.idx < 118) }, null, 2)}\n`, "utf8");
       const current = await createPGlitePersistence({ db, migrationsFolder });
       await current.migrate();
       const row = await current.query<{
@@ -1102,6 +1105,14 @@ describe("createPGlitePersistence", () => {
           application_authority: null,
         },
       ]);
+      await copyFile(currentJournal, copiedJournal);
+      const replacement = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(replacement.migrate()).rejects.toThrow(
+        /session journal replacement requires fresh isolated data/,
+      );
+      expect((await replacement.query<{ session_id: string }>(
+        "select session_id from fx_system_tx_session where session_id = $1", [sessionId])).rows)
+        .toEqual([{ session_id: sessionId }]);
     } finally {
       try {
         await db.close();
@@ -2113,7 +2124,7 @@ describe("createPGlitePersistence", () => {
     }
   });
 
-  it("upgrades completed S07 clocks without changing copied session evidence", async () => {
+  it("retains S07 clock and copied session evidence through 0117 and refuses replacement", async () => {
     const testRoot = await mkdtemp(
       resolve(tmpdir(), "flarex-revocation-epoch-upgrade-"),
     );
@@ -2153,8 +2164,13 @@ describe("createPGlitePersistence", () => {
         ),
       ).rejects.toThrow();
 
-      const currentPersistence = await createPGlitePersistence({ db });
-      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+      const parsedCurrent = JSON.parse(await readFile(currentJournal, "utf8")) as {
+        entries: Array<{ idx: number }>;
+      };
+      await writeFile(resolve(previousMigrationsFolder, "meta/_journal.json"),
+        `${JSON.stringify({ ...parsedCurrent, entries: parsedCurrent.entries.filter(entry => entry.idx < 118) }, null, 2)}\n`);
+      const currentPersistence = await createPGlitePersistence({ db, migrationsFolder: previousMigrationsFolder });
       await expect(currentPersistence.migrate()).resolves.toBeUndefined();
       const preserved = await currentPersistence.query<{
         clock_epoch: string;
@@ -2187,6 +2203,14 @@ describe("createPGlitePersistence", () => {
         where scope_id = 'scope_after_revocation_epoch'
       `);
       expect(defaulted.rows).toEqual([{ epoch: "0" }]);
+      await copyFile(currentJournal, resolve(previousMigrationsFolder, "meta/_journal.json"));
+      const replacement = await createPGlitePersistence({ db, migrationsFolder: previousMigrationsFolder });
+      await expect(replacement.migrate()).rejects.toThrow(
+        /session journal replacement requires fresh isolated data/,
+      );
+      expect((await replacement.query<{ session_epoch: string }>(
+        "select authorization_revocation_epoch::text as session_epoch from fx_system_tx_session where session_id = $1",
+        [sessionId])).rows).toEqual([{ session_epoch: "17" }]);
     } finally {
       try {
         await db.close();
@@ -2346,14 +2370,18 @@ describe("createPGlitePersistence", () => {
         previousPersistence.query(`select count(*) from fx_system_tx_journal`),
       ).rejects.toThrow();
 
-      await copyFile(currentJournal, previousJournal);
-      const currentPersistence = await createPGlitePersistence({
+      const fullJournal = JSON.parse(await readFile(currentJournal, "utf8")) as {
+        entries: Array<{ idx: number }>;
+      };
+      await writeFile(previousJournal,
+        `${JSON.stringify({ ...fullJournal, entries: fullJournal.entries.filter(entry => entry.idx < 117) }, null, 2)}\n`,
+        "utf8");
+      const historicalPersistence = await createPGlitePersistence({
         db,
         migrationsFolder,
       });
-      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
-      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
-      const tables = await currentPersistence.query<{ table_name: string }>(`
+      await expect(historicalPersistence.migrate()).resolves.toBeUndefined();
+      const tables = await historicalPersistence.query<{ table_name: string }>(`
         select table_name
         from information_schema.tables
         where table_schema = current_schema()
@@ -2371,6 +2399,15 @@ describe("createPGlitePersistence", () => {
         { table_name: "fx_system_tx_journal_point" },
         { table_name: "fx_system_tx_journal_write_event" },
       ]);
+      await copyFile(currentJournal, previousJournal);
+      const currentPersistence = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      const currentReceipt = await currentPersistence.query<{ table_name: string }>(`
+        select table_name from information_schema.tables where table_schema = current_schema()
+          and table_name in ('fx_system_tx_journal_receipt', 'fx_system_tx_journal_latest_receipt')
+      `);
+      expect(currentReceipt.rows).toEqual([{ table_name: "fx_system_tx_journal_receipt" }]);
       const eventEvidenceColumn = await currentPersistence.query<{
         column_default: string | null;
         is_nullable: string;
