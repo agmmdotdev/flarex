@@ -3,6 +3,7 @@ import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import type { Json } from "flarex-protocol/json";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
+import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
 import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
@@ -11,7 +12,7 @@ import type { LogicalParticipantAttemptAdmission } from "../logicalDocuments/par
 import { prepareLogicalRelationalRows } from "../logicalDocuments/relationalRows";
 import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError } from "./model";
-import { defaultCommerceResources, logicalCommerceWorkingSetLimits, type CommerceResources } from "./resources";
+import { defaultCommerceResources, logicalCommerceWorkingSetLimits } from "./resources";
 import { captureCommerceJsonData, projectCommerceRequestFailure } from "./request";
 import { projectLogicalCommerceActivity } from "./logicalParticipant";
 import type { CommerceCommandContext } from "./commands";
@@ -23,7 +24,6 @@ export type BorrowedLogicalAttemptInput = Readonly<{
   readonly admission: LogicalParticipantAttemptAdmission;
   readonly attempt: SessionJournalAttempt;
   readonly method: string;
-  readonly resources?: CommerceResources;
 }> & LogicalDocumentBorrowView;
 
 /** A disposable evaluator for one admitted framework invocation. The root
@@ -31,33 +31,40 @@ export type BorrowedLogicalAttemptInput = Readonly<{
 export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttempt")(function* (
   input: BorrowedLogicalAttemptInput,
 ) {
+  let closePreparedLifetime: Effect.Effect<void> = Effect.void;
   return yield* withLogicalRelationalAttemptAdmissionEffect(input.admission, input.attempt, input.method,
-    (state, checkedRead) => Effect.gen(function* () {
-      const resources = input.resources ?? defaultCommerceResources;
+    (state, checkedRead, constructionTx: FlarexMetadataTransaction) => Effect.gen(function* () {
+      // This profile uses the captured owner policy; request input cannot
+      // select or inspect a resource object while the checked SQL lock is held.
+      const resources = defaultCommerceResources;
       const lifetime = yield* makeBoundedRequestLifetime(commerceError,
         { calls: resources.calls, commandBytes: resources.commandBytes, commandMs: commerceLimits.commandMs },
         input.attempt, Object.freeze({}), crypto.randomUUID(), "write");
+      closePreparedLifetime = lifetime.close;
       return yield* Effect.gen(function* () {
-      const id = yield* lifetime.begin(lifetime.context);
-      for (const table of state.tables)
-        yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
-      const requireAdmission = checkedRead(() => Effect.void).pipe(Effect.mapError(projectCommerceRequestFailure));
-      const working = yield* makeLogicalDocumentWorkingSet({
-        readTransaction: work => checkedRead(work).pipe(Effect.mapError(projectCommerceRequestFailure)),
-        scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
-        ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
-          { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
-            rootAttemptFence: input.rootAttemptFence }),
-        lifetime, requireAdmission,
-        tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })),
-        relationalCapabilities: state.schema.capabilities, searchDefinitions: state.search,
-        validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
-          .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))),
-        error: logicalCommerceError, uniqueConflict: () => commerceError("invalidInput"),
-        limits: { ...logicalCommerceWorkingSetLimits, pageRows: resources.queryRows,
-          identities: resources.catalogRows },
-      }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique,
-        state.indexes.filter(index => index.access.kind === "developer"));
+        const id = yield* lifetime.begin(lifetime.context);
+        for (const table of state.tables)
+          yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
+        const requireAdmission = checkedRead(() => Effect.void).pipe(Effect.mapError(projectCommerceRequestFailure));
+        const working = yield* makeLogicalDocumentWorkingSet({
+          readTransaction: work => checkedRead(work).pipe(Effect.mapError(projectCommerceRequestFailure)),
+          scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
+          ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
+            { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
+              rootAttemptFence: input.rootAttemptFence }),
+          lifetime, requireAdmission,
+          tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })),
+          relationalCapabilities: state.schema.capabilities, searchDefinitions: state.search,
+          validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
+            .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))),
+          error: logicalCommerceError, uniqueConflict: () => commerceError("invalidInput"),
+          limits: { ...logicalCommerceWorkingSetLimits, pageRows: resources.queryRows,
+            identities: resources.catalogRows },
+        }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique,
+          state.indexes.filter(index => index.access.kind === "developer"), undefined, constructionTx);
+        return Object.freeze({ resources, lifetime, id, working });
+      });
+    }), (state, _checkedRead, { resources, lifetime, id, working }) => Effect.gen(function* () {
       const first = state.tables[0];
       if (first === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const store = yield* working.relationalTable(lifetime.context, id, first.localName);
@@ -118,6 +125,6 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
             referenceReplacements: snapshot.referenceReplacements.slice(cursor.referenceReplacements),
           }))),
       });
-      }).pipe(Effect.onError(() => lifetime.close));
-    }).pipe(Effect.mapError(projectCommerceRequestFailure)));
+    })
+  ).pipe(Effect.mapError(projectCommerceRequestFailure), Effect.onError(() => closePreparedLifetime));
 });

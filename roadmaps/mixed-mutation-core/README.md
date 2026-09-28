@@ -46,13 +46,22 @@ warm outer medians are 1.759 / 2.420 / 5.284 / 0.343 s for Product, Product
 plus Payload, mixed workflow, and standalone workflow. The first traced smoke
 overlapped a repository root inventory scan; its samples are retained but its
 timings are excluded from latency conclusions. The three proposed mixed warm
-latency goals remain unmet. The next measured owner is repeated checked
-operation admission: compose pre-callback source/bundle verification with
-working-set construction and pending hydration, and combine a pure read's
-leading admission with its historical read in one short checked transaction.
-Failure order, later fresh checks, and callback transaction boundaries remain
-proof requirements; the measured trace does not attribute every transaction
-to one function.
+latency goals remain unmet. The delivered bounded [checked operation composition
+slice](./09-checked-operation-composition-preflight.md) now has
+[retained quiet trace and full untraced evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/checked-operation-composition/README.md):
+Product and Payload preparation combines admission with working-set construction
+and pending hydration; workflow keeps ordered member validation and combines
+its bundle check with construction; primitive borrowed `get` combines admission
+with its exact read. Later calls retain fresh checks. Unknown-input reads whose
+capture could invoke foreign code retain separate checks, and workflow's
+per-member source validation remains outside its final bundle transaction.
+The quiet trace reduces selected SQL and transaction counts, while full warm
+medians are 1.849 / 2.265 / 4.847 / 0.318 s. Product regresses against its
+finite-root warm median; the three mixed latency goals remain unmet. The next
+connected cost owner is repeated live admission and exact read work, with
+fresh authority and short transaction boundaries preserved. The trace does
+not attribute each interval to one function, and the comparison is not an
+isolated causal speedup claim.
 
 The finite root has an immutable journal marker and a first protected legacy
 Application target projection. That projection has ten trigger-covered tables

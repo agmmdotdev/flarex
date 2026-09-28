@@ -264,6 +264,7 @@ import { LogicalParticipantAdmissionError, LogicalParticipantInvocationError,
 import type { ApplicationBindingInput } from "./applicationActivation";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import type { ScopeClockRecord } from "./scopeClock";
+import { withSharedLogicalSourceBindingChecks } from "./logicalDocuments/sourceAdmission";
 import { projectLogicalDocumentJournalContribution, type LogicalJournalContributionError } from "./logicalDocuments/journalContribution";
 import { serializeLogicalParticipantDependencyEvidence, type LogicalParticipantEvidenceError } from "./logicalDocuments/journalEvidence";
 import type { LogicalDocumentChanges } from "./logicalDocuments/workingSet";
@@ -1618,23 +1619,25 @@ const requireAdmittedBundleInTransactionEffect = Effect.fn(
   if (selected === null || selected.admissions.length !== request.sources.length) {
     return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
   }
-  const states = [];
-  for (const [ordinal, admission] of selected.admissions.entries()) {
-    const methods = selected.sourceMethods[ordinal]!;
-    const expected = request.sources[ordinal];
-    const state = yield* requireLogicalParticipantAttemptAdmissionInTransactionEffect(
-      admission, attempt, methods[0]!, tx, authority, clock);
-    if (expected === undefined || expected.sourceKey !== state.sourceKey ||
-      expected.sourceSha256Hex !== state.sourceSha256 ||
-      expected.bindingHead.sequence !== state.head.sequence ||
-      expected.bindingHead.sha256 !== state.head.sha256 ||
-      expected.methods.length !== methods.length ||
-      expected.methods.some((method, position) => method !== methods[position])) {
-      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+  return yield* withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
+    const states = [];
+    for (const [ordinal, admission] of selected.admissions.entries()) {
+      const methods = selected.sourceMethods[ordinal]!;
+      const expected = request.sources[ordinal];
+      const state = yield* requireLogicalParticipantAttemptAdmissionInTransactionEffect(
+        admission, attempt, methods[0]!, tx, authority, clock);
+      if (expected === undefined || expected.sourceKey !== state.sourceKey ||
+        expected.sourceSha256Hex !== state.sourceSha256 ||
+        expected.bindingHead.sequence !== state.head.sequence ||
+        expected.bindingHead.sha256 !== state.head.sha256 ||
+        expected.methods.length !== methods.length ||
+        expected.methods.some((method, position) => method !== methods[position])) {
+        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      }
+      states.push(state);
     }
-    states.push(state);
-  }
-  return Object.freeze(states);
+    return Object.freeze(states);
+  }));
 });
 
 const preflightAdmittedOperationInTransactionEffect = Effect.fn(

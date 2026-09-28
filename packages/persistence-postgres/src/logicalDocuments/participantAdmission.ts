@@ -207,11 +207,15 @@ export const requireLogicalParticipantAttemptAdmissionInTransactionEffect = Effe
 
 /** Every evaluator read borrows another checked short transaction. */
 export const withLogicalParticipantAttemptAdmissionEffect = Effect.fn("LogicalParticipantAttemptAdmission.with")(
-  function* <Value, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
+  function* <Prepared, Value, PreparationFailure, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
     attempt: SessionJournalAttempt, method: string,
+    prepare: (state: Readonly<{ root: LogicalParticipantAttemptRoot; tableIds: ReadonlySet<CatalogTableId> }>,
+      tx: FlarexMetadataTransaction,
+      readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
+        Effect.Effect<A, E | LogicalParticipantAdmissionError>) => Effect.Effect<Prepared, PreparationFailure>,
     work: (state: Readonly<{ root: LogicalParticipantAttemptRoot; tableIds: ReadonlySet<CatalogTableId> }>,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
-        Effect.Effect<A, E | LogicalParticipantAdmissionError>) => Effect.Effect<Value, Failure, Requirements>) {
+        Effect.Effect<A, E | LogicalParticipantAdmissionError>, prepared: Prepared) => Effect.Effect<Value, Failure, Requirements>) {
     const state = typeof admission === "object" && admission !== null ? attempts.get(admission) : undefined;
     if (state === undefined || state.attempt !== attempt || !state.methods.has(method))
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
@@ -219,8 +223,9 @@ export const withLogicalParticipantAttemptAdmissionEffect = Effect.fn("LogicalPa
       state.readTransaction((tx, authority, clock) =>
         requireLogicalParticipantAttemptAdmissionInTransactionEffect(admission, attempt, method, tx, authority, clock)
           .pipe(Effect.flatMap(() => read(tx))));
-    yield* checkedRead(() => Effect.void);
-    return yield* work(Object.freeze({ root: state.root, tableIds: new Set(state.tableIds) }), checkedRead);
+    const publicState = Object.freeze({ root: state.root, tableIds: new Set(state.tableIds) });
+    const prepared = yield* checkedRead(tx => prepare(publicState, tx, checkedRead));
+    return yield* work(publicState, checkedRead, prepared);
   });
 
 declare const commitBrand: unique symbol;

@@ -157,9 +157,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   uniqueInput: readonly LocatedAppUniqueConstraintDefinitionV1[],
   indexInput: readonly LocatedAppIndexDefinitionV1[],
   testHooks?: LogicalDocumentReadTestHooks<Failure>,
+  constructionTx?: FlarexMetadataTransaction,
 ) {
   const runRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
     configuration.tx === undefined ? configuration.readTransaction(work) : work(configuration.tx);
+  const runConstructionRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
+    constructionTx === undefined ? runRead(work) : work(constructionTx);
   const state = Object.freeze({ ...configuration, limits: Object.freeze({ ...configuration.limits }),
     relationalCapabilities: configuration.relationalCapabilities === undefined ? undefined : Object.freeze(structuredClone(configuration.relationalCapabilities)),
     tables: Object.freeze(configuration.tables.map(table => Object.freeze({ ...table,
@@ -169,7 +172,11 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const requireReadAdmission = state.tx === undefined ? Effect.void : state.requireAdmission;
   const uniqueDefinitions = Object.freeze([...uniqueInput]);
   const indexDefinitions = Object.freeze([...indexInput]);
-  yield* state.requireAdmission;
+  // A borrowed caller may construct inside its already checked short transaction.
+  // The transaction is used only for construction and pending-row hydration;
+  // returned operations always use the ordinary checked readTransaction.
+  if (constructionTx === undefined) yield* state.requireAdmission;
+  else if (state.tx !== undefined) return yield* Effect.fail(state.error("invalidAuthority"));
   const root = state.rootEvaluator === undefined ? undefined : state.rootAttempt === undefined ||
     state.rootAttemptFence === undefined || state.snapshotCommitSeq === undefined ? null :
       attachLogicalDocumentRootEvaluator(state.rootEvaluator, { attempt: state.rootAttempt,
@@ -351,7 +358,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     }
   });
   const readBase = Effect.fn("LogicalDocuments.readBase")(function* (tableId: CatalogTableId,
-    rowId?: AppRowIdHexV1, rowIds?: readonly AppRowIdHexV1[]) {
+    rowId?: AppRowIdHexV1, rowIds?: readonly AppRowIdHexV1[], checkedTx?: FlarexMetadataTransaction) {
       if (state.snapshotCommitSeq !== undefined && rowId === undefined && rowIds === undefined) {
         yield* state.requireAdmission;
         if (closed) return yield* Effect.fail(error("closed"));
@@ -360,7 +367,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         return yield* Effect.fail(error("invalidInput"));
       }
       yield* requireReadAdmission;
-      return yield* runRead(tx => readBaseInTransaction(tx, tableId, rowId, rowIds));
+      return yield* (checkedTx === undefined ? runRead(tx => readBaseInTransaction(tx, tableId, rowId, rowIds)) :
+        readBaseInTransaction(checkedTx, tableId, rowId, rowIds));
     });
   const seededRows = root === undefined ? state.pendingRows : [...root.appPoints.entries()]
     .filter(([documentId, seed]) => !root.hydratedAppPoints.has(documentId) &&
@@ -372,7 +380,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     const pendingRows = seededRows;
     if (pendingRows.length > 0) {
       yield* requireReadAdmission;
-      yield* runRead(tx => Effect.gen(function* () {
+      yield* runConstructionRead(tx => Effect.gen(function* () {
         for (const seed of pendingRows) {
           const documentId = appDocumentIdV1FromRowIdentity(seed);
           if (seen.has(documentId)) return yield* Effect.fail(error("storedCorruption"));
@@ -413,13 +421,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       }));
     }
   }
-  const locate = Effect.fn("LogicalDocuments.locate")(function* (inputId: string, tableName?: string) {
+  const locate = Effect.fn("LogicalDocuments.locate")(function* (inputId: string, tableName?: string,
+    checkedTx?: FlarexMetadataTransaction) {
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(inputId).pipe(Result.mapError(cause => error("invalidInput", cause))));
     yield* Effect.fromResult(tableForId(identity.tableId));
     if (tableName !== undefined && (yield* Effect.fromResult(tableForName(tableName))).tableId !== identity.tableId) {
       return yield* Effect.fail(error("invalidInput"));
     }
-    if (!dependencies.has(identity.id) && !scanned.has(identity.tableId)) yield* readBase(identity.tableId, identity.rowId);
+    if (!dependencies.has(identity.id) && !scanned.has(identity.tableId)) yield* readBase(identity.tableId, identity.rowId, undefined, checkedTx);
     if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
     return { identity, pending: rows.get(identity.id) };
   });
@@ -550,8 +559,22 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     return yield* Effect.fromResult(output(document, true));
   });
   const get: LogicalDocuments<Failure>["get"] = Effect.fn("LogicalDocuments.get")((context, id, documentId, tableName) =>
-    runOperation(context, id, "read", locate(documentId, tableName).pipe(Effect.flatMap(({ pending }) =>
-      pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true))))));
+    state.tx !== undefined ? runOperation(context, id, "read", locate(documentId, tableName).pipe(Effect.flatMap(({ pending }) =>
+      pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true))))) :
+      lifetime.operation(context, id, "read", Effect.gen(function* () {
+        // The borrowed readTransaction performs live admission before any
+        // identity inspection. Only primitive input enters this SQL callback;
+        // a proxy cannot execute getters while the checked transaction is open.
+        const pending = yield* state.readTransaction(tx => Effect.gen(function* () {
+          if (closed || root?.closed) return yield* Effect.fail(error("closed"));
+          if (setNull.length > 0 || referenceReplacements.length > 0)
+            return yield* Effect.fail(error("invalidAuthority"));
+          if (typeof documentId !== "string" || tableName !== undefined && typeof tableName !== "string")
+            return yield* Effect.fail(error("invalidInput"));
+          return (yield* locate(documentId, tableName, tx)).pending;
+        }));
+        return pending?.current == null ? null : yield* Effect.fromResult(output(pending.current, true));
+      })));
   const getMany: LogicalDocuments<Failure>["getMany"] = Effect.fn("LogicalDocuments.getMany")((context, id, tableName, input) =>
     runOperation(context, id, "read", Effect.gen(function* () {
       const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), error));

@@ -35,13 +35,15 @@ export type BorrowedCmsAttemptInput = Readonly<{
 export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(function* (
   input: BorrowedCmsAttemptInput,
 ) {
+  let closePreparedLifetime: Effect.Effect<void> = Effect.void;
   return yield* withLogicalDocumentAttemptAdmissionEffect(input.admission, input.attempt, input.method,
-    (state, checkedRead) => Effect.gen(function* () {
+    (state, checkedRead, constructionTx) => Effect.gen(function* () {
       if (state.configuration.profile !== "payload.scalar" || state.tables.length !== 1 ||
         state.tables[0]?.localName !== "posts") return yield* Effect.fail(cmsError("unsupportedProfile"));
       const lifetime = yield* makeBoundedRequestLifetime(cmsError,
         { calls: cmsLimits.calls, commandBytes: cmsLimits.commandBytes, commandMs: cmsLimits.commandMs },
         input.attempt, Object.freeze({}), crypto.randomUUID(), "write", "require");
+      closePreparedLifetime = lifetime.close;
       return yield* Effect.gen(function* () {
         const id = yield* lifetime.begin(lifetime.context);
         const readTransaction: LogicalDocumentReadTransaction<CmsTransactionError> =
@@ -63,7 +65,10 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
           validateDocument: write => Effect.fromResult(state.validate(write).pipe(Result.mapError(cause =>
             cmsError(cause.reason === "documentInvalid" ? "documentInvalid" : "invalidAuthority", cause)))),
         }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique,
-          state.indexes.filter(index => index.access.kind === "developer"));
+          state.indexes.filter(index => index.access.kind === "developer"), undefined, constructionTx);
+        return Object.freeze({ lifetime, id, working });
+      });
+    }), (_state, _checkedRead, { lifetime, id, working }) => Effect.sync(() => {
         const ports: Pick<CmsCommandContext, "documents" | "relations" | "preferences"> = {
           documents: working.documents,
           relations: Object.freeze({ incoming: (request: CmsRequestContext, presented: CmsPresentedTransactionId) => lifetime.operation(request, presented,
@@ -86,6 +91,7 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
         return Object.freeze({ context, close, abort: lifetime.close, withinDeadline: lifetime.withinDeadline,
           currentUsage: () => Object.freeze({ workBytes: cmsLimits.commandBytes - lifetime.remainingBytes(),
             workCalls: lifetime.usedCalls() }) });
-      }).pipe(Effect.onError(() => lifetime.close));
-    })).pipe(Effect.mapError(cause => cause instanceof CmsTransactionError ? cause : projectSourceFailure(cause)));
+    })
+  ).pipe(Effect.mapError(cause => projectCheckedReadFailure(cause)),
+    Effect.onError(() => closePreparedLifetime));
 });

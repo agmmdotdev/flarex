@@ -81,16 +81,21 @@ export interface LogicalRelationalAttemptAdmissionState extends Omit<LogicalRela
 const relationalAttemptStates = new WeakMap<object, LogicalRelationalAttemptAdmissionState>();
 
 export const withLogicalRelationalAttemptAdmissionEffect = Effect.fn("LogicalRelationalAttemptAdmission.with")(
-  function* <Value, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
+  function* <Prepared, Value, PreparationFailure, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
     attempt: SessionJournalAttempt, method: string,
+    prepare: (state: LogicalRelationalAttemptAdmissionState,
+      readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
+        Effect.Effect<A, E | LogicalParticipantAdmissionError>,
+      tx: FlarexMetadataTransaction) => Effect.Effect<Prepared, PreparationFailure>,
     work: (state: LogicalRelationalAttemptAdmissionState,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
-        Effect.Effect<A, E | LogicalParticipantAdmissionError>) => Effect.Effect<Value, Failure, Requirements>) {
-    return yield* withLogicalParticipantAttemptAdmissionEffect(admission, attempt, method, (_, checkedRead) => Effect.gen(function* () {
+        Effect.Effect<A, E | LogicalParticipantAdmissionError>, prepared: Prepared) => Effect.Effect<Value, Failure, Requirements>) {
+    return yield* withLogicalParticipantAttemptAdmissionEffect(admission, attempt, method,
+      (_, tx, checkedRead) => Effect.gen(function* () {
       const state = relationalAttemptStates.get(admission);
       if (state === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-      return yield* work(state, checkedRead);
-    }));
+      return Object.freeze({ state, prepared: yield* prepare(state, checkedRead, tx) });
+    }), (_, checkedRead, result) => work(result.state, checkedRead, result.prepared));
   });
 /** Native semantics remain here; source identity, structural readiness and
  * selected binding evidence are shared with document-source admission. */

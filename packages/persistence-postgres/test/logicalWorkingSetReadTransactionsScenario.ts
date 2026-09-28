@@ -70,19 +70,24 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       admissionTransactions++;
       return runEffectTransaction<void, Error, Error, FlarexMetadataTransaction>(
         callback => db.transaction(callback), "Neutral source admission", tx =>
-        lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId).pipe(Effect.asVoid,
-          Effect.mapError(cause => failure("statementFailure", cause))),
+        Effect.acquireUseRelease(Effect.sync(() => { active = true; }), () =>
+          lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId).pipe(
+            Effect.mapError(cause => failure("statementFailure", cause)),
+            Effect.flatMap(() => allowed ? Effect.void : Effect.fail(failure("sourceMismatch")))),
+        () => Effect.sync(() => { active = false; })),
       cause => failure("statementFailure", cause));
     });
     const readTransaction = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
       Effect.suspend(() => {
         checkedReads++;
-        if (!allowed) return Effect.fail(failure("sourceMismatch"));
         return runEffectTransaction<A, E | Error, Error, FlarexMetadataTransaction>(
           callback => db.transaction(callback), "Neutral checked read", tx => Effect.gen(function* () {
             yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId)
               .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
-            return yield* Effect.acquireUseRelease(Effect.sync(() => { active = true; }), () => work(tx),
+            return yield* Effect.acquireUseRelease(Effect.sync(() => { active = true; }), () => Effect.gen(function* () {
+              if (!allowed) return yield* Effect.fail(failure("sourceMismatch"));
+              return yield* work(tx);
+            }),
               () => Effect.sync(() => { active = false; }));
           }), cause => failure("statementFailure", cause));
       });
@@ -93,7 +98,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
         { calls: 16, commandBytes: 262_144, commandMs: 60_000 }, {}, {}, "neutral-checked-read", "read"),
       resource => resource.close);
-      const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, readTransaction,
+      const working = yield* readTransaction(tx => makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, readTransaction,
         snapshotCommitSeq: CommitSeqSchema.make(3n),
         tables: [{ tableId: firstTable, logicalName: "notes" }, { tableId: secondTable, logicalName: "labels" }],
         pendingRows: [
@@ -105,34 +110,114 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         requireAdmission, validateDocument: () => Effect.void,
         error: failure, uniqueConflict: () => failure("uniqueConflict"),
         limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
-      }, firstTime, [], [], { observeQuery: () => expect(active).toBe(true) });
+      }, firstTime, [], [], { observeQuery: () => expect(active).toBe(true) }, tx));
       expect(checkedReads).toBe(1);
-      // The constructor checks once. Pending hydration uses its own checked
-      // storage transaction instead of opening an empty admission transaction.
-      expect(admissionTransactions).toBe(1);
+      // One checked construction transaction hydrates pending bases and closes
+      // before any returned method can run.
+      expect(admissionTransactions).toBe(0);
       expect(active).toBe(false);
       const id = yield* lifetime.begin(lifetime.context);
       expect(yield* working.documents.getMany(lifetime.context, id, "notes", [firstId, absentId]))
         .toMatchObject([{ label: "pending" }, null]);
       expect(checkedReads).toBe(2);
-      expect(admissionTransactions).toBe(2);
+      expect(admissionTransactions).toBe(1);
       expect(yield* working.documents.getMany(lifetime.context, id, "labels", [secondId])).toEqual([null]);
       expect(checkedReads).toBe(2);
-      expect(admissionTransactions).toBe(3);
+      expect(admissionTransactions).toBe(2);
       expect(yield* working.documents.getMany(lifetime.context, id, "notes", [absentId])).toEqual([null]);
       expect(checkedReads).toBe(2);
-      expect(admissionTransactions).toBe(4);
+      expect(admissionTransactions).toBe(3);
       const snapshot = yield* working.activitySnapshot();
       expect(snapshot.observedRows).toMatchObject([{ tableName: "notes", value: { label: "pending" } }]);
       allowed = false;
-      expect(yield* Effect.result(working.documents.getMany(lifetime.context, id, "notes", [
-        appDocumentIdV1FromRowIdentity({ tableId: firstTable,
-          rowId: decodeAppRowIdHexV1("53000000000000000000000000000006") }),
-      ]))).toMatchObject({ _tag: "Failure", failure: { message: "sourceMismatch" } });
-      expect(checkedReads).toBe(3);
+      expect(yield* Effect.result(working.documents.getMany(lifetime.context, id, "notes", [firstId])))
+        .toMatchObject({ _tag: "Failure", failure: { message: "sourceMismatch" } });
+      expect(checkedReads).toBe(2);
       expect(active).toBe(false);
     })));
     allowed = true;
+    for (const admitted of [true, false]) {
+      await runEffect(Effect.scoped(Effect.gen(function* () {
+        const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+          { calls: 8, commandBytes: 65_536, commandMs: 60_000 }, {}, {}, `neutral-proxy-${admitted}`, "read"),
+        resource => resource.close);
+        const working = yield* readTransaction(tx => makeLogicalDocumentWorkingSet({
+          scopeId, clock, lifetime, readTransaction, snapshotCommitSeq: CommitSeqSchema.make(3n),
+          tables: [{ tableId: firstTable, logicalName: "notes" }], pendingRows: [],
+          requireAdmission, validateDocument: () => Effect.void,
+          error: failure, uniqueConflict: () => failure("uniqueConflict"),
+          limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
+        }, firstTime, [], [], undefined, tx));
+        const id = yield* lifetime.begin(lifetime.context);
+        let proxyTraps = 0;
+        const malformed = new Proxy({ where: {}, offset: 0, limit: 1 }, {
+          get(target, key, receiver) {
+            proxyTraps++;
+            expect(active).toBe(false);
+            return key === "limit" ? "wrong" : Reflect.get(target, key, receiver);
+          },
+          ownKeys(target) {
+            proxyTraps++;
+            expect(active).toBe(false);
+            return Reflect.ownKeys(target);
+          },
+          getOwnPropertyDescriptor(target, key) {
+            proxyTraps++;
+            expect(active).toBe(false);
+            const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+            return key === "limit" && descriptor !== undefined ? { ...descriptor, value: "wrong" } : descriptor;
+          },
+        });
+        allowed = admitted;
+        const outcome = yield* Effect.result(working.documents.find(lifetime.context, id, "notes", malformed));
+        expect(outcome._tag).toBe("Failure");
+        if (admitted) expect(proxyTraps).toBeGreaterThan(0);
+        else {
+          expect(outcome).toMatchObject({ _tag: "Failure", failure: { message: "sourceMismatch" } });
+          expect(proxyTraps).toBe(0);
+        }
+        expect(active).toBe(false);
+      })));
+      allowed = true;
+    }
+    const primitiveId = appDocumentIdV1FromRowIdentity({ tableId: firstTable,
+      rowId: decodeAppRowIdHexV1("53000000000000000000000000000006") });
+    const beforePrimitiveReads = checkedReads;
+    const beforePrimitiveAdmissions = admissionTransactions;
+    await runEffect(Effect.scoped(Effect.gen(function* () {
+      const lifetime = yield* Effect.acquireRelease(makeBoundedRequestLifetime(failure,
+        { calls: 8, commandBytes: 65_536, commandMs: 60_000 }, {}, {}, "neutral-primitive-get", "read"),
+      resource => resource.close);
+      const working = yield* readTransaction(tx => makeLogicalDocumentWorkingSet({
+        scopeId, clock, lifetime, readTransaction, snapshotCommitSeq: CommitSeqSchema.make(3n),
+        tables: [{ tableId: firstTable, logicalName: "notes" }], pendingRows: [],
+        requireAdmission, validateDocument: () => Effect.void,
+        error: failure, uniqueConflict: () => failure("uniqueConflict"),
+        limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
+      }, firstTime, [], [], { observeQuery: () => expect(active).toBe(true) }, tx));
+      expect(active).toBe(false);
+      expect(checkedReads - beforePrimitiveReads).toBe(1);
+      const id = yield* lifetime.begin(lifetime.context);
+      expect(yield* working.documents.get(lifetime.context, id, primitiveId, "notes")).toBeNull();
+      expect(checkedReads - beforePrimitiveReads).toBe(2);
+      expect(admissionTransactions - beforePrimitiveAdmissions).toBe(0);
+      expect(active).toBe(false);
+      expect(yield* working.documents.get(lifetime.context, id, firstId, "notes"))
+        .toMatchObject({ label: "original" });
+      expect(checkedReads - beforePrimitiveReads).toBe(3);
+      expect(admissionTransactions - beforePrimitiveAdmissions).toBe(0);
+      expect(yield* working.documents.get(lifetime.context, id, primitiveId, "notes")).toBeNull();
+      expect(checkedReads - beforePrimitiveReads).toBe(4);
+      expect(admissionTransactions - beforePrimitiveAdmissions).toBe(0);
+      yield* lifetime.seal;
+      const changes = yield* working.close();
+      expect(changes.dependencies).toMatchObject([
+        { documentId: firstId, dependency: { kind: "appRowPoint", observed: { kind: "present",
+          revisionCommitSeq: CommitSeqSchema.make(1n) } } },
+        { documentId: primitiveId, dependency: { kind: "appRowPoint", observed: { kind: "missing",
+          basis: { kind: "noVisibleRevision" } } } },
+      ]);
+    })));
     const attempt = {} as SessionJournalAttempt;
     const snapshotCommitSeq = CommitSeqSchema.make(3n);
     const pins = { attempt, scopeId, snapshotCommitSeq, attemptFence: "working-set-root-1" };
@@ -145,6 +230,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     if (!isJsonObject(seedDocument.valueJson)) throw new Error("Expected seed object");
     Reflect.set(seedDocument.valueJson, "label", "input-tampered");
     const firstReadCount = checkedReads;
+    let rootSnapshotRevisions = 0;
     await runEffect(Effect.scoped(Effect.gen(function* () {
       const open = (tableId: typeof firstTable, logicalName: string,
         evaluator = root, identities = 8) => Effect.gen(function* () {
@@ -156,7 +242,10 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
           tables: [{ tableId, logicalName }], requireAdmission, validateDocument: () => Effect.void,
           error: failure, uniqueConflict: () => failure("uniqueConflict"),
           limits: { pageRows: 8, identities, documentBytes: 65_536 },
-        }, firstTime, [], []);
+        }, firstTime, [], [], { observeQuery: query => {
+          expect(active).toBe(true);
+          if (query.name === "snapshotRevision") rootSnapshotRevisions++;
+        } });
         const id = yield* lifetime.begin(lifetime.context);
         return { working, lifetime, id };
       });
@@ -196,7 +285,10 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       expect(thirdChanges.attempts[0]?.ordinal).toBe(0);
       expect(thirdChanges.dependencies.map(dependency => dependency.documentId)).toContain(firstId);
       yield* projectLogicalDocumentJournalContribution(thirdChanges);
-      expect(checkedReads - firstReadCount).toBe(2);
+      // Cached native gets still make fresh checked calls. Only the two new
+      // root identities perform historical revision reads.
+      expect(checkedReads - firstReadCount).toBe(5);
+      expect(rootSnapshotRevisions).toBe(2);
       const detached = root.snapshot();
       expect(detached.changes).toHaveLength(1);
       expect(detached.changes[0]).toMatchObject({ documentId: firstId, kind: "live" });

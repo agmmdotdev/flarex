@@ -85,16 +85,21 @@ export interface LogicalDocumentAttemptAdmissionState extends Omit<LogicalDocume
 const attemptStates = new WeakMap<object, LogicalDocumentAttemptAdmissionState>();
 
 export const withLogicalDocumentAttemptAdmissionEffect = Effect.fn("LogicalDocumentAttemptAdmission.with")(
-  function* <Value, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
+  function* <Prepared, Value, PreparationFailure, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
     attempt: SessionJournalAttempt, method: string,
+    prepare: (state: LogicalDocumentAttemptAdmissionState,
+      readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
+        Effect.Effect<A, E | LogicalParticipantAdmissionError>,
+      tx: FlarexMetadataTransaction) => Effect.Effect<Prepared, PreparationFailure>,
     work: (state: LogicalDocumentAttemptAdmissionState,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
-        Effect.Effect<A, E | LogicalParticipantAdmissionError>) => Effect.Effect<Value, Failure, Requirements>) {
-    return yield* withLogicalParticipantAttemptAdmissionEffect(admission, attempt, method, (_, checkedRead) => Effect.gen(function* () {
+        Effect.Effect<A, E | LogicalParticipantAdmissionError>, prepared: Prepared) => Effect.Effect<Value, Failure, Requirements>) {
+    return yield* withLogicalParticipantAttemptAdmissionEffect(admission, attempt, method,
+      (_, tx, checkedRead) => Effect.gen(function* () {
       const state = attemptStates.get(admission);
       if (state === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-      return yield* work(state, checkedRead);
-    }));
+      return Object.freeze({ state, prepared: yield* prepare(state, checkedRead, tx) });
+    }), (_, checkedRead, result) => work(result.state, checkedRead, result.prepared));
   });
 
 /** Payload's compiler supplies actual configuration, declarations and policy.
