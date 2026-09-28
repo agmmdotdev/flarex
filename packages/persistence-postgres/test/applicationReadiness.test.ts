@@ -97,6 +97,7 @@ import {
   decodeCatalogTableId,
 } from "flarex-protocol/catalog";
 import { beforeAll, describe, expect, it } from "vitest";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 
 import {
   advanceAppSchemaCandidateValidationEffect,
@@ -295,6 +296,71 @@ beforeAll(() => {
 });
 
 describe("Application readiness", { timeout: 30_000 }, () => {
+  it("keeps ordered selected-row refusal and classifies joined PGlite SQL failures", async () => {
+    const db = newTestPGlite();
+    let faultCode: "42P01" | "40001" | null = null;
+    let injected = 0;
+    const targetPersistence = await createPGlitePersistence({
+      db: {
+        exec: db.exec.bind(db),
+        query: db.query.bind(db),
+        transaction: run => db.transaction(tx => run({
+          exec: tx.exec.bind(tx),
+          query: new Proxy(tx.query, {
+            apply(targetQuery, _receiver, args: unknown[]) {
+              const sql = args[0];
+              if (faultCode !== null && typeof sql === "string" &&
+                sql.includes("fx_system_application_candidate_v1") &&
+                sql.includes("fx_system_application_analysis_v1") &&
+                sql.includes("fx_system_application_publication_v1")) {
+                injected++;
+                return Promise.reject(Object.assign(
+                  new Error("Injected selected-row read failure"),
+                  { code: faultCode },
+                ));
+              }
+              return Reflect.apply(targetQuery, tx, args);
+            },
+          }),
+        })),
+      },
+    });
+    const fixture = await readinessFixture({ targetPersistence });
+    await fixture.target.query(
+      "update fx_system_application_analysis_v1 set manifest_bytes = decode('00', 'hex') where scope_id = $1",
+      [fixture.authority.scopeId],
+    );
+    await fixture.target.query(
+      "update fx_system_application_candidate_v1 set storage_generation_fence = storage_generation_fence + 1 where scope_id = $1",
+      [fixture.authority.scopeId],
+    );
+    const readFailure = () => runEffect(Effect.result(
+      fixture.repository.readReady(fixture.input),
+    ));
+    const domain = await readFailure();
+    expect(Result.isFailure(domain)).toBe(true);
+    if (Result.isFailure(domain)) {
+      expect(domain.failure).toMatchObject({ reason: "authorityChanged" });
+    }
+    for (const [code, retryable] of [
+      ["42P01", false],
+      ["40001", true],
+    ] as const) {
+      faultCode = code;
+      const result = await readFailure();
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({ reason: "resourceFailure", retryable });
+      }
+    }
+    expect(injected).toBe(2);
+    faultCode = null;
+    const afterFault = await readFailure();
+    expect(Result.isFailure(afterFault)).toBe(true);
+    if (Result.isFailure(afterFault)) {
+      expect(afterFault.failure).toMatchObject({ reason: "authorityChanged" });
+    }
+  });
   it("classifies only transient PostgreSQL admission failures as retryable", () => {
     expect(isRetryableApplicationMutationAdmissionCause({ code: "40001" }))
       .toBe(true);
@@ -4016,6 +4082,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
 type TestPersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 
 interface ReadinessFixtureOptions {
+  readonly targetPersistence?: TestPersistence;
   readonly registerTaskCatalog?: boolean;
   readonly includeFunction?: boolean;
   readonly includeTable?: boolean;
@@ -4030,7 +4097,7 @@ interface ReadinessFixtureOptions {
 async function readinessFixture(options: ReadinessFixtureOptions = {}) {
   const [control, target] = await Promise.all([
     createPGlitePersistence(),
-    createPGlitePersistence(),
+    options.targetPersistence ?? createPGlitePersistence(),
   ]);
   await Promise.all([control.migrate(), target.migrate()]);
   const schemaControl = options.foreignSchemaControl === true

@@ -1056,7 +1056,7 @@ export const validateApplicationBindingBasisInTransaction = Effect.fn(
       if (active === null || !relationHeadMatchesBasis(active.head, state.basis)) {
         return yield* activationFailure("validateSelection", "concurrentHead", state.basis.revisionId);
       }
-      const basis = yield* validateApplicationRelationActiveSelectionInTransaction(selection, tx, currentClock);
+      const basis = yield* validateCheckedRelationSelection(state, tx, currentClock);
     return Object.freeze({ kind: "relation" as const, basis });
   }
   if (!clockMatches(state.basis.authority, currentClock)) {
@@ -1115,6 +1115,41 @@ export const validateApplicationActiveSelectionInTransaction = Effect.fn(
   return copySelectionBasis(basis);
 });
 
+const validateCheckedRelationSelection = Effect.fn(
+  "ApplicationActivation.validateCheckedRelationSelection",
+)(function* (
+  state: RelationSelectionState,
+  tx: AppRowTransaction,
+  currentClock: ScopeClockRecord,
+): Effect.fn.Return<
+  ApplicationRelationActiveSelectionBasis,
+  ValidateApplicationRelationActiveSelectionInTransactionError
+> {
+  const basis = state.basis;
+  if (!clockMatches(basis.authority, currentClock)) {
+    return yield* activationFailure(
+      "validateSelection",
+      "scopeAuthority",
+      basis.revisionId,
+    );
+  }
+  const validated = yield*
+    validateActiveApplicationRelationReadinessInTransaction(
+      state.readinessRepository,
+      state.readiness,
+      tx,
+      currentClock,
+    );
+  if (!relationReadinessMatchesSelection(validated.basis, basis)) {
+    return yield* activationFailure(
+      "validateSelection",
+      "scopeAuthority",
+      basis.revisionId,
+    );
+  }
+  return copyRelationSelectionBasis(basis);
+});
+
 export const validateApplicationRelationActiveSelectionInTransaction = Effect.fn(
   "ApplicationActivation.validateRelationSelectionInTransaction",
 )(function* (
@@ -1164,21 +1199,7 @@ export const validateApplicationRelationActiveSelectionInTransaction = Effect.fn
       basis.revisionId,
     );
   }
-  const validated = yield*
-    validateActiveApplicationRelationReadinessInTransaction(
-      state.readinessRepository,
-      state.readiness,
-      tx,
-      currentClock,
-    );
-  if (!relationReadinessMatchesSelection(validated.basis, basis)) {
-    return yield* activationFailure(
-      "validateSelection",
-      "scopeAuthority",
-      basis.revisionId,
-    );
-  }
-  return copyRelationSelectionBasis(basis);
+  return yield* validateCheckedRelationSelection(state, tx, currentClock);
 });
 
 export const validateApplicationExecutableActiveSelectionInTransaction =

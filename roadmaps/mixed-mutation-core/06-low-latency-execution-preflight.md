@@ -325,19 +325,20 @@ untraced series above complete the four-workload comparison. This package is
 a query and transaction-ownership change, not a claim that the full latency
 target is met.
 
-The next measured candidate is selected Application evidence reuse within one
-**short, already checked transaction** and a bounded load of its target
-revision/candidate/analysis/publication/function/task metadata. The candidate
-mixed warm series still has 10,410 dispatches and 235 transaction intervals;
-its fresh physical catalog proof is now 224 dispatches and 286.4 ms median
-summed await, down from 248 and 3,143.2 ms. Application head, activation,
-publication and revision-schema reads now dominate repeated metadata work.
-The owner must prove same-transaction selection/clock identity, preserve all
-row hashes and first refusal order, and end reusable evidence before a mutable
-callback. Control-database observations remain separate from target-database
-acceptance. A batched SQL error must not silently preempt an earlier known
-corrupt-row refusal. This is a focused next contract discussion, not an
-approved cross-transaction cache or an endpoint latency promise.
+The next measured direction became the completed [selected Application evidence
+package](./07-selected-evidence-admission-preflight.md). It bounded target
+revision/candidate/analysis/publication reads within each short checked
+transaction while preserving the distinct revision lock, selected hashes and
+fresh task clock. The prior candidate mixed warm series had 10,410 dispatches
+and 235 transaction intervals; the [selected-evidence record](../../packages/flarex-backend/benchmarks/mixed-mutation-core/selected-evidence/README.md)
+has 9,958 and 235 in its traced smoke. Successful joined row fetches retain
+ordered domain refusals. A joined SQL statement execution failure retains the
+typed resource-failure classification and can preempt a corrupt-row refusal;
+the dual-fault tests pin this explicit boundary. Control-database observations
+remain separate from target-database acceptance. The full untraced request
+comparison shows no overall endpoint gain and still misses the proposed warm
+latency budgets. A further package requires a measured dominant owner, not an
+inferred cross-transaction cache or endpoint promise.
 
 The following later connected packages remain conditional on measured owner
 costs. They are not helper-only turns. Each needs an exact call

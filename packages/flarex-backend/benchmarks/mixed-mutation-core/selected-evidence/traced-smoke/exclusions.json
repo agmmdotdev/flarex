@@ -1,0 +1,8 @@
+{
+  "format": "flarex.mixed-mutation-performance-exclusions",
+  "observationMode": "traced",
+  "excludedSamples": [],
+  "failedSamples": [],
+  "setupFailures": [],
+  "unavailable": []
+}

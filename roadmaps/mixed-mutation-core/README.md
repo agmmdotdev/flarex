@@ -28,12 +28,17 @@ has completed its first connected package: a cheaper fresh physical-search
 query shape and removal of redundant empty admission transactions before
 checked reads. The [retained candidate series](../../packages/flarex-backend/benchmarks/mixed-mutation-core/admission-cost/README.md)
 has 104/104 successful traced samples and 104/104 successful untraced samples
-with unchanged business graphs. The proposed mixed warm latency goals remain
-unmet. The next measured direction is bounded selected Application evidence
-reuse within one checked transaction and fewer target metadata awaits, subject
-to hash, first-refusal and callback-lifetime proof. Broader integrity, writer,
-attempt, durability and host decisions remain gated by evidence. The accepted
-immediate selected-dependency verification and threat boundary remain in force.
+with unchanged business graphs. The [selected evidence admission preflight](./07-selected-evidence-admission-preflight.md)
+owns the completed bounded Application activation/readiness query package and
+its ordered-failure contract. Its [traced smoke and full untraced records](../../packages/flarex-backend/benchmarks/mixed-mutation-core/selected-evidence/README.md)
+show fewer selected-metadata dispatches with unchanged transaction counts, but
+no overall endpoint gain: the mixed warm untraced median is 6.699 s versus
+6.761 s in the prior candidate, while Product and Product plus Payload rise.
+The proposed mixed warm latency goals remain unmet. Any next connected latency
+package needs a measured dominant owner and focused contract; broader
+integrity, writer, attempt, durability and host decisions remain gated by
+evidence. The accepted immediate selected-dependency verification and threat
+boundary remain in force.
 Payload's required unique `posts.title` field needs a retained ordered index for
 historical uniqueness checks. Adding that compiler index changes the compiled
 Payload source definition and digest. Isolated proof scopes can be reprovisioned;

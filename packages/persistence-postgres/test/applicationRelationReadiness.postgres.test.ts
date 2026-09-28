@@ -223,6 +223,9 @@ import {
   withTemporaryPostgresPersistencePair,
 } from "./postgresHelpers";
 import { prepareReadinessEvidence, relationReadinessFixture } from "./applicationRelationReadinessFixture";
+import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
+import { readApplicationBindingProjectionInTransaction } from
+  "../src/applicationBindingProjection";
 import {
   TEST_GRANT_RETENTION_POLICY_V1,
   activatePointMutationSession,
@@ -246,6 +249,125 @@ describe("E01-B PostgreSQL acceptance environment", () => {
 });
 
 describePostgres("real PostgreSQL E01-B application relation readiness", () => {
+  it("loads relation candidate, analysis and publication in one checked statement", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await relationReadinessFixture({
+        persistence: target,
+        controlPersistence: control,
+        writePolicy: true,
+      });
+      await prepareReadinessEvidence(fixture);
+      expect((await runEffect(fixture.fold.settle(fixture.input))).status)
+        .toBe("ready");
+      const measured = await withPostgresExecutionObservation(
+        target.pool,
+        () => runEffect(fixture.fold.readReady(fixture.input)),
+        { attributeStatements: true },
+      );
+      expect(measured.value.status).toBe("ready");
+      const selectedFamilies = [
+        "fx_system_application_candidate_v1",
+        "fx_system_application_analysis_v1",
+        "fx_system_application_publication",
+      ];
+      const touching = measured.observation.statementShapes?.filter(shape =>
+        shape.families.some(family => selectedFamilies.includes(family)));
+      // Candidate validation has one independent read; neither analysis nor
+      // publication has a serial fetch outside the grouped bundle statement.
+      expect(touching).toHaveLength(2);
+      const selected = touching?.filter(shape =>
+        selectedFamilies.every(family => shape.families.includes(family)));
+      expect(selected).toHaveLength(1);
+      expect(selected?.[0]?.families).toEqual([
+        ...selectedFamilies,
+        "fx_system_application_revision_v2",
+      ].sort());
+      // Relation readReady prepares once, then proves the same bundle inside
+      // its accepting transaction. Each pass uses one grouped statement.
+      expect(selected?.[0]?.ordinals).toHaveLength(2);
+
+      const patched = new Map<PoolClient, PoolClient["query"]>();
+      let faultCode: "42P01" | "40001" = "42P01";
+      let injected = 0;
+      const onAcquire = (client: PoolClient) => {
+        const original = client.query;
+        client.query = new Proxy(original, {
+          apply(targetQuery, receiver, args: unknown[]) {
+            const first = args[0];
+            const text = typeof first === "string" ? first :
+              first !== null && typeof first === "object" && "text" in first
+                ? first.text : null;
+            if (typeof text === "string" &&
+              text.includes("fx_system_application_candidate_v1") &&
+              text.includes("fx_system_application_analysis_v1") &&
+              text.includes("fx_system_application_publication")) {
+              injected++;
+              return Promise.reject(Object.assign(
+                new Error("Injected relation selected-row read failure"),
+                { code: faultCode },
+              ));
+            }
+            return Reflect.apply(targetQuery, receiver, args);
+          },
+        });
+        patched.set(client, original);
+      };
+      const onRelease = (_error: Error | undefined, client: PoolClient) => {
+        const original = patched.get(client);
+        if (original !== undefined) client.query = original;
+        patched.delete(client);
+      };
+      target.pool.on("acquire", onAcquire);
+      target.pool.on("release", onRelease);
+      try {
+        for (const [code, retryable] of [
+          ["42P01", false],
+          ["40001", true],
+        ] as const) {
+          faultCode = code;
+          const result = await runEffect(Effect.result(
+            fixture.fold.readReady(fixture.input),
+          ));
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure).toMatchObject({ reason: "resourceFailure", retryable });
+          }
+        }
+        expect(injected).toBe(2);
+      } finally {
+        target.pool.off("acquire", onAcquire);
+        target.pool.off("release", onRelease);
+        for (const [client, original] of patched) client.query = original;
+      }
+
+      const activated = await runEffect(fixture.relationActivation.activate({
+        revisionId: fixture.input.revisionId,
+        expectedActiveHead: null,
+      }));
+      expect(activated.status).toBe("activated");
+      const active = await runEffect(fixture.relationActivation.readActive());
+      if (active === null) throw new Error("Expected relation active selection");
+      const bindingRead = await withPostgresExecutionObservation(
+        target.pool,
+        () => target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+          const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+            tx, fixture.authority.scopeId,
+          );
+          return yield* readApplicationBindingProjectionInTransaction(
+            active.selection, tx, clock,
+          );
+        }))),
+        { attributeStatements: true },
+      );
+      expect(bindingRead.value).toBeDefined();
+      const head = bindingRead.observation.statementShapes?.filter(shape =>
+        shape.families.includes("fx_system_application_active_head"));
+      // This checked projection also has independent readiness/head proofs;
+      // the binding branch itself must not add a second coherent-head fetch.
+      expect(head?.reduce((sum, shape) => sum + shape.ordinals.length, 0))
+        .toBe(4);
+    });
+  }, 240_000);
   it("keeps an active relation-aware Application on its selected scope after a second shop joins", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const fixture = await relationReadinessFixture({

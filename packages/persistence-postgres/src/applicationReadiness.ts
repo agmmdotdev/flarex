@@ -23,6 +23,7 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 } from
   "flarex-protocol/internal/application-runtime-cold-receipt-v1";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import {
   canonicalizeApplicationRuntimeColdReceiptV1,
@@ -70,6 +71,8 @@ import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { detachDriverRows } from "./detachDriverRows";
 import { runEffectTransaction } from "./effectTransaction";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
+import { isRetryableSqlTransactionCause } from "./locatedReadCommittedEffect";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   type IndexBuildReconciliationCatalogV1Error,
@@ -996,14 +999,32 @@ function* (
     if (revision === undefined) {
       return notReady(input.revisionId, "revisionMissing");
     }
-    const candidateRows = yield* query(
-      tx.select().from(fxSystemApplicationCandidatesV1).where(and(
-        eq(fxSystemApplicationCandidatesV1.scopeId, revision.scopeId),
-        eq(fxSystemApplicationCandidatesV1.candidateId, revision.candidateId),
-      )).limit(1),
+    const selectedRows = yield* query(
+      tx.select({
+        candidate: fxSystemApplicationCandidatesV1,
+        analysis: fxSystemApplicationAnalysesV1,
+        publication: fxSystemApplicationPublicationsV1,
+      }).from(fxSystemApplicationRevisionsV2)
+        .leftJoin(fxSystemApplicationCandidatesV1, and(
+          eq(fxSystemApplicationCandidatesV1.scopeId, fxSystemApplicationRevisionsV2.scopeId),
+          eq(fxSystemApplicationCandidatesV1.candidateId, fxSystemApplicationRevisionsV2.candidateId),
+        ))
+        .leftJoin(fxSystemApplicationAnalysesV1, and(
+          eq(fxSystemApplicationAnalysesV1.scopeId, fxSystemApplicationRevisionsV2.scopeId),
+          eq(fxSystemApplicationAnalysesV1.analysisId, fxSystemApplicationRevisionsV2.analysisId),
+        ))
+        .leftJoin(fxSystemApplicationPublicationsV1, and(
+          eq(fxSystemApplicationPublicationsV1.scopeId, fxSystemApplicationRevisionsV2.scopeId),
+          eq(fxSystemApplicationPublicationsV1.revisionId, fxSystemApplicationRevisionsV2.revisionId),
+        ))
+        .where(and(
+          eq(fxSystemApplicationRevisionsV2.scopeId, revision.scopeId),
+          eq(fxSystemApplicationRevisionsV2.revisionId, revision.revisionId),
+        )).limit(1),
     );
-    const candidate = candidateRows[0];
-    if (candidate === undefined ||
+    const selected = selectedRows[0];
+    const candidate = selected?.candidate;
+    if (candidate === undefined || candidate === null ||
       candidate.storageGeneration !== authority.storageGeneration ||
       candidate.storageGenerationFence !== authority.storageGenerationFence ||
       candidate.epoch !== authority.epoch ||
@@ -1011,14 +1032,9 @@ function* (
         candidate.sourceArtifactRootSha256,
         revision.sourceArtifactRootSha256,
       )) return yield* readinessFailure("authorityChanged");
-    const analysisRows = yield* query(
-      tx.select().from(fxSystemApplicationAnalysesV1).where(and(
-        eq(fxSystemApplicationAnalysesV1.scopeId, revision.scopeId),
-        eq(fxSystemApplicationAnalysesV1.analysisId, revision.analysisId),
-      )).limit(1),
-    );
-    const analysis = analysisRows[0];
-    if (analysis === undefined || analysis.status !== "analyzed" ||
+    const analysis = selected?.analysis;
+    if (analysis === undefined || analysis === null ||
+      analysis.status !== "analyzed" ||
       analysis.manifestBytes === null || analysis.manifestSha256 === null ||
       analysis.candidateId !== revision.candidateId ||
       !bytesEqualFullScan(analysis.manifestSha256, revision.manifestSha256) ||
@@ -1032,14 +1048,8 @@ function* (
       analysis.manifestBytes,
       analysis.manifestSha256,
     );
-    const publicationRows = yield* query(
-      tx.select().from(fxSystemApplicationPublicationsV1).where(and(
-        eq(fxSystemApplicationPublicationsV1.scopeId, revision.scopeId),
-        eq(fxSystemApplicationPublicationsV1.revisionId, revision.revisionId),
-      )).limit(1),
-    );
-    const publication = publicationRows[0];
-    if (publication === undefined) {
+    const publication = selected?.publication;
+    if (publication === undefined || publication === null) {
       return notReady(input.revisionId, "publicationMissing");
     }
     if (publication.candidateId !== revision.candidateId ||
@@ -1067,7 +1077,7 @@ function* (
       tx.select().from(fxSystemApplicationFunctionsV1).where(and(
         eq(fxSystemApplicationFunctionsV1.scopeId, revision.scopeId),
         eq(fxSystemApplicationFunctionsV1.revisionId, revision.revisionId),
-      )),
+      )).limit(manifest.functions.length + 1),
     );
     if (functionRows.length !== manifest.functions.length ||
       functionRows.length > MAX_FUNCTIONS) {
@@ -2665,27 +2675,33 @@ function databaseTimeFromRows(
 function query<Row>(
   statement: PromiseLike<ReadonlyArray<Row>>,
 ): Effect.Effect<ReadonlyArray<Row>, ApplicationReadinessError> {
-  return Effect.tryPromise({
-    try: () => Promise.resolve(statement),
-    catch: cause => readinessFailureValue(
+  return runDrizzleStatementEffect(
+    statement,
+    cause => readinessFailureValue(
       "resourceFailure",
-      retryableCause(cause),
+      retryableDrizzleStatementCause(cause),
       cause,
     ),
-  });
+  );
 }
 
 function execute(
   statement: PromiseLike<unknown>,
 ): Effect.Effect<void, ApplicationReadinessError> {
-  return Effect.tryPromise({
-    try: () => Promise.resolve(statement),
-    catch: cause => readinessFailureValue(
+  return runDrizzleStatementEffect(
+    statement,
+    cause => readinessFailureValue(
       "resourceFailure",
-      retryableCause(cause),
+      retryableDrizzleStatementCause(cause),
       cause,
     ),
-  }).pipe(Effect.asVoid);
+  ).pipe(Effect.asVoid);
+}
+
+function retryableDrizzleStatementCause(cause: unknown): boolean {
+  return isRetryableSqlTransactionCause(
+    cause instanceof DrizzleQueryError ? cause.cause : cause,
+  );
 }
 
 function runTransaction<A>(

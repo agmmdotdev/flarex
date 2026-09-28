@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import type { PoolClient } from "pg";
 
 import {
   canonicalizeApplicationManifestV1,
@@ -69,6 +70,10 @@ import {
   createApplicationTaskCatalogSnapshotPort,
   makeApplicationTaskBindingRepository,
 } from "../src/applicationTaskBindings";
+import { createApplicationRelationTaskCatalogSnapshotPort } from
+  "../src/applicationRelationTaskBindings";
+import { lockScopeClockForSnapshotReadInTransactionEffect } from
+  "../src/scopeClock";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
@@ -96,11 +101,13 @@ import { resolveLocatedTrustedScopeAuthorityEffect } from
   "../src/scopeAuthorityResolution";
 import type { SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   postgresUrl,
   withTemporaryPostgresPersistencePair,
 } from "./postgresHelpers";
+import { withPostgresExecutionObservation } from
+  "./postgresExecutionObservation";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const ROOT = "a".repeat(64);
@@ -127,6 +134,171 @@ beforeAll(() => {
 });
 
 describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
+  it("loads the locked revision's candidate, analysis and legacy publication in one statement", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await readinessFixture(control, target);
+      await prepareReadinessAuthorities(fixture);
+      const measured = await withPostgresExecutionObservation(
+        target.pool,
+        () => runEffect(fixture.repository.readReady(fixture.input)),
+        { attributeStatements: true },
+      );
+      expect(measured.value.status).toBe("not_ready");
+      const selectedFamilies = [
+        "fx_system_application_candidate_v1",
+        "fx_system_application_analysis_v1",
+        "fx_system_application_publication_v1",
+      ];
+      const selected = measured.observation.statementShapes?.filter(shape =>
+        shape.families.some(family => selectedFamilies.includes(family)));
+      expect(selected).toHaveLength(1);
+      expect(selected?.[0]?.families).toEqual([
+        ...selectedFamilies,
+        "fx_system_application_revision_v2",
+      ].sort());
+      expect(selected?.[0]?.ordinals).toHaveLength(1);
+    });
+  }, 120_000);
+  it("keeps candidate refusal order after a joined fetch and classifies a joined SQL failure", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await readinessFixture(control, target);
+      await target.query(
+        "update fx_system_application_analysis_v1 set manifest_bytes = decode('00', 'hex') where scope_id = $1",
+        [fixture.authority.scopeId],
+      );
+      await target.query(
+        "update fx_system_application_candidate_v1 set storage_generation_fence = storage_generation_fence + 1 where scope_id = $1",
+        [fixture.authority.scopeId],
+      );
+      const candidateFailure = await runEffect(Effect.result(
+        fixture.repository.readReady(fixture.input),
+      ));
+      expect(Result.isFailure(candidateFailure)).toBe(true);
+      if (Result.isFailure(candidateFailure)) {
+        expect(candidateFailure.failure).toMatchObject({ reason: "authorityChanged" });
+      }
+
+      const patched = new Map<PoolClient, PoolClient["query"]>();
+      let injected = 0;
+      let faultCode: "42P01" | "40001" = "42P01";
+      const onAcquire = (client: PoolClient) => {
+        const original = client.query;
+        client.query = new Proxy(original, {
+          apply(targetQuery, receiver, args: unknown[]) {
+            const first = args[0];
+            const text = typeof first === "string" ? first :
+              first !== null && typeof first === "object" && "text" in first
+                ? first.text : null;
+            if (typeof text === "string" &&
+              text.includes("fx_system_application_candidate_v1") &&
+              text.includes("fx_system_application_analysis_v1") &&
+              text.includes("fx_system_application_publication_v1")) {
+              injected++;
+              return Promise.reject(Object.assign(
+                new Error("Injected joined read failure"), { code: faultCode },
+              ));
+            }
+            return Reflect.apply(targetQuery, receiver, args);
+          },
+        });
+        patched.set(client, original);
+      };
+      const onRelease = (_error: Error | undefined, client: PoolClient) => {
+        const original = patched.get(client);
+        if (original !== undefined) client.query = original;
+        patched.delete(client);
+      };
+      target.pool.on("acquire", onAcquire);
+      target.pool.on("release", onRelease);
+      try {
+        for (const [code, retryable] of [
+          ["42P01", false],
+          ["40001", true],
+        ] as const) {
+          faultCode = code;
+          const sqlFailure = await runEffect(Effect.result(
+            fixture.repository.readReady(fixture.input),
+          ));
+          expect(Result.isFailure(sqlFailure)).toBe(true);
+          if (Result.isFailure(sqlFailure)) {
+            expect(sqlFailure.failure).toMatchObject({ reason: "resourceFailure", retryable });
+          }
+        }
+        expect(injected).toBe(2);
+      } finally {
+        target.pool.off("acquire", onAcquire);
+        target.pool.off("release", onRelease);
+        for (const [client, original] of patched) client.query = original;
+      }
+      const afterFault = await runEffect(Effect.result(
+        fixture.repository.readReady(fixture.input),
+      ));
+      expect(Result.isFailure(afterFault)).toBe(true);
+      if (Result.isFailure(afterFault)) {
+        expect(afterFault.failure).toMatchObject({ reason: "authorityChanged" });
+      }
+    });
+  }, 120_000);
+  it("rechecks task authority after a key-share clock lock permits a non-key update", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await readinessFixture(control, target);
+      let releaseLocked: (() => void) | undefined;
+      const locked = new Promise<void>(resolve => { releaseLocked = resolve; });
+      let releaseWriter: (() => void) | undefined;
+      const writerDone = new Promise<void>(resolve => { releaseWriter = resolve; });
+      const reader = target.drizzle.transaction(async tx => {
+        const clock = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(
+          tx, fixture.authority.scopeId,
+        ));
+        expect(clock.storageGeneration).toBe("flarexdb_v1");
+        releaseLocked?.();
+        await writerDone;
+        const legacy = await runEffectFailure(
+          createApplicationTaskCatalogSnapshotPort().loadInTransaction(
+            tx, fixture.authority, fixture.input.revisionId,
+          ),
+        );
+        const relation = await runEffectFailure(
+          createApplicationRelationTaskCatalogSnapshotPort().loadInTransaction(
+            tx, fixture.authority, fixture.input.revisionId,
+          ),
+        );
+        expect(legacy).toMatchObject({ reason: "authorityChanged" });
+        expect(relation).toMatchObject({ reason: "authorityChanged" });
+      });
+      let failure: unknown;
+      try {
+        // Race the handshake with reader completion so an early reader failure
+        // cannot leave the test waiting for a signal that will never arrive.
+        await Promise.race([locked, reader]);
+        const writer = await target.pool.connect();
+        try {
+          await writer.query("begin");
+          await writer.query("set local lock_timeout = '2s'");
+          await writer.query(
+            "update fx_system_scope_clock set storage_generation = 'legacy_v1' where scope_id = $1",
+            [fixture.authority.scopeId],
+          );
+          await writer.query("commit");
+        } catch (error) {
+          await writer.query("rollback");
+          throw error;
+        } finally {
+          writer.release();
+        }
+      } catch (error) {
+        failure = error;
+      } finally {
+        releaseWriter?.();
+        try {
+          await reader;
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+      if (failure !== undefined) throw failure;
+    });
+  }, 120_000);
   it("retries when the retained publisher claims the tentative version", async () => {
     await withTemporaryPostgresPersistencePair(async (control) => {
       const deploymentId = "deployment_application_schema_interleaving";
