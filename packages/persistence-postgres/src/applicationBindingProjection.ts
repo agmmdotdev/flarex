@@ -4,11 +4,13 @@ import { encodeBytesToLowercaseHex as hex } from "@flarex/utils/bytes";
 import { Effect } from "effect";
 import {
   validateApplicationBindingBasisInTransaction,
+  withValidatedApplicationBindingBasisInTransaction,
   type ApplicationBindingInput,
   type AcceptedApplicationBinding,
   readAcceptedApplicationBinding,
 } from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
+import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
 import type { ScopeClockRecord } from "./scopeClock";
 import { requireScopeAuthorizationRevocationEpochInTransactionEffect } from "./scopeClock";
 
@@ -66,16 +68,27 @@ export const readApplicationBindingProjectionInTransaction = Effect.fn(
 export const readApplicationBindingEvidenceInTransaction = Effect.fn(
   "ApplicationBindingProjection.readEvidenceInTransaction",
 )(function* (selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord) {
-  const validated = yield* validateApplicationBindingBasisInTransaction(
-    selection,
-    tx,
-    clock,
-  );
-  const projection = yield* projectApplicationBindingInTransaction(validated, tx, clock);
-  const basis = validated.basis;
-  return Object.freeze({ projection, analysis: Object.freeze({ candidateId: basis.candidateId,
-    analysisId: basis.analysisId, manifestSha256: hex(basis.manifestSha256),
-    sourceArtifactRootSha256: hex(basis.sourceArtifactRootSha256) }) });
+  return yield* withApplicationBindingEvidenceInTransaction(selection, tx, clock, evidence =>
+    Effect.succeed(Object.freeze({ projection: evidence.projection, analysis: evidence.analysis })));
+});
+
+/** The checked active observation is valid only while this accepting callback runs. */
+export const withApplicationBindingEvidenceInTransaction = Effect.fn(
+  "ApplicationBindingProjection.withEvidenceInTransaction",
+)(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
+  clock: ScopeClockRecord,
+  work: (evidence: Readonly<{ projection: ApplicationBindingReference;
+    analysis: Readonly<{ candidateId: string; analysisId: string; manifestSha256: string; sourceArtifactRootSha256: string }>;
+    checkedActive: CheckedApplicationActiveHead | undefined }>) => Effect.Effect<Value, Failure, Requirements>) {
+  return yield* withValidatedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive) =>
+    Effect.gen(function* () {
+    const projection = yield* projectApplicationBindingInTransaction(validated, tx, clock);
+    const basis = validated.basis;
+    const evidence = Object.freeze({ projection, analysis: Object.freeze({ candidateId: basis.candidateId,
+      analysisId: basis.analysisId, manifestSha256: hex(basis.manifestSha256),
+      sourceArtifactRootSha256: hex(basis.sourceArtifactRootSha256) }), checkedActive });
+    return yield* Effect.suspend(() => work(evidence));
+  }));
 });
 
 export const readAcceptedApplicationBindingProjection = Effect.fn("ApplicationBindingProjection.readAccepted")(

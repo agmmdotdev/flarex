@@ -8,7 +8,7 @@ import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { ReplacementScopeIdV1Schema, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import type { ApplicationBindingInput } from "../applicationActivation";
-import { readApplicationBindingEvidenceInTransaction } from "../applicationBindingProjection";
+import { withApplicationBindingEvidenceInTransaction } from "../applicationBindingProjection";
 import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
@@ -164,8 +164,9 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     if (Option.isNone(current)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
     const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
     if (Option.isNone(candidate)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
-    const applicationEvidence = yield* readApplicationBindingEvidenceInTransaction(application, tx, clock);
-    yield* verifyLogicalSchemaBindingInTransaction(readiness, candidate.value.frame, applicationEvidence, tx, authority, clock);
+    yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, applicationEvidence =>
+      verifyLogicalSchemaBindingInTransaction(readiness, candidate.value.frame, applicationEvidence,
+        tx, authority, clock, applicationEvidence.checkedActive));
     const head = Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 });
     checkedBindings.get(tx)?.push(Object.freeze({ application, controlDb: capturedPorts.controlDb,
       authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,

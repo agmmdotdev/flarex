@@ -81,6 +81,7 @@ import {
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
 import { IndexMaintenanceError } from "./indexMaintenanceEvidence";
+import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
@@ -900,6 +901,7 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
       issued: ApplicationReadinessResult,
       tx: AppRowTransaction,
       currentClock: ScopeClockRecord,
+      checkedActive?: CheckedApplicationActiveHead,
     ): Effect.fn.Return<
       StoredApplicationReadinessActivationValidation,
       | ApplicationReadinessError
@@ -924,6 +926,7 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
         issuedState,
         tx,
         currentClock,
+        checkedActive,
       );
     },
   );
@@ -935,6 +938,7 @@ const validateStoredIssuedReadiness = Effect.fn(
   issuedState: StoredIssuedApplicationReadinessState,
   tx: AppRowTransaction,
   clock: ScopeClockRecord,
+  checkedActive?: CheckedApplicationActiveHead,
 ): Effect.fn.Return<
   StoredApplicationReadinessActivationValidation,
   | ApplicationReadinessError
@@ -972,6 +976,7 @@ const validateStoredIssuedReadiness = Effect.fn(
     repositoryState.context.physicalDefinitionLifecycle,
     issuedState.stored.physicalDefinitionLifecycle,
     clock,
+    checkedActive,
   );
   if (physical.status === "not_ready") {
     return yield* readinessFailure("authorityChanged");
@@ -1990,6 +1995,7 @@ const loadPhysicalReadiness = Effect.fn(
   lifecyclePort: PhysicalDefinitionLifecyclePort,
   lifecycleReadiness: PreparedPhysicalDefinitionLifecycleReadiness,
   clock: ScopeClockRecord,
+  checkedActive?: CheckedApplicationActiveHead,
 ): Effect.fn.Return<
   ApplicationPhysicalReadinessResult,
   ApplicationReadinessError |
@@ -1999,7 +2005,7 @@ const loadPhysicalReadiness = Effect.fn(
   let physicalBuilds: Extract<PhysicalBuildRowsResult, { readonly status: "ready" }> | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const candidate = yield* loadPhysicalBuildRows(
-      tx, authority, requirements, observedClock,
+      tx, authority, requirements, observedClock, checkedActive,
     );
     if (candidate.status === "ready") {
       physicalBuilds = candidate;
@@ -2094,6 +2100,7 @@ const loadPhysicalBuildRows = Effect.fn(
   authority: ApplicationReadinessAuthority,
   requirements: PublishedPhysicalRequirementSnapshotV1,
   clock: ScopeClockRecord,
+  checkedActive?: CheckedApplicationActiveHead,
 ): Effect.fn.Return<PhysicalBuildRowsResult, ApplicationReadinessError> {
     yield* requireExactAuthority(authority, clock);
     const definitionIds = requirements.definitions.map(
@@ -2120,7 +2127,7 @@ const loadPhysicalBuildRows = Effect.fn(
     const rowsById = new Map(
       unordered.map(row => [row.build.indexDefinitionId, row.build] as const),
     );
-    const context = yield* readIndexCoverageContextInTransactionEffect(tx, snapshotClock).pipe(Effect.mapError(cause =>
+    const context = yield* readIndexCoverageContextInTransactionEffect(tx, snapshotClock, checkedActive).pipe(Effect.mapError(cause =>
       readinessFailureValue(cause.reason === "resourceFailure" ? "resourceFailure" : "storedState", cause.reason === "resourceFailure" && (cause.retryable ?? retryableCause(cause.cause)), cause)));
     const rows: IndexBuildStateRecord[] = [];
     for (let index = 0; index < definitionIds.length; index += 1) {

@@ -1,0 +1,88 @@
+{
+  "format": "flarex.mixed-mutation-performance-artifacts",
+  "dataset": "fresh-admission-evidence-traced-smoke",
+  "measuredRevision": "6e5cab99de498a8e8b8873dfbf2da5a046723ce8",
+  "measuredWorkingDiffSha256": "c5cea19dc66f79f28e87ae68127da18a4b111e95cf7f2aeb9f0bdde6a2ec5b16",
+  "mode": "smoke",
+  "observationMode": "traced",
+  "planned": {
+    "warmups": 1,
+    "warm": 2,
+    "cold": 1
+  },
+  "plannedWorkloads": [
+    "product",
+    "productPayload",
+    "mixedWorkflow",
+    "standaloneWorkflow"
+  ],
+  "sampleCount": 16,
+  "successfulSamples": 16,
+  "failedSamples": 0,
+  "setupFailures": 0,
+  "latencyUse": "structuralSmokeOnly",
+  "sourceHashes": {
+    "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts": "5a473ad6f2835075a04b1c811ef0655036651e784bbcb301c67bf287f3ee6aaa",
+    "packages/flarex-backend/test/support/mixedMutationProductFixture.ts": "e0df5ba6534a52199b11290a77ef6db7bb1a5af3f15977ceaf7cfc70eb94e462",
+    "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts": "2c7815c287028037f77789dbf9917906433d1b5f851056d265559a5dd9eaa0c0",
+    "packages/flarex-backend/test/support/mixedMutationPerformanceReport.ts": "1ff079da5c937ba1988107fc4233abc03d9b43015069dc3f197d6e664fd610a3",
+    "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts": "e891829bfbd48aa9bc8c9f5765c3ce5a7d752877cfd10088d52c5fe3b0b21c35",
+    "packages/executor/src/pointMutationJournal.ts": "e5da662862e0dbb0505e082c936e4a20516927424092d8bd35f99c5cb5623b46",
+    "packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts": "516cffc5d0b39a142e3ace6a3182f0f2d768e66b84506176449f9325825e3522",
+    "packages/persistence-postgres/drizzle/0119_protected_metadata_epoch.sql": "6330d5e0e51c4e165f9e359c36acefbd29906a6047a88d606026880bfe9b9651",
+    "packages/persistence-postgres/src/appRows.ts": "ca7a2a67f70e587da10b5a796bfdde20f84bcb0cd7dc4e0bc22e27bcbac6ad0e",
+    "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts": "f675c6876afe541c8f1e93ee15214164961a9e60dfac3c405e9604d43e39211a",
+    "packages/persistence-postgres/src/applicationActiveHeadRead.ts": "334292b9065fe1bc379c13683b7f0143c5f20aa361d91a456360fd00230c93f9",
+    "packages/persistence-postgres/src/applicationActivation.ts": "97e98c832bd8691122199e089cea29ecfea473cdd41abaa6a403b9ff49dcd8c2",
+    "packages/persistence-postgres/src/applicationBindingProjection.ts": "c77127551841e0e1ab2b3ffe3f6f279c0119b163d3a0da333a309c2c4e5abe95",
+    "packages/persistence-postgres/src/applicationReadiness.ts": "2d764741da4b91341f1ef14f2ff62a2ccea14feb60121a8c355d031150739923",
+    "packages/persistence-postgres/src/applicationRelationReadinessFold.ts": "c9e3c34a1d7eb4de52d47c04480c0bd290530cbd4c1ea17bb83ccd61709ce06f",
+    "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts": "612c1b55c904dd994f3a6647cc289b89378af5d671c7ce025931b0b267cbf932",
+    "packages/persistence-postgres/src/commerceTransaction/borrowedWorkflowAttempt.ts": "3212ab7655f5189195cd56c07f8724f227f4b2ed8ae84c76b3b57daa01638fa0",
+    "packages/persistence-postgres/src/cmsTransaction/borrowedLogicalAttempt.ts": "51c456fdbcc2e0c3b8c2acda877748924ed6c62c6bb8cccaae941370c163b568",
+    "packages/persistence-postgres/src/drizzleSchema.ts": "195bd525e02fdf9251b2516fa3e4da088a45e9c8b2b2cc23ec1ec899d9022b0a",
+    "packages/persistence-postgres/src/frameworkSchema/binding/logicalSchema.ts": "51b267a355032d262744ed401b094d264cca20fdac05a8d8c95ebcd1a050cfac",
+    "packages/persistence-postgres/src/indexBuildStates.ts": "3c680b912497f3e2b69703644761fd534c2e838e46a8e8e180b4332b2fc48307",
+    "packages/persistence-postgres/src/logicalDocuments/detachChanges.ts": "6c5cdd83a2c4fcfa5eb1252f50baa6d8ac0233f306ce89304dd0b018556a3f31",
+    "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts": "caa8f45162d2503dabca70e9913d3c1084818b1129dc2be669b09427f32a7158",
+    "packages/persistence-postgres/src/logicalDocuments/model.ts": "7930c096ab16cdfd3f145977d3ac13a6d63b00f51511635b8a2ac33b793927e9",
+    "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts": "1759afc50aa0f6a65a3bd033183df1b5487929afa9b0cfd5f96d7da56f3da4ff",
+    "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts": "85c59a7568dc238394804dbeffb0f512f64a6b037b790a0fe8569448c1da383e",
+    "packages/persistence-postgres/src/logicalDocuments/rootEvaluator.ts": "d13940817929d8109399741c40506d247b3746ed583860d4a675c193facb48e6",
+    "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts": "ef2fb898a3cfeda8da8963111b03e99bbcc24a8f9cfba18ff9c228267dc03591",
+    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts": "86541a5150bbaeb44b1794feef4ea9b2d65ccaaed162debc571af07e2b128f4a",
+    "packages/persistence-postgres/src/logicalSearchBuild.ts": "c30e410ac6d28fdbc4c35e2387d0ff544c5edf5c7449f1ee788fcedb678e9934",
+    "packages/persistence-postgres/src/logicalStorageReadiness.ts": "04ded904cc88862bc655b4e8a606f292f483d7b0e066f4683943a15291b2e207",
+    "packages/persistence-postgres/src/pointCommitTransaction.ts": "c57e9802c1f088d23076b9bcb4664514e41eca1d882b75acaf0d24851fa4aa3c",
+    "packages/persistence-postgres/src/postgres.ts": "ef60f726bdb0569d5773d6fc22dbe2bb344494939931b250322873ddcc2941f0",
+    "packages/persistence-postgres/src/preparedMetadataEpoch.ts": "d5b289e8d6231f6aa09aa7cdb226cc87421c55aef5c01a8545c769b30881d29d",
+    "packages/persistence-postgres/src/schema.ts": "f8edf52239fba608f7a09d9d772be0b5bb7b3d3daeb08a561ba17f159e0f410f",
+    "packages/persistence-postgres/src/sessionJournalStore.ts": "c8d14428fdd40d2425ed8f858caf3fbeaec1b7f04979a02bbcd037d7de3f6720",
+    "packages/persistence-postgres/src/storedCommitAuthority/materialization.ts": "26db0f130f05af1551e8a6980a40cedbad894ab973f34bb66073a085505398ff",
+    "packages/persistence-postgres/src/storedCommitAuthority/postgresLoader.ts": "d483bb8175e4aaf3bf80400f05a39670bf46a3f78f43748c57c3c2910688b15c",
+    "packages/persistence-postgres/src/transactionSessionActivation.ts": "c62ba508dd4bcb9833a4dc23a0dd56282eceb34403dbab74146203151260532e",
+    "packages/persistence-postgres/src/transactionSessionAttemptFacet.ts": "fe723a3f8787f29eaa582cdaaf5b1d48919dbe077c3528c0a13f9ee7f2e01ace",
+    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts": "a633ba98dfcc3c0b786a0b95e269510bc2ca2f54903c1e3812ba89445f522476"
+  },
+  "files": {
+    "raw.json.gz": {
+      "bytes": 309341,
+      "sha256": "8b2a1a49c225595c9abb4538e2b7a8d20076906be24f48c9ee113bfdfb45aa1a",
+      "uncompressedBytes": 5566052,
+      "uncompressedSha256": "88480f736c77af452861bce1b4269c41a6adbc9def13f816e545dc7b744b6557"
+    },
+    "report.md": {
+      "bytes": 49479,
+      "sha256": "686de1e8d9ce9df9f6a9ae8d1fee7891215bd97b9b0fb1b9b506e8c116b72506"
+    },
+    "samples.csv": {
+      "bytes": 2885,
+      "sha256": "c7673ed03c7a119cbea84aa73e5fc64bf468d66c26655da8a35601d47232a6f5",
+      "rows": 16
+    },
+    "exclusions.json": {
+      "bytes": 1158,
+      "sha256": "a5f68abb86e69191d018d368291d5dc47bbe27bf47e7157fa726e1f3998b8b5b"
+    }
+  }
+}

@@ -57,11 +57,19 @@ capture could invoke foreign code retain separate checks, and workflow's
 per-member source validation remains outside its final bundle transaction.
 The quiet trace reduces selected SQL and transaction counts, while full warm
 medians are 1.849 / 2.265 / 4.847 / 0.318 s. Product regresses against its
-finite-root warm median; the three mixed latency goals remain unmet. The next
-connected cost owner is repeated live admission and exact read work, with
-fresh authority and short transaction boundaries preserved. The trace does
-not attribute each interval to one function, and the comparison is not an
-isolated causal speedup claim.
+finite-root warm median; the three mixed latency goals remain unmet. The
+[fresh admission evidence slice](./10-fresh-admission-evidence-preflight.md)
+is delivered with [retained quiet trace and full untraced
+evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/fresh-admission-evidence/README.md).
+Application binding, readiness, index and unique owners reuse freshly
+authenticated head, schema and selected frontier evidence only inside the
+same checked transaction; callback exit revokes it, missing heads are not
+cached, and a later operation repeats live admission. The quiet trace reduces
+SQL dispatches to 2,256 / 3,018 / 5,872 / 452 with transaction counts
+unchanged at 82 / 105 / 199 / 6. Full warm medians are 1.552 / 2.014 /
+4.471 / 0.309 s. The mixed latency proposals remain unmet. Repeated fresh
+admission remains the next measured cost owner; the current evidence does
+not approve skipping checks or holding SQL across callbacks.
 
 The finite root has an immutable journal marker and a first protected legacy
 Application target projection. That projection has ten trigger-covered tables

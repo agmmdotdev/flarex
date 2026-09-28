@@ -13,6 +13,8 @@ import { hasAppUniqueConstraintSetEligibilityCompositionV1, prepareAppUniqueCons
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { lockScopeClockForSnapshotReadInTransactionEffect, type ScopeClockRecord } from "./scopeClock";
 import type { AppRowTransaction } from "./appRows";
+import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
+import type { IndexCoverageContext } from "./indexBuildStates";
 import { chargeHostPreparation } from "./preparedHostRuntime";
 import { prepareLogicalSearchBuild } from "./logicalSearchBuild";
 import { readLogicalStorageRequirements } from "./logicalStorageDefinitions";
@@ -63,6 +65,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
    * must still select this exact schema/digest and authenticate semantic gates. */
   const inspect = Effect.fn("LogicalStorageReadiness.inspect")(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    checkedActive?: CheckedApplicationActiveHead,
   ) {
     if (authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId || clock.scopeId !== authority.scopeId ||
       clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence)
@@ -73,6 +76,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     // Refresh both observations only when a post-miss clock read proves that
     // publication advanced; never waive a persistent miss.
     let previousCommitSeq = clock.lastCommitSeq;
+    let latestCoverage: IndexCoverageContext | undefined;
     for (let refresh = 0; refresh < 3; refresh++) {
       const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, definitionIds, "key share");
       if (builds.status === "not_ready") return Object.freeze({ ...builds, kind: "index" as const });
@@ -94,7 +98,8 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
           build.firstReadableCommitSeq !== null && build.firstReadableCommitSeq <= clock.lastCommitSeq
           ? [definition.tableId] : [];
       });
-      const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock);
+      const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock, checkedActive);
+      latestCoverage = coverage;
       let frontierBatchReady = false;
       let uncoveredIndexDefinitionId: (typeof requirements.definitions)[number]["indexDefinitionId"] | undefined;
       for (const { definition, state: decoded } of selected) {
@@ -124,7 +129,8 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       return Object.freeze({ status: "not_ready" as const, kind: "index" as const, reason: "notCovered" as const,
         indexDefinitionId: uncoveredIndexDefinitionId });
     }
-    const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, clock, "concurrentProgress");
+    const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, clock,
+      "concurrentProgress", latestCoverage);
     if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
     const searchReadiness = yield* search.inspect(tx, authority, clock);
     if (searchReadiness.status === "not_ready")

@@ -8,7 +8,7 @@ import {
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
-import { Data, Effect } from "effect";
+import { Data, Effect, Result } from "effect";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import {
@@ -24,6 +24,7 @@ import {
   fxSystemApplicationRevisionSchemas,
 } from "./applicationRelationSchema";
 import type { AppRowTransaction } from "./appRows";
+import type { ScopeClockRecord } from "./scopeClock";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { fxSystemApplicationRevisionSchemasV1 } from "./schema";
@@ -98,6 +99,77 @@ export interface CoherentApplicationActiveHead {
   readonly head: DecodedApplicationActiveHead;
   readonly activation: DecodedApplicationActivation;
 }
+
+declare const checkedActiveHeadBrand: unique symbol;
+/** A positive, locked observation issued only by the active-head reader. */
+export interface CheckedApplicationActiveHead {
+  readonly [checkedActiveHeadBrand]: true;
+}
+
+type CheckedActiveHeadState = {
+  readonly tx: AppRowTransaction;
+  readonly clock: ScopeClockRecord;
+  readonly active: CoherentApplicationActiveHead;
+  schema?: Effect.Success<ReturnType<typeof readApplicationSchemaForHeadForShareInTransactionEffect>>;
+};
+const checkedActiveHeads = new WeakMap<CheckedApplicationActiveHead, CheckedActiveHeadState>();
+
+/** A missing head is deliberately never retained: READ COMMITTED may observe a later insertion. */
+export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect = Effect.fn(
+  "ApplicationActiveHead.readCheckedCoherentForShare",
+)(function* (tx: AppRowTransaction, clock: ScopeClockRecord,
+  onIssued: (checked: CheckedApplicationActiveHead) => void) {
+  const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock.scopeId);
+  if (active === null) return null;
+  // SAFETY: only this fresh locked reader issues the inert handle; the WeakMap owns its evidence.
+  const checked = Object.freeze({}) as CheckedApplicationActiveHead;
+  checkedActiveHeads.set(checked, {
+    tx,
+    clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) },
+    // The issuer's copy cannot be changed through the validated basis or a coverage context.
+    active: structuredClone(active),
+  });
+  // The owning callback records the handle before this Effect can yield back to cancellation.
+  onIssued(checked);
+  return Object.freeze({ active, checked });
+});
+
+/** Wrong transaction or lifecycle identity is invalid; ordinary clock progress requests a fresh read. */
+export function readCheckedApplicationActiveHead(
+  checked: CheckedApplicationActiveHead,
+  tx: AppRowTransaction,
+  clock: ScopeClockRecord,
+): Result.Result<"refresh" | CoherentApplicationActiveHead, ApplicationActiveHeadStateError> {
+  const state = checkedActiveHeads.get(checked);
+  if (state === undefined || state.tx !== tx || state.clock.scopeId !== clock.scopeId ||
+    state.clock.storageGeneration !== clock.storageGeneration ||
+    state.clock.storageGenerationFence !== clock.storageGenerationFence ||
+    state.clock.epoch !== clock.epoch) {
+    return Result.fail(new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false }));
+  }
+  if (clock.lastCommitSeq < state.clock.lastCommitSeq ||
+    clock.oldestAvailableCommitSeq < state.clock.oldestAvailableCommitSeq)
+    return Result.fail(new ApplicationActiveHeadStateError({ reason: "storedState", retryable: false }));
+  if (state.clock.lastCommitSeq !== clock.lastCommitSeq ||
+    state.clock.oldestAvailableCommitSeq !== clock.oldestAvailableCommitSeq ||
+    state.clock.updatedAt.getTime() !== clock.updatedAt.getTime()) return Result.succeed("refresh");
+  return Result.succeed(structuredClone(state.active));
+}
+
+export function releaseCheckedApplicationActiveHead(checked: CheckedApplicationActiveHead | undefined): void {
+  if (checked !== undefined) checkedActiveHeads.delete(checked);
+}
+
+export const readCheckedApplicationSchemaForHeadForShareInTransactionEffect = Effect.fn(
+  "ApplicationActiveHead.readCheckedSchemaForHead",
+)(function* (checked: CheckedApplicationActiveHead, tx: AppRowTransaction, clock: ScopeClockRecord) {
+  const active = yield* Effect.fromResult(readCheckedApplicationActiveHead(checked, tx, clock));
+  if (active === "refresh") return "refresh" as const;
+  const state = checkedActiveHeads.get(checked);
+  if (state === undefined) return yield* storedState(active.head.revisionId);
+  state.schema ??= yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head);
+  return state.schema;
+});
 
 export const decodeApplicationActiveHeadRowEffect = Effect.fn(
   "ApplicationActiveHead.decodeRow",

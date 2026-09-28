@@ -34,13 +34,17 @@ import {
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 
-import { readAppTableWriteFrontierInTransactionEffect, readAppTableWriteFrontiersInTransactionEffect, type AppRowTransaction, type AppRowReadPersistenceError, type AppRowTableFrontierCorruptionError, type InvalidAppRowReadInputError } from "./appRows";
+import { readAppTableWriteFrontierInTransactionEffect, readAppTableWriteFrontiersInTransactionEffect,
+  AppRowTableFrontierCorruptionError, type AppRowTransaction, type AppRowReadPersistenceError,
+  type InvalidAppRowReadInputError } from "./appRows";
 import type { AppIndexDefinitionRecord } from "./appIndexDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import { decodeScopeClockRecordResult, type ScopeClockRecord } from "./scopeClock";
-import { readCoherentApplicationActiveHeadForShareInTransactionEffect, readApplicationSchemaForHeadForShareInTransactionEffect, type CoherentApplicationActiveHead } from "./applicationActiveHeadRead";
+import { readCoherentApplicationActiveHeadForShareInTransactionEffect, readApplicationSchemaForHeadForShareInTransactionEffect,
+  readCheckedApplicationActiveHead, readCheckedApplicationSchemaForHeadForShareInTransactionEffect,
+  type CheckedApplicationActiveHead, type CoherentApplicationActiveHead } from "./applicationActiveHeadRead";
 import { decodeIndexMaintenanceEvidenceResult, verifyIndexMaintenanceEvidence, IndexMaintenanceError, type IndexMaintenanceEvidence } from "./indexMaintenanceEvidence";
 import {
   fxSystemIndexBuildStates,
@@ -607,7 +611,81 @@ const coverageTableFrontiers = new WeakMap<IndexCoverageContext, Readonly<{
   tx: AppRowTransaction;
   frontiers: ReadonlyMap<CatalogTableId, Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>>;
 }>>();
-const coverageContextTransactions = new WeakMap<IndexCoverageContext, AppRowTransaction>();
+const coverageContextTransactions = new WeakMap<IndexCoverageContext, Readonly<{
+  tx: AppRowTransaction; clock: ScopeClockRecord; active: IndexCoverageContext["active"];
+}>>();
+const registerCoverageContext = (context: IndexCoverageContext, tx: AppRowTransaction, clock: ScopeClockRecord): void => {
+  coverageContextTransactions.set(context, { tx, clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) },
+    active: context.active === null ? null : structuredClone(context.active) });
+};
+
+/** Only an exact, still-current snapshot can lend a coverage observation to another owner. */
+export function matchIndexCoverageContextInTransaction(
+  tx: AppRowTransaction, clock: ScopeClockRecord, context: IndexCoverageContext,
+): Result.Result<boolean, IndexMaintenanceError> {
+  const issued = coverageContextTransactions.get(context);
+  if (issued === undefined || issued.tx !== tx) return Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  const observed = issued.clock;
+  if (context.clock.scopeId !== observed.scopeId ||
+    context.clock.storageGeneration !== observed.storageGeneration ||
+    context.clock.storageGenerationFence !== observed.storageGenerationFence ||
+    context.clock.epoch !== observed.epoch ||
+    context.clock.lastCommitSeq !== observed.lastCommitSeq ||
+    context.clock.oldestAvailableCommitSeq !== observed.oldestAvailableCommitSeq ||
+    context.clock.updatedAt.getTime() !== observed.updatedAt.getTime() ||
+    observed.scopeId !== clock.scopeId ||
+    observed.storageGeneration !== clock.storageGeneration ||
+    observed.storageGenerationFence !== clock.storageGenerationFence || observed.epoch !== clock.epoch ||
+    clock.lastCommitSeq < observed.lastCommitSeq ||
+    clock.oldestAvailableCommitSeq < observed.oldestAvailableCommitSeq)
+    return Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
+  return Result.succeed(observed.lastCommitSeq === clock.lastCommitSeq &&
+    observed.oldestAvailableCommitSeq === clock.oldestAvailableCommitSeq &&
+    observed.updatedAt.getTime() === clock.updatedAt.getTime());
+}
+
+/** Cross-owner reuse receives a fresh projection from the issuer-held evidence, never the caller's mutable context. */
+export function borrowIndexCoverageContextInTransaction(
+  tx: AppRowTransaction, clock: ScopeClockRecord, context: IndexCoverageContext,
+): Result.Result<IndexCoverageContext | null, IndexMaintenanceError> {
+  return Result.gen(function* () {
+    if (!(yield* matchIndexCoverageContextInTransaction(tx, clock, context))) return null;
+    const issued = coverageContextTransactions.get(context);
+    if (issued === undefined) return yield* Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
+    const borrowed = Object.freeze({ clock: { ...issued.clock, updatedAt: new Date(issued.clock.updatedAt.getTime()) },
+      active: issued.active === null ? null : structuredClone(issued.active) });
+    registerCoverageContext(borrowed, tx, clock);
+    return borrowed;
+  });
+}
+
+/** Borrow only the exact selected table frontiers already read under this clock. */
+export function readPreparedIndexCoverageTableFrontiers(
+  tx: AppRowTransaction, clock: ScopeClockRecord, context: IndexCoverageContext,
+  tableIds: ReadonlyArray<CatalogTableId>,
+): Result.Result<ReadonlyMap<CatalogTableId,
+  Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>> | null, IndexMaintenanceError> {
+  return Result.gen(function* () {
+    const matched = yield* matchIndexCoverageContextInTransaction(tx, clock, context);
+    if (!matched) return null;
+    const cached = coverageTableFrontiers.get(context);
+    if (cached === undefined || cached.tx !== tx || tableIds.some(tableId => !cached.frontiers.has(tableId)))
+      return null;
+    const detached = new Map<CatalogTableId,
+      Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>>();
+    for (const tableId of tableIds) {
+      const result = cached.frontiers.get(tableId);
+      if (result === undefined) return yield* Result.fail(new IndexMaintenanceError({ reason: "storedState" }));
+      const detachedResult = Result.match(result, {
+        onSuccess: frontier => Result.succeed(frontier),
+        onFailure: error => Result.fail(new AppRowTableFrontierCorruptionError(
+          error.scopeId, error.tableId, error)),
+      });
+      detached.set(tableId, detachedResult);
+    }
+    return detached;
+  });
+}
 
 /** Application activation owns a maintained suffix. A separately admitted
  * logical source requires explicit build progress and cannot borrow that suffix.
@@ -625,17 +703,26 @@ export const publicationModeForIndex = (profile: IndexPublicationProfile, defini
 
 /** Keep this value within the guarded transaction that produced it. */
 export const readIndexCoverageContextInTransactionEffect = Effect.fn("IndexBuildState.readCoverageContext")(
-  function* (tx: AppRowTransaction, clock: ScopeClockRecord): Effect.fn.Return<IndexCoverageContext, IndexMaintenanceError> {
+  function* (tx: AppRowTransaction, clock: ScopeClockRecord,
+    checkedActive?: CheckedApplicationActiveHead): Effect.fn.Return<IndexCoverageContext, IndexMaintenanceError> {
     return yield* Effect.gen(function* () {
-      const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock.scopeId);
+      const checked = checkedActive === undefined ? "refresh" as const
+        : yield* Effect.fromResult(readCheckedApplicationActiveHead(checkedActive, tx, clock));
+      const active = checked === "refresh"
+        ? yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock.scopeId)
+        : checked;
       if (active === null) {
         const context = Object.freeze({ clock, active: null });
-        coverageContextTransactions.set(context, tx);
+        registerCoverageContext(context, tx, clock);
         return context;
       }
-      const schema = yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head);
+      const checkedSchema = checkedActive === undefined || checked === "refresh" ? "refresh" as const
+        : yield* readCheckedApplicationSchemaForHeadForShareInTransactionEffect(checkedActive, tx, clock);
+      const schema = checkedSchema === "refresh"
+        ? yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head)
+        : checkedSchema;
       const context = Object.freeze({ clock, active: Object.freeze({ ...active, schema }) });
-      coverageContextTransactions.set(context, tx);
+      registerCoverageContext(context, tx, clock);
       return context;
     }).pipe(Effect.mapError(cause => new IndexMaintenanceError({ reason: cause.reason, retryable: cause.retryable, cause: cause.cause })));
   },
@@ -649,7 +736,7 @@ export const readIndexCoverageTableFrontiersInTransactionEffect = Effect.fn(
 )(function* (tx: AppRowTransaction, context: IndexCoverageContext,
   tableIds: ReadonlyArray<CatalogTableId>): Effect.fn.Return<void,
     InvalidAppRowReadInputError | AppRowReadPersistenceError | IndexMaintenanceError> {
-  if (coverageContextTransactions.get(context) !== tx)
+  if (coverageContextTransactions.get(context)?.tx !== tx)
     return yield* Effect.fail(new IndexMaintenanceError({ reason: "storedState" }));
   const frontiers = yield* readAppTableWriteFrontiersInTransactionEffect(tx, context.clock.scopeId, tableIds);
   coverageTableFrontiers.set(context, { tx, frontiers });

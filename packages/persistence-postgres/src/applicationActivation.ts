@@ -29,7 +29,10 @@ import {
   decodeApplicationActiveHeadRowEffect,
   readApplicationActiveHeadForShareInTransactionEffect,
   readCoherentApplicationActiveHeadForShareInTransactionEffect,
+  readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
+  releaseCheckedApplicationActiveHead,
   type ApplicationActiveHeadStateError,
+  type CheckedApplicationActiveHead,
   type DecodedApplicationActivation,
   type DecodedApplicationActiveHead,
 } from "./applicationActiveHeadRead";
@@ -1026,14 +1029,36 @@ function issueRelationActiveSelection(
   });
 }
 
-/** Read-only composition for framework binding; legacy execution keeps its existing validation path. */
+/** The callback owns the positive observation through all selected checks and releases it on every exit. */
+export const withValidatedApplicationBindingBasisInTransaction = Effect.fn(
+  "ApplicationActivation.withValidatedBindingBasis",
+)(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
+  currentClock: ScopeClockRecord,
+  work: (validated: Effect.Success<ReturnType<typeof validateApplicationBindingBasisOwned>>,
+    checked: CheckedApplicationActiveHead | undefined) => Effect.Effect<Value, Failure, Requirements>) {
+  let checked: CheckedApplicationActiveHead | undefined;
+  return yield* Effect.gen(function* () {
+    const validated = yield* validateApplicationBindingBasisOwned(selection, tx, currentClock,
+      issued => { checked = issued; });
+    return yield* Effect.suspend(() => work(validated, checked));
+  }).pipe(Effect.ensuring(Effect.sync(() => releaseCheckedApplicationActiveHead(checked))));
+});
+
+/** Read-only composition for ordinary callers; no checked observation leaves this method. */
 export const validateApplicationBindingBasisInTransaction = Effect.fn(
   "ApplicationActivation.validateBindingBasisInTransaction",
-)(function* (selection: ApplicationBindingInput, tx: AppRowTransaction, currentClock: ScopeClockRecord) {
+)((selection: ApplicationBindingInput, tx: AppRowTransaction, currentClock: ScopeClockRecord) =>
+  withValidatedApplicationBindingBasisInTransaction(selection, tx, currentClock, validated => Effect.succeed(validated)));
+
+const validateApplicationBindingBasisOwned = Effect.fn(
+  "ApplicationActivation.validateBindingBasisOwned",
+)(function* (selection: ApplicationBindingInput, tx: AppRowTransaction, currentClock: ScopeClockRecord,
+  issued: (checked: CheckedApplicationActiveHead | undefined) => void) {
   const preparation = bindingPreparations.get(selection);
   if (preparation !== undefined) {
     if (!clockMatches(preparation.authority, currentClock)) return yield* activationFailure("validateSelection", "scopeAuthority", preparation.revisionId);
-    const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock.scopeId);
+    const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock, issued);
+    const active = observed?.active ?? null;
     if (active === null || active.head.revisionId !== preparation.revisionId || active.head.readinessKind === "legacy") {
       return yield* activationFailure("validateSelection", "concurrentHead", preparation.revisionId);
     }
@@ -1052,7 +1077,8 @@ export const validateApplicationBindingBasisInTransaction = Effect.fn(
   if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
     if (state.kind === "relation") {
       // Binding admission locks the Application head before restoring its readiness dependencies.
-      const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock.scopeId);
+      const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock, issued);
+      const active = observed?.active ?? null;
       if (active === null || !relationHeadMatchesBasis(active.head, state.basis)) {
         return yield* activationFailure("validateSelection", "concurrentHead", state.basis.revisionId);
       }
@@ -1062,9 +1088,10 @@ export const validateApplicationBindingBasisInTransaction = Effect.fn(
   if (!clockMatches(state.basis.authority, currentClock)) {
     return yield* activationFailure("validateSelection", "scopeAuthority", state.basis.revisionId);
   }
-  const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock.scopeId);
+  const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock, issued);
+  const active = observed?.active ?? null;
   const validated = yield* validateStoredApplicationReadinessForActivationInTransaction(
-    state.readinessRepository, state.readiness, tx, currentClock,
+    state.readinessRepository, state.readiness, tx, currentClock, observed?.checked,
   );
   if (active === null || !headMatchesBasis(active.head, state.basis)
     || !headMatchesValidatedReadiness(active.head, { kind: "legacy", basis: validated.basis })) {

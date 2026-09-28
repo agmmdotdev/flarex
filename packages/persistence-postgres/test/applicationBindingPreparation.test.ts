@@ -1,16 +1,23 @@
-import { eq } from "drizzle-orm";
-import { Effect, Result, Tracer } from "effect";
+import { eq, sql } from "drizzle-orm";
+import { Cause, Effect, Result, Tracer } from "effect";
 import { expect, it } from "vitest";
 import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
+import { CommitSeqSchema, ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { prepareApplicationBindingSelection, claimApplicationExecutableActiveSelection, type ApplicationBindingPreparation } from "../src/applicationActivation";
 import { readApplicationBindingPreparationInputs, readAcceptedApplicationBinding, withAcceptedApplicationBinding,
   type AcceptedApplicationBinding } from "../src/applicationActivation";
+import { readCheckedApplicationActiveHead, type CheckedApplicationActiveHead } from "../src/applicationActiveHeadRead";
 import { readAcceptedApplicationBindingProjection } from "../src/applicationBindingProjection";
-import { readApplicationBindingProjectionInTransaction } from "../src/applicationBindingProjection";
-import { fxSystemUniqueConstraintBuilds } from "../src/schema";
+import { readApplicationBindingProjectionInTransaction, withApplicationBindingEvidenceInTransaction } from "../src/applicationBindingProjection";
+import { borrowIndexCoverageContextInTransaction, matchIndexCoverageContextInTransaction,
+  readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
+  readPreparedIndexCoverageTableFrontiers, type IndexCoverageContext } from "../src/indexBuildStates";
+import { fxSystemScopeClocks, fxSystemUniqueConstraintBuilds } from "../src/schema";
 import { fxSystemApplicationReadiness } from "../src/applicationRelationSchema";
 import { fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
-import { lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
+import { lockScopeClockForSnapshotReadInTransactionEffect,
+  lockScopeClockForUpdateInTransactionEffect } from "../src/scopeClock";
 import type { PGliteFlarexPersistence } from "../src/pglite";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { cmsHostFixture } from "./cmsHostFixture";
@@ -44,6 +51,112 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
   expect(await accept()).toEqual(base.reference);
   expect(spans.filter(name => name === "ApplicationRelationReadinessFold.validatePreparedInTransaction")).toHaveLength(1);
+  let escapedCoverage: IndexCoverageContext | undefined;
+  for (const ending of ["success", "failure", "interruption"] as const) {
+    await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+      let checked: CheckedApplicationActiveHead | undefined;
+      const beforeAdmission = spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length;
+      const outcome = yield* Effect.exit(withApplicationBindingEvidenceInTransaction(prepared, tx, clock,
+        evidence => Effect.gen(function* () {
+          checked = evidence.checkedActive;
+          if (checked === undefined) throw new Error("Expected checked active head");
+          expect(evidence.projection).toEqual(base.reference);
+          const observed = readCheckedApplicationActiveHead(checked, tx, clock);
+          expect(Result.isSuccess(observed)).toBe(true);
+          if (Result.isFailure(observed) || observed.success === "refresh") throw new Error("Expected active head");
+          const originalByte = observed.success.head.headSha256[0];
+          observed.success.head.headSha256[0] = (originalByte ?? 0) ^ 0xff;
+          const detached = readCheckedApplicationActiveHead(checked, tx, clock);
+          if (Result.isFailure(detached) || detached.success === "refresh") throw new Error("Expected detached head");
+          expect(detached.success.head.headSha256[0]).toBe(originalByte);
+          expect(Result.isFailure(readCheckedApplicationActiveHead(checked, { ...tx } as typeof tx, clock))).toBe(true);
+          expect(Result.isFailure(readCheckedApplicationActiveHead(checked, tx, { ...clock,
+            scopeId: ScopeIdSchema.make("scope_53000000-0000-0000-0000-000000000099") }))).toBe(true);
+          expect(Result.isFailure(readCheckedApplicationActiveHead(checked, tx, { ...clock,
+            storageGenerationFence: StorageGenerationFenceSchema.make(clock.storageGenerationFence + 1n) }))).toBe(true);
+          if (clock.lastCommitSeq > 0n) expect(Result.isFailure(readCheckedApplicationActiveHead(checked, tx, { ...clock,
+            lastCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq - 1n) }))).toBe(true);
+          expect(readCheckedApplicationActiveHead(checked, tx, { ...clock,
+            lastCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq + 1n) })).toEqual(Result.succeed("refresh"));
+          // Wall-clock timestamps are not monotonic authority: committed
+          // sequence progress still requires refresh even if updatedAt moves back.
+          expect(readCheckedApplicationActiveHead(checked, tx, { ...clock,
+            lastCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq + 1n),
+            updatedAt: new Date(clock.updatedAt.getTime() - 1_000) })).toEqual(Result.succeed("refresh"));
+          if (ending === "success") {
+            const beforeCoverage = spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length;
+            const first = yield* readIndexCoverageContextInTransactionEffect(tx, clock, checked);
+            expect(spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length)
+              .toBe(beforeCoverage);
+            const beforeSecondSchema = spans.filter(name => name === "ApplicationActiveHead.readSchemaForHead").length;
+            expect(beforeSecondSchema).toBeGreaterThan(0);
+            const second = yield* readIndexCoverageContextInTransactionEffect(tx, clock, checked);
+            expect(spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length)
+              .toBe(beforeCoverage);
+            expect(spans.filter(name => name === "ApplicationActiveHead.readSchemaForHead").length)
+              .toBe(beforeSecondSchema);
+            expect(Result.isSuccess(matchIndexCoverageContextInTransaction(tx, clock, first))).toBe(true);
+            const borrowed = borrowIndexCoverageContextInTransaction(tx, clock, first);
+            if (Result.isFailure(borrowed) || borrowed.success === null) throw new Error("Expected borrowed coverage");
+            expect(borrowed.success).toEqual(second);
+            escapedCoverage = first;
+            if (first.active !== null && borrowed.success.active !== null) {
+              const originalCoverageByte = borrowed.success.active.head.headSha256[0];
+              first.active.head.headSha256[0] = (originalCoverageByte ?? 0) ^ 0xff;
+              const detachedCoverage = borrowIndexCoverageContextInTransaction(tx, clock, first);
+              if (Result.isFailure(detachedCoverage) || detachedCoverage.success?.active === null ||
+                detachedCoverage.success === null) throw new Error("Expected detached coverage");
+              expect(detachedCoverage.success.active.head.headSha256[0]).toBe(originalCoverageByte);
+            }
+            const tableId = CatalogTableIdSchema.make(1);
+            yield* readIndexCoverageTableFrontiersInTransactionEffect(tx, first, [tableId]);
+            const selectedFrontiers = readPreparedIndexCoverageTableFrontiers(tx, clock, first, [tableId]);
+            if (Result.isFailure(selectedFrontiers) || !(selectedFrontiers.success instanceof Map))
+              throw new Error("Expected selected frontier map");
+            const originalFrontier = selectedFrontiers.success.get(tableId);
+            selectedFrontiers.success.set(tableId, Result.succeed(777n));
+            const detachedFrontiers = readPreparedIndexCoverageTableFrontiers(tx, clock, first, [tableId]);
+            if (Result.isFailure(detachedFrontiers) || detachedFrontiers.success === null)
+              throw new Error("Expected detached frontier map");
+            expect(detachedFrontiers.success.get(tableId)).toEqual(originalFrontier);
+            expect(readPreparedIndexCoverageTableFrontiers(tx, clock, first, [CatalogTableIdSchema.make(2)]))
+              .toEqual(Result.succeed(null));
+            expect(Result.isFailure(matchIndexCoverageContextInTransaction({ ...tx } as typeof tx, clock, first))).toBe(true);
+            expect(Result.isFailure(matchIndexCoverageContextInTransaction(tx, { ...clock,
+              storageGenerationFence: StorageGenerationFenceSchema.make(clock.storageGenerationFence + 1n) }, first))).toBe(true);
+            expect(matchIndexCoverageContextInTransaction(tx, { ...clock,
+              lastCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq + 1n) }, first)).toEqual(Result.succeed(false));
+            expect(matchIndexCoverageContextInTransaction(tx, { ...clock,
+              lastCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq + 1n),
+              updatedAt: new Date(clock.updatedAt.getTime() - 1_000) }, first)).toEqual(Result.succeed(false));
+            const beforeRefreshHead = spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length;
+            const beforeRefreshSchema = spans.filter(name => name === "ApplicationActiveHead.readSchemaForHead").length;
+            yield* readIndexCoverageContextInTransactionEffect(tx, { ...clock,
+              lastCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq + 1n) }, checked);
+            expect(spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length)
+              .toBeGreaterThan(beforeRefreshHead);
+            expect(spans.filter(name => name === "ApplicationActiveHead.readSchemaForHead").length)
+              .toBeGreaterThan(beforeRefreshSchema);
+          }
+          if (ending === "failure") return yield* Effect.fail("expected refusal");
+          if (ending === "interruption") return yield* Effect.interrupt;
+        })));
+      if (ending === "success" && outcome._tag === "Failure")
+        throw new Error(`Checked evidence success branch failed: ${Cause.pretty(outcome.cause)}`);
+      expect(outcome._tag).toBe(ending === "success" ? "Success" : "Failure");
+      if (checked === undefined) throw new Error("Expected checked callback handle");
+      expect(Result.isFailure(readCheckedApplicationActiveHead(checked, tx, clock))).toBe(true);
+      expect(spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length)
+        .toBeGreaterThan(beforeAdmission);
+    }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
+  }
+  if (escapedCoverage === undefined) throw new Error("Expected escaped coverage context");
+  const staleCoverage = escapedCoverage;
+  await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+    const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, scopeId);
+    expect(Result.isFailure(matchIndexCoverageContextInTransaction(tx, clock, staleCoverage))).toBe(true);
+  })));
   const planning = await runEffect(readApplicationBindingPreparationInputs(prepared, base.fixture.control.drizzle));
   expect(planning.schema.schemaVersionId).toBe(base.reference.schemaVersionId);
   // A detached manifest cannot rewrite the prepared authority's input snapshot.
@@ -133,6 +246,47 @@ async function exercise(persistence: PGliteFlarexPersistence | PostgresFlarexPer
   expect(await accept(await prepare())).toEqual(base.reference);
 
   if ("pool" in persistence) {
+    const clockWhere = eq(fxSystemScopeClocks.scopeId, scopeId);
+    const originalClock = (await persistence.drizzle.select().from(fxSystemScopeClocks).where(clockWhere))[0];
+    if (originalClock === undefined) throw new Error("Missing controlled scope clock");
+    try {
+      // Controlled clock progress, not a full publication: KEY SHARE permits
+      // a separate NO KEY UPDATE writer under PostgreSQL READ COMMITTED.
+      await persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId);
+        yield* withApplicationBindingEvidenceInTransaction(prepared, tx, clock, evidence => Effect.gen(function* () {
+          const checked = evidence.checkedActive;
+          if (checked === undefined) throw new Error("Missing checked active head");
+          const first = yield* readIndexCoverageContextInTransactionEffect(tx, clock, checked);
+          const tableId = CatalogTableIdSchema.make(1);
+          yield* readIndexCoverageTableFrontiersInTransactionEffect(tx, first, [tableId]);
+          yield* Effect.promise(() => persistence.drizzle.transaction(async writer => {
+            await writer.execute(sql`set local lock_timeout = '2s'`);
+            await writer.update(fxSystemScopeClocks).set({
+              lastCommitSeq: CommitSeqSchema.make(clock.lastCommitSeq + 1n),
+              updatedAt: new Date(clock.updatedAt.getTime() - 1_000),
+            }).where(clockWhere);
+          }));
+          const advanced = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId);
+          expect(advanced.lastCommitSeq).toBe(clock.lastCommitSeq + 1n);
+          expect(matchIndexCoverageContextInTransaction(tx, advanced, first)).toEqual(Result.succeed(false));
+          expect(readPreparedIndexCoverageTableFrontiers(tx, advanced, first, [tableId]))
+            .toEqual(Result.succeed(null));
+          const beforeHead = spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length;
+          const beforeSchema = spans.filter(name => name === "ApplicationActiveHead.readSchemaForHead").length;
+          yield* readIndexCoverageContextInTransactionEffect(tx, advanced, checked);
+          expect(spans.filter(name => name === "ApplicationActiveHead.readCoherentForShareInTransaction").length)
+            .toBeGreaterThan(beforeHead);
+          expect(spans.filter(name => name === "ApplicationActiveHead.readSchemaForHead").length)
+            .toBeGreaterThan(beforeSchema);
+        }));
+      }).pipe(Effect.provideService(Tracer.Tracer, tracer))));
+    } finally {
+      await persistence.drizzle.update(fxSystemScopeClocks).set({
+        lastCommitSeq: originalClock.lastCommitSeq,
+        updatedAt: originalClock.updatedAt,
+      }).where(clockWhere);
+    }
     const client = await persistence.pool.connect();
     const update = "update fx_system_application_active_head set activation_sequence = activation_sequence where scope_id = $1";
     try {
