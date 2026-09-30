@@ -1,6 +1,6 @@
 # Mixed execution redesign
 
-Status: **slice 15 delivered with its stage cost gate passed; slice 16 is the next preflight gate.**
+Status: **slice 15 delivered with its stage cost gate passed; slice 16's focused proposal is ready for review.**
 The private finite Application/Product/Payload/workflow profile is implemented.
 Its mixed latency targets remain unmet. This document selects the connected
 redesign sequence. The delivered 15 preflight owns its target
@@ -49,7 +49,7 @@ with mixed snapshot, journal, recovery and publication obligations identified.
 ## Ordered connected slices
 
 **15 is delivered and its stage cost gate passed.** Slice 16 is the next
-preflight gate; its runtime is not approved. Draft 17 depends on the preceding
+preflight gate; its focused proposal is ready for review and runtime is not approved. Draft 17 depends on the preceding
 accepted contract and audited implementation. Draft 18 is conditional. They
 remain planning documents. Revisit ordering if the dependency graph shows that a safe
 cutover must combine or rearrange owners; explain that change before runtime.
@@ -57,7 +57,7 @@ cutover must combine or rearrange owners; explain that change before runtime.
 | Slice and readiness | Connected removal outcome | Main decision before implementation |
 | --- | --- | --- |
 | [15: admission and protection](./15-admission-protection-preflight.md), delivered; stage passed | Protect current immutable target metadata and remove repeated structure/clock reads across existing consumers | 23-table coverage, full existing attestation/quiescence, exact accepting-transaction clock provenance; measured SQL 862 / 1,068 / 1,663 meets ceilings 871 / 1,081 / 1,688 with unchanged 41 / 52 / 78 transactions |
-| [16: batched read execution](./16-batched-read-execution-preflight.md), next preflight gate | Replace fixed per-method/read transaction topology with bounded planner-owned execution frontiers across root, journal, working set and frameworks | Complete operation closure and legal batch frontiers; exact validation/dependency/budget order; root/journal cutover |
+| [16: batched read execution](./16-batched-read-execution-preflight.md), focused proposal ready for review; runtime unapproved | Aggregate finite full entry, local method/construction and actual bounded storage frontiers; retain source-wide readiness and exact ordered data dependencies | Approve tentative callback/live-check timing and coherent cutover; proposed ceilings 798 / 924 / 1,439 driver dispatches and 33 / 34 / 50 explicit transactions; standalone 354 / 6 |
 | [17: batched settlement](./17-batched-settlement-preflight.md), dependent draft | Remove repeated terminal validation and row-at-a-time materialization where equivalent; connect seal, history, indexes, constraints, events and retained recovery | Aggregate authenticated contribution contract; lock/serialization plan; durable formats and uncertain-outcome disposition |
 | [18: host lifecycle](./18-host-lifecycle-preflight.md), conditional draft | Remove attributable startup/serialization overhead if a separately accepted host contract permits it | Include or skip from evidence; isolation, capability lifetime, cleanup and host-specific parity |
 
@@ -104,8 +104,9 @@ The latency goals above remain the acceptance question. Slice 15's numeric
 dispatch and transaction stage limits passed. Before each later runtime
 slice, complete the actual bounded operation/dependency graph for all four
 workloads and agree numeric transaction, sequential round-trip and server SQL
-limits, plus batch-size/byte formulas and retry/saturation limits. **Those later
-limits are unresolved draft gates, not invented guarantees.** A call containing 100
+limits, plus batch-size/byte formulas and retry/saturation limits. Slice 16's
+source-derived proposal fixes conservative dispatch/transaction ceilings; they
+remain unapproved stage gates. Later limits remain unresolved drafts. A call containing 100
 server statements still accounts for all 100 statements.
 
 | Cost category | Required graph-derived budget and attribution |

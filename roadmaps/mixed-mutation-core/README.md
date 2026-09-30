@@ -12,7 +12,8 @@ specific scope, decisions, affected contracts and remaining gates. The proposed
 [execution redesign](./14-execution-redesign-roadmap.md) owns the next connected
 latency plan: [admission/protection](./15-admission-protection-preflight.md) is
 delivered with its measured stage cost gate passed; [batched reads](./16-batched-read-execution-preflight.md)
-is the next preflight gate, [settlement](./17-batched-settlement-preflight.md) is a dependent draft, and
+has a focused proposal ready for review with runtime unapproved;
+[settlement](./17-batched-settlement-preflight.md) is a dependent draft, and
 [host lifecycle](./18-host-lifecycle-preflight.md) is conditional on attributable
 evidence. Slice 15 extends immutable target protection under existing full
 attestation and privileged quiescence. Later runtime and new authority contracts
@@ -161,8 +162,11 @@ meeting the original **871 / 1,081 / 1,688 / 354** stage ceilings. Warm p50/p95 
 Actual lazy fills add **3 / 4 / 7** full captures in the request/series-owned
 benchmark lifetime. Standalone passes its median gate; the three final mixed
 latency goals remain unmet. All maxima are retained, including mixed workflow's
-**2,800.9 ms** sample, with zero exclusions. Slice 16's batched-read contract and
-graph budget are the next preflight gate; its runtime remains unapproved.
+**2,800.9 ms** sample, with zero exclusions. Slice 16's focused proposal retains
+source-wide readiness and moves repeated finite method/setup checks to aggregate
+full entry and actual bounded storage frontiers. It proposes **798 / 924 / 1,439**
+driver dispatches and **33 / 34 / 50** explicit transactions, preserving standalone
+**354 / 6**. Its tentative callback/live-check timing and runtime remain unapproved.
 
 The finite root has an immutable journal marker. Standalone selection and final
 publication still perform full live checks. Complete
