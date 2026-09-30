@@ -8,7 +8,14 @@ profile. The finite-root redesign is delivered for that graph; its proposed
 latency goal is unmet. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
 owns architecture and open contract questions. This roadmap owns current status,
 sequencing and finite delivery gates. Numbered slice preflights own their
-specific scope, decisions, affected contracts and remaining gates. The implemented
+specific scope, decisions, affected contracts and remaining gates. The proposed
+[execution redesign](./14-execution-redesign-roadmap.md) owns the next connected
+latency plan: [admission/protection](./15-admission-protection-preflight.md) is the
+next proposed scope discussion, [batched reads](./16-batched-read-execution-preflight.md)
+and [settlement](./17-batched-settlement-preflight.md) are dependent drafts, and
+[host lifecycle](./18-host-lifecycle-preflight.md) is conditional on attributable
+evidence. These documents approve planning only; their runtime and new authority
+contracts remain unapproved. The implemented
 [first Application and Product attempt](./01-application-product-attempt-preflight.md)
 uses the real Worker, Product service and shared journal/commit owners. It is
 not activated on a named durable environment and exposes no public authoring API.
@@ -195,8 +202,11 @@ subagent, including workers, explorers and both standing reviewers, with model
 The relevant numbered preflights own their implemented private scopes.
 
 The design note owns architecture; this README owns domain status, package order
-and remaining cross-package gates. Create `NN-topic-preflight.md` only when a
-slice is ready for focused scope agreement. That numbered file owns the slice's
+and remaining cross-package gates. Create `NN-topic-preflight.md` when a
+slice is ready for focused scope agreement. The user-requested successor drafts
+15–18 are a specific exception: retain their explicit dependency/readiness gates
+and unresolved decisions, without treating their existence as runtime approval
+or making them simultaneously active. That numbered file owns the slice's
 decisions, current status and remaining gates; update it in place as truth
 changes. Do not create duplicate plan, status or checkpoint-log documents.
 
