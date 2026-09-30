@@ -1,3 +1,4 @@
+import { snapshotHydrationBatchScenario } from "./snapshotHydrationBatchScenario";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -49,6 +50,14 @@ const firstCommitSeq = CommitSeqSchema.make(9_007_199_254_740_993n);
 const secondCommitSeq = CommitSeqSchema.make(firstCommitSeq + 2n);
 
 describePostgres("real Postgres FlarexDB app-row storage", () => {
+  it("hydrates bounded historical batches in request order with exact failures", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      await persistence.query("insert into fx_system_scope_clock (scope_id, storage_generation, epoch) values ($1, 'flarexdb_v1', $2)", [scopeId, firstEpoch]);
+      await persistence.drizzle.transaction(tx => snapshotHydrationBatchScenario(tx,
+        { identity: { scopeId, tableId, rowId }, epoch: firstEpoch, schemaVersionId, creationTime }));
+    });
+  }, 60_000);
+
   it("proves exact history, rollback, epoch independence, and indexed lookup", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await persistence.query(
@@ -343,6 +352,23 @@ function evidence(
 async function pointLookupPlans(
   persistence: PostgresFlarexPersistence,
 ): Promise<{ readonly revision: string; readonly current: string }> {
+  // A one-pointer table lets the planner choose the table-frontier index with
+  // a row filter. Give this exact-point witness representative selectivity.
+  const fixtures: Readonly<{ rowId: ReturnType<typeof decodeAppRowIdHexV1>;
+    value: Awaited<ReturnType<typeof canonicalizeAppDocumentV1>> }>[] = [];
+  for (let ordinal = 0; ordinal < 64; ordinal += 1) {
+    const unrelatedRowId = decodeAppRowIdHexV1((0xd1000000000000000000000000000000n + BigInt(ordinal)).toString(16));
+    fixtures.push({ rowId: unrelatedRowId, value: await canonicalizeAppDocumentV1({
+      tableId, rowId: unrelatedRowId, creationTime, fields: { title: "unrelated point" },
+    }) });
+  }
+  await persistence.drizzle.transaction(async tx => {
+    for (const fixture of fixtures) await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+      kind: "live", scopeId, tableId, rowId: fixture.rowId, writeEpoch: firstEpoch,
+      schemaVersionId, creationTime, commitSeq: firstCommitSeq, prevCommitSeq: null, value: evidence(fixture.value),
+    });
+  });
+  await persistence.query("analyze fx_app_row_current");
   const client = await persistence.pool.connect();
   try {
     await client.query(`set enable_seqscan = off`);

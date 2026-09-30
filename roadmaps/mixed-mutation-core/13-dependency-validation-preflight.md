@@ -1,17 +1,18 @@
 # Dependency validation and evidence lifetime
 
-Status: **focused proposal for contract agreement; no runtime cutover.** This
-preflight makes the next validation-cost direction concrete. The
-[accepted prepared-execution rule](../../design-notes/flarex-db-accepted-design.md#prepared-execution-integrity),
-[finite-root contract](./08-fundamental-latency-redesign-preflight.md),
-[attempt-local boundary](./11-attempt-admission-preflight.md) and
-[compact checked-access contract](./12-compact-checked-access-preflight.md)
-remain current until the decisions below are accepted and proved. Preparing
-this proposal does not authorize a new metadata threat or protection contract.
+Status: **delivered for the existing private finite consumer graph; mixed latency
+targets remain unmet.** The approved
+private finite internal-read contract validates source-complete readiness, with
+fresh required physical and mutable readiness checks; full entry, aggregate seal
+and publication remain mandatory. Canonical bodies, heads, membership, closed
+unique-set authentication and accepting-transaction authority/epoch guards
+retain their existing protection. Wider metadata reuse and cheaper attestation
+remain separately gated. The connected cutover implements the decisions below
+together with the accepted prepared-execution amendment.
 
 ## Connected outcome and reason
 
-Recommend one connected cutover for existing private finite Product, selected
+The approved connected cutover is for existing private finite Product, selected
 Payload and Medusa workflow consumers: internal checked reads validate a complete
 trusted source dependency closure rather than all candidate definitions, with
 bounded existing read batching where equivalent. Distinguish immutable schema
@@ -19,10 +20,9 @@ evidence from fresh authority/readiness; keep current full canonical bodies,
 heads, membership authentication and physical checks, plus full entry, aggregate
 seal and publication. Wider immutable reuse is a separate decision gate.
 
-Source-complete closure is the first safe bound, not a promised minimal plan or
-sufficient latency gain. An exact operation closure may replace that bound in
-this same connected cutover only if the executing storage planner proves
-completeness for every admitted path. Otherwise use the source bound and retain
+Source-complete closure is the implemented safe bound, not a promised minimal
+plan or sufficient latency gain. Exact operation closure remains gated on a
+focused planner contract proving completeness for every admitted path. Retain
 full checks for paths whose closure is unproved. Do not create a universal
 dependency registry, parallel evaluator or adapter-owned readiness policy.
 
@@ -36,9 +36,9 @@ Repeated validation remains an observed work owner. Table-reference diagnostics
 cannot attribute CPU or causal request cost; older Node isolate inspector
 evidence is not a current complete CPU profile.
 
-The nearest proof is the same real connected graph with unchanged snapshot,
-pending visibility, native lifecycle, events and authoritative outcome. This
-proposal adds no public API, framework operation, hosted activation, durable
+The delivered graph retains snapshot, pending visibility, native lifecycle,
+events and authoritative outcome. This
+cutover adds no public API, framework operation, hosted activation, durable
 workflow effect, core OCC relaxation, schema/data deletion or advanced evolution.
 It adds no new relation/delete/search capability solely to exercise closure and
 does not repair the separate publication-body proof limitation. Postgres remains
@@ -47,13 +47,13 @@ framework callbacks, sandbox execution, foreign capture or remote effects.
 
 ## Existing owners and executing callers
 
-| Owner | Current behavior and proposed responsibility |
+| Owner | Delivered behavior and responsibility |
 | --- | --- |
-| [Source admission](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts) | `prepareLogicalSourceEvidence` prepares whole-candidate readiness before filtering evaluator tables, indexes and unique definitions by source. `withBinding` authenticates current selected binding and Application evidence. Keep contract/source/head authentication here; derive trusted dependency selection without letting adapters select a weaker proof. |
-| [Logical readiness](../../packages/persistence-postgres/src/logicalStorageReadiness.ts) and [binding check](../../packages/persistence-postgres/src/frameworkSchema/binding/logicalSchema.ts) | `verifyLogicalSchemaBindingInTransaction` invokes full `prepared.inspect`. It checks all required indexes, the complete closed unique set and search readiness. Separate full acceptance from selected dependency readiness explicitly; neither verdict may masquerade as the other. |
-| [Application admission](../../packages/persistence-postgres/src/logicalDocuments/applicationAdmission.ts) | `withAdmission` calls selected `withBinding`; this owner does not issue the document/relational participant lifecycle or per-read `verifyBinding`. Keep native Application/journal behavior intact and migrate only actual affected callers. |
-| [Document](../../packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts) and [relational](../../packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts) admission | Source construction, entry pinning, per-read `verifyBinding`, seal admission and commit-authority verification share `withBinding`. Migrate finite internal reads together; entry, seal, publication, standalone and durable consumers retain full semantics. |
-| [Working set](../../packages/persistence-postgres/src/logicalDocuments/workingSet.ts), [query planner](../../packages/persistence-postgres/src/logicalDocuments/query.ts), [relational query](../../packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts) | Actual point, predicate, historical unique, range and hydration paths determine data dependencies. Own bounded read composition here, preserving pending overlay and exact positive/negative conflict evidence. |
+| [Source admission](../../packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts) | Complete authenticated candidate preparation and source-local evaluator definitions remain. `withBinding` verifies full readiness; `withReadBinding` lazily derives the complete requested source union and authenticates current binding/Application evidence. The distinct read scope shares only the exact issued request set under existing common identities in one accepting transaction, invoking each source's pin callback even on a hit. |
+| [Logical readiness](../../packages/persistence-postgres/src/logicalStorageReadiness.ts) and [binding check](../../packages/persistence-postgres/src/frameworkSchema/binding/logicalSchema.ts) | Full `prepared.inspect` and `verifyLogicalSchemaBindingInTransaction` remain. `selectSources` derives transitive source-complete closure from that preparation; `verifyLogicalSchemaReadBindingInTransaction` issues only selected readiness. Required index/unique/search builds and physical evidence remain fresh. Neither verdict can masquerade as the other. |
+| [Application admission](../../packages/persistence-postgres/src/logicalDocuments/applicationAdmission.ts) | Native Application/journal behavior retains full `withBinding`. This owner does not issue the document/relational participant lifecycle or its finite read verifier. |
+| [Document](../../packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts) and [relational](../../packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts) admission | Entry pinning, full `verifyBinding`, seal and commit-authority verification retain `withBinding`. Separate `verifyReadBinding` uses `withReadBinding` only when the exact issued attempt profile is `finiteRoot`. Both execute the same source/head pin verification. Standalone and durable consumers retain full semantics. |
+| [Working set](../../packages/persistence-postgres/src/logicalDocuments/workingSet.ts), [app rows](../../packages/persistence-postgres/src/appRows.ts), [query planner](../../packages/persistence-postgres/src/logicalDocuments/query.ts), [relational query](../../packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts) | Point, predicate, historical unique, range and hydration owners retain exact positive/negative conflict evidence and pending overlay. Indexed historical hydration reuses the app-row snapshot query/canonical decoder with bounded body projection and sequential trusted consumption; point and seed hydration retain their existing paths. |
 | [Strong-reference projection](../../packages/persistence-postgres/src/logicalStrongReferenceProjection.ts) and [foreign keys](../../packages/persistence-postgres/src/logicalDocuments/relationalForeignKeys.ts) | Source/target identities, target keys, reverse indexes, liveness and deletion behavior contribute mandatory dependencies. A source bound must include these transitive obligations or remain full. |
 | [Journal store](../../packages/persistence-postgres/src/sessionJournalStore.ts), [checked kernel](../../packages/persistence-postgres/src/transactionSessionActivation.ts), [publication](../../packages/persistence-postgres/src/pointCommitTransaction.ts) | Own exact fenced root, checked transaction, aggregate seal, recovery and settlement. Retain full scalar authority and full terminal admission; scope shared evidence to its accepting transaction and revoke it on exit. |
 | [Binding repository](../../packages/persistence-postgres/src/frameworkSchema/binding/repository.ts), [Application projection](../../packages/persistence-postgres/src/applicationBindingProjection.ts), [protected epoch](../../packages/persistence-postgres/src/preparedMetadataEpoch.ts) | Keep full canonical selected bodies/sidecars and existing protected legacy Application exception. Wider immutable reuse requires its own complete writer proof, not a digest or process identity alone. |
@@ -76,7 +76,7 @@ supports evidence following its owner, not PostgreSQL parity or SQL held across
 callbacks. Exact framework anchors remain with [01](./01-application-product-attempt-preflight.md),
 [02](./02-payload-local-api-attempt-preflight.md) and [03](./03-finite-medusa-workflow-preflight.md).
 
-## Proposed read contract
+## Approved private internal-read contract
 
 1. Authenticate the finite root and full selected source at entry. Prepare
    detached bounded schema evidence through existing canonical decoders and
@@ -90,7 +90,18 @@ callbacks. Exact framework anchors remain with [01](./01-application-product-att
    epoch/catalog verification in the accepting transaction.
 3. Validate the complete dependency closure selected by trusted storage owners
    before reading data. Start with all definitions for the admitted source plus
-   required relation/target/delete dependencies. Predicate and page planning
+   required relation/target/delete dependencies. A multi-source bundle derives
+   one complete union from its actual issued source states, never its adapter
+   method list. Derive that union lazily and share its common proof only within
+   the accepting read transaction under the exact requested source set and the
+   existing common owner, scope, clock, schema and manifest identities. Every
+   source still checks its own method/root authority and pinned head on a cache
+   hit. Full proofs remain distinct; no subset or superset proof can be reused.
+   Common union readiness precedes ordered source pin checks, retaining the
+   former full-common-check failure order. A later source's required readiness
+   can therefore refuse before the first source pin without changing typed
+   failure classes.
+   Predicate and page planning
    chooses indexes; historical uniqueness adds its matching retained ordered
    index, unique definition and negative membership evidence. Relation traversal,
    target existence and deletion add target keys and reverse indexes even when
@@ -114,16 +125,72 @@ callbacks. Exact framework anchors remain with [01](./01-application-product-att
    the existing bounded concurrent-coverage refresh. Do not parallelize shared
    transaction statements or combine observations whose order is correctness.
 
-The accepted design currently says every actual database access retains its
-existing full source/readiness checks. Accepting this private internal-read
-scope change therefore requires an explicit amendment to that rule alongside
-the implementation scope; a smaller selected reader alone cannot authorize it.
+The accepted prepared-execution rule now permits this owner-approved private
+finite internal-read scope change. Standalone and durable-operation reads retain
+full readiness. A selected verdict cannot authorize entry, aggregate seal or
+publication. The old scalar readiness selector is removed; callers use the
+complete issued source set rather than a compatibility wrapper.
+
+## Bounded historical hydration
+
+Indexed hydration reuses the existing app-row snapshot query/canonical decoder
+for already decoded, distinct requested identities. Consumption follows
+requested order: decode, dependency observation, budget charge and working-set
+state update. The internal batch is bounded at 256 identities; the existing
+live-set wrapper retains its 128-identity limit. Missing rows, tombstones,
+duplicate refusal, historical snapshots and exact negative dependencies retain
+their owner semantics. Pending/local reuse adds no database admission, while
+the next uncached read repeats its fresh checked transaction.
+
+SQL projects all metadata and full bodies through the first row crossing the
+initial remaining byte budget, capped at 1 MiB; later bodies are withheld.
+Reaching a withheld body is an internal defect, never synthesized absence,
+tombstone or corruption, and does not trigger a fallback read. Canonical
+corruption in the crossing body precedes its byte charge; an earlier budget
+refusal precedes a later malformed body. Unexpected tombstone bodies are not
+masked. This preserves the existing exposure of a malicious crossing body's
+stored bytes rather than claiming an absolute malicious-payload transfer bound.
+The consumer cannot skip an uncached live row: observation and state update
+remain sequential. Point and seed hydration are unchanged; no foreign callback
+runs inside SQL.
+
+## Cost result and remaining direction
+
+The [bundled series](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bundled-dependency-validation/README.md)
+retains the same profiles and effects. Warm outer p50/p95 is
+**940.7/1,166.4, 1,087.1/1,176.3, 1,787.7/1,960.0 and 319.8/403.4 ms**.
+SQL dispatches are **988 / 1,252 / 1,979 / 354**, compared with compact access
+**990 / 1,274 / 1,997 / 354**; transactions remain **41 / 52 / 78 / 6**.
+Observed medians change **+8.4% / +1.8% / −8.5% / +5.3%**. Latency does not
+improve across all workloads: Product, Product + Payload and standalone medians
+rise; mixed workflow falls. No cause for the distribution changes is established.
+Mixed warm p50/p95 targets remain unmet. Standalone retains its below-400-ms
+median and strictly-below-10% regression gate; its 403.4 ms p95 and all outliers
+remain visible. The artifact package owns exact distributions and limits.
+
+The [separate-closure checkpoint](../../packages/flarex-backend/benchmarks/mixed-mutation-core/dependency-validation/README.md)
+retains its original samples and verified historical source receipt. Its
+workflow has 2,501 dispatches: distinct source closures repeat common binding
+and readiness work inside a bundle transaction. The delivered union avoids
+that repetition while preserving ordered individual source checks. It does
+not reduce transaction counts or establish the cause of a latency difference.
+
+Further cost work requires a focused preflight and an end-to-end acceptance
+question. Exact operation closure needs completeness proofs at the actual
+planner/evaluator for reads, historical uniqueness, references and terminal
+obligations; method grants are insufficient. Canonical body decode/hash and
+driver/server/wait costs need attributable measurements before selecting a
+different owner or protection lifetime. Wider framework/control protection,
+connection or installation attestation and privileged maintenance enforcement
+retain the explicit gates below. No new metadata cache or cheaper authority
+path follows from these measurements.
 
 ## Evidence lifetime and protection decisions
 
 | Evidence | Authentication and lifetime disposition |
 | --- | --- |
-| Candidate/source definitions, stable identities, manifests, relation projections, ordered/search/unique specifications and complete unique closure | Existing bounded immutable preparation may be reused with fresh owned authentication. Reuse as a substitute for that authentication is permitted only for the existing protected projection or an explicitly approved complete writer protection contract. |
+| Candidate/source definitions, stable identities, manifests, relation projections and ordered/search specifications | Existing bounded immutable preparation may be reused with its existing owned authentication. Reuse as a substitute for that authentication is permitted only for the existing protected projection or an explicitly approved complete writer protection contract. |
+| Complete canonical unique closure and unique specifications | The existing configured-control preparation owner authenticates the complete closure and retains detached bounded evidence. Both full and selected acceptance use that evidence and check fresh target build readiness in the accepting transaction; neither path rereads the control closure there. This cutover adds no cache/protection contract or control-target coordination. Fresh accepting control-closure authentication requires a separate contract gate. Preserve canonical corruption-before-preparation proofs and the existing accepting binding authentication. |
 | Binding head, activation, candidate bodies and complete physical lanes | Keep fresh locked selection, canonical bytes/length/digests, endpoint correlation and exact lane membership. Same stored digest does not protect changed bytes or sidecars. |
 | Application active selection, relation-bearing descendants and activation policy | Keep fresh head/activation/policy correlation and full unprotected body checks. The existing ten-table legacy epoch covers neither all relation-bearing descendants nor control metadata. |
 | Index/unique/search build states, physical-definition lifecycle and frontiers | Keep selected required lifecycle/generation/fence/maintenance/cursor/coverage and ordered timestamp validation fresh. Ordinary publication can advance coverage; that movement must not accidentally invalidate immutable structure or authorize stale readiness. Missing lifecycle rows and negative predicates are dependencies. |
@@ -167,21 +234,23 @@ implementation, rather than extra phases silently added to this cutover:
 - Physical DDL facts and tamper threat: retain fresh physical/catalog checks
   unless a complete replacement and altered witness disposition are approved.
 
-## Cutover, validation and completion
+## Cutover and retained completion obligations
 
-Replace the private finite internal-read readiness contract at source admission,
-logical readiness and borrowed working-set boundaries together. Migrate all
-affected Application, Product, Payload and workflow consumers and tests; remove
-displaced repeated wrappers/exports and diagnostic scaffolding in this coherent
-slice. Extend existing planners and admission owners rather than add a generic
-registry or second codec. Retain full paths for named actual consumers: entry,
+The private finite internal-read contract is replaced across source admission,
+logical readiness and borrowed working-set boundaries. Affected Product,
+Payload and workflow consumers use the existing admission/planner owners;
+native Application/journal behavior retains its full path. There is no generic
+registry, second codec or retained scalar-selector compatibility API.
+Full paths remain for named actual consumers: entry,
 aggregate seal, publication, standalone reads, `durableOperations`, activation,
 reload/acquisition and recovery. These are current obligations, not temporary
 compatibility fallbacks. Any displaced path temporarily kept needs its specific
 unmigrated caller and removal gate.
 
+The runtime attempt root carries the mandatory profile from its exact admitted
+attempt; durable source bindings project their existing fields explicitly.
 No journal/profile/event format, durable row identity or existing-data reset is
-proposed for source-read selection. If writer protection requires schema or
+changed for source-read selection. If wider writer protection requires schema or
 durable-format changes, inventory them and obtain that specific decision before
 dependent work. No old attempt is reinterpreted, no named durable data deleted.
 Apply the repository Effect skills/overlay: authoritative runtime contracts,
@@ -189,7 +258,7 @@ precise failure/requirement channels, sequential validation, ordinary absence
 distinct from corruption/refusal/resource failure, scoped evidence revocation
 and existing cancellation/recovery. Framework semantics stay with their owners.
 
-Completion is one connected implementation:
+The connected implementation retains these obligations:
 
 - PGlite and ordinary-role PostgreSQL owner/consumer witnesses for required and
   unrelated readiness changes at entry/read/seal/publication. Prove a required
@@ -221,5 +290,6 @@ Completion is one connected implementation:
   one scoped commit after successful validation. Unmet latency goals remain
   recorded; do not weaken integrity to meet them.
 
-Agree source-complete internal reads and retained full authentication/terminal
-boundaries first; resolve wider protection or attestation before dependent work.
+The source-complete internal-read cutover is delivered. Whole-goal latency and
+activation gates remain open; resolve any wider protection, operation closure
+or attestation contract before dependent implementation.

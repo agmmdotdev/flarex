@@ -2436,6 +2436,7 @@ export function createSessionJournalStorePersistence(
       sessionId: attemptState.selector.sessionId,
       attemptFence: attemptState.selector.attemptFence,
       principalDigest,
+      executionProfile: attemptState.executionProfile,
       snapshotCommitSeq: attemptState.snapshotToken.commitSeq,
       schemaVersionId: attemptState.schemaVersionId,
     }, readTransaction, input.methods);
@@ -2497,12 +2498,15 @@ export function createSessionJournalStorePersistence(
         state.root.sessionId !== attemptState.selector.sessionId ||
         state.root.attemptFence !== attemptState.selector.attemptFence ||
         state.root.snapshotCommitSeq !== attemptState.snapshotToken.commitSeq ||
-        state.root.schemaVersionId !== attemptState.schemaVersionId) {
+        state.root.schemaVersionId !== attemptState.schemaVersionId ||
+        state.root.executionProfile !== attemptState.executionProfile) {
         return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({ capability: "attempt" }));
       }
       const binding = yield* Effect.fromResult(
         canonicalizeAdmittedParticipantBindingV1Result({
-          ...state.root, participant: input.participant, method: input.method,
+          scopeId: state.root.scopeId, sessionId: state.root.sessionId, attemptFence: state.root.attemptFence,
+          snapshotCommitSeq: state.root.snapshotCommitSeq, schemaVersionId: state.root.schemaVersionId,
+          principalDigest: state.root.principalDigest, participant: input.participant, method: input.method,
           sourceKey: state.sourceKey, sourceSha256Hex: state.sourceSha256,
           bindingHead: state.bindingHead,
         }).pipe(Result.mapError(cause => new LogicalParticipantAdmissionError({

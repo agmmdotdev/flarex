@@ -109,22 +109,45 @@ from separately owned argument/grant body authentication and records its
 publication proof limitation without claiming a new tamper guarantee.
 
 The [dependency-validation preflight](./13-dependency-validation-preflight.md)
-is the next focused proposal, with no runtime cutover. It recommends complete
-trusted source dependencies for finite internal checked reads, preserves full
-entry/seal/publication authentication, and separates immutable schema evidence
-from fresh authority and required readiness. An unrelated post-entry readiness
-failure may stop blocking that internal read while full seal still refuses
-durability. Exact operation closure, wider writer protection, reduced catalog
-attestation and privileged maintenance enforcement require their explicit
-proof and contract decisions; a method grant or stable digest cannot supply
-them. The existing full checks remain current until scope agreement and the
-connected consumer cutover are complete.
+is delivered for the existing private finite graph. Checked internal reads
+select complete source dependencies; multi-source workflows derive one union
+from their actual issued states and share its common proof only inside the
+same read transaction under the exact requested source set and existing common
+identities. Every source still checks its own method/root authority and head
+pin. Required readiness stays fresh; unrelated post-entry unready definitions
+may permit tentative reads while full seal refuses durability. Full entry,
+aggregate seal, publication, standalone and durable-operation checks remain
+mandatory. Indexed historical hydration reuses the existing row query/decoder,
+with bounded body transfer and sequential decode/observation/budget/state order;
+point and seed hydration retain their paths.
+The [bundled measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bundled-dependency-validation/README.md)
+show SQL dispatches **988 / 1,252 / 1,979 / 354**, with transactions unchanged
+at **41 / 52 / 78 / 6**. Warm p50/p95 is **940.7/1,166.4,
+1,087.1/1,176.3, 1,787.7/1,960.0 and 319.8/403.4 ms**. Median changes versus
+compact access are **+8.4% / +1.8% / −8.5% / +5.3%**. Latency does not improve
+across all workloads: Product, Product + Payload and standalone medians rise;
+mixed workflow falls. No cause for the distribution changes is established.
+Mixed targets remain unmet; standalone retains its below-400-ms median and
+strictly-below-10% regression gate. All outliers remain, including Product's
+3,355.9 ms warm maximum. The
+[separate-closure measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/dependency-validation/README.md)
+remain a distinct historical checkpoint, including their 2,501-dispatch workflow
+and prior verified source receipt. Exact operation closure requires planner
+completeness proofs, and further decode/hash or driver/server/wait cost work
+requires attributable measurements. Wider writer protection, reduced catalog
+attestation and privileged maintenance enforcement retain explicit contract
+gates; neither a method grant nor a stable digest supplies them.
 
 The finite root has an immutable journal marker and a first protected legacy
 Application target projection. That projection has ten trigger-covered tables
 and an authenticated restricted runtime role; standalone selection and final
-publication still perform full live checks. Framework, relation Application,
-control and physical evidence remain fresh. Privileged repair and structural
+publication still perform full live checks. Framework, relation Application
+and physical evidence retain their accepting-transaction checks. Complete
+canonical unique closure/spec authentication uses the existing configured-control
+preparation owner and detached snapshot; the accepting transaction checks fresh
+target binding/Application, required builds, physical evidence and authority.
+Neither full nor selected reads add a control-closure reread there, and no wider
+protection or control/target coordination is implied. Privileged repair and structural
 DDL require quiescence before protected preparation can resume. The local
 PostgreSQL measurements do not establish native ORM parity, hosted latency,
 throughput or production capacity.

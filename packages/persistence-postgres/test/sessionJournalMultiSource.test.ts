@@ -11,6 +11,7 @@ import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/
 import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
   LogicalParticipantAdmissionError,
+  withLogicalParticipantAdmissionBundleEffect,
   type LogicalParticipantSelection } from "../src/logicalDocuments/participantAdmission";
 import { createStoredAttemptEvidenceLoaderV1 } from "../src/storedAttemptEvidence";
 import { createPointCommitFinishingTransitionPortV1, createPointCommitPublisherPortV1 } from
@@ -87,7 +88,7 @@ describe("neutral admitted operation source bundle", () => {
         const selection: LogicalParticipantSelection = {
           bindAttemptEffect: (_application, selectedAttempt, root, readTransaction, methods) => Effect.sync(() =>
             issueLogicalParticipantAttemptAdmission({ attempt: selectedAttempt, root, readTransaction,
-              methods: new Set(methods), verifyBinding: () => {
+              methods: new Set(methods), verifyReadBinding: () => Effect.die("Durable profile must retain full readiness"), verifyBinding: () => {
                 checks[index] = checks[index]! + 1;
                 return currentHeads[index] === pinnedHead.sequence ? Effect.void :
                   Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
@@ -202,6 +203,57 @@ describe("neutral admitted operation source bundle", () => {
       await expect(Effect.runPromise(trusted.prove(command))).resolves.toMatchObject({ kind: "wouldCommit" });
       await expect(Effect.runPromise(trusted.publish(publicationCommand)))
         .resolves.toMatchObject({ kind: "published" });
+
+      // A real finite-root issuer selects the read profile. Common bundle
+      // readiness never exempts a later source from its own pinned check.
+      const finiteInput = await applicationMutationActivationFixture({
+        deploymentId: fixture.deploymentId, selection: active.selection,
+        executionAuthority: app.executionAuthority, requestKey: "neutral-finite-source-pins",
+        grantId: "neutral-finite-source-pins-grant",
+      });
+      const finiteActivation = await Effect.runPromise(createApplicationMutationSessionActivationPersistenceV1(
+        fixture.sessionAuthority, { leaseDurationMilliseconds: 60_000 }).activateEffect({
+        ...finiteInput, executionProfile: "finiteRoot",
+      }));
+      if (finiteActivation.status !== "created") throw new Error("Expected finite attempt");
+      const finiteAttempt = await Effect.runPromise(store.openAttemptEffect({
+        selector: { deploymentId: finiteActivation.anchor.deploymentId, scopeId: finiteActivation.anchor.scopeId,
+          sessionId: finiteActivation.anchor.sessionId, attemptFence: finiteActivation.anchor.attemptFence },
+        snapshotToken: finiteActivation.anchor.snapshotToken, schemaVersionId: fixture.active.basis.schemaVersionId,
+        executionProfile: finiteActivation.anchor.executionProfile,
+        executionClaim: finiteActivation.executionClaim,
+      }));
+      const pinChecks: number[] = [];
+      let rejectLaterPin = false;
+      let dataReads = 0;
+      const finiteSources = [0, 1, 2].map(index => ({
+        application: active.selection, methods: [`read-${index}`],
+        selection: { bindAttemptEffect: (_application, selectedAttempt, root, readTransaction, methods) =>
+          Effect.sync(() => issueLogicalParticipantAttemptAdmission({
+            attempt: selectedAttempt, root, readTransaction, methods: new Set(methods),
+            verifyBinding: () => Effect.die("Finite internal reads must use the issued read verifier"),
+            verifyReadBinding: () => Effect.sync(() => { pinChecks.push(index); }).pipe(
+              Effect.andThen(Effect.suspend(() => rejectLaterPin && index === 1
+                ? Effect.fail(new LogicalParticipantAdmissionError({ reason: "sourceMismatch" })) : Effect.void))),
+            sourceKey: `neutral.finite.${index}`, sourceSha256: `${index + 4}`.repeat(64),
+            head: Object.freeze({ sequence: "1", sha256: `${index + 1}`.repeat(64) }),
+            tableIds: new Set([decodeCatalogTableId(100 + index)]), indexes: [], unique: [],
+          })) } satisfies LogicalParticipantSelection,
+      }));
+      const finiteBundle = await Effect.runPromise(store.admitLogicalParticipantsEffect(finiteAttempt, {
+        participant: "neutral.workflow", operationMethods: ["run"], profileRevision: revision, sources: finiteSources,
+      }));
+      await Effect.runPromise(withLogicalParticipantAdmissionBundleEffect(finiteBundle, finiteAttempt,
+        "neutral.workflow", "run", revision, ({ readTransaction }) => Effect.gen(function* () {
+          expect(pinChecks).toEqual([0, 1, 2]);
+          yield* readTransaction(() => Effect.sync(() => { dataReads++; }));
+          expect(pinChecks).toEqual([0, 1, 2, 0, 1, 2]);
+          rejectLaterPin = true;
+          expect(yield* Effect.result(readTransaction(() => Effect.sync(() => { dataReads++; }))))
+            .toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
+          expect(pinChecks).toEqual([0, 1, 2, 0, 1, 2, 0, 1]);
+          expect(dataReads).toBe(1);
+        })));
 
       // Preparation follows a durable invocation marker. Interruption must
       // settle that marker before joining, without running the native command.

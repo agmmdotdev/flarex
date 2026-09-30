@@ -571,27 +571,30 @@ export const readAppRowAtSnapshotInTransactionEffect = Effect.fn(
   );
 });
 
-/**
- * Bounded set-based snapshot materialization for positions already selected by
- * an authenticated ordered index. The result follows caller row-id order and
- * requires one visible live revision for every requested identity.
- */
-export const readLiveAppRowsAtSnapshotInTransactionEffect = Effect.fn(
-  "AppRows.readLiveSetAtSnapshotInTransaction",
-)(function* (
+/** Internal evaluator hydration for already decoded, distinct bounded identities.
+ * Canonical decode and trusted consumption follow caller order so a budget or
+ * observation failure precedes corruption in a later requested row. */
+const consumeSnapshotRows = Effect.fn(
+  "AppRows.consumeSetAtSnapshotInTransaction",
+)(function* <Failure, Requirements>(
   tx: AppRowTransaction,
   input: ReadAppRowsAtSnapshotV1Input,
-): Effect.fn.Return<ReadonlyArray<LiveAppRowRevisionV1>, ReadAppRowError> {
-  if (input.rowIds.length > MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1) {
+  transferBudget: number | undefined,
+  error: (cause: ReadAppRowError) => Failure,
+  consume: (rowId: AppRowIdHexV1, revision: AppRowReadResultV1) => Effect.Effect<void, Failure, Requirements>,
+  observer?: Parameters<typeof observeDrizzleQuery<"snapshotRevision">>[2],
+): Effect.fn.Return<void, Failure, Requirements> {
+  const selected = yield* Effect.gen(function* () {
+  if (input.rowIds.length > MAX_BOUNDED_APP_ROW_READ_IDENTITIES) {
     return yield* Effect.fail(new InvalidAppRowReadInputError({
       reason: "rowLimitExceeded",
       cause: new Error(
-        `Expected at most ${MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1} row identities.`,
+        `Expected at most ${MAX_BOUNDED_APP_ROW_READ_IDENTITIES} row identities.`,
       ),
     }));
   }
   const [firstRowId] = input.rowIds;
-  if (firstRowId === undefined) return Object.freeze([]);
+  if (firstRowId === undefined) return;
   const decodedIdentity = yield* Effect.fromResult(
     decodeReadIdentityResult({
       scopeId: input.scopeId,
@@ -624,8 +627,7 @@ export const readLiveAppRowsAtSnapshotInTransactionEffect = Effect.fn(
     tx,
     decodedIdentity,
   );
-  const rows = yield* readAppRowRowsEffect(
-    tx.selectDistinctOn([fxAppRowRevisions.rowId])
+  const latestQuery = tx.selectDistinctOn([fxAppRowRevisions.rowId])
       .from(fxAppRowRevisions)
       .where(and(
         eq(fxAppRowRevisions.scopeUuid, scopeUuid),
@@ -636,10 +638,25 @@ export const readLiveAppRowsAtSnapshotInTransactionEffect = Effect.fn(
         ),
         lte(fxAppRowRevisions.commitSeq, snapshotCommitSeq),
       ))
-      .orderBy(fxAppRowRevisions.rowId, desc(fxAppRowRevisions.commitSeq)),
-    "readSnapshotRevision",
-  );
-  const byRowId = new Map<AppRowIdHexV1, AppRowRevisionRow>();
+      .orderBy(fxAppRowRevisions.rowId, desc(fxAppRowRevisions.commitSeq));
+  const latest = latestQuery.as("snapshot_latest");
+  const requestedOrder = sql<number>`case ${latest.rowId} ${sql.join(rowIds.map((rowId, ordinal) =>
+    sql`when ${appRowIdHexV1ToBytes(rowId)} then ${ordinal}`), sql` `)} end`;
+  // The first crossing row remains complete so canonical corruption still
+  // precedes the consumer's byte-budget refusal. Later bodies never transfer.
+  const precedingBytes = sql<number>`coalesce(sum(coalesce(octet_length(${latest.valueBytes}), 0))
+    over (order by ${requestedOrder} rows between unbounded preceding and 1 preceding), 0)`;
+  const withheld = transferBudget === undefined ? sql<boolean>`false` : sql<boolean>`${precedingBytes} > ${transferBudget}`;
+  const query = tx.select({ scopeUuid: latest.scopeUuid, tableId: latest.tableId, rowId: latest.rowId,
+    commitSeq: latest.commitSeq, prevCommitSeq: latest.prevCommitSeq, writeEpochUuid: latest.writeEpochUuid,
+    schemaVersionId: latest.schemaVersionId, creationTime: latest.creationTime, valueCodecVersion: latest.valueCodecVersion,
+    isTombstone: latest.isTombstone, valueSha256: latest.valueSha256,
+    valueBytes: sql`case when ${withheld} then null else ${latest.valueBytes} end`.mapWith(fxAppRowRevisions.valueBytes),
+    bodyWithheld: withheld,
+  }).from(latest).orderBy(requestedOrder);
+  observeDrizzleQuery("snapshotRevision", query, observer);
+  const rows = yield* readAppRowRowsEffect(query, "readSnapshotRevision");
+  const byRowId = new Map<AppRowIdHexV1, AppRowRevisionRow & Readonly<{ bodyWithheld: boolean }>>();
   for (const row of rows) {
     const rowId = yield* Effect.fromResult(
       appRowIdHexV1FromBytesResult(row.rowId).pipe(
@@ -650,37 +667,58 @@ export const readLiveAppRowsAtSnapshotInTransactionEffect = Effect.fn(
         )),
       ),
     );
-    if (byRowId.has(rowId)) {
+    if (!rowIds.includes(rowId) || byRowId.has(rowId)) {
       return yield* Effect.fail(new AppRowStorageCorruptionError(
         { ...decodedIdentity.identity, rowId },
-        "set-based snapshot returned duplicate row identity",
+        "set-based snapshot returned unexpected or duplicate row identity",
       ));
     }
     byRowId.set(rowId, row);
   }
-  const revisions: LiveAppRowRevisionV1[] = [];
+  return { rowIds, byRowId, decodedIdentity };
+  }).pipe(Effect.mapError(error));
+  if (selected === undefined) return;
+  const { rowIds, byRowId, decodedIdentity } = selected;
   for (const rowId of rowIds) {
     const row = byRowId.get(rowId);
-    if (row === undefined) {
-      return yield* Effect.fail(new AppRowStorageCorruptionError(
-        { ...decodedIdentity.identity, rowId },
-        "index position references no visible row revision",
-      ));
-    }
-    const revision = yield* decodeRevisionRowEffect(
-      { ...decodedIdentity.identity, rowId },
-      row,
-    );
-    if (revision.kind !== "live") {
-      return yield* Effect.fail(new AppRowStorageCorruptionError(
-        { ...decodedIdentity.identity, rowId },
-        "index position references a tombstone row revision",
-      ));
-    }
-    revisions.push(revision);
+    if (row?.bodyWithheld) return yield* Effect.die(new Error("Trusted snapshot hydration reached a withheld body after its transfer budget"));
+    const revision = row === undefined ? MISSING_APP_ROW_REVISION_V1 :
+      yield* decodeRevisionRowEffect({ ...decodedIdentity.identity, rowId }, row).pipe(Effect.mapError(error));
+    yield* consume(rowId, revision);
   }
-  return Object.freeze(revisions);
 });
+
+/** Private working-set hydration. The trusted consumer must refuse once
+ * canonical bodies cross this initial budget, before reaching withheld rows. */
+export const consumeBoundedAppRowsAtSnapshotInTransactionEffect = Effect.fn("AppRows.consumeBoundedSetAtSnapshotInTransaction")(
+  function* <Failure, Requirements>(tx: AppRowTransaction,
+    input: ReadAppRowsAtSnapshotV1Input & Readonly<{ maximumTotalValueBytes: number }>,
+    error: (cause: ReadAppRowError) => Failure,
+    consume: (rowId: AppRowIdHexV1, revision: AppRowReadResultV1) => Effect.Effect<void, Failure, Requirements>,
+    observer?: Parameters<typeof observeDrizzleQuery<"snapshotRevision">>[2],
+  ): Effect.fn.Return<void, Failure, Requirements> {
+    if (!Number.isSafeInteger(input.maximumTotalValueBytes) || input.maximumTotalValueBytes < 0 ||
+      input.maximumTotalValueBytes > MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES)
+      return yield* Effect.fail(error(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.maximumTotalValueBytes })));
+    yield* consumeSnapshotRows(tx, input, input.maximumTotalValueBytes, error, consume, observer);
+  });
+
+/** Bounded live materialization for identities selected by an authenticated index. */
+export const readLiveAppRowsAtSnapshotInTransactionEffect = Effect.fn("AppRows.readLiveSetAtSnapshotInTransaction")(
+  function* (tx: AppRowTransaction, input: ReadAppRowsAtSnapshotV1Input): Effect.fn.Return<ReadonlyArray<LiveAppRowRevisionV1>, ReadAppRowError> {
+    if (input.rowIds.length > MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1)
+      return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded",
+        cause: new Error(`Expected at most ${MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1} row identities.`) }));
+    const revisions: LiveAppRowRevisionV1[] = [];
+    yield* consumeSnapshotRows(tx, input, undefined, cause => cause, (rowId, revision) => {
+      if (revision.kind !== "live") return Effect.fail(new AppRowStorageCorruptionError(
+        { scopeId: input.scopeId, tableId: input.tableId, rowId }, revision.kind === "missing"
+          ? "index position references no visible row revision" : "index position references a tombstone row revision"));
+      revisions.push(revision);
+      return Effect.void;
+    });
+    return Object.freeze(revisions);
+  });
 
 const readDecodedAppRowAtSnapshotInTransactionEffect = Effect.fn(
   "AppRows.readDecodedAtSnapshotInTransaction",

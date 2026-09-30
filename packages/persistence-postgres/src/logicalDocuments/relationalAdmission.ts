@@ -19,7 +19,7 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import { getStableLogicalIndexIdentityByNameEffect } from "../stableLogicalIndexCatalog";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
-import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError } from "./sourceAdmission";
+import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState } from "./sourceAdmission";
 import { prepareLogicalRelationalValueValidation, LogicalRelationalValueError } from "./relationalValues";
 import type { LogicalSearchDefinition } from "./searchEntries";
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
@@ -175,15 +175,19 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
           return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         return Effect.succeed(Object.freeze({ head: binding.head, clock }));
       }).pipe(Effect.mapError(projectParticipantBindingFailure)));
-    const verifyBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
-      selected.withBinding(application, tx, authority, clock, binding =>
+    const verifyPinnedBinding = (binding: LogicalSourceBindingState, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
         binding.schemaVersionId === capturedInput.schemaVersionId &&
         binding.head.sequence === pinned.head.sequence && binding.head.sha256 === pinned.head.sha256 &&
         authority.scopeId === root.scopeId && clock.scopeId === root.scopeId
-          ? Effect.void : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" })))
+          ? Effect.void : Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+    const verifyBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+      selected.withBinding(application, tx, authority, clock, binding => verifyPinnedBinding(binding, authority, clock))
+        .pipe(Effect.mapError(projectParticipantBindingFailure));
+    const verifyReadBinding = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+      selected.withReadBinding(application, tx, authority, clock, binding => verifyPinnedBinding(binding, authority, clock))
         .pipe(Effect.mapError(projectParticipantBindingFailure));
     const token = issueLogicalParticipantAttemptAdmission(Object.freeze({ attempt, root: Object.freeze({ ...root }),
-      methods: new Set(methods), readTransaction, verifyBinding, tableIds,
+      methods: new Set(methods), readTransaction, verifyBinding, verifyReadBinding, tableIds,
       indexes: selected.indexes, unique: selected.unique,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: pinned.head }));
     relationalAttemptStates.set(token, Object.freeze({ root: Object.freeze({ ...root }),

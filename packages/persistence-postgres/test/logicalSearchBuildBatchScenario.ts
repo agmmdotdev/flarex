@@ -108,16 +108,29 @@ export async function verifyLogicalSearchBuildBatch(
   const initial = await inspect();
   expect(initial.verdict).toEqual({ status: "ready", definitionCount: 70 });
   expect(initial.counts).toEqual({ states: 2, physical: 1, frontiers: 1 });
+  const selectedTable = build.selectTables([decodeCatalogTableId(11)]);
+  const inspectSelected = () => db.transaction(tx => Effect.runPromise(selectedTable.inspectSelected(tx, authority, clock)));
+  expect(await inspectSelected()).toEqual({ status: "ready", definitionCount: 24 });
+  // A selected mutable miss is distinct from unrelated mutable state. Both
+  // selections still authenticate their actual live physical GIN facts.
+  const unrelated = await db.select().from(fxSystemSearchBuildStates)
+    .where(eq(fxSystemSearchBuildStates.logicalIndexId, decodeCatalogIndexId(103)));
+  await db.delete(fxSystemSearchBuildStates).where(eq(fxSystemSearchBuildStates.logicalIndexId, decodeCatalogIndexId(103)));
+  expect(await inspectSelected()).toEqual({ status: "ready", definitionCount: 24 });
+  expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+  await db.insert(fxSystemSearchBuildStates).values(unrelated);
 
   // A later transaction must reject a changed physical identity even when the
   // same prepared source selection and coverage rows are reused.
   await persistence.query("alter index fx_app_search_entry_current_lookup_gin rename to fx_test_changed_search_gin");
   try {
     expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+    expect(await inspectSelected()).toEqual({ status: "not_ready", reason: "uncovered" });
     await persistence.query(`create index fx_app_search_entry_current_lookup_gin
       on fx_app_search_entry_current using gin
         (scope_uuid public.uuid_ops, logical_index_id public.int4_ops, field_id public.gin_trgm_ops)`);
     expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+    expect(await inspectSelected()).toEqual({ status: "not_ready", reason: "uncovered" });
   } finally {
     await persistence.query("drop index if exists fx_app_search_entry_current_lookup_gin");
     await persistence.query("alter index fx_test_changed_search_gin rename to fx_app_search_entry_current_lookup_gin");
@@ -132,6 +145,7 @@ export async function verifyLogicalSearchBuildBatch(
       on fx_app_json_entry_current using gin
         (scope_uuid public.uuid_ops, logical_index_id public.int4_ops, value_json jsonb_ops)`);
     expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+    expect(await inspectSelected()).toEqual({ status: "not_ready", reason: "uncovered" });
   } finally {
     await persistence.query("drop index if exists fx_app_json_entry_current_lookup_gin");
     await persistence.query("alter index fx_test_changed_json_gin rename to fx_app_json_entry_current_lookup_gin");
@@ -140,6 +154,7 @@ export async function verifyLogicalSearchBuildBatch(
 
   await db.delete(fxSystemSearchBuildStates).where(eq(fxSystemSearchBuildStates.logicalIndexId, decodeCatalogIndexId(102)));
   expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
+  expect(await inspectSelected()).toEqual({ status: "not_ready", reason: "uncovered" });
   await db.insert(fxSystemSearchBuildStates).values({
     scopeUuid, tableId: decodeCatalogTableId(11), logicalIndexId: decodeCatalogIndexId(102),
     sourceSha256: "d".repeat(64), lifecycle: "ready",

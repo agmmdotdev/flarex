@@ -1,3 +1,6 @@
+import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/indexBuildReconciliation";
+import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
+import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -77,6 +80,68 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
         expect(await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournalReceipts)
           .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
         await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null))).rejects.toBeDefined();
+      } finally { await fixture.close(); }
+    }, 180_000);
+
+  it.each(["required", "unrelated"] as const)(
+    "checks %s readiness after Product entry before tentative reads and full seal", async changed => {
+      let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
+      let readChecked = false;
+      let checkingRead = false;
+      let dataStatements = 0;
+      fixture = await createMixedMutationProductFixture({ driver, suffix: `selected-read-${changed}-${driver}`,
+        hooks: {
+          observeSql: (_phase, sql) => {
+            if (checkingRead && /\bfx_app_(?:row_rev|index_entry_(?:rev|current)|unique_key)\b/.test(sql)) dataStatements += 1;
+          },
+          afterProductBorrow: (method, borrowed) => method !== "update" ? Effect.void : Effect.gen(function* () {
+            const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
+              fixture.currency.deploymentId, fixture.logicalSchemaVersionId).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
+            const source = requirements.evidence.candidate.sources.find(source => source.key ===
+              (changed === "required" ? "medusa.product" : "medusa.currency"));
+            if (source === undefined) throw new Error("Missing native readiness source");
+            const tableIds = new Set(source.bindings.filter(binding => binding.kind === "definition")
+              .flatMap(binding => requirements.evidence.tableBindings.filter(table =>
+                logicalTableKey(table.table) === logicalTableKey(binding.table)).map(table => table.tableId)));
+            const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(fixture.currency.control.drizzle,
+              { deploymentId: fixture.currency.deploymentId, schemaVersionId: fixture.logicalSchemaVersionId }).pipe(Effect.mapError(cause => commerceError("resourceFailure", cause)));
+            const index = snapshot?.definitions.find(definition => tableIds.has(definition.access.tableId));
+            if (index === undefined) throw new Error("Missing source readiness index");
+            yield* Effect.tryPromise({ try: async () => {
+              const updated = await fixture.currency.persistence.drizzle.update(fxSystemIndexBuildStates)
+                .set({ lifecycle: "retiring", maintenanceActivationSequence: null,
+                  maintenanceBytes: null, maintenanceSha256: null })
+                .where(and(eq(fxSystemIndexBuildStates.scopeId, fixture.activation.anchor.scopeId),
+                  eq(fxSystemIndexBuildStates.indexDefinitionId, index.indexDefinitionId))).returning();
+              expect(updated).toHaveLength(1);
+            }, catch: cause => commerceError("resourceFailure", cause) });
+            const store = yield* borrowed.context.table("product");
+            checkingRead = true;
+            const read = yield* Effect.result(store.find(borrowed.context.manager, {
+              predicate: { kind: "in", column: "id", values: [fixture.seed.productId] },
+              order: { column: "id", direction: "asc" },
+            }));
+            checkingRead = false;
+            if (changed === "required") {
+              expect(read).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+              expect(dataStatements).toBe(0);
+            } else {
+              expect(read).toMatchObject({ _tag: "Success", success: [{ id: fixture.seed.productId }] });
+              if (fixture.hasSqlObserver) expect(dataStatements).toBeGreaterThan(0);
+            }
+            readChecked = true;
+          }),
+        } });
+      try {
+        const runFailure = await fixture.runWorkerd().then(() => undefined, failure => failure);
+        expect(readChecked, String(runFailure) + " " + fixture.bridgeFailures.join("\n")).toBe(true);
+        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
+          .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
+        for (const table of [fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints,
+          fxSystemTransactionJournalWriteEvents]) {
+          expect(await fixture.currency.persistence.drizzle.select().from(table)
+            .where(eq(table.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
+        }
       } finally { await fixture.close(); }
     }, 180_000);
 

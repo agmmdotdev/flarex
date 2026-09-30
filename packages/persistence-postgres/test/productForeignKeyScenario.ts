@@ -35,6 +35,7 @@ import { forEachLogicalReferencePage, forEachLogicalReferenceReplacementPage,
   selectLogicalReferenceReplacement } from "../src/logicalDocuments/referencePages";
 import { forEachLogicalSetNullPage } from "../src/logicalDocuments/referencePages";
 import { readBoundedCurrentAppRowsInTransactionEffect } from "../src/appRows";
+import { readLogicalStorageRequirements } from "../src/logicalStorageDefinitions";
 
 /** Whole-candidate Product index coverage and native row/FK execution through
  * the shared working set. The committed cases materialize row deltas; full
@@ -85,8 +86,33 @@ export const productForeignKeyScenario: (
   expect(uniqueEnabled).toBe(true);
   const uniqueEligibility = createAppUniqueConstraintSetEligibilityPortV1(uniquePorts,
     createAppUniqueConstraintDefinitionPortV1(db));
-  expect((yield* prepareLogicalStorageReadiness(uniquePorts, uniqueEligibility,
-    { deploymentId, scopeId, schemaVersionId })).status).toBe("prepared");
+  const readiness = yield* prepareLogicalStorageReadiness(uniquePorts, uniqueEligibility,
+    { deploymentId, scopeId, schemaVersionId });
+  expect(readiness.status).toBe("prepared");
+  if (readiness.status !== "prepared") throw new Error("Missing Product readiness preparation");
+  const selectedProduct = yield* readiness.selectSources(["medusa.product"]);
+  const selectedApplication = yield* readiness.selectSources(["application"]);
+  // The configured graph has references in both directions. Product reads
+  // require Application targets and Application reverse/delete dependencies;
+  // the read-only view must select its definition owner's complete source.
+  expect(selectedProduct.sourceKeys).toContain("application");
+  expect(selectedApplication.sourceKeys).toContain("medusa.product");
+  expect(selectedProduct.tableIds).toEqual(selectedApplication.tableIds);
+  expect(selectedProduct.tableIds).toEqual(expect.arrayContaining(bindings.map(binding => binding.tableId)));
+  const requirements = yield* readLogicalStorageRequirements(db, deploymentId, schemaVersionId);
+  const view = requirements.evidence.candidate.sources.find(source => source.bindings.some(binding => binding.kind === "view"));
+  if (view === undefined) throw new Error("Missing configured read-only view source");
+  const selectedView = yield* readiness.selectSources([view.key]);
+  expect(selectedView.sourceKeys).toContain("application");
+  expect(selectedView.sourceKeys).toContain("medusa.product");
+  expect(selectedView.tableIds).toEqual(selectedProduct.tableIds);
+  const selectedUnion = yield* readiness.selectSources([view.key, "medusa.product", "application"]);
+  const reorderedUnion = yield* readiness.selectSources(["application", "medusa.product", view.key]);
+  expect(selectedUnion.sourceKeys).toEqual(selectedProduct.sourceKeys);
+  expect(selectedUnion.tableIds).toEqual(selectedProduct.tableIds);
+  expect(reorderedUnion.sourceKeys).toEqual(selectedUnion.sourceKeys);
+  expect(reorderedUnion.tableIds).toEqual(selectedUnion.tableIds);
+  expect(selectedProduct.sourceKeys).not.toContain("medusa.currency");
   const nativeTables = bindings.map(binding => {
     const relational = schema.tables.find(table => table.identity.tableId === binding.localName);
     if (relational === undefined) throw new Error("Missing Product binding definition");

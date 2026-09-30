@@ -14,7 +14,8 @@ import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstrain
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { readBindingSelectedEvidence } from "../frameworkSchema/binding/repository";
-import { verifyLogicalSchemaBindingInTransaction } from "../frameworkSchema/binding/logicalSchema";
+import { verifyLogicalSchemaBindingInTransaction, verifyLogicalSchemaReadBindingInTransaction,
+  type SelectedLogicalStorageReadiness } from "../frameworkSchema/binding/logicalSchema";
 import type { DataBindingHeadToken, DataBindingSetFrame } from "../frameworkSchema/binding/model";
 import { loadPublishedPhysicalRequirementSnapshotV1, publishedPhysicalDefinitionMatchesLocated } from "../indexBuildReconciliation";
 import { readLogicalStorageRequirements } from "../logicalStorageDefinitions";
@@ -50,6 +51,7 @@ export interface LogicalSourceBindingState {
 }
 
 type SharedCheckedBinding = Readonly<{
+  selectionKey: string;
   application: ApplicationBindingInput;
   controlDb: AppUniqueConstraintSetBuildPortsV1["controlDb"];
   authorityPort: AppUniqueConstraintSetBuildPortsV1["authority"];
@@ -64,6 +66,7 @@ type SharedCheckedBinding = Readonly<{
   head: DataBindingHeadToken;
 }>;
 const checkedBindings = new WeakMap<FlarexMetadataTransaction, SharedCheckedBinding[]>();
+const readSourceKeys = new WeakMap<FlarexMetadataTransaction, readonly string[]>();
 
 /** Scope common candidate/readiness IO to one checked historical-read transaction.
  * Each source still compares its own pinned head and source contract. The next
@@ -77,6 +80,22 @@ export function withSharedLogicalSourceBindingChecks<Value, Failure, Requirement
     return Effect.suspend(work).pipe(Effect.ensuring(Effect.sync(() => {
       if (previous === undefined) checkedBindings.delete(tx);
       else checkedBindings.set(tx, previous);
+    })));
+  });
+}
+
+/** Only the participant bundle owner supplies its complete issued source set.
+ * The common proof covers that union; each source must still check its own pin. */
+export function withSharedLogicalSourceReadBindingChecks<Value, Failure, Requirements>(
+  tx: FlarexMetadataTransaction, sourceKeys: readonly string[],
+  work: () => Effect.Effect<Value, Failure, Requirements>,
+): Effect.Effect<Value, Failure, Requirements> {
+  return Effect.suspend(() => {
+    const previous = readSourceKeys.get(tx);
+    readSourceKeys.set(tx, Object.freeze(sourceKeys.toSorted()));
+    return withSharedLogicalSourceBindingChecks(tx, work).pipe(Effect.ensuring(Effect.sync(() => {
+      if (previous === undefined) readSourceKeys.delete(tx);
+      else readSourceKeys.set(tx, previous);
     })));
   });
 }
@@ -147,12 +166,19 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   yield* chargeHostPreparation(JSON.stringify({ tables: selectedTables, indexes, unique: selectedUnique },
     (_, member: unknown) => typeof member === "bigint" ? member.toString() : member));
 
-  const withBinding = Effect.fn("LogicalSourceAdmission.withBinding")(function* <Value, Failure, Requirements>(
+  const checkBinding = Effect.fn("LogicalSourceAdmission.checkBinding")(function* <Value, Failure, Requirements>(
+    selection: "full" | "read",
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>,
   ) {
+    const sourceKeys = readSourceKeys.get(tx) ?? [source.key];
+    if (selection === "read" && !sourceKeys.includes(source.key))
+      return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
+    // An exact root set under the same authenticated candidate determines one
+    // exact closure. No subset, superset or full proof can satisfy this key.
+    const selectionKey = selection === "full" ? "full" : JSON.stringify(sourceKeys);
     const shared = checkedBindings.get(tx)?.find(checked =>
-      checked.application === application && checked.controlDb === capturedPorts.controlDb &&
+      checked.selectionKey === selectionKey && checked.application === application && checked.controlDb === capturedPorts.controlDb &&
       checked.authorityPort === capturedPorts.authority && checked.unique === unique &&
       checked.deploymentId === captured.deploymentId && checked.scopeId === captured.scopeId &&
       checked.authority === authority &&
@@ -160,14 +186,19 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       checked.manifestSha256 === readiness.reference.manifestSha256);
     if (shared !== undefined) return yield* work(Object.freeze({ tx, authority, clock,
       schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head }));
+    const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "full"
+      ? undefined : yield* readiness.selectSources(sourceKeys);
     const selected = yield* readBindingSelectedEvidence(tx, authority);
     if (Option.isNone(selected)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
     const { head: current, candidate } = selected.value;
     yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, applicationEvidence =>
-      verifyLogicalSchemaBindingInTransaction(readiness, candidate.frame, applicationEvidence,
-        tx, authority, clock, applicationEvidence.checkedActive));
+      selectedReadiness === undefined
+        ? verifyLogicalSchemaBindingInTransaction(readiness, candidate.frame, applicationEvidence,
+          tx, authority, clock, applicationEvidence.checkedActive).pipe(Effect.asVoid)
+        : verifyLogicalSchemaReadBindingInTransaction(selectedReadiness, candidate.frame, applicationEvidence,
+          tx, authority, clock, applicationEvidence.checkedActive).pipe(Effect.asVoid));
     const head = Object.freeze({ sequence: current.frame.sequence, sha256: current.sha256 });
-    checkedBindings.get(tx)?.push(Object.freeze({ application, controlDb: capturedPorts.controlDb,
+    checkedBindings.get(tx)?.push(Object.freeze({ selectionKey, application, controlDb: capturedPorts.controlDb,
       authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,
       scopeId: captured.scopeId, authority, clock,
       schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
@@ -175,5 +206,13 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     return yield* work(Object.freeze({ tx, authority, clock, schemaVersionId: captured.schemaVersionId, source,
       frame: candidate.frame, head }));
   });
-  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding });
+  const withBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
+    checkBinding("full", application, tx, authority, clock, work);
+  const withReadBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
+    checkBinding("read", application, tx, authority, clock, work);
+  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withReadBinding });
 });

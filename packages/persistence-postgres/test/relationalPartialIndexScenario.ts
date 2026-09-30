@@ -4,6 +4,7 @@ import { expect } from "vitest";
 import { canonicalizeAppDocumentV1, AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity, appRowIdHexV1FromBytesResult, appRowIdHexV1ToBytes, type AppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { CommitSeqSchema, StorageGenerationFenceSchema, projectScopeIdUuidV1Result, type ScopeId } from "flarex-protocol/storage-authority";
+import { CatalogDefinitionNameSchema } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { JsonObject } from "flarex-protocol/json";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -16,12 +17,16 @@ import { createLocatedIndexBuildReconciliationTargetV1, reconcilePublishedIndexB
 import { buildAppDeveloperOrderedIndexV1Effect, buildIntrinsicCreationTimeIndexV1Effect } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createLocatedAppUniqueConstraintSetBuildTargetV1, reconcileAppUniqueConstraintSetBuildV1Effect,
   advanceAppUniqueConstraintSetBackfillV1Effect, createAppUniqueConstraintSetEligibilityPortV1,
-  loadAppUniqueConstraintSetEligibilityForReadinessV1Effect } from "../src/appUniqueConstraintSetBuildV1";
+  loadAppUniqueConstraintSetEligibilityForReadinessV1Effect, prepareAppUniqueConstraintSet,
+  selectPreparedAppUniqueConstraintSet } from "../src/appUniqueConstraintSetBuildV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../src/appUniqueConstraintCommitV1";
-import { locateAppUniqueConstraintDefinitionsForSchemaEffect } from "../src/appUniqueConstraintDefinitions";
+import { locateAppUniqueConstraintDefinitionsForSchemaEffect, prepareAppUniqueConstraintDefinitionBindingV1Effect,
+  ensureAppUniqueConstraintDefinitionBindingV1InTransaction } from "../src/appUniqueConstraintDefinitions";
 import { getScopeMetadataByDeploymentId } from "../src/scopeMetadata";
 import { getScopeClock, lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
-import { fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppRowCurrent, fxAppRowRevisions, fxAppUniqueKeys, fxSystemUniqueConstraintBuilds, fxSystemScopeClocks, fxControlSchemaVersionIndexBindings, fxSystemIndexBuildStates } from "../src/schema";
+import { fxAppIndexEntryCurrent, fxAppIndexEntryRevisions, fxAppRowCurrent, fxAppRowRevisions, fxAppUniqueKeys, fxSystemUniqueConstraintBuilds, fxSystemScopeClocks, fxControlSchemaVersionIndexBindings, fxSystemIndexBuildStates,
+  fxControlSchemaVersionUniqueConstraintBindings, fxControlUniqueConstraintDefinitions, fxControlUniqueConstraints,
+  fxControlSchemaVersionUniqueConstraintSets } from "../src/schema";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../src/scopeAuthorityResolution";
 import { enterLogicalDocumentMaterialization } from "../src/logicalDocuments/materialization";
 import { ensureLogicalStorageDefinitions, readLogicalStorageRequirements } from "../src/logicalStorageDefinitions";
@@ -193,6 +198,122 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
   const readiness = yield* prepareLogicalStorageReadiness(uniquePorts, uniqueEligibility, { deploymentId, scopeId, schemaVersionId });
   if (readiness.status !== "prepared") throw new Error("Expected complete structural preparation");
   const definitions = yield* Effect.forEach(reconciled.definitionIds, id => locateAppIndexDefinitionByIdEffect(db, scopeId, id));
+  const selectedReadiness = yield* readiness.selectSources(["medusa.currency"]);
+  const selectedUnion = yield* readiness.selectSources(["medusa.currency", "application"]);
+  expect(selectedUnion.tableIds).toEqual(expect.arrayContaining([...selectedReadiness.tableIds]));
+  expect(selectedUnion.tableIds.length).toBeGreaterThan(selectedReadiness.tableIds.length);
+  const completeUnique = yield* prepareAppUniqueConstraintSet(uniqueEligibility, uniqueInput);
+  if (completeUnique.status !== "prepared") throw new Error("Missing complete unique preparation");
+  const emptyUnique = yield* selectPreparedAppUniqueConstraintSet(uniqueEligibility, completeUnique.preparation, []);
+  expect(selectedReadiness.sourceKeys).toEqual(["medusa.currency"]);
+  expect(selectedReadiness.tableIds).toEqual([definition.access.tableId]);
+  for (const invalid of [[], [""], ["medusa.currency", "medusa.currency"], ["medusa.currency", "unknown"]])
+    expect(yield* Effect.result(readiness.selectSources(invalid)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
+  yield* transact(tx => Effect.gen(function* () {
+    const currentClock = yield* lockScopeClockForOrdinaryWriteInTransactionEffect(tx, scopeId);
+    expect(yield* emptyUnique.inspectSelected(tx, resolved.authority, currentClock)).toEqual({ status: "ready", definitionCount: 0 });
+    expect(yield* readiness.inspect(tx, resolved.authority, currentClock)).toMatchObject({ status: "ready", readiness: "full" });
+    expect(yield* selectedReadiness.inspectSelected(tx, resolved.authority, currentClock))
+      .toMatchObject({ status: "ready", readiness: "selected" });
+    const unionReady = yield* selectedUnion.inspectSelected(tx, resolved.authority, currentClock);
+    expect(unionReady).toMatchObject({ status: "ready", readiness: "selected" });
+    if (unionReady.status !== "ready") throw new Error("Missing prepared union readiness");
+    expect(yield* Effect.result(selectedReadiness.inspectSelected(tx,
+      { ...resolved.authority, deploymentId: `${deploymentId}_foreign` }, currentClock)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "scopeMismatch" } });
+    const builds = yield* runDrizzleStatementEffect(tx.select().from(fxSystemIndexBuildStates),
+      cause => new Error("Read readiness fixture builds", { cause }));
+    const requiredIds = new Set(definitions.filter(value => value !== null && selectedReadiness.tableIds.includes(value.access.tableId))
+      .map(value => value?.indexDefinitionId));
+    const required = builds.find(build => requiredIds.has(build.indexDefinitionId));
+    const unrelated = builds.find(build => !requiredIds.has(build.indexDefinitionId) &&
+      unionReady.indexDefinitionIds.includes(build.indexDefinitionId));
+    if (required === undefined || unrelated === undefined) throw new Error("Missing required/unrelated readiness fixture builds");
+    yield* runDrizzleStatementEffect(tx.delete(fxSystemIndexBuildStates).where(
+      eq(fxSystemIndexBuildStates.indexDefinitionId, unrelated.indexDefinitionId)), cause => new Error("Remove unrelated readiness fixture", { cause }));
+    expect(yield* selectedReadiness.inspectSelected(tx, resolved.authority, currentClock)).toMatchObject({ status: "ready", readiness: "selected" });
+    expect(yield* selectedUnion.inspectSelected(tx, resolved.authority, currentClock)).toMatchObject({ status: "not_ready", kind: "index" });
+    expect(yield* readiness.inspect(tx, resolved.authority, currentClock)).toMatchObject({ status: "not_ready", kind: "index" });
+    yield* runDrizzleStatementEffect(tx.insert(fxSystemIndexBuildStates).values(unrelated), cause => new Error("Restore unrelated readiness fixture", { cause }));
+    yield* runDrizzleStatementEffect(tx.delete(fxSystemIndexBuildStates).where(
+      eq(fxSystemIndexBuildStates.indexDefinitionId, required.indexDefinitionId)), cause => new Error("Remove required readiness fixture", { cause }));
+    expect(yield* selectedReadiness.inspectSelected(tx, resolved.authority, currentClock)).toMatchObject({ status: "not_ready", kind: "index" });
+    yield* runDrizzleStatementEffect(tx.insert(fxSystemIndexBuildStates).values(required), cause => new Error("Restore required readiness fixture", { cause }));
+    const uniqueBuilds = yield* runDrizzleStatementEffect(tx.select().from(fxSystemUniqueConstraintBuilds),
+      cause => new Error("Read readiness fixture unique builds", { cause }));
+    const requiredUnique = uniqueBuilds.find(build => currencyConstraints.some(constraint =>
+      constraint.uniqueConstraintDefinitionId === build.uniqueConstraintDefinitionId));
+    const unrelatedUnique = uniqueBuilds.find(build => !currencyConstraints.some(constraint =>
+      constraint.uniqueConstraintDefinitionId === build.uniqueConstraintDefinitionId));
+    if (requiredUnique === undefined || unrelatedUnique === undefined) throw new Error("Missing required/unrelated unique fixture builds");
+    yield* runDrizzleStatementEffect(tx.delete(fxSystemUniqueConstraintBuilds).where(
+      eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, unrelatedUnique.uniqueConstraintDefinitionId)), cause => new Error("Remove unrelated unique fixture", { cause }));
+    expect(yield* selectedReadiness.inspectSelected(tx, resolved.authority, currentClock)).toMatchObject({ status: "ready", readiness: "selected" });
+    expect(yield* readiness.inspect(tx, resolved.authority, currentClock)).toMatchObject({ status: "not_ready", kind: "unique" });
+    yield* runDrizzleStatementEffect(tx.insert(fxSystemUniqueConstraintBuilds).values(unrelatedUnique), cause => new Error("Restore unrelated unique fixture", { cause }));
+    yield* runDrizzleStatementEffect(tx.delete(fxSystemUniqueConstraintBuilds).where(
+      eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, requiredUnique.uniqueConstraintDefinitionId)), cause => new Error("Remove required unique fixture", { cause }));
+    expect(yield* selectedReadiness.inspectSelected(tx, resolved.authority, currentClock)).toMatchObject({ status: "not_ready", kind: "unique" });
+    yield* runDrizzleStatementEffect(tx.insert(fxSystemUniqueConstraintBuilds).values(requiredUnique), cause => new Error("Restore required unique fixture", { cause }));
+  }));
+  // Even an empty selected build set can only derive from the canonical full
+  // preparation. Missing/extra members and changed bytes with unchanged
+  // closure count/digest refuse at that existing preparation boundary.
+  const uniqueBindings = yield* runDrizzleStatementEffect(db.select().from(fxControlSchemaVersionUniqueConstraintBindings).where(and(
+    eq(fxControlSchemaVersionUniqueConstraintBindings.deploymentId, deploymentId),
+    eq(fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId, schemaVersionId))), cause => new Error("Read canonical unique fixture members", { cause }));
+  const member = uniqueBindings[0];
+  if (member === undefined) throw new Error("Missing canonical unique fixture member");
+  yield* runDrizzleStatementEffect(db.delete(fxControlSchemaVersionUniqueConstraintBindings).where(and(
+    eq(fxControlSchemaVersionUniqueConstraintBindings.deploymentId, deploymentId),
+    eq(fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId, schemaVersionId),
+    eq(fxControlSchemaVersionUniqueConstraintBindings.logicalUniqueConstraintId, member.logicalUniqueConstraintId))), cause => new Error("Remove canonical unique fixture member", { cause }));
+  expect(yield* Effect.result(prepareAppUniqueConstraintSet(uniqueEligibility, uniqueInput)))
+    .toMatchObject({ _tag: "Failure", failure: { _tag: "AppUniqueConstraintSetClosureCorruptionV1Error" } });
+  yield* runDrizzleStatementEffect(db.insert(fxControlSchemaVersionUniqueConstraintBindings).values(member), cause => new Error("Restore canonical unique fixture member", { cause }));
+  const allUnique = yield* runDrizzleStatementEffect(db.select().from(fxControlUniqueConstraintDefinitions).where(
+    eq(fxControlUniqueConstraintDefinitions.deploymentId, deploymentId)), cause => new Error("Read canonical unique fixture definitions", { cause }));
+  const canonicalUnique = allUnique.find(definition => definition.uniqueConstraintDefinitionId === member.uniqueConstraintDefinitionId);
+  if (canonicalUnique === undefined) throw new Error("Missing canonical unique fixture bytes");
+  const preparedExtra = yield* prepareAppUniqueConstraintDefinitionBindingV1Effect(db, { deploymentId, schemaVersionId,
+    tableId: canonicalUnique.tableId, descriptor: CatalogDefinitionNameSchema.make("fixture/extra-readiness-member"),
+    physicalSpec: canonicalUnique.physicalSpecJson });
+  const closures = yield* runDrizzleStatementEffect(db.select().from(fxControlSchemaVersionUniqueConstraintSets).where(and(
+    eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, deploymentId),
+    eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, schemaVersionId))), cause => new Error("Read closed unique fixture", { cause }));
+  const closure = closures[0];
+  if (closure === undefined) throw new Error("Missing closed unique fixture");
+  // The legitimate owner rejects additions to a closed set. Construct this
+  // corruption witness by reopening only the disposable fixture, then restore
+  // the original closure bytes/count before reading the extra member.
+  yield* runDrizzleStatementEffect(db.delete(fxControlSchemaVersionUniqueConstraintSets).where(and(
+    eq(fxControlSchemaVersionUniqueConstraintSets.deploymentId, deploymentId),
+    eq(fxControlSchemaVersionUniqueConstraintSets.schemaVersionId, schemaVersionId))), cause => new Error("Reopen disposable unique fixture", { cause }));
+  const extra = yield* transact(tx => ensureAppUniqueConstraintDefinitionBindingV1InTransaction(tx, preparedExtra));
+  yield* runDrizzleStatementEffect(db.insert(fxControlSchemaVersionUniqueConstraintSets).values(closure), cause => new Error("Restore original closed unique fixture", { cause }));
+  expect(yield* Effect.result(prepareAppUniqueConstraintSet(uniqueEligibility, uniqueInput)))
+    .toMatchObject({ _tag: "Failure", failure: { _tag: "AppUniqueConstraintSetClosureCorruptionV1Error" } });
+  yield* runDrizzleStatementEffect(db.delete(fxControlSchemaVersionUniqueConstraintBindings).where(and(
+    eq(fxControlSchemaVersionUniqueConstraintBindings.deploymentId, deploymentId),
+    eq(fxControlSchemaVersionUniqueConstraintBindings.schemaVersionId, schemaVersionId),
+    eq(fxControlSchemaVersionUniqueConstraintBindings.logicalUniqueConstraintId, extra.identity.logicalUniqueConstraintId))), cause => new Error("Remove extra canonical unique fixture member", { cause }));
+  yield* runDrizzleStatementEffect(db.delete(fxControlUniqueConstraintDefinitions).where(and(
+    eq(fxControlUniqueConstraintDefinitions.deploymentId, deploymentId),
+    eq(fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId, extra.definition.uniqueConstraintDefinitionId))), cause => new Error("Remove extra canonical unique fixture definition", { cause }));
+  yield* runDrizzleStatementEffect(db.delete(fxControlUniqueConstraints).where(and(
+    eq(fxControlUniqueConstraints.deploymentId, deploymentId),
+    eq(fxControlUniqueConstraints.logicalUniqueConstraintId, extra.identity.logicalUniqueConstraintId))), cause => new Error("Remove extra canonical unique fixture identity", { cause }));
+  const changedBytes = Uint8Array.from(canonicalUnique.physicalSpecBytes);
+  changedBytes[0] = (changedBytes[0] ?? 0) ^ 1;
+  yield* runDrizzleStatementEffect(db.update(fxControlUniqueConstraintDefinitions).set({ physicalSpecBytes: changedBytes }).where(and(
+    eq(fxControlUniqueConstraintDefinitions.deploymentId, deploymentId),
+    eq(fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId, member.uniqueConstraintDefinitionId))), cause => new Error("Change canonical unique fixture bytes", { cause }));
+  expect(yield* Effect.result(prepareAppUniqueConstraintSet(uniqueEligibility, uniqueInput)))
+    .toMatchObject({ _tag: "Failure", failure: { _tag: "AppUniqueConstraintCatalogCorruptionError" } });
+  yield* runDrizzleStatementEffect(db.update(fxControlUniqueConstraintDefinitions).set({ physicalSpecBytes: canonicalUnique.physicalSpecBytes }).where(and(
+    eq(fxControlUniqueConstraintDefinitions.deploymentId, deploymentId),
+    eq(fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId, member.uniqueConstraintDefinitionId))), cause => new Error("Restore canonical unique fixture bytes", { cause }));
   const currencyIndexes = definitions.filter(value => value !== null).filter(value => value.access.tableId === definition.access.tableId);
   const inventory = Effect.gen(function* () {
     const current = yield* runDrizzleStatementEffect(db.select().from(fxAppRowCurrent).orderBy(fxAppRowCurrent.tableId, fxAppRowCurrent.rowId), cause => failure("Read row inventory", cause));

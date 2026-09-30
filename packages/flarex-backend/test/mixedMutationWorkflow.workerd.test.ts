@@ -13,8 +13,11 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
-  fxSystemTransactionJournals, fxSystemCommits } from
+  fxSystemTransactionJournals, fxSystemCommits, fxSystemIndexBuildStates } from
   "../../persistence-postgres/src/schema";
+import { readLogicalStorageRequirements } from "../../persistence-postgres/src/logicalStorageDefinitions";
+import { loadPublishedPhysicalRequirementSnapshotV1 } from "../../persistence-postgres/src/indexBuildReconciliation";
+import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
@@ -42,6 +45,53 @@ const WorkerSuccess = Schema.Struct({ kind: Schema.Literal("result"),
   result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) });
 
 describe.each(drivers)("finite native Product launch workflow in one Worker attempt on %s", driver => {
+  it("requires a later Pricing source before the first Product child database read", async () => {
+    let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
+    let changed = false;
+    let dataStatements = 0;
+    fixture = await createMixedMutationProductFixture({ driver, workflow: true,
+      suffix: `launch-union-required-pricing-${driver}`, payloadProfile: "success",
+      hooks: {
+        observeWorkflowSql: sql => {
+          if (changed && /\bfx_app_(?:row_rev|index_entry_(?:rev|current)|unique_key)\b/.test(sql)) dataStatements++;
+        },
+        beforeNative: method => method !== "workflow:run" ? Effect.void : Effect.gen(function* () {
+          const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
+            fixture.currency.deploymentId, fixture.logicalSchemaVersionId).pipe(
+              Effect.mapError(cause => commerceError("resourceFailure", cause)));
+          const pricing = requirements.evidence.candidate.sources.find(source => source.key === "medusa.pricing");
+          if (pricing === undefined) throw new Error("Missing issued Pricing source");
+          const tables = new Set(pricing.bindings.filter(binding => binding.kind === "definition").flatMap(binding =>
+            requirements.evidence.tableBindings.filter(table => logicalTableKey(table.table) === logicalTableKey(binding.table))
+              .map(table => table.tableId)));
+          const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(fixture.currency.control.drizzle,
+            { deploymentId: fixture.currency.deploymentId, schemaVersionId: fixture.logicalSchemaVersionId }).pipe(
+              Effect.mapError(cause => commerceError("resourceFailure", cause)));
+          const index = snapshot?.definitions.find(definition => tables.has(definition.access.tableId));
+          if (index === undefined) throw new Error("Missing required Pricing index");
+          yield* Effect.tryPromise({ try: async () => {
+            const updated = await fixture.currency.persistence.drizzle.update(fxSystemIndexBuildStates)
+              .set({ lifecycle: "retiring", maintenanceActivationSequence: null,
+                maintenanceBytes: null, maintenanceSha256: null }).where(and(
+                eq(fxSystemIndexBuildStates.scopeId, fixture.activation.anchor.scopeId),
+                eq(fxSystemIndexBuildStates.indexDefinitionId, index.indexDefinitionId))).returning();
+            expect(updated).toHaveLength(1);
+          }, catch: cause => commerceError("resourceFailure", cause) });
+          changed = true;
+        }),
+      },
+    });
+    try {
+      await expect(fixture.runWorkerd()).rejects.toBeDefined();
+      expect(changed).toBe(true);
+      expect(fixture.nativeInvokeCount.get("workflow:run")).toBe(1);
+      expect(dataStatements).toBe(0);
+      expect(await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournalReceipts)
+        .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
+      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null))).rejects.toBeDefined();
+    } finally { await fixture.close(); }
+  }, 180_000);
+
   it.skipIf(driver !== "pglite")(
     "cancels a pending native Product child and closes its borrowed capability", async () => {
       const entered = await Effect.runPromise(Deferred.make<void>());

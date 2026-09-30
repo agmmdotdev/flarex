@@ -12,7 +12,7 @@ import { makeBoundedRequestLifetime } from "../src/boundedRequestLifetime";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { runEffectTransaction } from "../src/effectTransaction";
 import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
-import { makeLogicalDocumentRootEvaluator } from "../src/logicalDocuments/rootEvaluator";
+import { makeLogicalDocumentRootEvaluator, requireLogicalDocumentRootEvaluatorOpen } from "../src/logicalDocuments/rootEvaluator";
 import { projectLogicalDocumentJournalContribution } from "../src/logicalDocuments/journalContribution";
 import type { SessionJournalAttempt } from "../src/sessionJournalStore";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
@@ -230,6 +230,7 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
     if (!isJsonObject(seedDocument.valueJson)) throw new Error("Expected seed object");
     Reflect.set(seedDocument.valueJson, "label", "input-tampered");
     const firstReadCount = checkedReads;
+    const rootAdmissionCount = admissionTransactions;
     let rootSnapshotRevisions = 0;
     await runEffect(Effect.scoped(Effect.gen(function* () {
       const open = (tableId: typeof firstTable, logicalName: string,
@@ -239,7 +240,8 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         resource => resource.close);
         const working = yield* makeLogicalDocumentWorkingSet({ scopeId, clock, lifetime, readTransaction,
           snapshotCommitSeq, rootEvaluator: evaluator, rootAttempt: attempt, rootAttemptFence: pins.attemptFence,
-          tables: [{ tableId, logicalName }], requireAdmission, validateDocument: () => Effect.void,
+          tables: [{ tableId, logicalName }], requireAdmission: requireLogicalDocumentRootEvaluatorOpen(evaluator, pins, () => failure("closed")),
+          validateDocument: () => Effect.void,
           error: failure, uniqueConflict: () => failure("uniqueConflict"),
           limits: { pageRows: 8, identities, documentBytes: 65_536 },
         }, firstTime, [], [], { observeQuery: query => {
@@ -250,10 +252,17 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         return { working, lifetime, id };
       });
       const first = yield* open(firstTable, "notes");
+      // Pending seed hydration is the first actual historical load.
+      expect(checkedReads - firstReadCount).toBe(1);
+      expect(rootSnapshotRevisions).toBe(1);
+      expect(admissionTransactions - rootAdmissionCount).toBe(0);
       expect(yield* first.working.documents.get(first.lifetime.context, first.id, firstId, "notes"))
         .toMatchObject({ label: "pending" });
       expect(yield* first.working.documents.patch(first.lifetime.context, first.id, firstId,
         { label: "native-first" }, "notes")).toMatchObject({ label: "native-first" });
+      expect(checkedReads - firstReadCount).toBe(1);
+      expect(rootSnapshotRevisions).toBe(1);
+      expect(admissionTransactions - rootAdmissionCount).toBe(0);
       yield* first.lifetime.seal;
       const firstChanges = yield* first.working.close();
       expect(firstChanges.attempts).toHaveLength(1);
@@ -263,8 +272,12 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         ._tag).toBe("Failure");
 
       const second = yield* open(secondTable, "labels");
+      expect(checkedReads - firstReadCount).toBe(1);
       expect(yield* second.working.documents.get(second.lifetime.context, second.id, secondId, "labels"))
         .toEqual(null);
+      expect(checkedReads - firstReadCount).toBe(2);
+      expect(rootSnapshotRevisions).toBe(2);
+      expect(admissionTransactions - rootAdmissionCount).toBe(0);
       expect(yield* second.working.documents.get(second.lifetime.context, second.id, secondId, "labels"))
         .toEqual(null);
       yield* second.lifetime.seal;
@@ -275,6 +288,8 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         ._tag).toBe("Failure");
 
       const third = yield* open(firstTable, "notes");
+      expect(checkedReads - firstReadCount).toBe(2);
+      expect(rootSnapshotRevisions).toBe(2);
       expect(yield* third.working.documents.get(third.lifetime.context, third.id, firstId, "notes"))
         .toMatchObject({ label: "native-first" });
       expect(yield* third.working.documents.patch(third.lifetime.context, third.id, firstId,
@@ -285,10 +300,11 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       expect(thirdChanges.attempts[0]?.ordinal).toBe(0);
       expect(thirdChanges.dependencies.map(dependency => dependency.documentId)).toContain(firstId);
       yield* projectLogicalDocumentJournalContribution(thirdChanges);
-      // Cached native gets still make fresh checked calls. Only the two new
-      // root identities perform historical revision reads.
-      expect(checkedReads - firstReadCount).toBe(5);
+      // Root-local cached gets, patches and later source reuse stay tentative.
+      // Only seed hydration and the uncached tombstone load use checked SQL.
+      expect(checkedReads - firstReadCount).toBe(2);
       expect(rootSnapshotRevisions).toBe(2);
+      expect(admissionTransactions - rootAdmissionCount).toBe(0);
       const detached = root.snapshot();
       expect(detached.changes).toHaveLength(1);
       expect(detached.changes[0]).toMatchObject({ documentId: firstId, kind: "live" });
@@ -317,6 +333,27 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         validateDocument: () => Effect.void, error: failure,
         uniqueConflict: () => failure("uniqueConflict"), limits: { pageRows: 8, identities: 8, documentBytes: 65_536 },
       }, firstTime, [], [])))._tag).toBe("Failure");
+      const refused = yield* open(firstTable, "notes");
+      const beforeRefusedRead = checkedReads;
+      const beforeRefusedSql = rootSnapshotRevisions;
+      const beforeRefusedDependencies = root.snapshot().dependencies.length;
+      const beforeRefusedAdmissions = admissionTransactions;
+      allowed = false;
+      // A later persisted refusal is discovered by the next actual read;
+      // previously observed root-local data remains tentative in the meantime.
+      expect(yield* refused.working.documents.get(refused.lifetime.context, refused.id, firstId, "notes"))
+        .toMatchObject({ label: "native-second" });
+      expect(checkedReads).toBe(beforeRefusedRead);
+      expect(admissionTransactions).toBe(beforeRefusedAdmissions);
+      expect(yield* Effect.result(refused.working.documents.get(refused.lifetime.context, refused.id, absentId, "notes")))
+        .toMatchObject({ _tag: "Failure", failure: { message: "sourceMismatch" } });
+      expect(checkedReads).toBe(beforeRefusedRead + 1);
+      expect(rootSnapshotRevisions).toBe(beforeRefusedSql);
+      expect(admissionTransactions).toBe(beforeRefusedAdmissions);
+      expect(root.snapshot().dependencies).toHaveLength(beforeRefusedDependencies);
+      expect(root.snapshot().dependencies.map(dependency => dependency.documentId)).not.toContain(absentId);
+      expect(active).toBe(false);
+      allowed = true;
       root.close();
       expect(() => root.snapshot()).toThrow("closed");
       const limited = makeLogicalDocumentRootEvaluator(pins, { identities: 2, workingBytes: 1_048_576 });

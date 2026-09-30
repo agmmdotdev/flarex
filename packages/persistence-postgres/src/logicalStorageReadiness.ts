@@ -1,5 +1,7 @@
 import { Data, Effect, Result } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
+import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from "./indexBuildReconciliation";
@@ -7,7 +9,7 @@ import { readRequiredEnabledIndexBuildsInTransactionEffect, decodeIndexBuildStat
   readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect,
   isIndexBuildSnapshotCoveredInTransactionEffect,
   validateIndexBuildStateFrontierResult } from "./indexBuildStates";
-import { hasAppUniqueConstraintSetEligibilityCompositionV1, prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet,
+import { hasAppUniqueConstraintSetEligibilityCompositionV1, prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, selectPreparedAppUniqueConstraintSet,
   chargeUniqueConstraintPreparation,
   type AppUniqueConstraintSetEligibilityPortV1, type AppUniqueConstraintSetBuildPortsV1 } from "./appUniqueConstraintSetBuildV1";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
@@ -41,6 +43,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     (_, member: unknown) => typeof member === "bigint" ? member.toString() : member));
   if (requirements.manifest.kind !== "logicalSchemaCandidate")
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "notLogicalCandidate" }));
+  const applicationAnalysis = requirements.manifest.applicationAnalysis;
   if (requirements.manifest.scopeId !== captured.scopeId)
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
   const constraints = yield* prepareAppUniqueConstraintSet(unique, captured);
@@ -63,10 +66,11 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
   /** Call inside the accepting owner's transaction after it locks the scope
    * clock. This observes fresh structural coverage; the outer binding owner
    * must still select this exact schema/digest and authenticate semantic gates. */
-  const inspect = Effect.fn("LogicalStorageReadiness.inspect")(function* (
+  const inspectIndexes = Effect.fn("LogicalStorageReadiness.inspectIndexes")(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    checkedActive?: CheckedApplicationActiveHead,
+    definitions: typeof requirements.definitions, checkedActive?: CheckedApplicationActiveHead,
   ) {
+    const inspectedDefinitionIds = Object.freeze(definitions.map(definition => definition.indexDefinitionId));
     if (authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId || clock.scopeId !== authority.scopeId ||
       clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence)
       return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
@@ -78,13 +82,13 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     let previousCommitSeq = clock.lastCommitSeq;
     let latestCoverage: IndexCoverageContext | undefined;
     for (let refresh = 0; refresh < 3; refresh++) {
-      const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, definitionIds, "key share");
+      const builds = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, inspectedDefinitionIds, "key share");
       if (builds.status === "not_ready") return Object.freeze({ ...builds, kind: "index" as const });
       const observedClock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, clock.scopeId);
       if (observedClock.storageGeneration !== clock.storageGeneration || observedClock.storageGenerationFence !== clock.storageGenerationFence ||
         observedClock.epoch !== clock.epoch || observedClock.lastCommitSeq < clock.lastCommitSeq)
         return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
-      const selected = requirements.definitions.map(definition => {
+      const selected = definitions.map(definition => {
         const row = builds.rows.find(build => build.indexDefinitionId === definition.indexDefinitionId);
         if (row === undefined) return { definition, state: null } as const;
         const decoded = decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId);
@@ -101,7 +105,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       const coverage = yield* readIndexCoverageContextInTransactionEffect(tx, observedClock, checkedActive);
       latestCoverage = coverage;
       let frontierBatchReady = false;
-      let uncoveredIndexDefinitionId: (typeof requirements.definitions)[number]["indexDefinitionId"] | undefined;
+      let uncoveredIndexDefinitionId: (typeof definitions)[number]["indexDefinitionId"] | undefined;
       for (const { definition, state: decoded } of selected) {
         if (decoded === null) return yield* Effect.die("Complete required build set lost a member");
         const state = yield* Effect.fromResult(decoded);
@@ -129,16 +133,109 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       return Object.freeze({ status: "not_ready" as const, kind: "index" as const, reason: "notCovered" as const,
         indexDefinitionId: uncoveredIndexDefinitionId });
     }
+    return Object.freeze({ status: "ready" as const, coverage: latestCoverage });
+  });
+  const inspect = Effect.fn("LogicalStorageReadiness.inspect")(function* (
+    tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    checkedActive?: CheckedApplicationActiveHead,
+  ) {
+    const indexes = yield* inspectIndexes(tx, authority, clock, requirements.definitions, checkedActive);
+    if (indexes.status === "not_ready") return indexes;
+    const latestCoverage = indexes.coverage;
     const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, clock,
       "concurrentProgress", latestCoverage);
     if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
     const searchReadiness = yield* search.inspect(tx, authority, clock);
     if (searchReadiness.status === "not_ready")
       return Object.freeze({ ...searchReadiness, kind: "search" as const });
-    return Object.freeze({ status: "ready" as const, schemaVersionId: captured.schemaVersionId, manifestSha256Hex,
+    return Object.freeze({ status: "ready" as const, readiness: "full" as const, schemaVersionId: captured.schemaVersionId, manifestSha256Hex,
       snapshotCommitSeq: clock.lastCommitSeq, indexDefinitionIds: definitionIds, unique: eligibility });
   });
-  return Object.freeze({ status: "prepared" as const, inspect, advanceEmptySearch: search.advanceEmpty,
+  /** Source-complete closure is derived here, never supplied by adapters or
+   * method allowlists. Incoming edges include reverse/delete obligations and
+   * outgoing edges include target identities. Repeat for each added source. */
+  const selectSources = Effect.fn("LogicalStorageReadiness.selectSources")(function* (requestedSourceKeys: readonly string[]) {
+    const sources = sourceRequirements.evidence.candidate.sources;
+    if (requestedSourceKeys.length === 0 || requestedSourceKeys.length > sources.length)
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    const selectedSources = new Set(requestedSourceKeys);
+    if (selectedSources.size !== requestedSourceKeys.length ||
+      [...selectedSources].some(key => !sources.some(source => source.key === key)))
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+    // The canonical candidate decoder proves declared-name cardinality and
+    // definition/view shape; admission proves the complete stable binding set.
+    const sourceTables: Readonly<{ source: typeof sources[number]; tables: readonly CatalogTableId[] }>[] = [];
+    for (const source of sources) {
+      const tables: CatalogTableId[] = [];
+      for (const binding of source.bindings) {
+        const table = sourceRequirements.evidence.tableBindings.find(member => logicalTableKey(member.table) === logicalTableKey(binding.table));
+        if (table === undefined) return yield* Effect.die("Authenticated source lost its stable table binding");
+        tables.push(table.tableId);
+      }
+      sourceTables.push(Object.freeze({ source, tables: Object.freeze(tables) }));
+    }
+    // Normalized foreign keys are admitted only within their owning source.
+    // A cross-source normalized target is not proved by this source closure.
+    for (const { source } of sourceTables) {
+      if (source.definition.kind !== "relational") continue;
+      const schema = source.definition.schema;
+      for (const table of schema.tables) for (const constraint of table.constraints) {
+        if (constraint.kind !== "foreignKey") continue;
+        if (constraint.targetColumns.some(column => column.owner !== table.identity.owner ||
+          column.lineageId !== table.identity.lineageId || !schema.tables.some(target =>
+            target.identity.tableId === column.tableId)))
+          return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+      }
+    }
+    const selectedTables = new Set(sourceTables.filter(member => selectedSources.has(member.source.key))
+      .flatMap(member => member.tables));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      // A view reads its definition owner's tables, whose complete source
+      // obligations are included before following relation/delete edges.
+      for (const member of sourceTables) {
+        if (selectedSources.has(member.source.key) || !member.tables.some(tableId => selectedTables.has(tableId))) continue;
+        selectedSources.add(member.source.key);
+        for (const tableId of member.tables) selectedTables.add(tableId);
+        changed = true;
+      }
+      for (const reference of strongReferences) {
+        if (!selectedTables.has(reference.sourceTableId) && !selectedTables.has(reference.targetTableId)) continue;
+        for (const member of sourceTables) {
+          if (!member.tables.includes(reference.sourceTableId) && !member.tables.includes(reference.targetTableId)) continue;
+          if (!selectedSources.has(member.source.key)) {
+            selectedSources.add(member.source.key);
+            for (const tableId of member.tables) selectedTables.add(tableId);
+            changed = true;
+          }
+        }
+      }
+    }
+    const sourceKeys = Object.freeze(sourceTables.filter(member => selectedSources.has(member.source.key)).map(member => member.source.key));
+    const tableIds = Object.freeze([...selectedTables].toSorted((left, right) => left - right));
+    const definitions = Object.freeze(requirements.definitions.filter(definition => selectedTables.has(definition.tableId)));
+    const selectedUnique = yield* selectPreparedAppUniqueConstraintSet(unique, constraints.preparation, tableIds);
+    const selectedSearch = search.selectTables(tableIds);
+    const inspectSelected = Effect.fn("LogicalStorageReadiness.inspectSelected")(function* (
+      tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+      checkedActive?: CheckedApplicationActiveHead,
+    ) {
+      const indexes = yield* inspectIndexes(tx, authority, clock, definitions, checkedActive);
+      if (indexes.status === "not_ready") return indexes;
+      const eligibility = yield* selectedUnique.inspectSelected(tx, authority, clock, indexes.coverage);
+      if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
+      const searchReadiness = yield* selectedSearch.inspectSelected(tx, authority, clock);
+      if (searchReadiness.status === "not_ready") return Object.freeze({ ...searchReadiness, kind: "search" as const });
+      return Object.freeze({ status: "ready" as const, readiness: "selected" as const,
+        schemaVersionId: captured.schemaVersionId, manifestSha256Hex, sourceKeys, tableIds,
+        snapshotCommitSeq: clock.lastCommitSeq, indexDefinitionIds: Object.freeze(definitions.map(definition => definition.indexDefinitionId)) });
+    });
+    return Object.freeze({ inspectSelected, sourceKeys, tableIds,
+      reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
+      applicationAnalysis });
+  });
+  return Object.freeze({ status: "prepared" as const, inspect, selectSources, advanceEmptySearch: search.advanceEmpty,
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
-    applicationAnalysis: requirements.manifest.applicationAnalysis, strongReferences });
+    applicationAnalysis, strongReferences });
 });

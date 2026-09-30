@@ -79,15 +79,15 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
       sourceSha256: requirement.sourceSha256, kind: requirement.kind }));
   }
   const selected = Object.freeze(definitions);
-  const tableIds = Object.freeze([...new Set(selected.map(definition => definition.tableId))]);
-  const needsJsonPhysical = selected.some(definition => definition.kind === "jsonContainment");
-  const needsTextPhysical = selected.some(definition => definition.kind !== "jsonContainment");
 
   /** A serving decision observes every declared search index and the current
    * row frontier. A missing or stale coverage row never grants search reads. */
-  const inspect = Effect.fn("LogicalSearchBuild.inspect")(function* (
-    tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+  const inspectDefinitions = Effect.fn("LogicalSearchBuild.inspectDefinitions")(function* (
+    inspected: typeof selected, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
   ) {
+    const tableIds = Object.freeze([...new Set(inspected.map(definition => definition.tableId))]);
+    const needsJsonPhysical = inspected.some(definition => definition.kind === "jsonContainment");
+    const needsTextPhysical = inspected.some(definition => definition.kind !== "jsonContainment");
     if (authority.deploymentId !== deploymentId || clock.scopeId !== authority.scopeId ||
       clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration ||
       clock.storageGenerationFence !== authority.storageGenerationFence)
@@ -97,12 +97,12 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
     let observedClock = clock;
     for (let refresh = 0; refresh < 3; refresh++) {
       let uncovered = false;
-      if (selected.length === 0) return Object.freeze({ status: "ready" as const, definitionCount: 0 });
+      if (inspected.length === 0) return Object.freeze({ status: "ready" as const, definitionCount: 0 });
       let physical: Readonly<{ jsonReady: boolean; textReady: boolean }> | undefined;
       let frontiers: ReadonlyMap<CatalogTableId,
         Result.Result<CommitSeq | null, AppRowTableFrontierCorruptionError>> | undefined;
-      for (let offset = 0; offset < selected.length; offset += SEARCH_STATE_BATCH_SIZE) {
-        const batch = selected.slice(offset, offset + SEARCH_STATE_BATCH_SIZE);
+      for (let offset = 0; offset < inspected.length; offset += SEARCH_STATE_BATCH_SIZE) {
+        const batch = inspected.slice(offset, offset + SEARCH_STATE_BATCH_SIZE);
         const states = yield* runDrizzleStatementEffect(tx.select({
           tableId: fxSystemSearchBuildStates.tableId,
           logicalIndexId: fxSystemSearchBuildStates.logicalIndexId,
@@ -137,7 +137,7 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
             frontiers = yield* readAppTableWriteFrontiersInTransactionEffect(tx, authority.scopeId, tableIds)
               .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
           const frontier = frontiers.get(definition.tableId);
-          if (frontier === undefined) return yield* Effect.die("Search table frontier lost a selected member");
+          if (frontier === undefined) return yield* Effect.die("Search table frontier lost a inspected member");
           const tableFrontier = yield* Effect.fromResult(frontier)
             .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
           if (state.coveredThroughCommitSeq > observedClock.lastCommitSeq ||
@@ -148,7 +148,7 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
         }
         if (uncovered) break;
       }
-      if (!uncovered) return Object.freeze({ status: "ready" as const, definitionCount: selected.length });
+      if (!uncovered) return Object.freeze({ status: "ready" as const, definitionCount: inspected.length });
       // READ COMMITTED may see a publication between the admitted clock and
       // the coverage/frontier reads. Refresh only when that clock advanced;
       // persistent or structurally invalid coverage remains a refusal.
@@ -211,5 +211,13 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
     }
     return Object.freeze({ status: "ready" as const, definitionCount: selected.length });
   });
-  return Object.freeze({ advanceEmpty, inspect, definitionCount: selected.length });
+  const inspect = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+    inspectDefinitions(selected, tx, authority, clock);
+  const selectTables = (tables: readonly CatalogTableId[]) => {
+    const tableSet = new Set(tables);
+    const inspected = Object.freeze(selected.filter(definition => tableSet.has(definition.tableId)));
+    return Object.freeze({ inspectSelected: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
+      clock: ScopeClockRecord) => inspectDefinitions(inspected, tx, authority, clock) });
+  };
+  return Object.freeze({ advanceEmpty, inspect, selectTables, definitionCount: selected.length });
 });

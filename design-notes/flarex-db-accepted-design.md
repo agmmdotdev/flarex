@@ -99,8 +99,25 @@ successful. Local handle, scope, closed/cancelled lifetime and budget refusal
 precedes foreign input capture; the earlier database-revocation-versus-foreign-
 getter ordering is deliberately relaxed. No foreign getter runs inside SQL.
 Every actual database access, aggregate seal and later publication retains
-its existing full exact-running/session, selected source/readiness, physical
-and protected-epoch checks in short owned transactions. This exception does
+its existing full exact-running/session, source authentication and protected-epoch
+checks in short owned transactions. The [approved dependency-validation slice](../roadmaps/mixed-mutation-core/13-dependency-validation-preflight.md)
+permits private finite internal reads to check source-complete readiness: trusted
+storage owners select every admitted source definition and required transitive
+reference/target/delete dependency. A multi-source bundle derives the complete
+union from actual issued source states; one common proof may be shared only in
+its accepting read transaction under the exact requested set and existing
+common identities. Every source retains its own authority and pinned-head check,
+and full proof remains distinct. Required lifecycle, coverage and physical
+definitions remain fresh; full canonical bodies, heads, membership and complete
+closed unique-set authentication remain mandatory. An unrelated definition that
+becomes unready after entry may permit a tentative internal read; full entry,
+aggregate seal and publication still refuse durability. Complete canonical
+unique closure/spec authentication retains its existing configured-control
+preparation lifetime as detached bounded evidence; accepting transactions check
+fresh target build readiness rather than reread that control closure. This adds
+no wider protection or control/target coordination contract. A selected verdict is
+never full admission, and standalone and durable-operation reads retain full
+readiness. This exception does
 not grant a cached database admission across transactions or relax ordinary
 standalone and durable-operation callers. Broader protected metadata, compact
 session guards and cheaper per-transaction epoch attestation remain separate

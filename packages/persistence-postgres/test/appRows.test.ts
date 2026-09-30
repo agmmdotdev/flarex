@@ -1,3 +1,5 @@
+import { newTestPGlite } from "./pgliteSearchExtensions";
+import { snapshotHydrationBatchScenario } from "./snapshotHydrationBatchScenario";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -62,6 +64,17 @@ const creationTime = decodeAppCreationTimeV1(1_725_000_000_000.25);
 const identity = Object.freeze({ scopeId, tableId, rowId }) satisfies AppRowIdentityV1;
 
 describe("FlarexDB app-row revision storage", () => {
+  it("hydrates bounded historical batches in request order with exact failures", async () => {
+    const db = newTestPGlite();
+    const persistence = await createPGlitePersistence({ db });
+    await persistence.migrate();
+    await insertClock(persistence, scopeId, firstEpoch);
+    try {
+      await persistence.drizzle.transaction(tx => snapshotHydrationBatchScenario(tx,
+        { identity, epoch: firstEpoch, schemaVersionId, creationTime }));
+    } finally { await db.close(); }
+  });
+
   it("preserves exact missing, live, update, and tombstone history", async () => {
     const persistence = await appRowPersistence();
     const first = await canonicalDocument({

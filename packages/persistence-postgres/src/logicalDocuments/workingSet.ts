@@ -14,10 +14,10 @@ import { FlarexValueCodecV1Error } from "flarex-protocol/value";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import { isJsonObject, type Json, type JsonObject } from "flarex-protocol/json";
 import { canonicalizeFlarexValueV1Effect, type CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import { readAppRowAtSnapshotInTransactionEffect, readBoundedCurrentAppRowsInTransactionEffect, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
+import { consumeBoundedAppRowsAtSnapshotInTransactionEffect, readAppRowAtSnapshotInTransactionEffect, readBoundedCurrentAppRowsInTransactionEffect, MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
   MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES,
   InvalidAppRowReadInputError, AppRowReadPersistenceError,
-  type AppRowRevisionV1 } from "../appRows";
+  type AppRowReadResultV1, type AppRowRevisionV1 } from "../appRows";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { lowerCanonicalAppUniqueConstraintV1Result, type LoweredCanonicalAppUniqueConstraintV1 } from "../appUniqueConstraintCommitV1";
 import { readAppUniqueKeySlotInTransactionEffect, AppUniqueKeyPersistenceError, AppUniqueKeyHashError } from "../appUniqueKeys";
@@ -304,15 +304,14 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       if (selected.length > callIdentityLimit || uncached.length > Math.min(MAX_BOUNDED_APP_ROW_READ_IDENTITIES,
         limits.identities - dependencies.size))
         return yield* Effect.fail(error("limitExceeded"));
+      if (rowIds !== undefined && uncached.some(selectedRowId => rows.has(appDocumentIdV1FromRowIdentity({ tableId, rowId: selectedRowId }))))
+        return yield* Effect.fail(error("storedCorruption"));
       let loadedBytes = 0;
-      for (const selectedRowId of uncached) {
-        const base = yield* readAppRowAtSnapshotInTransactionEffect(tx, {
-          scopeId: state.scopeId, tableId, rowId: selectedRowId, snapshotCommitSeq,
-        }, testHooks?.observeQuery).pipe(Effect.mapError(cause => error(cause instanceof AppRowReadPersistenceError
-          ? "statementFailure" : "storedCorruption", cause)));
+      const consume = Effect.fn(function* (selectedRowId: AppRowIdHexV1,
+        base: AppRowReadResultV1) {
         const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId: selectedRowId });
         yield* observe(tableId, selectedRowId, base.kind === "missing" ? null : base, snapshotCommitSeq);
-        if (base.kind === "missing" || dependencies.has(documentId) && rows.has(documentId)) continue;
+        if (base.kind === "missing" || dependencies.has(documentId) && rows.has(documentId)) return;
         loadedBytes += base.kind === "live" ? base.document.canonicalBytes.byteLength : 0;
         if (loadedBytes > Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()) ||
           base.kind === "live" && base.document.canonicalBytes.byteLength > limits.documentBytes)
@@ -320,7 +319,22 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         yield* charge(128 + (base.kind === "live" ? base.document.canonicalBytes.byteLength : 0));
         rows.set(documentId, { tableId, tableName: table.logicalName, rowId: selectedRowId, documentId, base,
           creationTime: base.creationTime, current: base.kind === "live" ? base.document : null, attempts: [] });
-      }
+      });
+      // These identities were decoded and deduplicated by the point/index planner.
+      // Keep point reads unchanged; only requested batches share one snapshot query.
+      if (rowIds === undefined) {
+        for (const selectedRowId of uncached) {
+          const base = yield* readAppRowAtSnapshotInTransactionEffect(tx, {
+            scopeId: state.scopeId, tableId, rowId: selectedRowId, snapshotCommitSeq,
+          }, testHooks?.observeQuery).pipe(Effect.mapError(cause => error(cause instanceof AppRowReadPersistenceError
+            ? "statementFailure" : "storedCorruption", cause)));
+          yield* consume(selectedRowId, base);
+        }
+      } else yield* consumeBoundedAppRowsAtSnapshotInTransactionEffect(tx, {
+        scopeId: state.scopeId, tableId, rowIds: uncached, snapshotCommitSeq,
+        maximumTotalValueBytes: Math.min(MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES, lifetime.remainingBytes()),
+      }, cause => error(cause instanceof AppRowReadPersistenceError ? "statementFailure" : "storedCorruption", cause),
+        consume, testHooks?.observeQuery);
       return;
     }
     const capture = yield* readBoundedCurrentAppRowsInTransactionEffect(tx, {

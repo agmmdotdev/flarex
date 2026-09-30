@@ -412,6 +412,35 @@ export const acceptPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstrai
       undefined, progressObservation, coverageHint);
   },
 );
+/** Select mutable build checks from the same authenticated complete catalog
+ * preparation. Its full canonical closure remains detached under the existing
+ * preparation lifetime. No whole-set eligibility evidence is issued. */
+export const selectPreparedAppUniqueConstraintSet = Effect.fn("AppUniqueConstraintSetBuild.selectPreparedCatalog")(
+  function* (port: AppUniqueConstraintSetEligibilityPortV1, preparation: AppUniqueConstraintSetPreparation,
+    tableIds: readonly CatalogTableId[]) {
+    const state = uniquePreparations.get(preparation);
+    if (state === undefined || state.port !== port)
+      return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "invalidPort", retryable: false }));
+    const tables = new Set(tableIds);
+    const selection = Object.freeze({ schemaVersionId: state.snapshot.schemaVersionId,
+      members: Object.freeze(state.snapshot.members.filter(member => tables.has(member.tableId))) });
+    const selectedTableIds = Object.freeze(state.tableIds.filter(id => tables.has(id)));
+    const inspectSelected = Effect.fn("AppUniqueConstraintSetBuild.inspectSelectedPreparedCatalog")(function* (
+      tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+      coverageHint?: IndexCoverageContext,
+    ) {
+      if (state.scopeId !== authority.scopeId || state.scopeId !== clock.scopeId ||
+        state.snapshot.deploymentId !== authority.deploymentId)
+        return yield* Effect.fail(new AppUniqueConstraintSetEligibilityV1Error({ reason: "scopeMismatch", retryable: false }));
+      yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+      const checked = yield* inspectBuildReadinessWithLockedClock(tx, authority, selection, selectedTableIds,
+        clock, undefined, "concurrentProgress", coverageHint);
+      if (checked.status === "not_ready") return checked;
+      return Object.freeze({ status: "ready" as const, definitionCount: selection.members.length });
+    });
+    return Object.freeze({ inspectSelected });
+  },
+);
 const eligibilityEvidencePorts = new WeakMap<
   object,
   AppUniqueConstraintSetEligibilityPortV1
@@ -1373,6 +1402,38 @@ const inspectEligibilityWithLockedClock = Effect.fn(
   progressObservation: "fixed" | "concurrentProgress" = "fixed",
   coverageHint?: IndexCoverageContext,
 ) {
+  const readiness = yield* inspectBuildReadinessWithLockedClock(tx, authority, snapshot, tableIds,
+    clock, expectedEvidence, progressObservation, coverageHint);
+  if (readiness.status === "not_ready") return readiness;
+  const { identities, observedClock } = readiness;
+  if (expectedEvidence !== undefined)
+    return Object.freeze({
+      status: "eligible" as const,
+      evidence: expectedEvidence,
+    });
+  const evidence: AppUniqueConstraintSetEligibilityEvidenceV1 = Object.freeze({
+    deploymentId: snapshot.deploymentId,
+    scopeId: authority.scopeId,
+    schemaVersionId: snapshot.schemaVersionId,
+    definitionCount: snapshot.definitionCount,
+    definitionSetSha256Hex: snapshot.definitionSetSha256Hex,
+    tableIds,
+    storageGeneration: authority.storageGeneration,
+    storageGenerationFence: observedClock.storageGenerationFence,
+    epoch: authority.epoch,
+    definitionBuilds: Object.freeze(identities),
+    [eligibilityEvidenceBrand]: true as const,
+  });
+  eligibilityEvidencePorts.set(evidence, port);
+  eligibilityEvidenceSnapshots.set(evidence, snapshot);
+  return Object.freeze({ status: "eligible" as const, evidence });
+});
+
+const inspectBuildReadinessWithLockedClock = Effect.fn("AppUniqueConstraintSetBuild.inspectBuildReadiness")(
+  function* (tx: AppRowTransaction, authority: TrustedScopeAuthority, snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
+    tableIds: ReadonlyArray<CatalogTableId>, clock: ScopeClockRecord,
+    expectedEvidence?: AppUniqueConstraintSetEligibilityEvidenceV1,
+    progressObservation: "fixed" | "concurrentProgress" = "fixed", coverageHint?: IndexCoverageContext) {
   const selected = yield* loadSelectedBuildStates(tx, authority, snapshot, clock, progressObservation);
   const states = selected.states;
   const observedClock = selected.clock;
@@ -1438,27 +1499,7 @@ const inspectEligibilityWithLockedClock = Effect.fn(
       });
     identities.push(identity);
   }
-  if (expectedEvidence !== undefined)
-    return Object.freeze({
-      status: "eligible" as const,
-      evidence: expectedEvidence,
-    });
-  const evidence: AppUniqueConstraintSetEligibilityEvidenceV1 = Object.freeze({
-    deploymentId: snapshot.deploymentId,
-    scopeId: authority.scopeId,
-    schemaVersionId: snapshot.schemaVersionId,
-    definitionCount: snapshot.definitionCount,
-    definitionSetSha256Hex: snapshot.definitionSetSha256Hex,
-    tableIds,
-    storageGeneration: authority.storageGeneration,
-    storageGenerationFence: observedClock.storageGenerationFence,
-    epoch: authority.epoch,
-    definitionBuilds: Object.freeze(identities),
-    [eligibilityEvidenceBrand]: true as const,
-  });
-  eligibilityEvidencePorts.set(evidence, port);
-  eligibilityEvidenceSnapshots.set(evidence, snapshot);
-  return Object.freeze({ status: "eligible" as const, evidence });
+  return Object.freeze({ status: "ready" as const, identities: Object.freeze(identities), observedClock });
 });
 
 const loadSelectedBuildStates = Effect.fn(
@@ -1466,7 +1507,7 @@ const loadSelectedBuildStates = Effect.fn(
 )(function* (
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
-  snapshot: BuildSnapshot,
+  snapshot: Pick<BuildSnapshot, "schemaVersionId" | "members">,
   clock: ScopeClockRecord,
   progressObservation: "fixed" | "concurrentProgress" = "fixed",
 ) {
