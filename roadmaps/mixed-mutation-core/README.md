@@ -86,6 +86,17 @@ retained with zero exclusions. Fresh checks at actual database boundaries
 remain a measured cost owner. Broader structural protection, compact session
 guards and cheaper epoch attestation remain separately gated.
 
+The [compact checked-access preflight](./12-compact-checked-access-preflight.md)
+proposes one connected correction: narrow unused checked-session transport,
+remove unused callback facet observation while retaining reload/acquisition/
+recovery eligibility, and consolidate full fresh source/Application/readiness
+reads through their owners. Its private callback contract decision and runtime
+implementation remain pending. It expands neither metadata protection nor
+connection attestation; mutable readiness, physical checks and the full epoch
+guard stay fresh. The preflight also distinguishes the scalar checked kernel
+from separately owned argument/grant body authentication and records its
+publication proof limitation without claiming a new tamper guarantee.
+
 The finite root has an immutable journal marker and a first protected legacy
 Application target projection. That projection has ten trigger-covered tables
 and an authenticated restricted runtime role; standalone selection and final

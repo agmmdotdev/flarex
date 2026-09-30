@@ -101,21 +101,34 @@ the approved local-operation cutover:
 | Scope clock, session, lease, journal, execution claim, binding/Application head, revocation, placement and physical/index readiness used by a read. | Retain their current full fresh checks in each actual database transaction. They are not immutable structural metadata and cannot be certified by the ten-table epoch; a narrower compact proof is a later gate. |
 
 “Compact” does not mean checking only `sessionId`, fence and a stored hash.
-The current attempt kernel loads and validates session execution authority,
-validated arguments and grant JSON/bytes and hashes, request identity,
-schema/policy pin, session lifecycle, lease snapshot, journal root/profile,
-claim and time. `transactionSessionActivation.ts` owns that integrity and
+The current per-read and aggregate-seal kernel validates session fences,
+generation, revocation and expiries, request key, schema pin, lifecycle, lease
+snapshot, journal root/profile, claim and post-lock database time. Its broad
+session SELECT also fetches argument/grant bodies and hashes, but this kernel
+does not authenticate or hash those bodies. Activation replay's
+`sessionEvidenceMatches`, the `storedAttemptEvidence.ts` loader and executor
+`storedAttemptAuthentication/commitAuthorityVerification.ts` own their
+separate body verification. Publication's `lockPointCommitSession` checks
+scalar pins and body lengths after authentication; that projection alone
+does not prove rejection of a same-length, unchanged-digest body edit after
+authentication. This is a static proof limitation, not a demonstrated incident
+or an accepted tamper guarantee. Preserve the authentication witnesses and
+trace that owner's contract before changing it. The [12 proposal](./12-compact-checked-access-preflight.md)
+narrows unused transport while retaining the current ordered scalar checks;
+it does not remove existing body-authentication checks or establish new body
+protection. `transactionSessionActivation.ts` owns the checked kernel, and
 `pointCommitTransaction.ts`, `sessionJournalStore.ts` and the activation owner
 write or replace portions of the session/lease/journal/claim rows during
 activation, retry, terminalization and recovery. Before replacing its full
-row proof, inventory every immutable-on-running field and every ordinary DML
-writer; either enforce true immutability or authenticated invalidation of the
-selected bytes and JSON in the same writer transaction. A projection keyed by
-an unchanged stored digest cannot detect changed bytes if an ordinary writer
-can preserve that digest. Mutable lifecycle, claim, expiry, lease, budgets and
-journal sequence still need live checks. Wrong-scope reuse, old claims after
+authenticated proof with prepared evidence, inventory every immutable-on-running
+field and every ordinary DML writer; either enforce true immutability or
+authenticated invalidation of the selected bytes and JSON in the same writer
+transaction. A projection keyed by an unchanged stored digest cannot detect
+changed bytes if an ordinary writer can preserve that digest. Mutable
+lifecycle, claim, expiry, lease, budgets and journal sequence still need live
+checks. Wrong-scope reuse, old claims after
 expiry, and same-fence replay must refuse even if a host retains an attempt
-handle. Until that row-writer proof exists, the existing full kernel remains
+handle. Until that row-writer proof exists, current fresh validation remains
 the read/seal boundary; “compact” is a measured goal, not a licensed shortcut.
 
 The current runtime login is restricted for the ten protected target tables,
