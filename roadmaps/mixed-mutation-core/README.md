@@ -108,6 +108,18 @@ guard stay fresh. The preflight also distinguishes the scalar checked kernel
 from separately owned argument/grant body authentication and records its
 publication proof limitation without claiming a new tamper guarantee.
 
+The [dependency-validation preflight](./13-dependency-validation-preflight.md)
+is the next focused proposal, with no runtime cutover. It recommends complete
+trusted source dependencies for finite internal checked reads, preserves full
+entry/seal/publication authentication, and separates immutable schema evidence
+from fresh authority and required readiness. An unrelated post-entry readiness
+failure may stop blocking that internal read while full seal still refuses
+durability. Exact operation closure, wider writer protection, reduced catalog
+attestation and privileged maintenance enforcement require their explicit
+proof and contract decisions; a method grant or stable digest cannot supply
+them. The existing full checks remain current until scope agreement and the
+connected consumer cutover are complete.
+
 The finite root has an immutable journal marker and a first protected legacy
 Application target projection. That projection has ten trigger-covered tables
 and an authenticated restricted runtime role; standalone selection and final
