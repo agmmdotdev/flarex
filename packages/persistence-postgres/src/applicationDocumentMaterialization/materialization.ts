@@ -4,9 +4,11 @@ import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protoc
 import {
   isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect,
+  readIndexCoverageTableFrontiersInTransactionEffect,
+  readPreparedIndexCoverageTableFrontiers,
   validateIndexBuildStateFrontierResult,
 } from "../indexBuildStates";
-import { sqlCall } from "../pointCommitErrors";
+import { sqlCall, pointCommitSqlCallFailure } from "../pointCommitErrors";
 import {
   runPointCommitInTransactionEffect,
   projectPointCommitTransactionResult,
@@ -56,7 +58,7 @@ import {
 
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 
 import {
@@ -549,10 +551,16 @@ export async function materializeApplicationDocumentRows(
       cause.reason === "resourceFailure" ? new PointCommitSqlFailureMarkerV1("lockDeveloperIndexBuilds", cause.cause)
         : corruption("developerIndexBuildInvalid"))),
   ));
+  const indexFrontierTableIds = [...new Set(maintainedBuilds.flatMap(({ build, definition }) =>
+    build.lifecycle === "enabled" && build.maintenance === null &&
+      build.coveredThroughCommitSeq !== null && build.coveredThroughCommitSeq < clock.lastCommitSeq &&
+      build.firstReadableCommitSeq !== null && build.firstReadableCommitSeq <= clock.lastCommitSeq
+      ? [definition.access.tableId] : []))];
   const uniqueBuilds = await runUniqueCoverage(
     prepareActiveUniqueCoverageInTransactionEffect(tx, clock, command.authorityPins.schemaVersionId,
-      uniqueDefinitions, coverageContext, publicationProfile, deferCoverage),
+      uniqueDefinitions, coverageContext, publicationProfile, deferCoverage, indexFrontierTableIds),
   );
+  let indexFrontiersPrepared = false;
   for (const { build, definition } of maintainedBuilds) {
     const mode = publicationModeForIndex(publicationProfile, definition);
     if ((mode === "activeApplication" && coverageContext.active !== null && (build.lifecycle !== "enabled" || build.maintenance === null)) ||
@@ -566,6 +574,19 @@ export async function materializeApplicationDocumentRows(
       build.maintenance.frame.physicalSpecSha256Hex !== definition.physicalSpecSha256Hex))
       throw corruption("developerIndexBuildInvalid");
     if (build.lifecycle !== "enabled") continue;
+    if (!indexFrontiersPrepared && indexFrontierTableIds.length > 0 &&
+      build.maintenance === null && build.coveredThroughCommitSeq !== null &&
+      build.coveredThroughCommitSeq < clock.lastCommitSeq) {
+      const prepared = projectPointCommitTransactionResult(readPreparedIndexCoverageTableFrontiers(
+        tx, clock, coverageContext, indexFrontierTableIds).pipe(Result.mapError(() =>
+          corruption("developerIndexBuildInvalid"))));
+      if (prepared === null) projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+        readIndexCoverageTableFrontiersInTransactionEffect(tx, coverageContext, indexFrontierTableIds)
+          .pipe(Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
+            ? new PointCommitSqlFailureMarkerV1("lockDeveloperIndexBuilds", cause.cause)
+            : corruption("developerIndexBuildInvalid")))));
+      indexFrontiersPrepared = true;
+    }
     const covered = projectPointCommitTransactionResult(
       await runPointCommitInTransactionEffect(
         isIndexBuildSnapshotCoveredInTransactionEffect(
@@ -682,44 +703,67 @@ export async function materializeApplicationDocumentRows(
   // must advance only after every page is lowered, or the next page would be
   // validated against a future watermark while the scope clock is still old.
   const coverageAuthority = { authorityPins: { scopeId: command.authorityPins.scopeId } };
-  const completeCoverage = async () => {
-    for (const { build } of maintainedBuilds) {
-      if (build.lifecycle !== "enabled" || build.maintenance !== null) continue;
-      const updated = await sqlCall("resetDeveloperIndexValidation", () =>
+  const completeCoverageEffect = Effect.fn("ApplicationDocumentMaterialization.completeCoverage")(function* () {
+    const selectedIndexBuilds = maintainedBuilds.map(({ build }) => build)
+      .filter(build => build.lifecycle === "enabled" && build.maintenance === null);
+    for (let offset = 0; offset < selectedIndexBuilds.length; offset += 32) {
+      const batch = selectedIndexBuilds.slice(offset, offset + 32);
+      if (new Set(batch.map(build => build.indexDefinitionId)).size !== batch.length)
+        return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
+      const updated = yield* Effect.tryPromise({ try: () =>
         tx
           .update(fxSystemIndexBuildStates)
           .set({
             coveredThroughCommitSeq: commitSeq,
             updatedAt: sql`clock_timestamp()`,
           })
-          .where(
-            and(
-              eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
-              eq(
-                fxSystemIndexBuildStates.indexDefinitionId,
-                build.indexDefinitionId,
-              ),
-              eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
-              eq(fxSystemIndexBuildStates.epoch, build.epoch),
-              eq(
-                fxSystemIndexBuildStates.storageGenerationFence,
-                build.storageGenerationFence,
-              ),
-              eq(fxSystemIndexBuildStates.lifecycle, "enabled"),
-            ),
-          )
-          .returning({ id: fxSystemIndexBuildStates.indexDefinitionId }),
-      );
-      if (updated.length !== 1) throw corruption("developerIndexBuildInvalid");
+          .where(or(...batch.map(build => and(
+            eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
+            eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
+            eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
+            eq(fxSystemIndexBuildStates.epoch, build.epoch),
+            eq(fxSystemIndexBuildStates.storageGenerationFence, build.storageGenerationFence),
+            eq(fxSystemIndexBuildStates.lifecycle, "enabled"),
+          ))))
+          .returning({ scopeId: fxSystemIndexBuildStates.scopeId,
+            id: fxSystemIndexBuildStates.indexDefinitionId,
+            attemptFence: fxSystemIndexBuildStates.attemptFence,
+            epoch: fxSystemIndexBuildStates.epoch,
+            storageGenerationFence: fxSystemIndexBuildStates.storageGenerationFence }),
+        catch: cause => pointCommitSqlCallFailure("resetDeveloperIndexValidation", cause),
+      });
+      for (const build of batch)
+        if (!updated.some(row => row.scopeId === build.scopeId && row.id === build.indexDefinitionId &&
+          row.attemptFence === build.attemptFence && row.epoch === build.epoch &&
+          row.storageGenerationFence === build.storageGenerationFence))
+          return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
+      if (updated.length !== batch.length) return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
     }
 
+    const selectedUnique: Array<Readonly<{ state: (typeof uniqueBuilds)[number];
+      schemaVersionId: (typeof uniqueDefinitions)[number]["schemaVersionId"] }>> = [];
+    const flushUnique = Effect.gen(function* () {
+      if (selectedUnique.length === 0) return;
+      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx, selectedUnique, commitSeq)
+        .pipe(Effect.mapError(projectUniqueCoverageFailure));
+      selectedUnique.length = 0;
+    });
     for (const build of uniqueBuilds) {
       const definition = uniqueDefinitions.find(member =>
         member.uniqueConstraintDefinitionId === build.uniqueConstraintDefinitionId);
-      if (definition === undefined) throw corruption("uniqueConstraintDefinitionInvalid");
-      await runUniqueCoverage(advanceUnboundUniqueCoverageInTransactionEffect(
-        tx, [build], commitSeq, definition.schemaVersionId));
+      if (definition === undefined) {
+        yield* flushUnique;
+        return yield* Effect.fail(corruption("uniqueConstraintDefinitionInvalid"));
+      }
+      selectedUnique.push({ state: build, schemaVersionId: definition.schemaVersionId });
+      if (selectedUnique.length === 32) yield* flushUnique;
     }
+    yield* flushUnique;
+  });
+  // Drizzle's deferred Promise callback owns the sole runtime projection for
+  // the complete coverage graph. The proof hook retains its original boundary.
+  const completeCoverage = async () => {
+    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(completeCoverageEffect()));
     if (uniqueBuilds.length > 0)
       await emitTransactionStep(
         options,
@@ -740,16 +784,18 @@ async function runUniqueCoverage<A>(
 ): Promise<A> {
   return projectPointCommitTransactionResult(
     (await runPointCommitInTransactionEffect(effect)).pipe(
-      Result.mapError((failure) =>
-        failure instanceof AppUniqueConstraintSetBuildIntegrationV1Error
-          ? new PointCommitSqlFailureMarkerV1(
-              "maintainUniqueConstraintCoverage",
-              failure.cause,
-            )
-          : corruption("uniqueConstraintBuildInvalid"),
-      ),
+      Result.mapError(projectUniqueCoverageFailure),
     ),
   );
+}
+
+function projectUniqueCoverageFailure(
+  failure: AppUniqueConstraintSetBuildIntegrationV1Error |
+    import("../appUniqueConstraintSetBuildV1").AppUniqueConstraintSetBuildStateV1Error,
+): PointCommitSqlFailureMarkerV1 | PointCommitCorruptionV1Error {
+  return failure instanceof AppUniqueConstraintSetBuildIntegrationV1Error
+    ? new PointCommitSqlFailureMarkerV1("maintainUniqueConstraintCoverage", failure.cause)
+    : corruption("uniqueConstraintBuildInvalid");
 }
 
 export async function preparePointCommitApplicationRelationPlan(

@@ -6,6 +6,7 @@ import type { SessionJournalAttempt } from "../sessionJournalStore";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { makeBoundedRequestLifetime } from "../boundedRequestLifetime";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
+import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
 import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
 import { withLogicalRelationalAttemptAdmissionEffect } from "../logicalDocuments/relationalAdmission";
 import type { LogicalParticipantAttemptAdmission } from "../logicalDocuments/participantAdmission";
@@ -16,6 +17,7 @@ import { defaultCommerceResources, logicalCommerceWorkingSetLimits } from "./res
 import { captureCommerceJsonData, projectCommerceRequestFailure } from "./request";
 import { projectLogicalCommerceActivity } from "./logicalParticipant";
 import type { CommerceCommandContext } from "./commands";
+import type { CommerceTransactionError } from "./model";
 
 const refuseNested: Parameters<typeof makeCommerceCommandContext>[4] = () =>
   Effect.fail(commerceError("invalidAuthority"));
@@ -45,7 +47,14 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
         const id = yield* lifetime.begin(lifetime.context);
         for (const table of state.tables)
           yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
-        const requireAdmission = checkedRead(() => Effect.void).pipe(Effect.mapError(projectCommerceRequestFailure));
+        const localRootGate = input.rootEvaluator === undefined ? Effect.void :
+          requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
+            attempt: input.attempt, scopeId: state.root.scopeId,
+            snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
+          }, () => commerceError("closed"));
+        const requireAdmission = input.rootEvaluator === undefined
+          ? checkedRead(() => Effect.void).pipe(Effect.mapError(projectCommerceRequestFailure))
+          : localRootGate;
         const working = yield* makeLogicalDocumentWorkingSet({
           readTransaction: work => checkedRead(work).pipe(Effect.mapError(projectCommerceRequestFailure)),
           scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,
@@ -62,17 +71,23 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
             identities: resources.catalogRows },
         }, AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis), state.unique,
           state.indexes.filter(index => index.access.kind === "developer"), undefined, constructionTx);
-        return Object.freeze({ resources, lifetime, id, working });
+        return Object.freeze({ resources, lifetime, id, working, localRootGate });
       });
-    }), (state, _checkedRead, { resources, lifetime, id, working }) => Effect.gen(function* () {
+    }), (state, _checkedRead, { resources, lifetime, id, working, localRootGate }) => Effect.gen(function* () {
       const first = state.tables[0];
       if (first === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
       const store = yield* working.relationalTable(lifetime.context, id, first.localName);
       const events: Json[] = [];
-      const captureEvent = (manager: typeof lifetime.context, event: unknown) =>
+      const captureEvent = (manager: typeof lifetime.context, event: unknown,
+        decode?: (event: unknown) => Effect.Effect<Json, CommerceTransactionError>) =>
         lifetime.operation(manager, id, "write", Effect.gen(function* () {
+          yield* localRootGate;
           if (events.length >= resources.eventMessages) return yield* Effect.fail(commerceError("limitExceeded"));
-          const captured = yield* Effect.fromResult(captureCommerceJsonData(event, lifetime.remainingBytes()));
+          if (lifetime.remainingBytes() === 0) return yield* Effect.fail(commerceError("limitExceeded"));
+          const decoded = decode === undefined ? event : yield* decode(event);
+          yield* lifetime.checkpoint(manager);
+          yield* localRootGate;
+          const captured = yield* Effect.fromResult(captureCommerceJsonData(decoded, lifetime.remainingBytes()));
           yield* Effect.fromResult(lifetime.charge(captured.bytes));
           events.push(captured.value);
         }));
@@ -110,7 +125,12 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
       const rootIdentity = Object.freeze({ scopeUuid: projectScopeIdUuidV1(state.root.scopeId).scopeUuid,
         sessionId: state.root.sessionId, attemptFence: state.root.attemptFence });
       return Object.freeze({ context: context satisfies CommerceCommandContext, rootIdentity, close, abort: lifetime.close,
-        withinDeadline: lifetime.withinDeadline,
+        withinDeadline: <Value>(work: Effect.Effect<Value, CommerceTransactionError>) =>
+          lifetime.withinDeadline(lifetime.checkpoint(lifetime.context).pipe(
+            Effect.andThen(localRootGate), Effect.andThen(work))),
+        captureLocalEvent: (event: unknown, decode: (event: unknown) => Effect.Effect<Json, CommerceTransactionError>) =>
+          captureEvent(lifetime.context, event, decode),
+        checkAfterNative: lifetime.withinDeadline(lifetime.checkpoint(lifetime.context).pipe(Effect.andThen(localRootGate))),
         currentUsage: () => Object.freeze({ workBytes: resources.commandBytes - lifetime.remainingBytes(),
           workCalls: lifetime.usedCalls() }),
         activityCursor: working.activityCursor,

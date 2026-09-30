@@ -87,6 +87,8 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;
+  /** Durable operations check live admission here. A finite root supplies a
+   * tentative local gate; every readTransaction still checks live authority. */
   readonly requireAdmission: Effect.Effect<void, Failure>;
   readonly validateDocument: (write: LogicalDocumentWrite) => Effect.Effect<void, Failure>;
   readonly error: LogicalDocumentFailure<Failure>;

@@ -10,6 +10,7 @@ import { LogicalParticipantAdmissionError, type LogicalParticipantAttemptAdmissi
   "../logicalDocuments/participantAdmission";
 import type { LogicalDocumentBorrowView, LogicalDocumentReadTransaction } from "../logicalDocuments/model";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
+import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
 import { makeCmsCommandContext } from "./context";
 import type { CmsCommandContext } from "./host";
 import { cmsError, cmsLimits, CmsTransactionError,
@@ -49,7 +50,12 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
         const readTransaction: LogicalDocumentReadTransaction<CmsTransactionError> =
           <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
             checkedRead(work).pipe(Effect.mapError(projectCheckedReadFailure));
-        const requireAdmission = checkedRead(() => Effect.void).pipe(Effect.mapError(projectSourceFailure));
+        const requireAdmission = input.rootEvaluator === undefined
+          ? checkedRead(() => Effect.void).pipe(Effect.mapError(projectSourceFailure))
+          : requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
+            attempt: input.attempt, scopeId: state.root.scopeId,
+            snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
+          }, () => cmsError("closed"));
         const working = yield* makeLogicalDocumentWorkingSet({
           readTransaction,
           scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,

@@ -89,6 +89,23 @@ owner or superuser repair must quiesce protected preparation. The protected
 epoch does not certify privileged edits, other tables, or a joint control and
 target database snapshot.
 
+For the private finite mixed root, the [approved attempt-local slice](../roadmaps/mixed-mutation-core/11-attempt-admission-preflight.md)
+permits bounded **tentative local** handle, pending-write, cached-result and
+close work after authenticated entry without a fresh SQL transaction for
+each local step. A persisted revocation may be discovered at the next actual
+database access or final validation; data already seen inside the sandbox
+cannot be retracted and no local child result may become durable or externally
+successful. Local handle, scope, closed/cancelled lifetime and budget refusal
+precedes foreign input capture; the earlier database-revocation-versus-foreign-
+getter ordering is deliberately relaxed. No foreign getter runs inside SQL.
+Every actual database access, aggregate seal and later publication retains
+its existing full exact-running/session, selected source/readiness, physical
+and protected-epoch checks in short owned transactions. This exception does
+not grant a cached database admission across transactions or relax ordinary
+standalone and durable-operation callers. Broader protected metadata, compact
+session guards and cheaper per-transaction epoch attestation remain separate
+integrity decisions.
+
 ### Overall Direction
 
 The storage backbone is good, but the original unified-runtime proposal was

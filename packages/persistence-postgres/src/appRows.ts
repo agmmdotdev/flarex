@@ -532,22 +532,16 @@ export const readAppTableWriteFrontiersInTransactionEffect = Effect.fn(
     for (let ordinal = 0; ordinal < batch.length; ordinal += 1) {
       const tableId = batch[ordinal]!;
       const row = rows[ordinal];
-      const envelope = decodeTableFrontierBatchRowResult(row);
-      if (rows.length !== batch.length || Result.isFailure(envelope) || envelope.success.ordinal !== ordinal) {
-        frontiers.set(tableId, Result.fail(new AppRowTableFrontierCorruptionError(scopeId, tableId,
-          Result.isFailure(envelope) ? envelope.failure : undefined)));
-        continue;
-      }
-      if (envelope.success.commitSeqText === null) {
-        frontiers.set(tableId, Result.succeed(null));
-        continue;
-      }
-      const decoded = Result.flatMap(decodeBigIntTextResult(envelope.success.commitSeqText),
-        decodeCommitSeqResult);
-      frontiers.set(tableId, Result.isFailure(decoded) || decoded.success < 1n
-        ? Result.fail(new AppRowTableFrontierCorruptionError(scopeId, tableId,
-            Result.isFailure(decoded) ? decoded.failure : undefined))
-        : Result.succeed(decoded.success));
+      frontiers.set(tableId, Result.gen(function* () {
+        const envelope = yield* decodeTableFrontierBatchRowResult(row);
+        if (rows.length !== batch.length || envelope.ordinal !== ordinal)
+          return yield* Result.fail(undefined);
+        if (envelope.commitSeqText === null) return null;
+        const decoded = yield* decodeBigIntTextResult(envelope.commitSeqText).pipe(
+          Result.flatMap(decodeCommitSeqResult));
+        if (decoded < 1n) return yield* Result.fail(undefined);
+        return decoded;
+      }).pipe(Result.mapError(cause => new AppRowTableFrontierCorruptionError(scopeId, tableId, cause))));
     }
   }
   return frontiers;

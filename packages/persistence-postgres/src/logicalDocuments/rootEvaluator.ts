@@ -1,6 +1,7 @@
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
+import { Effect } from "effect";
 import type { ApplicationDocumentObservation } from "../applicationDocumentMaterialization/model";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import type { LogicalIndexRead, LogicalIndexPageRead } from "./indexReads";
@@ -146,3 +147,9 @@ export const attachLogicalDocumentRootEvaluator = (evaluator: LogicalDocumentRoo
     state.pins.scopeId === pins.scopeId && state.pins.snapshotCommitSeq === pins.snapshotCommitSeq &&
     state.pins.attemptFence === pins.attemptFence ? state : null;
 };
+
+/** A finite local step checks the exact root's mutable closure state without
+ * borrowing SQL authority. Checked database boundaries still authenticate live. */
+export const requireLogicalDocumentRootEvaluatorOpen = <Failure>(evaluator: LogicalDocumentRootEvaluator,
+  pins: LogicalDocumentRootPins, closed: () => Failure): Effect.Effect<void, Failure> => Effect.suspend(() =>
+    attachLogicalDocumentRootEvaluator(evaluator, pins) === null ? Effect.fail(closed()) : Effect.void);

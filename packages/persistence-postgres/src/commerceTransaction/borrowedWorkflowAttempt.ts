@@ -9,6 +9,7 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import { makeLogicalDocumentWorkingSet } from "../logicalDocuments/workingSet";
+import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/rootEvaluator";
 import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
 import { hasLogicalParticipantAttemptAdmission, withLogicalParticipantAdmissionBundleEffect,
   type LogicalParticipantAdmissionBundle, type LogicalParticipantAttemptAdmission } from
@@ -104,7 +105,12 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
             yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
           const checkedRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
             readTransaction(work).pipe(Effect.mapError(projectCommerceRequestFailure));
-          const requireAdmission = checkedRead(() => Effect.void);
+          const localRootGate = input.rootEvaluator === undefined ? Effect.void :
+            requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
+              attempt: input.attempt, scopeId: root.scopeId,
+              snapshotCommitSeq: root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
+            }, () => commerceError("closed"));
+          const requireAdmission = input.rootEvaluator === undefined ? checkedRead(() => Effect.void) : localRootGate;
           const creationTime = AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis);
           const working = yield* checkedRead(constructionTx => makeLogicalDocumentWorkingSet({
             readTransaction: checkedRead, requireAdmission,
@@ -151,6 +157,8 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
               const invoke = (manager: typeof child, nested: CommerceCommand, value: Json): Effect.Effect<
                 Readonly<{ input: Json; result: Json }>, ReturnType<typeof commerceError>> =>
                 Effect.gen(function* () {
+                  yield* lifetime.checkpoint(manager);
+                  yield* localRootGate;
                   const selected = getCommerceCommand(nested);
                   if (selected === undefined || !member.commands.includes(nested) ||
                     !hasLogicalParticipantAttemptAdmission(admission, input.attempt, selected.name))
@@ -181,11 +189,14 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
                   }, id, manager, (current, nestedCommand, nestedInput) =>
                     invoke(current, nestedCommand, nestedInput).pipe(Effect.map(entry => entry.result)),
                   (current, event) => lifetime.operation(current, id, "write", Effect.gen(function* () {
+                    yield* localRootGate;
                     if (member.events === undefined) return yield* Effect.fail(commerceError("unadmittedEvent"));
                     const message = yield* eventCapture.captureSelected(member.events, event);
                     localEvents.push(message); eventSources.push(state.sourceKey);
                   })));
                   const result = yield* selected.run(context, captured.value);
+                  yield* lifetime.checkpoint(manager);
+                  yield* localRootGate;
                   const output = yield* Effect.fromResult(captureCommerceJsonData(result, lifetime.remainingBytes()));
                   yield* Effect.fromResult(lifetime.charge(output.bytes));
                   return Object.freeze({ input: captured.value, result: output.value });
@@ -214,15 +225,17 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
             }), getCommerceCommand(command)?.mode));
           const context: AtomicCommerceContext = Object.freeze({
             eventGroupId: group,
-            checkpoint: lifetime.operation(lifetime.context, id, "read", Effect.void),
+            checkpoint: lifetime.operation(lifetime.context, id, "read", localRootGate),
             capture: (value: unknown) => lifetime.operation(lifetime.context, id, "read", Effect.gen(function* () {
+              yield* localRootGate;
               const captured = yield* Effect.fromResult(captureCommerceJsonData(value, lifetime.remainingBytes()));
               yield* Effect.fromResult(lifetime.charge(captured.bytes));
               return captured.value;
             })),
             call,
             emit: (contract: CommerceEventContract, message: unknown) => lifetime.operation(lifetime.context, id, "write",
-              eventCapture.capture(contract, message).pipe(Effect.tap(() => Effect.sync(() => { eventSources.push(null); })), Effect.asVoid)),
+              localRootGate.pipe(Effect.andThen(eventCapture.capture(contract, message)),
+                Effect.tap(() => Effect.sync(() => { eventSources.push(null); })), Effect.asVoid)),
             refuse: (error: CommerceTransactionError) => lifetime.operation(lifetime.context, id, "write", Effect.fail(error)),
           });
           let consumed = false;

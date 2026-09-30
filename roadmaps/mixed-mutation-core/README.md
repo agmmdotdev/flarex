@@ -67,9 +67,24 @@ same checked transaction; callback exit revokes it, missing heads are not
 cached, and a later operation repeats live admission. The quiet trace reduces
 SQL dispatches to 2,256 / 3,018 / 5,872 / 452 with transaction counts
 unchanged at 82 / 105 / 199 / 6. Full warm medians are 1.552 / 2.014 /
-4.471 / 0.309 s. The mixed latency proposals remain unmet. Repeated fresh
-admission remains the next measured cost owner; the current evidence does
-not approve skipping checks or holding SQL across callbacks.
+4.471 / 0.309 s. The mixed latency proposals remain unmet. The delivered
+[attempt-local admission slice](./11-attempt-admission-preflight.md) lets
+finite-root local operations stay tentative without
+an empty SQL admission, while every actual database access, aggregate seal and
+later publication retains full fresh checks. A local step may learn about
+persisted revocation at the next database boundary. The same connected slice
+reuses selected source evidence inside the existing publication transaction
+and batches equivalent selected index/unique coverage updates in groups of
+at most 32. Selected table-frontier reads are shared and combined through
+their existing owner, with batches of at most 64 tables. Its [retained measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/attempt-local-admission/README.md)
+show warm outer p50/p95 of 857.9/884.6, 1,000.2/1,053.2,
+1,782.8/1,808.8 and 286.5/339.8 ms, with traced SQL counts
+1,063 / 1,378 / 2,173 / 361 and transaction counts 41 / 52 / 78 / 6.
+The mixed latency proposals remain unmet. Standalone median passes its
+regression gate; its p95 rises about 5.4% and its 698.6 ms warm maximum is
+retained with zero exclusions. Fresh checks at actual database boundaries
+remain a measured cost owner. Broader structural protection, compact session
+guards and cheaper epoch attestation remain separately gated.
 
 The finite root has an immutable journal marker and a first protected legacy
 Application target projection. That projection has ten trigger-covered tables
@@ -119,8 +134,8 @@ For this owner-authorized session, the root coordinates planning, discussion,
 review and Git; explicitly assigned workers make disjoint edits and fixes,
 serializing dependent changes and preserving unrelated work. Spawn every
 subagent, including workers, explorers and both standing reviewers, with model
-`gpt-6-sol` and `reasoning_effort: high`. Reviewers remain read-only.
-The three numbered preflights own their implemented private scopes.
+`gpt-6.1-sol` and `reasoning_effort: high`. Reviewers remain read-only.
+The relevant numbered preflights own their implemented private scopes.
 
 The design note owns architecture; this README owns domain status, package order
 and remaining cross-package gates. Create `NN-topic-preflight.md` only when a

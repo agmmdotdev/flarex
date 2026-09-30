@@ -142,10 +142,16 @@ import {
 
 export interface MixedMutationProductFixtureHooks {
   readonly beforeNative?: (method: string) => Effect.Effect<void, CommerceTransactionError>;
+  readonly afterProductBorrow?: (method: string, borrowed: Effect.Success<ReturnType<typeof makeBorrowedLogicalAttempt>>,
+    rootEvaluator: Parameters<typeof makeBorrowedLogicalAttempt>[0]["rootEvaluator"]) =>
+    Effect.Effect<void, CommerceTransactionError>;
   readonly afterNativeBeforeAck?: (method: string, result: Json) => Effect.Effect<void, CommerceTransactionError>;
+  readonly beforeProductClose?: (method: string, borrowed: Effect.Success<ReturnType<typeof makeBorrowedLogicalAttempt>>) =>
+    Effect.Effect<void, CommerceTransactionError>;
   readonly afterPayloadBeforeAck?: (method: string, result: Json) => Effect.Effect<void, CmsTransactionError>;
   readonly afterStoreAckBeforeBridgeReply?: (method: string, result: Json) => void;
   readonly observeWorkflowSql?: (sql: string) => Promise<void> | void;
+  readonly observeSql?: (phase: string, sql: string) => Promise<void> | void;
 }
 type CurrencyFixture = Awaited<ReturnType<typeof logicalCurrencyFixture>>;
 type ProductFixture = Awaited<ReturnType<typeof prepareLogicalProductHost>>;
@@ -687,6 +693,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       sqlByPhase.set(sqlPhase, (sqlByPhase.get(sqlPhase) ?? 0) + 1);
       if (/^\s*begin\b/i.test(sql)) { openTransactionDepth += 1; beginCount += 1; }
       if (/^\s*(commit|rollback)\b/i.test(sql)) { openTransactionDepth -= 1; settleCount += 1; }
+      await input.hooks?.observeSql?.(sqlPhase, sql);
       if (sqlPhase === "workflow:run") await input.hooks?.observeWorkflowSql?.(sql);
     });
     const serviceTransactionDepth: number[] = [];
@@ -776,7 +783,11 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
               serviceTransactionDepth.push(openTransactionDepth);
               nativeInvokeCount.set(method, (nativeInvokeCount.get(method) ?? 0) + 1);
               yield* input.hooks?.beforeNative?.(method) ?? Effect.void;
-              const completed = yield* executePrivateProductAttemptOperation(binding, borrowed, method, args,
+              yield* input.hooks?.afterProductBorrow?.(method, borrowed, borrowedInput.rootEvaluator) ?? Effect.void;
+              const beforeProductClose = input.hooks?.beforeProductClose;
+              const nativeBorrowed = beforeProductClose === undefined ? borrowed : Object.freeze({ ...borrowed,
+                close: Effect.suspend(() => beforeProductClose(method, borrowed)).pipe(Effect.andThen(borrowed.close)) });
+              const completed = yield* executePrivateProductAttemptOperation(binding, nativeBorrowed, method, args,
                 eventPolicy);
               yield* input.hooks?.afterNativeBeforeAck?.(method, completed.result) ?? Effect.void;
               return Object.freeze({ result: completed.result, changes: completed.changes,

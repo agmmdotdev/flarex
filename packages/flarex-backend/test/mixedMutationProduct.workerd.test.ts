@@ -10,19 +10,199 @@ import { decodePointMutationExactRuntimeResultV1Effect } from
 import { decodeCanonicalSessionJournalEffect } from "flarex-protocol/commit-protocol";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { fxAppRowRevisions, fxSystemTransactionJournalReceipts,
-  fxSystemTransactionJournals } from "../../persistence-postgres/src/schema";
+  fxSystemTransactionJournals, fxSystemTransactionExecutionClaims,
+  fxSystemTransactionJournalPoints, fxSystemTransactionJournalWriteEvents,
+  fxSystemIndexBuildStates } from "../../persistence-postgres/src/schema";
+import { fxSystemDataBindingHeads } from "../../persistence-postgres/src/frameworkSchema/binding/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { makeCommerceHost } from "../../persistence-postgres/src/commerceTransaction/host";
-import { decodeLogicalParticipantDependencyEvidence } from
+import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
+import { decodeLogicalParticipantDependencyEvidence, defineCommerceCommand } from
   "@flarex/persistence-postgres/internal/commerce-adapter";
+import { executePrivateProductAttemptOperation } from "../../medusa-adapter/src/product-attempt";
 import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
 
 describe.each(drivers)("native Product in one Application mutation attempt on %s", driver => {
+  it.each(["closed", "callBudget", "caughtRefusal"] as const)(
+    "gates the actual Product adapter capture path before foreign inspection after %s", async refusal => {
+      let captures = 0;
+      let decodes = 0;
+      let nativeEntered = false;
+      let checkedRefusal = false;
+      const event = new Proxy({}, { ownKeys: () => { captures++; throw new Error("foreign Product data"); } });
+      let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
+      fixture = await createMixedMutationProductFixture({ driver, suffix: `native-capture-${refusal}-${driver}`,
+        hooks: { afterProductBorrow: (method, borrowed, rootEvaluator) => method !== "update" ? Effect.void :
+          Effect.gen(function* () {
+            if (rootEvaluator === undefined) throw new Error("Missing finite root evaluator");
+            const firstFailure = commerceError("unadmittedEvent");
+            const command = defineCommerceCommand("productUpdate", "write", context => Effect.gen(function* () {
+              nativeEntered = true;
+              if (refusal === "closed") rootEvaluator.close();
+              else if (refusal === "callBudget") {
+                while (borrowed.currentUsage().workCalls < context.resources.calls) yield* context.table("product");
+              } else {
+                const refused = yield* Effect.result(context.refuse(firstFailure));
+                expect(refused).toMatchObject({ _tag: "Failure", failure: firstFailure });
+                // The native callback catches a refusal and returns foreign data.
+                // The post-callback checkpoint must reject before receipt policy capture.
+                return event;
+              }
+              yield* context.captureLocalEvent(event);
+              return null;
+            }));
+            const binding = Object.freeze({ ...fixture.binding,
+              update: () => Result.succeed({ command, args: {} }),
+              logicalPolicy: Object.freeze({ ...fixture.binding.logicalPolicy,
+                capture: (value: unknown) => Effect.sync(() => { decodes++; }).pipe(
+                  Effect.andThen(fixture.binding.logicalPolicy.capture(value))) }),
+            });
+            const failed = yield* Effect.result(executePrivateProductAttemptOperation(binding,
+              borrowed, "update", {}, fixture.eventPolicy));
+            expect(failed).toMatchObject({ _tag: "Failure", failure: {
+              reason: refusal === "closed" ? "closed" : refusal === "callBudget" ? "limitExceeded" : "rollbackOnly",
+            } });
+            expect(nativeEntered).toBe(true);
+            expect(captures).toBe(0);
+            expect(decodes).toBe(0);
+            checkedRefusal = true;
+          }) } });
+      try {
+        await expect(fixture.runWorkerd()).rejects.toBeDefined();
+        expect(checkedRefusal).toBe(true);
+        expect(captures).toBe(0);
+        expect(await fixture.currency.persistence.drizzle.select().from(fxSystemTransactionJournalReceipts)
+          .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
+        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null))).rejects.toBeDefined();
+      } finally { await fixture.close(); }
+    }, 180_000);
+
+  it.each(["sourceHead", "readiness"] as const)(
+    "refuses aggregate seal after %s changes following the last native database read", async changed => {
+      let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
+      let changedBeforeClose = false;
+      let localClosed = false;
+      let localTransactionCount = 0;
+      fixture = await createMixedMutationProductFixture({ driver, suffix: `seal-${changed.toLowerCase()}-${driver}`,
+        hooks: {
+          beforeProductClose: (method, borrowed) => method !== "listByHandle" ? Effect.void : Effect.gen(function* () {
+            yield* Effect.tryPromise({
+              try: async () => {
+                if (changed === "sourceHead") {
+                  const rows = await fixture.currency.persistence.drizzle.update(fxSystemDataBindingHeads)
+                    .set({ sha256: "0".repeat(64) }).where(eq(fxSystemDataBindingHeads.scopeId, fixture.activation.anchor.scopeId))
+                    .returning();
+                  expect(rows).toHaveLength(1);
+                } else {
+                  const rows = await fixture.currency.persistence.drizzle.update(fxSystemIndexBuildStates)
+                    .set({ lifecycle: "retiring", maintenanceActivationSequence: null,
+                      maintenanceBytes: null, maintenanceSha256: null }).where(and(eq(fxSystemIndexBuildStates.scopeId, fixture.activation.anchor.scopeId),
+                      eq(fxSystemIndexBuildStates.lifecycle, "enabled"))).returning();
+                  expect(rows.length).toBeGreaterThan(0);
+                }
+              }, catch: cause => commerceError("resourceFailure", cause),
+            });
+            changedBeforeClose = true;
+            localTransactionCount = fixture.getTransactionCounts().beginCount;
+            yield* borrowed.context.table("product");
+            if (fixture.hasSqlObserver) expect(fixture.getTransactionCounts().beginCount).toBe(localTransactionCount);
+          }),
+          afterNativeBeforeAck: method => method !== "listByHandle" ? Effect.void : Effect.sync(() => {
+            localClosed = true;
+            if (fixture.hasSqlObserver) expect(fixture.getTransactionCounts().beginCount).toBe(localTransactionCount);
+          }),
+        } });
+      const expectPristine = async () => {
+        for (const table of [fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints,
+          fxSystemTransactionJournalWriteEvents]) {
+          expect(await fixture.currency.persistence.drizzle.select().from(table)
+            .where(eq(table.sessionId, fixture.activation.anchor.sessionId))).toHaveLength(0);
+        }
+      };
+      try {
+        await fixture.runWorkerd();
+        expect(changedBeforeClose).toBe(true);
+        expect(localClosed).toBe(true);
+        await expectPristine();
+        await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, null)))
+          .rejects.toMatchObject({ _tag: "SessionJournalSealV1Error", reason: "journalFailed" });
+        await expectPristine();
+      } finally { await fixture.close(); }
+    }, 180_000);
+
+  it("refuses event capture after root closure before the borrowed lifetime closes", async () => {
+    let captures = 0;
+    let closedRootRefused = false;
+    const event = new Proxy({}, { ownKeys: () => { captures++; throw new Error("foreign event capture"); } });
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `local-root-closure-${driver}`,
+      hooks: { afterProductBorrow: (method, borrowed, rootEvaluator) => method !== "update" ? Effect.void :
+        Effect.gen(function* () {
+          if (rootEvaluator === undefined) throw new Error("Missing finite root evaluator");
+          rootEvaluator.close();
+          const refusal = yield* Effect.result(borrowed.context.captureLocalEvent(event));
+          expect(refusal).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+          expect(captures).toBe(0);
+          closedRootRefused = true;
+        }) } });
+    try {
+      await expect(fixture.runWorkerd()).rejects.toBeDefined();
+      expect(closedRootRefused).toBe(true);
+      expect(captures).toBe(0);
+      const receipts = await fixture.currency.persistence.drizzle.select()
+        .from(fxSystemTransactionJournalReceipts)
+        .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId));
+      expect(receipts).toHaveLength(0);
+      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+        fixture.attempt, { afterRootClosure: true }))).rejects.toBeDefined();
+    } finally { await fixture.close(); }
+  }, 180_000);
+
+  it("allows tentative local handles after claim loss and refuses the next database read", async () => {
+    let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
+    let localAfterRevocation = false;
+    let checkedReadRefused = false;
+    fixture = await createMixedMutationProductFixture({ driver, suffix: `local-claim-loss-${driver}`,
+      hooks: { afterProductBorrow: (method, borrowed) => method !== "update" ? Effect.void : Effect.gen(function* () {
+        const expiredAt = new Date(Date.now() - 60_000);
+        const claimedAt = new Date(Date.now() - 120_000);
+        yield* Effect.tryPromise({
+          try: async () => { await fixture.currency.persistence.drizzle.update(fxSystemTransactionExecutionClaims)
+            .set({ claimedAt, claimExpiresAt: expiredAt })
+            .where(eq(fxSystemTransactionExecutionClaims.sessionId, fixture.activation.anchor.sessionId)); },
+          catch: cause => commerceError("resourceFailure", cause),
+        });
+        const beforeLocal = fixture.getTransactionCounts().beginCount;
+        yield* borrowed.context.table("product");
+        localAfterRevocation = true;
+        if (fixture.hasSqlObserver) expect(fixture.getTransactionCounts().beginCount).toBe(beforeLocal);
+        const transactionTime = borrowed.context.transactionTime;
+        if (transactionTime === undefined) throw new Error("Missing borrowed transaction time");
+        const observed = yield* Effect.result(transactionTime);
+        expect(observed).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+        checkedReadRefused = true;
+      }) } });
+    try {
+      await expect(fixture.runWorkerd()).rejects.toBeDefined();
+      expect(localAfterRevocation).toBe(true);
+      expect(checkedReadRefused).toBe(true);
+      const receipts = await fixture.currency.persistence.drizzle.select()
+        .from(fxSystemTransactionJournalReceipts)
+        .where(eq(fxSystemTransactionJournalReceipts.sessionId, fixture.activation.anchor.sessionId));
+      expect(receipts).toHaveLength(0);
+      await expect(Effect.runPromise(fixture.journal.sealSuccessfulResult(
+        fixture.attempt, { afterRevocation: true }))).rejects.toBeDefined();
+    } finally { await fixture.close(); }
+  }, 180_000);
+
   it("runs the selected native service on the exact journal attempt", async () => {
-    const fixture = await createMixedMutationProductFixture({ driver, suffix: `workerd-${driver}` });
+    let sealBindingReads = 0;
+    const fixture = await createMixedMutationProductFixture({ driver, suffix: `workerd-${driver}`,
+      hooks: { observeSql: (phase, sql) => {
+        if (phase === "seal" && /\bfrom\s+"fx_system_data_binding_head"/i.test(sql)) sealBindingReads++;
+      } } });
     try {
       const { currency, product, seed, baseline, activation,
         binding, eventGroup, runAdmitted,
@@ -63,7 +243,11 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
         observed.targetBackends > 0 && observed.openTransactions === 0)).toBe(true);
     }
     expect(baseline).toMatchObject({ id: seed.productId, tags: [{ id: seed.tagId }] });
-    const publication = await fixture.preparePublication(returnedValue);
+    fixture.setSqlPhase("seal");
+    const envelope = await Effect.runPromise(fixture.journal.sealSuccessfulResult(fixture.attempt, returnedValue));
+    if (fixture.hasSqlObserver) expect(sealBindingReads).toBe(1);
+    fixture.setSqlPhase("verify");
+    const publication = await fixture.prepareSealedPublication(envelope);
     const sealedRoots = await currency.persistence.drizzle.select().from(fxSystemTransactionJournals)
       .where(and(eq(fxSystemTransactionJournals.scopeUuid,
         projectScopeIdUuidV1(activation.anchor.scopeId).scopeUuid),

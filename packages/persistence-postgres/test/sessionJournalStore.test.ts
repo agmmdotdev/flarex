@@ -844,6 +844,25 @@ describe("C03 Postgres SessionJournalStore", () => {
     expect(afterSeal.rows[0]?.count).toBe(4);
   });
 
+  it("refuses a finite root seal after claim expiry without another operation read", async () => {
+    const current = await scenario("finite_seal_claim_expiry", { executionProfile: "finiteRoot" });
+    expect(await runPointOperation(current.store, current.table, {
+      kind: "insert", syscallSequence: syscallSequence(1n), fields: { name: "tentative" },
+    })).toMatchObject({ kind: "completed", delivery: "executed" });
+    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({ receipts: 0, points: 0 });
+    await persistence.query(
+      `update fx_system_tx_execution_claim
+       set claimed_at = clock_timestamp() - interval '2 minutes',
+           claim_expires_at = clock_timestamp() - interval '1 minute'
+       where session_id = $1`, [current.anchor.sessionId]);
+    await expect(runEffect(current.store.sealFiniteRootEffect(current.attempt,
+      await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }))))).rejects.toMatchObject({
+      _tag: "SessionJournalAttemptUnavailableV1Error",
+      issue: { reason: "executionClaimUnavailable" },
+    });
+    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({ receipts: 0, points: 0, events: 0 });
+  });
+
   it("orders staged inserts, patches, and deletes before applying the page limit", async () => {
     const current = await scenario("o10b_staged_overlay_order", {
       seedFields: { name: "Ada" },

@@ -43,6 +43,8 @@ export interface BoundedRequestLifetime<Failure> {
     work: (child: BoundedRequestContext) => Effect.Effect<Value, Failure>, mode?: "read" | "write") => Effect.Effect<Value, Failure>;
   /** Interrupt one full native invocation at this request's original deadline. */
   readonly withinDeadline: <Value>(work: Effect.Effect<Value, Failure>) => Effect.Effect<Value, Failure>;
+  /** Recheck the active borrowed context after a callback without a second call charge. */
+  readonly checkpoint: (context: BoundedRequestContext) => Effect.Effect<void, Failure>;
   readonly charge: (bytes: number) => Result.Result<void, Failure>;
   readonly seal: Effect.Effect<void, Failure>;
   readonly close: Effect.Effect<void>;
@@ -63,6 +65,7 @@ export function projectBoundedRequestLifetime<Outer, Inner extends Outer>(
     operation: (context, id, mode, work) => root.operation(context, id, mode, work).pipe(Effect.mapError(project)),
     nested: (context, id, work, mode) => root.nested(context, id, work, mode).pipe(Effect.mapError(project)),
     withinDeadline: work => root.withinDeadline(work).pipe(Effect.mapError(project)),
+    checkpoint: context => root.checkpoint(context).pipe(Effect.mapError(project)),
     charge: bytes => root.charge(bytes).pipe(Result.mapError(project)),
     seal: root.seal.pipe(Effect.mapError(project)),
   } satisfies BoundedRequestLifetime<Inner>);
@@ -220,7 +223,8 @@ export const makeBoundedRequestLifetime = Effect.fn("BoundedRequest.makeLifetime
     request.phase = "closed";
     contexts.delete(context);
   });
-  return Object.freeze({ context, begin, operation, nested, withinDeadline, charge, seal, close,
+  return Object.freeze({ context, begin, operation, nested, withinDeadline,
+    checkpoint: (supplied: BoundedRequestContext) => observe(check(supplied)), charge, seal, close,
     remainingBytes: () => limits.commandBytes - request.bytes,
     usedCalls: () => request.calls,
     isClosing: () => request.phase === "closing" && !request.busy && request.children === 0 && request.activeCalls === 0 && Option.isNone(request.failure),

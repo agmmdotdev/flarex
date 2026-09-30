@@ -237,7 +237,7 @@ not establish the root cause of an intermittent failure.
   read-only. For this owner-authorized mixed-mutation-core session, explicitly
   assigned workers instead own disjoint edits and fixes. Spawn every subagent,
   including workers, explorers and both read-only reviewers, with model
-  `gpt-6-sol` and `reasoning_effort: high`. The root coordinates, plans,
+  `gpt-6.1-sol` and `reasoning_effort: high`. The root coordinates, plans,
   discusses, reviews and owns all Git operations. Dependent edits serialize;
   workers preserve unrelated work and reviewers remain read-only.
 

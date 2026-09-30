@@ -92,29 +92,30 @@ export const preparePrivateProductAttemptEventPolicy = Effect.fn("ProductAdapter
 
 /** Run one checked native operation inside the root's borrowed context. The
  * command token authenticates the selected service method; event capture stays
- * with Product while the root records and settles the resulting intent. */
+ * with Product while the root records and settles the resulting intent. Input
+ * is the journal owner's canonical JSON frame, not a caller-owned object. */
 export const executePrivateProductAttemptOperation: (
   binding: PrivateProductAttemptBinding, borrowed: BorrowedProductAttempt,
-  operation: unknown, input: unknown, eventPolicy: PrivateProductAttemptEventPolicy,
+  operation: unknown, input: Json, eventPolicy: PrivateProductAttemptEventPolicy,
 ) => Effect.Effect<PrivateProductAttemptExecution, CommerceTransactionError> =
   Effect.fn("ProductAdapter.executePrivateAttempt")(function* (
   binding: PrivateProductAttemptBinding, borrowed: BorrowedProductAttempt,
-  operation: unknown, input: unknown,
+  operation: unknown, input: Json,
   eventPolicy: PrivateProductAttemptEventPolicy,
 ): Effect.fn.Return<PrivateProductAttemptExecution, CommerceTransactionError> {
   const select = operation === "update" ? binding.update
     : operation === "retrieve" ? binding.retrieve
       : operation === "listByHandle" ? binding.listByHandle : undefined;
   if (select === undefined) return yield* Effect.fail(commerceError("unsupportedProfile"));
-  const selected = yield* Effect.fromResult(select(input));
+  const selected = yield* borrowed.withinDeadline(Effect.suspend(() => Effect.fromResult(select(input))));
   const identity = commerceCommandIdentity(selected.command);
   if (identity === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
   const cursor = borrowed.activityCursor();
   const nativeContext = Object.freeze({ ...borrowed.context,
-    captureLocalEvent: (event: unknown) => Effect.flatMap(binding.logicalPolicy.capture(event),
-      captured => borrowed.context.captureLocalEvent(captured)),
+    captureLocalEvent: (event: unknown) => borrowed.captureLocalEvent(event, binding.logicalPolicy.capture),
   });
   const result = yield* borrowed.withinDeadline(runCommerceCommand(selected.command, nativeContext, selected.args));
+  yield* borrowed.checkAfterNative;
   const activity = yield* borrowed.callActivity(cursor);
   const closed = yield* borrowed.close;
   if (identity.mode === "read" && (activity.mutations.length !== 0 || activity.lifecycle.length !== 0 ||

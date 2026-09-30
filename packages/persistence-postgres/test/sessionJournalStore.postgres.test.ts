@@ -117,6 +117,7 @@ interface ScenarioOptions {
   readonly grantRetentionPolicy?: GrantRetentionPolicyV1;
   readonly randomUuid?: () => string;
   readonly targetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
+  readonly executionProfile?: "finiteRoot";
 }
 
 interface JournalScenario {
@@ -729,6 +730,29 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       })).rejects.toMatchObject(staleIssue);
       await expect(prepareSeal(current.store, current.attempt)).rejects
         .toMatchObject(staleIssue);
+    });
+  }, 120_000);
+
+  it("refuses a finite root seal after claim expiry without another operation read", async () => {
+    await withPostgresPersistence(async persistence => {
+      const current = await scenario(persistence, "finite_seal_claim_expiry", { executionProfile: "finiteRoot" });
+      expect(await runPointOperation(current.store, current.table, {
+        kind: "insert", syscallSequence: syscallSequence(1n), fields: { name: "tentative" },
+      })).toMatchObject({ kind: "completed", delivery: "executed" });
+      await expect(journalCounts(persistence, current.anchor.sessionId))
+        .resolves.toMatchObject({ receipts: 0, points: 0 });
+      await persistence.query(
+        `update fx_system_tx_execution_claim
+         set claimed_at = clock_timestamp() - interval '2 minutes',
+             claim_expires_at = clock_timestamp() - interval '1 minute'
+         where session_id = $1`, [current.anchor.sessionId]);
+      await expect(runEffect(current.store.sealFiniteRootEffect(current.attempt,
+        await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }))))).rejects.toMatchObject({
+        _tag: "SessionJournalAttemptUnavailableV1Error",
+        issue: { reason: "executionClaimUnavailable" },
+      });
+      await expect(journalCounts(persistence, current.anchor.sessionId))
+        .resolves.toMatchObject({ receipts: 0, points: 0, events: 0 });
     });
   }, 120_000);
 
@@ -1467,11 +1491,11 @@ async function scenario(
         randomUuid: infrastructureIds,
       },
     ),
-    pointMutationSessionActivationFixture(
+    Object.freeze({ ...pointMutationSessionActivationFixture(
       deploymentId,
       scopeId,
       { evidence: { schemaVersionId } },
-    ),
+    ), ...(options.executionProfile === undefined ? {} : { executionProfile: options.executionProfile }) }),
   );
   const store = createSessionJournalStorePersistence(ports, {
     grantRetentionPolicy:
@@ -1486,6 +1510,7 @@ async function scenario(
       executionClaim: executionClaimForAnchor(activation.anchor),
       snapshotToken: activation.anchor.snapshotToken,
       schemaVersionId,
+      ...(options.executionProfile === undefined ? {} : { executionProfile: options.executionProfile }),
     }),
   );
   const table = await runEffect(

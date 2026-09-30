@@ -158,7 +158,12 @@ promise that composition alone meets the latency target.
    inside an already checked transaction may avoid duplicate evidence loads;
    no cached admission verdict crosses a transaction, callback, retry, source
    change, eviction or host handoff. Do not replace every live check with a
-   preparation token. State-only observable operations need live admission too.
+   preparation token. State-only observable operations need live admission under
+   the delivered 08 contract. The later [approved finite-root local-operation
+   slice](./11-attempt-admission-preflight.md) permits only tentative local
+   work between checked database boundaries; actual database access, seal and
+   publication keep the existing full checks. That approval changes local
+   refusal timing, not this ten-table protected writer contract.
 3. **Protected metadata contract is a separate integrity decision.** Outside
    the first ten-table exception below, the accepted rule still synchronously
    reads/hashes selected dependencies, including unchanged-digest tamper in

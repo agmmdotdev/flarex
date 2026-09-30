@@ -288,6 +288,35 @@ describe("table coverage runtime boundary", () => {
     expect(result.get(tableIds[2]!)).toEqual(Result.succeed(1n));
     expect(result.get(tableIds[129]!)).toEqual(Result.succeed(3n));
   });
+  it.each([
+    { ordinal: 1, commitSeqText: "4" },
+    { ordinal: 0, commitSeqText: "malformed" },
+    { ordinal: 0, commitSeqText: "0" },
+    { ordinal: 0, commitSeqText: "-1" },
+    { ordinal: 0, commitSeqText: "9223372036854775808" },
+    { ordinal: 0, commitSeqText: undefined },
+  ])("retains a bad envelope or frontier without discarding the next table: %j", async row => {
+    const scopeId = ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`);
+    const first = CatalogTableIdSchema.make(1);
+    const second = CatalogTableIdSchema.make(2);
+    // Malformed driver rows exercise the owned decoder without SQL accepting
+    // or normalizing these values before they reach the boundary.
+    const tx = { execute: () => Promise.resolve({ rows: [row, { ordinal: 1, commitSeqText: null }] }) } as unknown as AppRowTransaction;
+    const result = await Effect.runPromise(readAppTableWriteFrontiersInTransactionEffect(tx, scopeId, [first, second]));
+    expect(result.get(first)).toMatchObject({ _tag: "Failure", failure: expect.any(AppRowTableFrontierCorruptionError) });
+    expect(result.get(second)).toEqual(Result.succeed(null));
+  });
+  it.each([{ rows: [] }, { rows: [{ ordinal: 0, commitSeqText: "3" }] }, { rows: [
+    { ordinal: 0, commitSeqText: "3" }, { ordinal: 1, commitSeqText: "4" }, { ordinal: 2, commitSeqText: "5" },
+  ] }])("retains row-count mismatch as individual table failures: %j", async ({ rows }) => {
+    const scopeId = ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`);
+    const tables = [CatalogTableIdSchema.make(1), CatalogTableIdSchema.make(2)];
+    const tx = { execute: () => Promise.resolve({ rows }) } as unknown as AppRowTransaction;
+    const result = await Effect.runPromise(readAppTableWriteFrontiersInTransactionEffect(tx, scopeId, tables));
+    expect(result.size).toBe(2);
+    for (const table of tables)
+      expect(result.get(table)).toMatchObject({ _tag: "Failure", failure: expect.any(AppRowTableFrontierCorruptionError) });
+  });
   it("distinguishes absent rows from malformed present frontiers", async () => {
     const scopeId = ScopeIdSchema.make(`scope_${SESSION_TEST_SCOPE_UUID}`);
     const tableId = CatalogTableIdSchema.make(1);

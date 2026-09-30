@@ -1395,6 +1395,8 @@ type SessionJournalStoredOutcome =
  * never an independently durable acknowledgement in this profile. */
 interface FiniteRootAdmittedRecord {
   readonly kind: "admitted";
+  /** Issuer-owned capability stays local and is never cloned or serialized. */
+  readonly admission: LogicalParticipantAdmissionBundle;
   readonly request: Extract<SessionJournalStoredRequest, {
     readonly kind: "admittedLogicalOperation";
   }>;
@@ -1604,8 +1606,10 @@ function mapAdmittedKernelFailure(cause: unknown):
   });
 }
 
-const requireAdmittedBundleInTransactionEffect = Effect.fn(
-  "SessionJournalStore.requireAdmittedBundle",
+/** The caller owns the transaction-local sharing scope. Every source still
+ * authenticates its own issuer, selected head and request pins. */
+const requireAdmittedBundleSourcesInTransactionEffect = Effect.fn(
+  "SessionJournalStore.requireAdmittedBundleSources",
 )(function* (
   bundle: LogicalParticipantAdmissionBundle,
   attempt: SessionJournalAttempt,
@@ -1619,26 +1623,32 @@ const requireAdmittedBundleInTransactionEffect = Effect.fn(
   if (selected === null || selected.admissions.length !== request.sources.length) {
     return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
   }
-  return yield* withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
-    const states = [];
-    for (const [ordinal, admission] of selected.admissions.entries()) {
-      const methods = selected.sourceMethods[ordinal]!;
-      const expected = request.sources[ordinal];
-      const state = yield* requireLogicalParticipantAttemptAdmissionInTransactionEffect(
-        admission, attempt, methods[0]!, tx, authority, clock);
-      if (expected === undefined || expected.sourceKey !== state.sourceKey ||
-        expected.sourceSha256Hex !== state.sourceSha256 ||
-        expected.bindingHead.sequence !== state.head.sequence ||
-        expected.bindingHead.sha256 !== state.head.sha256 ||
-        expected.methods.length !== methods.length ||
-        expected.methods.some((method, position) => method !== methods[position])) {
-        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-      }
-      states.push(state);
+  const states = [];
+  for (const [ordinal, admission] of selected.admissions.entries()) {
+    const methods = selected.sourceMethods[ordinal]!;
+    const expected = request.sources[ordinal];
+    const state = yield* requireLogicalParticipantAttemptAdmissionInTransactionEffect(
+      admission, attempt, methods[0]!, tx, authority, clock);
+    if (expected === undefined || expected.sourceKey !== state.sourceKey ||
+      expected.sourceSha256Hex !== state.sourceSha256 ||
+      expected.bindingHead.sequence !== state.head.sequence ||
+      expected.bindingHead.sha256 !== state.head.sha256 ||
+      expected.methods.length !== methods.length ||
+      expected.methods.some((method, position) => method !== methods[position])) {
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     }
-    return Object.freeze(states);
-  }));
+    states.push(state);
+  }
+  return Object.freeze(states);
 });
+
+const requireAdmittedBundleInTransactionEffect = Effect.fn(
+  "SessionJournalStore.requireAdmittedBundle",
+)((bundle: LogicalParticipantAdmissionBundle, attempt: SessionJournalAttempt,
+  request: Extract<SessionJournalStoredRequest, { readonly kind: "admittedLogicalOperation" }>,
+  tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
+  withSharedLogicalSourceBindingChecks(tx, () => requireAdmittedBundleSourcesInTransactionEffect(
+    bundle, attempt, request, tx, authority, clock)));
 
 const preflightAdmittedOperationInTransactionEffect = Effect.fn(
   "SessionJournalStore.preflightAdmittedOperation",
@@ -2724,12 +2734,12 @@ export function createSessionJournalStorePersistence(
               reason: "unsupportedProfile",
             }));
           }
-          finite.entries.set(request.syscallSequence, structuredClone({
-            kind: "admitted" as const, request, requestEvidence,
+          finite.entries.set(request.syscallSequence, Object.freeze({ admission, request, ...structuredClone({
+            kind: "admitted" as const, requestEvidence,
             bindingDigest, completed, contribution,
             sources: preparedSources, outcome, outcomeEvidence,
             pointMutations, events,
-          }));
+          }) }));
           for (const mutation of pointMutations) {
             finite.points.set(`${mutation.tableId}/${mutation.rowId}`, mutation);
           }
@@ -3419,6 +3429,15 @@ export function createSessionJournalStorePersistence(
       preliminaryAuthority: resolved.authority,
       executionClaim: attemptState.executionClaim,
     }, (tx, context) => Effect.gen(function* () {
+      yield* withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
+        for (const entry of finite.entries.values()) {
+          if (entry.kind !== "admitted") continue;
+          yield* requireAdmittedBundleSourcesInTransactionEffect(entry.admission, attempt,
+            entry.request, tx, resolved.authority, context.scopeClock);
+        }
+      })).pipe(Effect.mapError(cause => new SessionJournalSealV1Error({
+        reason: "journalFailed", cause,
+      })));
       yield* Effect.tryPromise({
         try: () => stageFiniteRootRows(tx, context, attemptState, finite,
           "seal"),

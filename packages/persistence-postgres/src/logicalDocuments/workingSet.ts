@@ -210,6 +210,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         ? Effect.fail(error("invalidAuthority")) : work)));
   const requirePendingDeletion = Effect.fn("LogicalDocuments.requirePendingDeletion")(function* (documentId: string) {
     yield* state.requireAdmission;
+    if (closed || root?.closed) return yield* Effect.fail(error("closed"));
     if (setNull.length > 0 || referenceReplacements.length > 0) return yield* Effect.fail(error("invalidAuthority"));
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(documentId).pipe(Result.mapError(cause => error("invalidInput", cause))));
     const row = rows.get(identity.id);
@@ -559,14 +560,18 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     return yield* Effect.fromResult(output(document, true));
   });
   const get: LogicalDocuments<Failure>["get"] = Effect.fn("LogicalDocuments.get")((context, id, documentId, tableName) =>
-    state.tx !== undefined ? runOperation(context, id, "read", locate(documentId, tableName).pipe(Effect.flatMap(({ pending }) =>
-      pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true))))) :
+    state.tx !== undefined || root !== undefined ? runOperation(context, id, "read", Effect.gen(function* () {
+      if (typeof documentId !== "string" || tableName !== undefined && typeof tableName !== "string")
+        return yield* Effect.fail(error("invalidInput"));
+      const { pending } = yield* locate(documentId, tableName);
+      return pending?.current == null ? null : yield* Effect.fromResult(output(pending.current, true));
+    })) :
       lifetime.operation(context, id, "read", Effect.gen(function* () {
         // The borrowed readTransaction performs live admission before any
         // identity inspection. Only primitive input enters this SQL callback;
         // a proxy cannot execute getters while the checked transaction is open.
         const pending = yield* state.readTransaction(tx => Effect.gen(function* () {
-          if (closed || root?.closed) return yield* Effect.fail(error("closed"));
+          if (closed) return yield* Effect.fail(error("closed"));
           if (setNull.length > 0 || referenceReplacements.length > 0)
             return yield* Effect.fail(error("invalidAuthority"));
           if (typeof documentId !== "string" || tableName !== undefined && typeof tableName !== "string")
@@ -1160,8 +1165,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const planSetNull = Effect.fn("LogicalDocuments.planSetNull")((context: BoundedRequestContext,
     id: PresentedTransactionId, intent: LogicalSetNullIntent) => lifetime.operation(context, id, "write", Effect.gen(function* () {
       yield* state.requireAdmission;
-      if (closed || setNull.length >= 16 || referenceReplacements.length !== 0)
-        return yield* Effect.fail(error(closed ? "closed" : setNull.length >= 16 ? "limitExceeded" : "invalidAuthority"));
+      if (closed || root?.closed || setNull.length >= 16 || referenceReplacements.length !== 0)
+        return yield* Effect.fail(error(closed || root?.closed ? "closed" : setNull.length >= 16 ? "limitExceeded" : "invalidAuthority"));
       const foreignKey = foreignKeys.find(key => key.source.tableId === intent.sourceTableId &&
         key.source.column === intent.sourceColumn && key.target.tableId === intent.targetTableId &&
         key.target.column === intent.targetColumn && key.source.nullable && key.onDelete === "noAction");
@@ -1185,8 +1190,8 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const planReferenceReplacement = Effect.fn("LogicalDocuments.planReferenceReplacement")((context: BoundedRequestContext,
     id: PresentedTransactionId, intent: LogicalReferenceReplacementIntent) => lifetime.operation(context, id, "write", Effect.gen(function* () {
       yield* state.requireAdmission;
-      if (closed || setNull.length !== 0 || referenceReplacements.length !== 0)
-        return yield* Effect.fail(error(closed ? "closed" : "invalidAuthority"));
+      if (closed || root?.closed || setNull.length !== 0 || referenceReplacements.length !== 0)
+        return yield* Effect.fail(error(closed || root?.closed ? "closed" : "invalidAuthority"));
       const foreignKey = foreignKeys.find(key => key.source.tableId === intent.sourceTableId &&
         key.source.column === intent.sourceColumn && key.target.tableId === intent.targetTableId &&
         key.target.column === intent.targetColumn && key.source.nullable && key.onDelete === "noAction");
@@ -1208,7 +1213,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         targetColumn: intent.targetColumn, targetKey: intent.targetKey, desiredKeys }));
     })));
   const activitySnapshot = Effect.fn("LogicalDocuments.activitySnapshot")(function* () {
-    if (closed) return yield* Effect.fail(error("closed"));
+    if (closed || root?.closed) return yield* Effect.fail(error("closed"));
     const observedRows: LogicalDocumentObservedRow[] = [];
     for (const row of rows.values()) {
       if (!tables.some(table => table.tableId === row.tableId)) continue;
@@ -1229,7 +1234,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     }));
   });
   const close = Effect.fn("LogicalDocuments.close")(function* (): Effect.fn.Return<LogicalDocumentChanges, Failure> {
-    if (closed || !lifetime.isClosing()) return yield* Effect.fail(error("invalidAuthority"));
+    if (closed || root?.closed || !lifetime.isClosing()) return yield* Effect.fail(error("invalidAuthority"));
     yield* state.requireAdmission;
     yield* validateRelationalReferences();
     const activity = yield* activitySnapshot();

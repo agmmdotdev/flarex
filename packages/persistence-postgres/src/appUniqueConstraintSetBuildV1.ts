@@ -12,13 +12,14 @@ import {
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { publicationModeForTable, readIndexCoverageContextInTransactionEffect,
   borrowIndexCoverageContextInTransaction, readPreparedIndexCoverageTableFrontiers,
+  readIndexCoverageTableFrontiersInTransactionEffect,
   type IndexCoverageContext } from "./indexBuildStates";
 import { decodeUniqueMaintenanceEvidenceResult, verifyUniqueMaintenanceEvidence, hashUniqueMaintenanceEvidence, uniqueMaintenanceFrameBytes,
   UniqueMaintenanceError, type UniqueMaintenanceEvidence, type UniqueMaintenanceFrame } from "./uniqueMaintenanceEvidence";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { isRetryableSqlTransactionCause } from "./locatedReadCommittedEffect";
 import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
@@ -3288,6 +3289,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
   context: IndexCoverageContext,
   publicationProfile: import("./indexBuildStates").IndexPublicationProfile,
   sourceBoundBatch = false,
+  indexFrontierTableIds: ReadonlyArray<CatalogTableId> = [],
 ) {
   if (definitions.length === 0) return Object.freeze([]);
   const snapshot = { schemaVersionId, members: definitions };
@@ -3311,6 +3313,7 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
   if (rows.length !== definitions.length)
     return yield* Effect.fail(stateError(clock, snapshot, "buildMissing"));
   const states: BuildState[] = [];
+  let frontierBatchPrepared = false;
   for (const row of rows) {
     const definition = definitions.find(value => value.uniqueConstraintDefinitionId === row.uniqueConstraintDefinitionId);
     if (definition === undefined) return yield* Effect.fail(stateError(clock, snapshot, "storedStateInvalid"));
@@ -3339,7 +3342,22 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
       state.maintenance.frame.deploymentId !== definition.deploymentId)) {
       return yield* Effect.fail(stateError(clock, selectedSnapshot, "storedStateInvalid"));
     }
-    if (!(yield* hasDefinitionCoverage(tx, clock, selectedSnapshot, state, definition.tableId, clock, context))) {
+    let tableFrontiers: UniqueTableFrontiers | undefined;
+    if (state.maintenance === null && state.coveredThroughCommitSeq < clock.lastCommitSeq) {
+      if (!frontierBatchPrepared) {
+        yield* readIndexCoverageTableFrontiersInTransactionEffect(tx, context,
+          [...new Set([...indexFrontierTableIds, ...definitions.map(member => member.tableId)])]).pipe(
+          Effect.mapError(cause => cause instanceof AppRowReadPersistenceError
+            ? new AppUniqueConstraintSetBuildIntegrationV1Error({ phase: "targetTransaction", retryable: true, cause })
+            : stateError(clock, selectedSnapshot, "storedStateInvalid", cause)));
+        frontierBatchPrepared = true;
+      }
+      tableFrontiers = (yield* Effect.fromResult(readPreparedIndexCoverageTableFrontiers(
+        tx, clock, context, [definition.tableId])).pipe(Effect.mapError(cause =>
+          stateError(clock, selectedSnapshot, "storedStateInvalid", cause)))) ?? undefined;
+    }
+    if (!(yield* hasDefinitionCoverage(tx, clock, selectedSnapshot, state, definition.tableId,
+      clock, context, tableFrontiers))) {
       return yield* Effect.fail(stateError(clock, selectedSnapshot, "coverageMissing"));
     }
     // A source-bound build may lag the scope clock when other tables changed.
@@ -3347,7 +3365,8 @@ export const prepareActiveUniqueCoverageInTransactionEffect = Effect.fn(
     // page; later pages must not mistake this transaction's own rows for an
     // uncovered committed write.
     if (sourceBoundBatch && mode === "sourceBound" && state.coveredThroughCommitSeq < clock.lastCommitSeq)
-      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx, [state], clock.lastCommitSeq, definition.schemaVersionId);
+      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx,
+        [{ state, schemaVersionId: definition.schemaVersionId }], clock.lastCommitSeq);
     states.push(state);
   }
   return Object.freeze(states);
@@ -3358,43 +3377,45 @@ export const advanceUnboundUniqueCoverageInTransactionEffect = Effect.fn(
   "AppUniqueConstraintBuild.advanceUnboundCoverage",
 )(function* (
   tx: AppRowTransaction,
-  states: ReadonlyArray<BuildState>,
+  selected: ReadonlyArray<Readonly<{ state: BuildState; schemaVersionId: CatalogSchemaVersionId }>>,
   commitSeq: CommitSeq,
-  schemaVersionId: CatalogSchemaVersionId,
 ) {
-  for (const state of states) {
+  const seen = new Set<CatalogUniqueConstraintDefinitionId>();
+  for (const { state, schemaVersionId } of selected) {
     if (state.maintenance !== null) continue;
-    const rows = yield* queryEffect(
-      tx
-        .update(fxSystemUniqueConstraintBuilds)
-        .set({
-          coveredThroughCommitSeq: commitSeq,
-          updatedAt: sql`clock_timestamp()`,
-        })
-        .where(
-          and(
-            eq(fxSystemUniqueConstraintBuilds.scopeId, state.scopeId),
-            eq(
-              fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId,
-              state.uniqueConstraintDefinitionId,
-            ),
-            eq(fxSystemUniqueConstraintBuilds.lifecycle, "enabled"),
-            eq(fxSystemUniqueConstraintBuilds.attemptFence, state.attemptFence),
-            eq(fxSystemUniqueConstraintBuilds.epoch, state.epoch),
-            eq(
-              fxSystemUniqueConstraintBuilds.storageGenerationFence,
-              state.storageGenerationFence,
-            ),
-          ),
-        )
-        .returning({
-          id: fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId,
-        }),
-    );
-    if (rows.length !== 1)
-      return yield* Effect.fail(
-        stateError(state, { schemaVersionId }, "concurrentStateChange"),
-      );
+    if (seen.has(state.uniqueConstraintDefinitionId))
+      return yield* Effect.fail(stateError(state, { schemaVersionId }, "storedStateInvalid"));
+    seen.add(state.uniqueConstraintDefinitionId);
+  }
+  // Rows are selected under the publication scope lock. A bounded statement
+  // retains the exact fence predicates; RETURNING proves every requested row.
+  for (let offset = 0; offset < selected.length; offset += 32) {
+    const batch = selected.slice(offset, offset + 32).filter(({ state }) => state.maintenance === null);
+    if (batch.length === 0) continue;
+    const rows = yield* queryEffect(tx.update(fxSystemUniqueConstraintBuilds)
+      .set({ coveredThroughCommitSeq: commitSeq, updatedAt: sql`clock_timestamp()` })
+      .where(or(...batch.map(({ state }) => and(
+        eq(fxSystemUniqueConstraintBuilds.scopeId, state.scopeId),
+        eq(fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId, state.uniqueConstraintDefinitionId),
+        eq(fxSystemUniqueConstraintBuilds.lifecycle, "enabled"),
+        eq(fxSystemUniqueConstraintBuilds.attemptFence, state.attemptFence),
+        eq(fxSystemUniqueConstraintBuilds.epoch, state.epoch),
+        eq(fxSystemUniqueConstraintBuilds.storageGenerationFence, state.storageGenerationFence),
+      ))))
+      .returning({ scopeId: fxSystemUniqueConstraintBuilds.scopeId,
+        id: fxSystemUniqueConstraintBuilds.uniqueConstraintDefinitionId,
+        attemptFence: fxSystemUniqueConstraintBuilds.attemptFence,
+        epoch: fxSystemUniqueConstraintBuilds.epoch,
+        storageGenerationFence: fxSystemUniqueConstraintBuilds.storageGenerationFence }));
+    for (const { state, schemaVersionId } of batch) {
+      if (!rows.some(row => row.scopeId === state.scopeId && row.id === state.uniqueConstraintDefinitionId &&
+        row.attemptFence === state.attemptFence && row.epoch === state.epoch &&
+        row.storageGenerationFence === state.storageGenerationFence))
+        return yield* Effect.fail(stateError(state, { schemaVersionId }, "concurrentStateChange"));
+    }
+    if (rows.length !== batch.length)
+      return yield* Effect.fail(stateError(batch[0]!.state,
+        { schemaVersionId: batch[0]!.schemaVersionId }, "storedStateInvalid"));
   }
 });
 
