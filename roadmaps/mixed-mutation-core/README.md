@@ -13,8 +13,8 @@ specific scope, decisions, affected contracts and remaining gates. The proposed
 latency plan: [admission/protection](./15-admission-protection-preflight.md) is
 delivered with its measured stage cost gate passed; [batched reads](./16-batched-read-execution-preflight.md)
 is delivered with its measured stage cost gate passed;
-[settlement](./17-batched-settlement-preflight.md) requires a focused terminal
-preflight reconciled against the delivered read contract, and
+[settlement](./17-batched-settlement-preflight.md) is an audited focused proposal
+reconciled against the delivered read contract and awaiting runtime scope agreement;
 [host lifecycle](./18-host-lifecycle-preflight.md) is conditional on attributable
 evidence. Slice 15 extends immutable target protection under existing full
 attestation and privileged quiescence. Slice 16 accepts tentative finite native
@@ -183,10 +183,26 @@ retain all 120 successful samples with zero exclusions and setup failures. SQL
 **635.4/668.3, 690.0/751.7, 1,169.3/1,226.9 and 321.2/342.7 ms**. Mixed medians
 fall **18.9% / 29.1% / 30.3%**; standalone rises **3.8%** and passes its median
 and strict regression gates. Warm maxima **689.0 / 782.2 / 1,237.6 / 380.0 ms**
-remain retained. Final mixed latency targets remain unmet. Slice 17 is the next
-separately scoped settlement preflight; its runtime remains unapproved. Journal
-formats, settlement authority, standalone/durable profiles and uncertain-outcome
-recovery remain unchanged.
+remain retained. Final mixed latency targets remain unmet.
+
+Slice 17 is an audited focused settlement proposal awaiting runtime scope
+agreement. Aggregate seal would return detached authenticated body, authority
+and candidate planning head after COMMIT; existing executor crypto/schema/grant/
+input verification stays outside SQL, followed by separate fresh finishing.
+The seal's candidate planning head allows candidate-guard compilation outside
+SQL and removes the separate planning-head preparation transaction. Publication
+retains its existing fresh head recheck and full OCC in one SQL transaction.
+Existing journal/schema/result/event bytes, Repeatable Read
+recovery readers and sealed-running/finishing state contracts remain retained.
+Healthy seal/OCC **5 to 2** and publication **2 to 1** remove four terminal
+transactions (**7 to 3**), proposing whole-request counts **25 / 26 / 39 / 6**.
+Proposed terminal dispatch ceilings **228 / 236 / 321** against **238 / 246 /
+331**, and whole-request ceilings **633 / 660 / 1,024 / 354**, conservatively
+account for ten transaction-control queries removed. They are stage ceilings;
+meaningful remaining original-snapshot/dependency/index/reference validation-read
+batching and duplicate preparation cleanup through existing owners are mandatory.
+Materialization writes already batch. Standalone retains **354 / 6** structure.
+The final latency gap requires attribution before selecting any host slice.
 
 The finite root has an immutable journal marker. Standalone selection and final
 publication still perform full live checks. Complete

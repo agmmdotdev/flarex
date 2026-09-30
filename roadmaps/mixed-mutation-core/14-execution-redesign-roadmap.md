@@ -1,6 +1,6 @@
 # Mixed execution redesign
 
-Status: **slices 15 and 16 delivered with their stage cost gates passed; slice 17 needs a focused preflight.**
+Status: **slices 15 and 16 delivered with their stage cost gates passed; slice 17 is an audited focused proposal awaiting runtime scope agreement.**
 The private finite Application/Product/Payload/workflow profile is implemented.
 Its mixed latency targets remain unmet. This document selects the connected
 redesign sequence. Delivered 15 owns target protection under existing full
@@ -37,8 +37,8 @@ ceilings, removing 219 / 398 / 629 dispatches and 12 / 22 / 35 transactions
 from slice 15. Warm medians fall 18.9% / 29.1% / 30.3%; standalone rises 3.8%
 and passes both median gates with unchanged SQL/transaction structure. All warm
 maxima remain: 689.0 / 782.2 / 1,237.6 / 380.0 ms. The comparison does not isolate
-latency causes. Final mixed goals remain unmet; slice 17's focused terminal graph
-must now address settlement while retaining the delivered read contract.
+latency causes. Final mixed goals remain unmet; slice 17 proposes a connected
+terminal cutover while retaining the delivered read contract.
 
 The benchmark creates a fresh single-use Worker per mixed request. Startup may
 be a structural floor, but local lifecycle observations do not establish that
@@ -49,17 +49,17 @@ with mixed snapshot, journal, recovery and publication obligations identified.
 
 ## Ordered connected slices
 
-**15 and 16 are delivered and their stage cost gates passed.** Draft 17 must
-reconcile its terminal graph with the delivered read contract before its focused
-preflight and implementation approval. Draft 18 is conditional. They
-remain planning documents. Revisit ordering if the dependency graph shows that a safe
+**15 and 16 are delivered and their stage cost gates passed.** Audited proposal
+17 is reconciled with the delivered read contract and awaits runtime scope
+agreement. Draft 18 is conditional. Neither authorizes runtime changes.
+Revisit ordering if the dependency graph shows that a safe
 cutover must combine or rearrange owners; explain that change before runtime.
 
 | Slice and readiness | Connected removal outcome | Main decision before implementation |
 | --- | --- | --- |
 | [15: admission and protection](./15-admission-protection-preflight.md), delivered; stage passed | Protect current immutable target metadata and remove repeated structure/clock reads across existing consumers | 23-table coverage, full existing attestation/quiescence, exact accepting-transaction clock provenance; measured SQL 862 / 1,068 / 1,663 meets ceilings 871 / 1,081 / 1,688 with unchanged 41 / 52 / 78 transactions |
 | [16: batched read execution](./16-batched-read-execution-preflight.md), delivered; stage passed | Aggregate finite full entry, local method/construction and actual bounded storage frontiers; retain source-wide readiness and exact ordered data dependencies | Accepted tentative callback/live-check timing; measured 643 / 670 / 1,034 driver dispatches and 29 / 30 / 43 explicit transactions pass 798 / 924 / 1,439 and 33 / 34 / 50 ceilings; standalone 354 / 6 passes median gates |
-| [17: batched settlement](./17-batched-settlement-preflight.md), dependent draft | Remove repeated terminal validation and row-at-a-time materialization where equivalent; connect seal, history, indexes, constraints, events and retained recovery | Aggregate authenticated contribution contract; lock/serialization plan; durable formats and uncertain-outcome disposition |
+| [17: batched settlement](./17-batched-settlement-preflight.md), audited proposal awaiting runtime scope agreement | Separate aggregate seal and fresh finishing, remove the separate candidate planning-head preparation transaction, and batch remaining validation reads through existing owners | Detached authenticated seal body/authority/planning head after COMMIT; executor verification and candidate-guard compilation outside SQL; publication retains its existing fresh head recheck/full OCC; durable formats and recovery retained |
 | [18: host lifecycle](./18-host-lifecycle-preflight.md), conditional draft | Remove attributable startup/serialization overhead if a separately accepted host contract permits it | Include or skip from evidence; isolation, capability lifetime, cleanup and host-specific parity |
 
 These are medium-to-large coherent capabilities. A helper, test matrix, profile
@@ -67,6 +67,33 @@ capture or minor SQL edit is work within a slice, not a separate successor turn.
 Measurements must answer an implementation or acceptance question. Each slice
 includes affected real consumers, failure proofs, removal and one scoped commit
 after validation; documents and profiling alone do not deliver runtime behavior.
+
+### Slice 17 proposed terminal contract
+
+One aggregate seal transaction returns detached authenticated body, authority
+and candidate planning head after COMMIT. Existing executor crypto, schema,
+signed-grant and input verification runs outside SQL, followed by a separate
+fresh finishing transition. Seal and finishing cannot fuse: the current seal
+candidate does not prove those grant/schema/input obligations. The seal captures
+the candidate planning head, allowing candidate-guard compilation outside SQL
+and removal of the separate planning-head preparation transaction. Publication
+retains its existing fresh head recheck and full OCC validation in one SQL
+transaction. No SQL transaction spans callbacks.
+
+Journal, schema, result and event bytes, Repeatable Read recovery readers, and
+the sealed-running and finishing state contracts remain retained. The healthy
+seal/OCC path proposes **5 to 2** transactions and publication **2 to 1**:
+terminal **7 to 3**, removing four transactions, with whole-request counts **29 / 30 / 43 / 6 to
+25 / 26 / 39 / 6**. Standalone remains **354 dispatches / 6 transactions**.
+
+The proposed combined terminal dispatch ceilings are **228 / 236 / 321**
+against **238 / 246 / 331**; whole-request ceilings are **633 / 660 / 1,024 /
+354**. These are conservative stage ceilings based on ten fewer
+transaction-control queries. Meaningful batching of the
+remaining original-snapshot, dependency, index and reference validation reads,
+plus duplicate preparation cleanup, is mandatory through existing owners.
+Materialization writes already batch. The focused preflight owns the exact bounds,
+proofs and agreement gate.
 
 ## Owners and invariants
 
@@ -107,7 +134,8 @@ slice, complete the actual bounded operation/dependency graph for all four
 workloads and agree numeric transaction, sequential round-trip and server SQL
 limits, plus batch-size/byte formulas and retry/saturation limits. Slice 16's
 approved source-derived preflight fixes conservative dispatch/transaction stage
-ceilings. Later limits remain unresolved drafts. A call containing 100
+ceilings. Slice 17 records proposed terminal and whole-request limits awaiting
+scope agreement; slice 18 limits remain conditional. A call containing 100
 server statements still accounts for all 100 statements.
 
 | Cost category | Required graph-derived budget and attribution |
@@ -153,7 +181,8 @@ connected slice with a quantified remaining gap and named cost owner. If the
 stage budget fails, reconcile within that slice or explain the changed contract
 before proceeding. Slice 15 passed its stage gate with the remaining latency gap
 quantified above. Slice 16's focused graph, timing contract and measured stage
-gate are delivered; slice 17 requires its own reconciled terminal preflight.
+gate are delivered; slice 17's audited terminal proposal awaits runtime scope
+agreement.
 The final latency targets govern whole-successor acceptance.
 
 Functional delivery and whole-goal performance acceptance are separate: green
