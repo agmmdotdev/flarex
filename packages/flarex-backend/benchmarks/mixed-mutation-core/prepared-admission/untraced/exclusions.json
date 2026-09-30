@@ -1,0 +1,22 @@
+{
+  "format": "flarex.mixed-mutation-performance-exclusions",
+  "excludedSampleIds": [],
+  "failedSampleIds": [],
+  "unattemptedSampleIds": [],
+  "setupFailures": [],
+  "warmupSampleIds": [
+    "product-warm-0-0",
+    "product-warm-0-1",
+    "product-warm-0-2",
+    "productPayload-warm-0-0",
+    "productPayload-warm-0-1",
+    "productPayload-warm-0-2",
+    "mixedWorkflow-warm-0-0",
+    "mixedWorkflow-warm-0-1",
+    "mixedWorkflow-warm-0-2",
+    "standaloneWorkflow-warm-0-0",
+    "standaloneWorkflow-warm-0-1",
+    "standaloneWorkflow-warm-0-2"
+  ],
+  "warmupInterpretation": "Retained in raw and CSV; excluded only from warm measured distributions by the declared plan. No outlier or failed sample is removed."
+}

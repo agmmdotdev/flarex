@@ -28,6 +28,11 @@ import type { ScopeClockRecord } from "./scopeClock";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { fxSystemApplicationRevisionSchemasV1 } from "./schema";
+import { hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
+  authenticateProtectedTargetMetadataSnapshot,
+  type ProtectedTargetMetadataEvidence } from "./preparedMetadataEpoch";
+import type { PreparedHostPreparationCharge } from "./preparedHostRuntime";
+import type { ApplicationActiveSelectionBasis } from "./applicationActivation";
 
 const UTF8 = new TextEncoder();
 const MAX_FRAME_BYTES = 1_048_576;
@@ -111,16 +116,49 @@ type CheckedActiveHeadState = {
   readonly clock: ScopeClockRecord;
   readonly active: CoherentApplicationActiveHead;
   schema?: Effect.Success<ReturnType<typeof readApplicationSchemaForHeadForShareInTransactionEffect>>;
+  preparation?: ApplicationActiveHeadPreparationState;
 };
 const checkedActiveHeads = new WeakMap<CheckedApplicationActiveHead, CheckedActiveHeadState>();
+
+declare const preparedHeadStructureBrand: unique symbol;
+export interface PreparedApplicationActiveHeadStructure { readonly [preparedHeadStructureBrand]: true }
+interface ApplicationActiveHeadPreparationState {
+  readonly protection: ProtectedTargetMetadataEvidence;
+  readonly charge: PreparedHostPreparationCharge | undefined;
+  readonly expected: Pick<ApplicationActiveSelectionBasis, "authority" | "revisionId" | "activationSequence" | "activationSha256" | "headSha256">;
+  active?: CoherentApplicationActiveHead;
+  schema?: Effect.Success<ReturnType<typeof readApplicationSchemaForHeadForShareInTransactionEffect>>;
+}
+const preparedHeadStructures = new WeakMap<object, ApplicationActiveHeadPreparationState>();
+
+/** Called by the nominal Application binding issuer during host construction.
+ * Lazy readers retain only decoded immutable bodies under this captured epoch. */
+export function prepareApplicationActiveHeadStructure(protection: ProtectedTargetMetadataEvidence,
+  charge: ApplicationActiveHeadPreparationState["charge"],
+  expected: ApplicationActiveHeadPreparationState["expected"]): PreparedApplicationActiveHeadStructure {
+  // SAFETY: the private registry authenticates this inert preparation handle.
+  const prepared = Object.freeze({}) as PreparedApplicationActiveHeadStructure;
+  preparedHeadStructures.set(prepared, { protection, charge, expected: { ...expected,
+    authority: { ...expected.authority }, activationSha256: copyBytes(expected.activationSha256), headSha256: copyBytes(expected.headSha256) } });
+  return prepared;
+}
 
 /** A missing head is deliberately never retained: READ COMMITTED may observe a later insertion. */
 export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect = Effect.fn(
   "ApplicationActiveHead.readCheckedCoherentForShare",
 )(function* (tx: AppRowTransaction, clock: ScopeClockRecord,
-  onIssued: (checked: CheckedApplicationActiveHead) => void) {
-  const active = yield* readCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock.scopeId);
+  onIssued: (checked: CheckedApplicationActiveHead) => void,
+  prepared?: PreparedApplicationActiveHeadStructure) {
+  const preparation = prepared === undefined || !hasProtectedMetadataFinalGuardScope(tx)
+    ? undefined : preparedHeadStructures.get(prepared);
+  if (prepared !== undefined && hasProtectedMetadataFinalGuardScope(tx) && preparation === undefined)
+    return yield* storedState();
+  if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
+    preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
+    Effect.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })));
+  const active = yield* readCoherentApplicationActiveHeadInTransaction(tx, clock.scopeId, true, preparation);
   if (active === null) return null;
+  const matchingPreparation = preparation !== undefined && preparedHeadMatchesSelection(active.head, preparation) ? preparation : undefined;
   // SAFETY: only this fresh locked reader issues the inert handle; the WeakMap owns its evidence.
   const checked = Object.freeze({}) as CheckedApplicationActiveHead;
   checkedActiveHeads.set(checked, {
@@ -128,6 +166,7 @@ export const readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect
     clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) },
     // The issuer's copy cannot be changed through the validated basis or a coverage context.
     active: structuredClone(active),
+    ...(matchingPreparation === undefined ? {} : { preparation: matchingPreparation }),
   });
   // The owning callback records the handle before this Effect can yield back to cancellation.
   onIssued(checked);
@@ -167,7 +206,21 @@ export const readCheckedApplicationSchemaForHeadForShareInTransactionEffect = Ef
   if (active === "refresh") return "refresh" as const;
   const state = checkedActiveHeads.get(checked);
   if (state === undefined) return yield* storedState(active.head.revisionId);
+  if (state.preparation?.schema !== undefined) return Object.freeze({ ...state.preparation.schema });
   state.schema ??= yield* readApplicationSchemaForHeadForShareInTransactionEffect(tx, active.head);
+  if (state.preparation !== undefined && state.preparation.schema === undefined) {
+    yield* authenticateProtectedTargetMetadataSnapshot(state.preparation.protection, tx).pipe(
+      Effect.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })));
+    // Another accepting transaction may have completed the same first read.
+    const preparation = state.preparation;
+    const retained = Object.freeze({ ...state.schema });
+    yield* Effect.suspend(() => {
+      if (preparation.schema !== undefined) return Effect.void;
+      return Effect.fromResult((preparation.charge?.(retained) ?? Result.succeed(undefined)).pipe(
+        Result.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })),
+        Result.map(() => { preparation.schema = retained; })));
+    });
+  }
   return state.schema;
 });
 
@@ -413,6 +466,7 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
   tx: AppRowTransaction,
   scopeId: TrustedScopeAuthority["scopeId"],
   lockForShare: boolean,
+  preparation?: ApplicationActiveHeadPreparationState,
 ): Effect.fn.Return<
   CoherentApplicationActiveHead | null,
   ApplicationActiveHeadStateError
@@ -423,6 +477,13 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
     lockForShare,
   );
   if (head === null) return null;
+  // Preserve the owning Application selection's concurrent-head failure order.
+  // A different fresh head receives full canonical proof but cannot fill this selection.
+  if (preparation !== undefined && !preparedHeadMatchesSelection(head, preparation)) preparation = undefined;
+  if (preparation?.active !== undefined) {
+    if (!activationMatchesHead(preparation.active.activation, head)) return yield* storedState(head.revisionId);
+    return Object.freeze({ head, activation: structuredClone(preparation.active.activation) });
+  }
   const base = tx.select().from(fxSystemApplicationActivations).where(and(
     eq(fxSystemApplicationActivations.scopeId, scopeId),
     eq(
@@ -440,8 +501,26 @@ const readCoherentApplicationActiveHeadInTransaction = Effect.fn(
   if (!activationMatchesHead(activation, head)) {
     return yield* storedState(head.revisionId);
   }
+  if (preparation !== undefined) {
+    yield* authenticateProtectedTargetMetadataSnapshot(preparation.protection, tx).pipe(
+      Effect.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })));
+    yield* Effect.suspend(() => {
+      if (preparation.active !== undefined) return Effect.void;
+      const retained = structuredClone({ head, activation });
+      return Effect.fromResult((preparation.charge?.({ ...retained,
+        activation: { ...retained.activation, activatedAt: retained.activation.activatedAt.toISOString() } }) ?? Result.succeed(undefined)).pipe(
+        Result.mapError(cause => new ApplicationActiveHeadStateError({ reason: "resourceFailure", retryable: false, cause })),
+        Result.map(() => { preparation.active = retained; })));
+    });
+  }
   return Object.freeze({ head, activation });
 });
+
+function preparedHeadMatchesSelection(head: DecodedApplicationActiveHead, preparation: ApplicationActiveHeadPreparationState): boolean {
+  return head.scopeId === preparation.expected.authority.scopeId && head.activationSequence === preparation.expected.activationSequence &&
+    head.revisionId === preparation.expected.revisionId && bytesEqualFullScan(head.activationSha256, preparation.expected.activationSha256) &&
+    bytesEqualFullScan(head.headSha256, preparation.expected.headSha256);
+}
 
 export function activationMatchesHead(
   activation: DecodedApplicationActivation,

@@ -16,7 +16,68 @@ import { createFileScopedPostgresFixture, createProtectedFileScopedPostgresFixtu
 const provisioningUrl = process.env.FLAREX_POSTGRES_PROVISIONING_DATABASE_URL;
 const native = postgresUrl !== null && provisioningUrl ? describe : describe.skip;
 
+const currentImmutableTables = [
+  "fx_system_application_publication", "fx_system_application_function",
+  "fx_system_application_task_catalog", "fx_system_application_task_definition",
+  "fx_system_application_revision_schema", "fx_system_application_readiness",
+  "fx_system_application_readiness_relation", "fx_system_application_readiness_function",
+  "fx_system_application_activation", "fx_system_application_write_ownership",
+  "fx_system_data_binding_candidate", "fx_system_data_binding_physical_lane",
+  "fx_system_data_binding_activation",
+] as const;
+
 native("protected metadata epoch under an authenticated restricted login", () => {
+  it("covers all current immutable writers and refuses runtime epoch or trigger bypass", async () => {
+    const fixture = await createProtectedFileScopedPostgresFixture();
+    const owner = new Pool({ connectionString: postgresUrl!,
+      options: `-c search_path=${fixture.schemaName}` });
+    const writer = await owner.connect();
+    try {
+      const target = fixture.persistence.drizzle;
+      for (const table of currentImmutableTables) {
+        const column = (await owner.query<{ column_name: string }>(
+          "select column_name from information_schema.columns where table_schema = current_schema() and table_name = $1 order by ordinal_position limit 1",
+          [table])).rows[0]?.column_name;
+        if (column === undefined) throw new Error(`Missing immutable table ${table}`);
+        for (const statement of [
+          `insert into "${table}" select * from "${table}" where false`,
+          `update "${table}" set "${column}" = "${column}" where false`,
+          `delete from "${table}" where false`,
+          `truncate "${table}" cascade`,
+        ]) {
+          const before = await target.transaction(tx => Effect.runPromise(
+            captureProtectedMetadataEpoch(fixture.protectedMetadata, target, tx)));
+          await writer.query("begin");
+          await writer.query(statement);
+          await expect(target.transaction(tx => Effect.runPromise(
+            guardProtectedMetadataEpoch(fixture.protectedMetadata, target, before, tx))))
+            .rejects.toMatchObject({ reason: "busy" });
+          await writer.query("rollback");
+          await target.transaction(tx => Effect.runPromise(
+            guardProtectedMetadataEpoch(fixture.protectedMetadata, target, before, tx)));
+          if (statement.startsWith("truncate")) await writer.query(statement);
+          else await fixture.persistence.query(statement);
+          await expect(target.transaction(tx => Effect.runPromise(
+            guardProtectedMetadataEpoch(fixture.protectedMetadata, target, before, tx))))
+            .rejects.toMatchObject({ reason: "changed" });
+        }
+        await expect(fixture.persistence.query(`truncate "${table}"`))
+          .rejects.toMatchObject({ code: "42501" });
+        await expect(fixture.persistence.query(`alter table "${table}" disable trigger fx_prepared_metadata_invalidate`))
+          .rejects.toMatchObject({ code: "42501" });
+      }
+      await expect(fixture.persistence.query("truncate fx_system_prepared_metadata_epoch"))
+        .rejects.toMatchObject({ code: "42501" });
+      await expect(fixture.persistence.query("set session_replication_role = replica"))
+        .rejects.toMatchObject({ code: "42501" });
+    } finally {
+      await writer.query("rollback");
+      writer.release();
+      await owner.end();
+      await fixture.dispose();
+    }
+  }, 180_000);
+
   it("reissues a new installation incarnation after administrative fixture reset", async () => {
     const fixture = await createFileScopedPostgresFixture();
     try {
@@ -41,7 +102,7 @@ native("protected metadata epoch under an authenticated restricted login", () =>
       expect(identity.rows[0]?.login).toMatch(/^flarex_runtime_/);
       const epoch = await fixture.persistence.drizzle.transaction(tx =>
         Effect.runPromise(captureProtectedMetadataEpoch(fixture.protectedMetadata, fixture.persistence.drizzle, tx)));
-      expect(epoch.generation).toBe(1n);
+      expect(epoch.generation).toBe(2n);
       await expect(fixture.persistence.query("truncate fx_system_application_candidate_v1"))
         .rejects.toMatchObject({ code: "42501" });
     } finally {

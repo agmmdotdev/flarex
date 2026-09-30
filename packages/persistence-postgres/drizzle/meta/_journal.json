@@ -841,6 +841,13 @@
       "when": 1790583202337,
       "tag": "0119_protected_metadata_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1790770000000,
+      "tag": "0120_immutable_target_metadata_protection",
+      "breakpoints": true
     }
   ]
 }

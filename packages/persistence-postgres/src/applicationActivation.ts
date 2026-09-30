@@ -13,6 +13,9 @@ import { Cause, Data, Effect, Encoding, Exit, Result } from "effect";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import { AppRowReadPersistenceError, type AppRowTransaction } from "./appRows";
+import { readApplicationReadinessTargetProtection } from "./applicationReadiness";
+import { prepareApplicationActiveHeadStructure, type PreparedApplicationActiveHeadStructure } from "./applicationActiveHeadRead";
+import { captureHostPreparationCharge } from "./preparedHostRuntime";
 import { replaceActiveIndexMaintenanceInTransactionEffect } from "./indexMaintenance";
 import { replaceActiveUniqueMaintenanceInTransactionEffect, AppUniqueConstraintSetBuildIntegrationV1Error, type ReadUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
@@ -300,6 +303,15 @@ interface RelationSelectionState {
 type SelectionState = LegacySelectionState | RelationSelectionState;
 
 const selectionStates = new WeakMap<ApplicationActiveSelection, SelectionState>();
+const bindingHeadPreparations = new WeakMap<object, PreparedApplicationActiveHeadStructure>();
+
+/** Source readers derive protection from an actual Application readiness
+ * issuer, never from copied digests or unique-build configuration. */
+export function readApplicationBindingTargetProtection(input: ApplicationBindingInput) {
+  // SAFETY: nominal registry membership, not this lookup assertion, authenticates the selection.
+  const state = selectionStates.get(input as ApplicationActiveSelection);
+  return state?.kind === "legacy" ? readApplicationReadinessTargetProtection(state.readinessRepository, state.readiness) : undefined;
+}
 interface ApplicationActivationRepositoryState {
   readonly readinessKind: "legacy" | "composite";
   readonly readiness: unknown;
@@ -710,7 +722,11 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
           readiness,
         ),
       );
-      return issueLegacyActiveSelection(state, captured.readiness, readiness);
+      const active = issueLegacyActiveSelection(state, captured.readiness, readiness);
+      const protection = readApplicationReadinessTargetProtection(captured.readiness, readiness);
+      if (protection !== undefined) bindingHeadPreparations.set(active.selection,
+        prepareApplicationActiveHeadStructure(protection, yield* captureHostPreparationCharge(), state.basis));
+      return active;
     },
   );
 
@@ -1088,7 +1104,8 @@ const validateApplicationBindingBasisOwned = Effect.fn(
   if (!clockMatches(state.basis.authority, currentClock)) {
     return yield* activationFailure("validateSelection", "scopeAuthority", state.basis.revisionId);
   }
-  const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock, issued);
+  const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock, issued,
+    bindingHeadPreparations.get(selection));
   const active = observed?.active ?? null;
   const validated = yield* validateStoredApplicationReadinessForActivationInTransaction(
     state.readinessRepository, state.readiness, tx, currentClock, observed?.checked,

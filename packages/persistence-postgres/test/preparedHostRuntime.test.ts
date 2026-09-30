@@ -1,7 +1,8 @@
-import { Cause, Deferred, Effect, Exit, Fiber, Scope, Tracer } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result, Scope, Tracer } from "effect";
 import { expect, it } from "vitest";
 import {
   chargeHostPreparation,
+  captureHostPreparationCharge,
   makePreparedHostRuntime,
   retainPreparedHost,
 } from "../src/preparedHostRuntime";
@@ -17,6 +18,26 @@ const prepare = Effect.gen(function* () {
   yield* chargeHostPreparation(metadata);
   return { metadata };
 });
+
+it("keeps lazy charges within their host allocation and rejects them after close", () =>
+  runEffect(Effect.scoped(Effect.gen(function* () {
+    expect(yield* captureHostPreparationCharge()).toBeUndefined();
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 64 });
+    const retained = yield* retainPreparedHost(runtime, Effect.gen(function* () {
+      const charge = yield* captureHostPreparationCharge();
+      if (charge === undefined) return yield* Effect.die("Expected the construction allocation");
+      return { charge };
+    }));
+    const charge = yield* retained.use(host => Effect.succeed(host.charge));
+    expect(Result.isSuccess(charge("x".repeat(32)))).toBe(true);
+    const overflow = charge("x".repeat(32));
+    expect(Result.isFailure(overflow) ? overflow.failure.reason : undefined).toBe("capacityExceeded");
+    yield* retained.close;
+    const closed = charge(null);
+    expect(Result.isFailure(closed) ? closed.failure.reason : undefined).toBe("closed");
+    const replacement = yield* retainPreparedHost(runtime, prepare);
+    expect(yield* replacement.use(host => Effect.succeed(host.metadata.length))).toBe(32);
+  }))));
 
 it("returns capacity when cancellation arrives at installation", () => runEffect(Effect.scoped(Effect.gen(function* () {
   const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 64 });

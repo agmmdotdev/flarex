@@ -32,6 +32,7 @@ import {
   TransactionRequestKeyV1Schema,
   TransactionIdentityAccessPolicySha256V1Schema,
   TransactionRequestSha256V1Schema,
+  TransactionAuthorizationRevocationEpochSchema,
 } from "flarex-protocol/transaction-session";
 import {
   writeScopePublicationPrefix,
@@ -48,6 +49,9 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
   getScopeClock,
   lockScopeClockForUpdateInTransactionEffect,
+  lockScopeClockForSnapshotReadInTransactionEffect,
+  openExactAttemptScopeClockObservation,
+  closeExactAttemptScopeClockObservation,
 } from "../src/scopeClock";
 import {
   fxAppRowRevisions,
@@ -273,12 +277,13 @@ export async function createScopePublicationFixture(
       controls.beforePublication?.();
       if (candidate === "core") {
         await writeScopePublicationPrefix(tx, command, kernel, selectedOptions);
-        await advanceScopePublicationClock(
-          tx,
-          command,
-          kernel,
-          selectedOptions,
-        );
+        openExactAttemptScopeClockObservation(tx, record, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt");
+        try {
+          await advanceScopePublicationClock(tx, command, kernel, selectedOptions);
+          const refreshed = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+          expect(refreshed.lastCommitSeq).toBe(commitSeq);
+          expect(refreshed.updatedAt).toEqual(publicationTime);
+        } finally { closeExactAttemptScopeClockObservation(tx); }
       } else {
         await writeCe0PublicationReference(
           tx,

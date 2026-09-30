@@ -108,6 +108,8 @@ import {
   decodeScopeClockRecord,
   ScopeClockNotFoundError,
   type ScopeClockRecord,
+  openExactAttemptScopeClockObservation,
+  closeExactAttemptScopeClockObservation,
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityByIdEffect,
@@ -2574,6 +2576,8 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
           );
           const context = projectTransactionSessionActivationResult(runningAttemptKernelContextResult(locked));
           openProtectedMetadataFinalGuardScope(tx);
+          openExactAttemptScopeClockObservation(tx, locked.clock.record,
+            locked.clock.authorizationRevocationEpoch, clockProtection);
           try {
             const exit = await Effect.runPromise(Effect.exit(
               Effect.uninterruptible(Effect.gen(function* () {
@@ -2589,6 +2593,7 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
             }
             return exit.value;
           } finally {
+            closeExactAttemptScopeClockObservation(tx);
             closeProtectedMetadataFinalGuardScope(tx);
           }
         }),

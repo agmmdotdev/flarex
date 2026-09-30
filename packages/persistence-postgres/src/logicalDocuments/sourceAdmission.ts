@@ -7,13 +7,13 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { ReplacementScopeIdV1Schema, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import type { ApplicationBindingInput } from "../applicationActivation";
+import { readApplicationBindingTargetProtection, type ApplicationBindingInput } from "../applicationActivation";
 import { withApplicationBindingEvidenceInTransaction } from "../applicationBindingProjection";
 import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
-import { readBindingSelectedEvidence } from "../frameworkSchema/binding/repository";
+import { readBindingSelectedEvidence, prepareBindingSelectedStructure, type PreparedBindingSelectedStructure } from "../frameworkSchema/binding/repository";
 import { verifyLogicalSchemaBindingInTransaction, verifyLogicalSchemaReadBindingInTransaction,
   type SelectedLogicalStorageReadiness } from "../frameworkSchema/binding/logicalSchema";
 import type { DataBindingHeadToken, DataBindingSetFrame } from "../frameworkSchema/binding/model";
@@ -21,7 +21,7 @@ import { loadPublishedPhysicalRequirementSnapshotV1, publishedPhysicalDefinition
 import { readLogicalStorageRequirements } from "../logicalStorageDefinitions";
 import { prepareLogicalStorageReadiness } from "../logicalStorageReadiness";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
-import { chargeHostPreparation } from "../preparedHostRuntime";
+import { chargeHostPreparation, captureHostPreparationCharge } from "../preparedHostRuntime";
 import { capturePrivateJsonData } from "../privateJsonData";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
@@ -165,6 +165,8 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   const selectedUnique: readonly LocatedAppUniqueConstraintDefinitionV1[] = Object.freeze([...uniqueDefinitions]);
   yield* chargeHostPreparation(JSON.stringify({ tables: selectedTables, indexes, unique: selectedUnique },
     (_, member: unknown) => typeof member === "bigint" ? member.toString() : member));
+  const chargePrepared = yield* captureHostPreparationCharge();
+  const targetPreparations = new WeakMap<object, PreparedBindingSelectedStructure>();
 
   const checkBinding = Effect.fn("LogicalSourceAdmission.checkBinding")(function* <Value, Failure, Requirements>(
     selection: "full" | "read",
@@ -188,7 +190,13 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head }));
     const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "full"
       ? undefined : yield* readiness.selectSources(sourceKeys);
-    const selected = yield* readBindingSelectedEvidence(tx, authority);
+    const protection = readApplicationBindingTargetProtection(application);
+    let targetPreparation = targetPreparations.get(application);
+    if (protection !== undefined && targetPreparation === undefined) {
+      targetPreparation = prepareBindingSelectedStructure(authority, protection, chargePrepared);
+      targetPreparations.set(application, targetPreparation);
+    }
+    const selected = yield* readBindingSelectedEvidence(tx, authority, targetPreparation);
     if (Option.isNone(selected)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
     const { head: current, candidate } = selected.value;
     yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, applicationEvidence =>

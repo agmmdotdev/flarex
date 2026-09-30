@@ -1,10 +1,14 @@
 import { and, eq, getTableColumns, sql, type SQLWrapper } from "drizzle-orm";
-import { Effect, Encoding, Option } from "effect";
+import { Effect, Encoding, Option, Result } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { JsonObject } from "flarex-protocol/json";
 import type { FlarexMetadataTransaction } from "../../metadataTransaction";
 import { runDrizzleStatementEffect } from "../../drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../../databaseTimestamp";
+import { hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
+  authenticateProtectedTargetMetadataSnapshot,
+  type ProtectedTargetMetadataEvidence } from "../../preparedMetadataEpoch";
+import type { PreparedHostPreparationCharge } from "../../preparedHostRuntime";
 import type { PrivateCanonicalValueSnapshot } from "../privateCanonicalValue";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "../installation/storedMetadataRestoration";
 import {
@@ -41,6 +45,27 @@ export type BindingLocation = Readonly<{
   scopeId: string;
   storageGeneration: string;
 }>;
+
+declare const preparedSelectedStructureBrand: unique symbol;
+export interface PreparedBindingSelectedStructure { readonly [preparedSelectedStructureBrand]: true }
+interface PreparedSelectedStructureState {
+  readonly location: BindingLocation;
+  readonly protection: ProtectedTargetMetadataEvidence;
+  readonly charge: PreparedHostPreparationCharge | undefined;
+  structure?: Readonly<{ candidate: StoredBindingValue<DataBindingSetFrame>;
+    activation: Effect.Success<ReturnType<typeof decodeActivationRow>> }>;
+}
+const preparedSelectedStructures = new WeakMap<object, PreparedSelectedStructureState>();
+
+/** Issued by connected source preparation, with nominal Application lineage.
+ * The first read still authenticates activation, candidate and complete lanes. */
+export function prepareBindingSelectedStructure(location: BindingLocation,
+  protection: ProtectedTargetMetadataEvidence, charge: PreparedSelectedStructureState["charge"]): PreparedBindingSelectedStructure {
+  // SAFETY: only the private registry recognizes the inert issued handle.
+  const token = Object.freeze({}) as PreparedBindingSelectedStructure;
+  preparedSelectedStructures.set(token, { location: Object.freeze({ ...location }), protection, charge });
+  return token;
+}
 export type VerifiedBindingLane = Readonly<{
   slot: PhysicalBindingSlot;
   availability: RestoredFrameworkSchemaAvailabilityHead;
@@ -336,10 +361,26 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
  * The second statement begins after any head-lock wait, so READ COMMITTED sees
  * the activation inserted by the writer that supplied the newly locked head. */
 export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.readSelectedEvidence")(
-  function* (tx: FlarexMetadataTransaction, location: BindingLocation) {
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation, prepared?: PreparedBindingSelectedStructure) {
+    const preparation = prepared === undefined || !hasProtectedMetadataFinalGuardScope(tx) ? undefined : preparedSelectedStructures.get(prepared);
+    if (prepared !== undefined && hasProtectedMetadataFinalGuardScope(tx) &&
+      (preparation === undefined || preparation.location.scopeId !== location.scopeId ||
+        preparation.location.storageGeneration !== location.storageGeneration))
+      return yield* Effect.fail(bindingError("storedCorruption"));
+    if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
+      preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
+      Effect.mapError(cause => bindingError("resourceFailure", cause)));
     const selectedHead = yield* readBindingHeadRecord(tx, location, "share");
     if (Option.isNone(selectedHead)) return Option.none();
     const head = selectedHead.value;
+    const retained = preparation?.structure;
+    if (retained !== undefined && retained.activation.frame.request.scopeId === head.frame.scopeId &&
+      retained.activation.frame.request.storageGeneration === head.frame.storageGeneration &&
+      retained.activation.frame.sequence === head.frame.sequence && retained.activation.sha256 === head.frame.activationSha256 &&
+      retained.candidate.sha256 === head.frame.candidateSha256) {
+      yield* decodeActiveReferenceProjection(retained.activation, head);
+      return Option.some(Object.freeze({ head, candidate: structuredClone(retained.candidate) }));
+    }
     const rows = yield* bindingStatement(tx.select({
       activation: {
         ...getTableColumns(activations),
@@ -373,6 +414,17 @@ export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.read
     if (candidate === undefined || candidate === null) return Option.none();
     const storedLanes = rows.flatMap(value => value.lane === null ? [] : [value.lane]);
     const restored = yield* decodeCandidateWithLanes(candidate, storedLanes, location);
+    if (preparation !== undefined && preparation.structure === undefined) {
+      yield* authenticateProtectedTargetMetadataSnapshot(preparation.protection, tx).pipe(
+        Effect.mapError(cause => bindingError("resourceFailure", cause)));
+      yield* Effect.suspend(() => {
+        if (preparation.structure !== undefined) return Effect.void;
+        const structure = structuredClone({ candidate: restored, activation });
+        return Effect.fromResult((preparation.charge?.(structure) ?? Result.succeed(undefined)).pipe(
+          Result.mapError(cause => bindingError("resourceFailure", cause)),
+          Result.map(() => { preparation.structure = structure; })));
+      });
+    }
     return Option.some(Object.freeze({ head, candidate: restored }));
   },
 );

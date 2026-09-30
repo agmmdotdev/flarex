@@ -50,6 +50,29 @@ export interface ScopeClockRecord {
   readonly updatedAt: Date;
 }
 
+/** Issued only by the exact-running kernel after its live checks, while its
+ * stronger clock lock is held. This observation never crosses transactions. */
+const exactAttemptClockObservations = new WeakMap<FlarexMetadataTransaction, Readonly<{
+  clock: ScopeClockRecord;
+  revocation: TransactionAuthorizationRevocationEpoch;
+  lock: "share" | "attempt";
+}>>();
+
+export function openExactAttemptScopeClockObservation(
+  tx: FlarexMetadataTransaction, clock: ScopeClockRecord,
+  revocation: TransactionAuthorizationRevocationEpoch, lock: "share" | "attempt",
+): void {
+  if (exactAttemptClockObservations.has(tx)) throw new Error("Exact attempt clock scope already opened");
+  exactAttemptClockObservations.set(tx, Object.freeze({ clock: copyScopeClockObservation(clock), revocation, lock }));
+}
+
+const copyScopeClockObservation = (clock: ScopeClockRecord): ScopeClockRecord =>
+  Object.freeze({ ...clock, updatedAt: new Date(clock.updatedAt.getTime()) });
+
+export function closeExactAttemptScopeClockObservation(tx: FlarexMetadataTransaction): void {
+  exactAttemptClockObservations.delete(tx);
+}
+
 export class ScopeClockNotFoundError extends Error {
   readonly _tag = "ScopeClockNotFoundError" as const;
 
@@ -146,6 +169,8 @@ export const requireScopeAuthorizationRevocationEpochInTransactionEffect =
       TransactionAuthorizationRevocationEpoch,
       ScopeAuthorizationRevocationEpochReadError
     > {
+      const observed = exactAttemptClockObservations.get(db);
+      if (observed?.clock.scopeId === scopeId) return observed.revocation;
       const query = selectScopeAuthorizationRevocationEpochForKeyShare(
         db,
         scopeId,
@@ -198,6 +223,7 @@ export const advanceScopeAuthorizationRevocationEpochInTransactionEffect =
       AdvanceScopeAuthorizationRevocationEpochResult,
       AdvanceScopeAuthorizationRevocationEpochError
     > {
+      closeExactAttemptScopeClockObservation(db);
       const row = yield* lockScopeClockRowForUpdateInTransactionEffect(
         db,
         scopeId,
@@ -274,6 +300,8 @@ export const lockScopeClockForShareInTransactionEffect = Effect.fn(
   ScopeClockRecord,
   LockScopeClockForShareError
 > {
+  const observed = exactAttemptClockObservations.get(db);
+  if (observed?.clock.scopeId === scopeId && observed.lock === "share") return copyScopeClockObservation(observed.clock);
   const query = db
     .select()
     .from(fxSystemScopeClocks)
@@ -306,6 +334,9 @@ export const lockScopeClockForOrdinaryWriteInTransactionEffect = Effect.fn(
 const lockScopeClockForDataAccess = Effect.fn("ScopeClock.lockForDataAccess")(function* (
   db: ScopeClockTransaction, scopeId: ScopeId, access: "snapshotRead" | "ordinaryWrite",
 ) {
+  const observed = exactAttemptClockObservations.get(db);
+  if (observed?.clock.scopeId === scopeId &&
+    (access === "snapshotRead" || observed.lock === "attempt")) return copyScopeClockObservation(observed.clock);
   const query = db.select().from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, scopeId))
     .limit(1).for(access === "snapshotRead" ? "key share" : "no key update");
   const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
@@ -339,6 +370,7 @@ const lockScopeClockRowForUpdateInTransactionEffect = Effect.fn(
   | ScopeClockNotFoundError
   | ScopeAuthorizationRevocationEpochPersistenceError
 > {
+  closeExactAttemptScopeClockObservation(db);
   const query = selectScopeClockRowForUpdate(db, scopeId);
   const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
     "lockForUpdate",

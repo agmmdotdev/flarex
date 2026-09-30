@@ -1,3 +1,4 @@
+import { closeExactAttemptScopeClockObservation } from "../scopeClock";
 import { fxSystemCommitRelationalChanges } from "../commitPublication/relationalFactsSchema";
 import { fxSystemCommitEvents, fxSystemCommitEventDeliveries } from "../commitEvents/schema";
 import { commitEventLimits } from "../commitEvents/model";
@@ -321,6 +322,7 @@ export async function advanceScopePublicationClock(
   const scopeUuid = kernel.clock.scopeUuid;
   const commitSeq = kernel.commitSeq;
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);
+  closeExactAttemptScopeClockObservation(tx);
   const clock = await sqlCall("advanceScopeClock", () =>
     tx.update(fxSystemScopeClocks).set({
       lastCommitSeq: commitSeq,

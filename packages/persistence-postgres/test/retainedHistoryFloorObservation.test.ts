@@ -12,6 +12,7 @@ import {
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
+import { TransactionAuthorizationRevocationEpochSchema } from "flarex-protocol/transaction-session";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -53,6 +54,8 @@ import {
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { lockScopeClockForUpdateInTransactionEffect, lockScopeClockForSnapshotReadInTransactionEffect,
+  openExactAttemptScopeClockObservation, closeExactAttemptScopeClockObservation } from "../src/scopeClock";
 import { retainedHistoryFloorLeaseScenario, seedRetainedFloorLeaseCommit } from "./retainedHistoryFloorLeaseScenario";
 
 const sharedLocator = Object.freeze({
@@ -432,7 +435,17 @@ describe("O11-B/C retained-history floor", () => {
   it("publishes the exact candidate monotonically and replays as a hold", async () => {
     const context = await provision("publication");
     await seedCommits(context.scopeId);
-    const port = publicationPort();
+    const runner = createDefaultLocatedReadCommittedTransactionRunnerV1(persistence.drizzle);
+    let observedFloor: bigint | undefined;
+    const port = publicationPort(work => runner(async tx => {
+      const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(tx, context.scopeId));
+      openExactAttemptScopeClockObservation(tx, clock, TransactionAuthorizationRevocationEpochSchema.make(0n), "attempt");
+      try {
+        const result = await work(tx);
+        observedFloor = (await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, context.scopeId))).oldestAvailableCommitSeq;
+        return result;
+      } finally { closeExactAttemptScopeClockObservation(tx); }
+    }));
 
     await expect(runEffect(publishRetainedHistoryFloorEffect(
       port,
@@ -449,6 +462,7 @@ describe("O11-B/C retained-history floor", () => {
       holdReasons: [],
     });
     await expect(readFloor(context.scopeId)).resolves.toBe(2n);
+    expect(observedFloor).toBe(2n);
 
     await expect(runEffect(publishRetainedHistoryFloorEffect(
       port,

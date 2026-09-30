@@ -46,12 +46,14 @@ interface Owner {
   bytes: number;
 }
 const owners = new WeakMap<object, Owner>();
+export type PreparedHostPreparationCharge = (value: unknown) => Result.Result<void, PreparedHostRuntimeError>;
 class PreparationCharge extends Context.Service<
   PreparationCharge,
   {
     readonly charge: (
       value: unknown,
     ) => Effect.Effect<void, PreparedHostRuntimeError>;
+    readonly chargeResult: PreparedHostPreparationCharge;
   }
 >()("Flarex/HostPreparationCharge") {}
 
@@ -95,6 +97,15 @@ export const chargeHostPreparation = Effect.fn("PreparedHostRuntime.charge")(
   },
 );
 
+/** A lazy preparation owner may retain its actual host allocation. The lease
+ * rejects charges after close and accounts retained bytes until disposal. */
+export const captureHostPreparationCharge = Effect.fn("PreparedHostRuntime.captureCharge")(
+  function* () {
+    const allocation = yield* Effect.serviceOption(PreparationCharge);
+    return Option.isSome(allocation) ? allocation.value.chargeResult : undefined;
+  },
+);
+
 /** Source-private resource owner. Public methods must delegate through use and
  * must never capture the implementation returned by construction themselves. */
 export const retainPreparedHost = Effect.fn("PreparedHostRuntime.retain")(
@@ -108,7 +119,7 @@ export const retainPreparedHost = Effect.fn("PreparedHostRuntime.retain")(
     return yield* Effect.acquireUseRelease(
       makeLease<Value>(owner),
       lease => construction.pipe(
-        Effect.provideService(PreparationCharge, { charge: lease.charge }),
+        Effect.provideService(PreparationCharge, { charge: lease.charge, chargeResult: lease.chargeResult }),
         Effect.flatMap(host => lease.install(host)),
         Effect.as(lease.access),
       ),
@@ -150,20 +161,14 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
     owner.leases.add(lease);
     return Effect.void;
   });
-  const charge = (data: unknown) =>
-    Effect.suspend(() => {
-      if (owner.closed || closing) return Effect.fail(error("closed"));
-      if (rejected !== undefined) return Effect.fail(rejected);
-      const size = measurePayload(
-        data,
-        owner.maximumPreparedBytes - owner.bytes,
-      );
-      if (Result.isSuccess(size)) {
-        owner.bytes += size.success;
-        bytes += size.success;
-      } else rejected = size.failure;
-      return Effect.fromResult(size).pipe(Effect.asVoid);
-    });
+  const chargeResult: PreparedHostPreparationCharge = data => {
+    if (owner.closed || closing) return Result.fail(error("closed"));
+    if (rejected !== undefined) return Result.fail(rejected);
+    return measurePayload(data, owner.maximumPreparedBytes - owner.bytes).pipe(
+      Result.map(size => { owner.bytes += size; bytes += size; }),
+      Result.mapError(cause => { rejected = cause; return cause; }));
+  };
+  const charge = (data: unknown) => Effect.suspend(() => Effect.fromResult(chargeResult(data)));
   const abandon = Effect.suspend(() => {
     active = 0;
     closing = true;
@@ -198,7 +203,7 @@ const makeLease = Effect.fn("PreparedHostRuntime.reserve")(function* <
           return finish;
         }),
     );
-  return { charge, abandon, install, access: Object.freeze({ use, close }) };
+  return { charge, chargeResult, abandon, install, access: Object.freeze({ use, close }) };
 });
 
 /** Bounded structural payload accounting. Repeated references are deliberately

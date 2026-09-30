@@ -6,8 +6,8 @@ import { fxSystemPreparedMetadataEpoch } from "./schema";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 
-/** The exact first prepared projection. Other control, coverage, head and
- * physical-catalog evidence keeps its current fresh verification. */
+/** Immutable target projection and complete sidecar membership. Control,
+ * coverage, live heads and physical catalogs keep their owned fresh proofs. */
 const coveredTables = [
   "fx_system_application_candidate_v1",
   "fx_system_application_analysis_v1",
@@ -19,6 +19,19 @@ const coveredTables = [
   "fx_system_application_revision_schema_v1",
   "fx_system_application_readiness_v1",
   "fx_system_application_readiness_function_v1",
+  "fx_system_application_publication",
+  "fx_system_application_function",
+  "fx_system_application_task_catalog",
+  "fx_system_application_task_definition",
+  "fx_system_application_revision_schema",
+  "fx_system_application_readiness",
+  "fx_system_application_readiness_relation",
+  "fx_system_application_readiness_function",
+  "fx_system_application_activation",
+  "fx_system_application_write_ownership",
+  "fx_system_data_binding_candidate",
+  "fx_system_data_binding_physical_lane",
+  "fx_system_data_binding_activation",
 ] as const;
 
 export class PreparedMetadataEpochError extends Data.TaggedError("PreparedMetadataEpochError")<{
@@ -127,6 +140,13 @@ export interface ProtectedMetadataEpochIdentity {
   readonly login: string;
 }
 
+/** Internal issuer-owned evidence; the preparation token remains nominal. */
+export interface ProtectedTargetMetadataEvidence {
+  readonly database: FlarexMetadataDatabase;
+  readonly token: ProtectedMetadataPreparation;
+  readonly epoch: ProtectedMetadataEpochIdentity;
+}
+
 declare const protectedMetadataBrand: unique symbol;
 export interface ProtectedMetadataPreparation {
   readonly [protectedMetadataBrand]: true;
@@ -194,6 +214,17 @@ export const captureProtectedMetadataEpoch = Effect.fn("PreparedMetadataEpoch.ca
   if (!sameInstallation(current, state.identity)) return yield* Effect.fail(issue("changed"));
   return current;
 });
+
+/** After a complete first canonical read, authenticate it against the original
+ * preparation's before-anchor before retaining any cross-transaction structure.
+ * This read takes no epoch lock; the accepting tail still owns NOWAIT locking. */
+export const authenticateProtectedTargetMetadataSnapshot = Effect.fn("PreparedMetadataEpoch.authenticateTargetSnapshot")(
+  function* (evidence: ProtectedTargetMetadataEvidence, tx: FlarexMetadataTransaction) {
+    const current = yield* captureProtectedMetadataEpoch(evidence.token, evidence.database, tx);
+    if (!sameInstallation(current, evidence.epoch) || current.generation !== evidence.epoch.generation)
+      return yield* Effect.fail(issue("changed"));
+  },
+);
 
 /** Last metadata acquisition in an accepting transaction. NOWAIT avoids a
  * clock/row versus epoch lock cycle; busy rejects this whole transaction. */

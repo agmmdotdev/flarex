@@ -429,6 +429,15 @@ const issuedReadinessStates = new WeakMap<
   IssuedApplicationReadinessState
 >();
 
+/** Only the exact readiness issuer can expose its already bracketed immutable
+ * target proof to connected internal preparation owners. */
+export function readApplicationReadinessTargetProtection(repository: unknown, issued: ApplicationReadinessResult) {
+  const state = typeof repository === "object" && repository !== null ? readinessRepositoryStates.get(repository) : undefined;
+  const ready = issued.status === "ready" ? issuedReadinessStates.get(issued) : undefined;
+  return state !== undefined && ready?.kind === "stored" && ready.issuer === state.issuer
+    ? ready.stored.protectedMetadata : undefined;
+}
+
 export const readApplicationActivationUniqueRequirements = Effect.fn("ApplicationReadiness.readActivationUniqueRequirements")(
   function* (repository: unknown, issued: ApplicationReadinessResult, schemaVersionId: string,
     target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction) {

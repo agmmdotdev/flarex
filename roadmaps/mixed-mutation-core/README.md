@@ -10,12 +10,13 @@ owns architecture and open contract questions. This roadmap owns current status,
 sequencing and finite delivery gates. Numbered slice preflights own their
 specific scope, decisions, affected contracts and remaining gates. The proposed
 [execution redesign](./14-execution-redesign-roadmap.md) owns the next connected
-latency plan: [admission/protection](./15-admission-protection-preflight.md) is the
-next proposed scope discussion, [batched reads](./16-batched-read-execution-preflight.md)
-and [settlement](./17-batched-settlement-preflight.md) are dependent drafts, and
+latency plan: [admission/protection](./15-admission-protection-preflight.md) is
+delivered with its measured stage cost gate passed; [batched reads](./16-batched-read-execution-preflight.md)
+is the next preflight gate, [settlement](./17-batched-settlement-preflight.md) is a dependent draft, and
 [host lifecycle](./18-host-lifecycle-preflight.md) is conditional on attributable
-evidence. These documents approve planning only; their runtime and new authority
-contracts remain unapproved. The implemented
+evidence. Slice 15 extends immutable target protection under existing full
+attestation and privileged quiescence. Later runtime and new authority contracts
+remain gated. The implemented
 [first Application and Product attempt](./01-application-product-attempt-preflight.md)
 uses the real Worker, Product service and shared journal/commit owners. It is
 not activated on a named durable environment and exposes no public authoring API.
@@ -90,8 +91,8 @@ show warm outer p50/p95 of 857.9/884.6, 1,000.2/1,053.2,
 The mixed latency proposals remain unmet. Standalone median passes its
 regression gate; its p95 rises about 5.4% and its 698.6 ms warm maximum is
 retained with zero exclusions. Fresh checks at actual database boundaries
-remain a measured cost owner. Broader structural protection, cross-boundary
-metadata reuse and cheaper epoch attestation remain separately gated.
+remain a measured cost owner. This previous checkpoint preceded slice 15's target
+protection extension; cheaper epoch attestation remains separately gated.
 
 The [compact checked-access preflight](./12-compact-checked-access-preflight.md)
 is delivered for the existing connected private graphs: thirteen consumed
@@ -127,8 +128,8 @@ aggregate seal, publication, standalone and durable-operation checks remain
 mandatory. Indexed historical hydration reuses the existing row query/decoder,
 with bounded body transfer and sequential decode/observation/budget/state order;
 point and seed hydration retain their paths.
-The [bundled measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bundled-dependency-validation/README.md)
-show SQL dispatches **988 / 1,252 / 1,979 / 354**, with transactions unchanged
+The [previous bundled checkpoint](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bundled-dependency-validation/README.md)
+has SQL dispatches **988 / 1,252 / 1,979 / 354**, with transactions unchanged
 at **41 / 52 / 78 / 6**. Warm p50/p95 is **940.7/1,166.4,
 1,087.1/1,176.3, 1,787.7/1,960.0 and 319.8/403.4 ms**. Median changes versus
 compact access are **+8.4% / +1.8% / −8.5% / +5.3%**. Latency does not improve
@@ -141,20 +142,35 @@ strictly-below-10% regression gate. All outliers remain, including Product's
 remain a distinct historical checkpoint, including their 2,501-dispatch workflow
 and prior verified source receipt. Exact operation closure requires planner
 completeness proofs, and further decode/hash or driver/server/wait cost work
-requires attributable measurements. Wider writer protection, reduced catalog
-attestation and privileged maintenance enforcement retain explicit contract
-gates; neither a method grant nor a stable digest supplies them.
+requires attributable measurements. Reduced catalog attestation and privileged
+maintenance enforcement retain explicit contract gates; neither a method grant
+nor a stable digest supplies them.
 
-The finite root has an immutable journal marker and a first protected legacy
-Application target projection. That projection has ten trigger-covered tables
-and an authenticated restricted runtime role; standalone selection and final
-publication still perform full live checks. Framework, relation Application
-and physical evidence retain their accepting-transaction checks. Complete
+The delivered [admission/protection slice](./15-admission-protection-preflight.md)
+extends the existing epoch to **23 immutable target tables** and reuses protected
+canonical Application activation, legacy revision-schema and selected binding
+activation/candidate/complete-lane structures through their actual owners.
+Exact accepting-transaction clock observations use the kernel's held strong lock
+and expire on exit or a same-transaction clock mutation. Full restricted-login
+and installation attestation, fresh heads/readiness/physical evidence and the
+mandatory full tail guard remain. Current relation Fold callers retain full proof.
+The [prepared-admission measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/prepared-admission/README.md)
+show **862 / 1,068 / 1,663 / 354** dispatches with **41 / 52 / 78 / 6** transactions,
+meeting the original **871 / 1,081 / 1,688 / 354** stage ceilings. Warm p50/p95 is
+**783.7/1,011.6, 973.8/1,006.0, 1,676.6/1,714.8 and 309.4/395.3 ms**.
+Actual lazy fills add **3 / 4 / 7** full captures in the request/series-owned
+benchmark lifetime. Standalone passes its median gate; the three final mixed
+latency goals remain unmet. All maxima are retained, including mixed workflow's
+**2,800.9 ms** sample, with zero exclusions. Slice 16's batched-read contract and
+graph budget are the next preflight gate; its runtime remains unapproved.
+
+The finite root has an immutable journal marker. Standalone selection and final
+publication still perform full live checks. Complete
 canonical unique closure/spec authentication uses the existing configured-control
 preparation owner and detached snapshot; the accepting transaction checks fresh
 target binding/Application, required builds, physical evidence and authority.
-Neither full nor selected reads add a control-closure reread there, and no wider
-protection or control/target coordination is implied. Privileged repair and structural
+Neither full nor selected reads add a control-closure reread there, and no atomic
+control/target coordination is implied. Privileged repair and structural
 DDL require quiescence before protected preparation can resume. The local
 PostgreSQL measurements do not establish native ORM parity, hosted latency,
 throughput or production capacity.

@@ -1,3 +1,4 @@
+import { closeExactAttemptScopeClockObservation } from "./scopeClock";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { and, asc, desc, eq, gt, gte, sql } from "drizzle-orm";
 import { Data, Effect, Result } from "effect";
@@ -464,6 +465,7 @@ const publishInTransaction = Effect.fn(
   if (observation.candidateFloor === observation.currentFloor) {
     return publicationResult(observation, "held", observation.currentFloor);
   }
+  closeExactAttemptScopeClockObservation(tx);
   const updatedRows = yield* queryEffect(
     "publication",
     tx.update(fxSystemScopeClocks)

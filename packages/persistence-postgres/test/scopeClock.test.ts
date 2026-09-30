@@ -16,6 +16,7 @@ import {
 } from "flarex-protocol/storage-authority";
 import {
   MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH,
+  TransactionAuthorizationRevocationEpochSchema,
   type TransactionAuthorizationRevocationEpoch,
 } from "flarex-protocol/transaction-session";
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -42,6 +43,10 @@ import {
   ScopeAuthorizationRevocationEpochExhaustedError,
   ScopeAuthorizationRevocationEpochPersistenceError,
   ScopeClockNotFoundError,
+  openExactAttemptScopeClockObservation,
+  closeExactAttemptScopeClockObservation,
+  lockScopeClockForShareInTransactionEffect,
+  lockScopeClockForSnapshotReadInTransactionEffect,
 } from "../src/scopeClock";
 import {
   insertInitialScopeClockInTransactionResult,
@@ -51,6 +56,7 @@ import {
 } from "../src/scopeClockInitialization";
 import { fxSystemScopeClocks } from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 
 type ForbiddenScopeClockMethod = Extract<
   keyof FlarexPersistence,
@@ -110,6 +116,48 @@ describe("scope clock", () => {
           typeof advanceScopeAuthorizationRevocationEpochInTransactionEffect
         >[0]
       >();
+  });
+
+  it("reuses only the held exact clock, owns its Date, and refreshes after revocation", async () => {
+    const db = newTestPGlite();
+    const persistence = await createPGlitePersistence({ db });
+    await persistence.migrate();
+    const scopeId = ScopeIdSchema.make("scope_exact_clock_observation");
+    const independent = ScopeIdSchema.make("scope_exact_clock_independent");
+    try {
+      for (const selectedScope of [scopeId, independent]) await insertDefaultScopeClock(persistence, {
+        scopeId: selectedScope,
+        storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
+        epoch: ScopeEpochSchema.make(`epoch-${selectedScope}`),
+      });
+      await persistence.drizzle.transaction(async tx => {
+        const held = await runEffect(lockScopeClockForShareInTransactionEffect(tx, scopeId));
+        const originalTime = held.updatedAt.getTime();
+        openExactAttemptScopeClockObservation(tx, held, TransactionAuthorizationRevocationEpochSchema.make(0n), "share");
+        try {
+          held.updatedAt.setTime(0);
+          const first = await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId));
+          expect(first.updatedAt.getTime()).toBe(originalTime);
+          first.updatedAt.setTime(1);
+          const next = await runEffect(lockScopeClockForShareInTransactionEffect(tx, scopeId));
+          expect(next.updatedAt.getTime()).toBe(originalTime);
+          expect(await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, independent)))
+            .toMatchObject({ scopeId: independent });
+          expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(0n);
+          await runEffect(advanceScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId));
+          expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(1n);
+          expect((await runEffect(lockScopeClockForSnapshotReadInTransactionEffect(tx, scopeId))).updatedAt.getTime())
+            .toBeGreaterThanOrEqual(originalTime);
+        } finally {
+          closeExactAttemptScopeClockObservation(tx);
+        }
+      });
+      await persistence.drizzle.transaction(async tx => {
+        expect(await runEffect(requireScopeAuthorizationRevocationEpochInTransactionEffect(tx, scopeId))).toBe(1n);
+      });
+    } finally {
+      await db.close();
+    }
   });
 
   it("returns an owned Date without invoking stateful time methods", () => {

@@ -119,9 +119,24 @@ no wider protection or control/target coordination contract. A selected verdict 
 never full admission, and standalone and durable-operation reads retain full
 readiness. This exception does
 not grant a cached database admission across transactions or relax ordinary
-standalone and durable-operation callers. Broader protected metadata, compact
-session guards and cheaper per-transaction epoch attestation remain separate
-integrity decisions.
+standalone and durable-operation callers. The [approved target-protection slice](../roadmaps/mixed-mutation-core/15-admission-protection-preflight.md)
+extends the target epoch to thirteen current immutable Application publication,
+function/task/schema/readiness/activation/write-ownership and framework binding
+candidate/lane/activation tables, retaining the ten legacy tables for actual
+callers. All columns and complete membership predicates receive same-transaction
+statement invalidation, including zero-row DML and TRUNCATE. Canonical preparation
+is bracketed by before/after epoch proof; reuse requires the exact accepting
+transaction's registered tail guard and full authenticated restricted-login,
+role/catalog/installation, database/schema/incarnation attestation at capture
+and tail. Privileged repair still requires quiescence; this accepts no backend
+certificate, generation-only guard or implemented maintenance barrier. Live
+heads/source authority, mutable lifecycle/build/coverage, physical DDL/GIN facts
+and separately owned control bodies/ordered/unique closure retain their current
+fresh/prepared contracts, with no joint control/target generation. The slice also
+permits issuer-owned scope-clock observation reuse only in its exact accepting
+transaction, whose kernel SHARE/NO KEY UPDATE lock conflicts with revocation's
+FOR UPDATE writer. Compact session guards and cheaper epoch attestation remain
+separate integrity decisions.
 
 ### Overall Direction
 
@@ -2141,13 +2156,15 @@ even a row-pristine finite root is abort-only and can be rerun only as a new
 attempt under a new fence, because child results may have been tentative in
 the lost evaluator.
 
-The first prepared metadata reuse is limited to the ten legacy Application
-target tables named in the mixed-core 08 preflight. Its ordinary runtime uses
+Prepared metadata reuse initially covered the ten legacy Application target
+tables named in the mixed-core 08 preflight; the approved mixed-core 15 preflight
+extends coverage to thirteen current immutable Application and framework binding
+tables under the same full attestation and quiescence contract. Its runtime uses
 an authenticated nonowner PostgreSQL login; same-transaction statement
-triggers invalidate one protected target-schema epoch for all ten tables.
+triggers invalidate one protected target-schema epoch for all 23 tables.
 The accepting transaction guards that epoch at its tail with a nonblocking
 row lock and fails closed on contention or change. Control catalogs, physical
-catalog facts, framework evidence, coverage, clocks, heads, revocation, claims,
+catalog facts, live framework head/source/readiness evidence, coverage, clocks, heads, revocation, claims,
 and journal position remain freshly checked. This profile makes no joint
 control/target generation claim and no full-system metadata certificate.
 Owner or superuser repair and structural DDL are separate privileged activity
