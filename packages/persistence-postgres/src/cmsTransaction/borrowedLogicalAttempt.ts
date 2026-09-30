@@ -39,6 +39,14 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
   let closePreparedLifetime: Effect.Effect<void> = Effect.void;
   return yield* withLogicalDocumentAttemptAdmissionEffect(input.admission, input.attempt, input.method,
     (state, checkedRead, constructionTx) => Effect.gen(function* () {
+      if ((state.root.executionProfile === "finiteRoot") !== (input.rootEvaluator !== undefined))
+        return yield* Effect.fail(cmsError("invalidAuthority"));
+      const localRootGate = input.rootEvaluator === undefined ? Effect.void :
+        requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
+          attempt: input.attempt, scopeId: state.root.scopeId,
+          snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
+        }, () => cmsError("closed"));
+      yield* localRootGate;
       if (state.configuration.profile !== "payload.scalar" || state.tables.length !== 1 ||
         state.tables[0]?.localName !== "posts") return yield* Effect.fail(cmsError("unsupportedProfile"));
       const lifetime = yield* makeBoundedRequestLifetime(cmsError,
@@ -52,10 +60,7 @@ export const makeBorrowedCmsAttempt = Effect.fn("LogicalCms.borrowAttempt")(func
             checkedRead(work).pipe(Effect.mapError(projectCheckedReadFailure));
         const requireAdmission = input.rootEvaluator === undefined
           ? checkedRead(() => Effect.void).pipe(Effect.mapError(projectSourceFailure))
-          : requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
-            attempt: input.attempt, scopeId: state.root.scopeId,
-            snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
-          }, () => cmsError("closed"));
+          : localRootGate;
         const working = yield* makeLogicalDocumentWorkingSet({
           readTransaction,
           scopeId: state.root.scopeId, clock: state.clock, snapshotCommitSeq: state.root.snapshotCommitSeq,

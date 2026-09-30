@@ -1,0 +1,89 @@
+checkpoint,workload,phase,meanInclusiveMs,meanExclusiveMs
+baseline,product,invocation,845.2893500000027,0.6004500000017288
+baseline,product,invocation / request admission,107.08480000000054,107.08480000000054
+baseline,product,invocation / Worker execution,552.5522000000019,0.8981500000081724
+baseline,product,invocation / Worker execution / Worker construction and ready,84.5461499999983,84.5461499999983
+baseline,product,invocation / Worker execution / Worker dispatch,453.32764999999563,25.365899999993417
+baseline,product,invocation / Worker execution / Worker dispatch / Application point,6.547099999999773,6.547099999999773
+baseline,product,invocation / Worker execution / Worker dispatch / medusa.product:update,327.59465000000273,327.59465000000273
+baseline,product,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,43.955299999997806,43.955299999997806
+baseline,product,invocation / Worker execution / Worker dispatch / medusa.product:listByHandle,43.31760000000213,43.31760000000213
+baseline,product,invocation / Worker execution / Worker disposal,13.780249999999796,13.780249999999796
+baseline,product,invocation / journal seal and OCC verification,89.13385000000198,89.13385000000198
+baseline,product,invocation / authoritative publication,95.91804999999658,95.91804999999658
+batched,product,invocation,810.7892500000016,0.61225000000195
+batched,product,invocation / request admission,180.05084999999963,180.05084999999963
+batched,product,invocation / Worker execution,412.71974999999657,1.129799999998795
+batched,product,invocation / Worker execution / Worker construction and ready,83.84339999999793,83.84339999999793
+batched,product,invocation / Worker execution / Worker dispatch,311.82380000000194,27.765900000009424
+batched,product,invocation / Worker execution / Worker dispatch / Application point,6.7207499999985885,6.7207499999985885
+batched,product,invocation / Worker execution / Worker dispatch / medusa.product:update,255.05464999999822,255.05464999999822
+batched,product,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,7.8820999999989,7.8820999999989
+batched,product,invocation / Worker execution / Worker dispatch / medusa.product:listByHandle,7.679649999998219,7.679649999998219
+batched,product,invocation / Worker execution / Worker disposal,15.922749999997905,15.922749999997905
+batched,product,invocation / journal seal and OCC verification,108.14400000000387,108.14400000000387
+batched,product,invocation / authoritative publication,109.26239999999962,109.26239999999962
+baseline,productPayload,invocation,1054.0267000000022,0.7084499999909895
+baseline,productPayload,invocation / request admission,132.5923000000039,132.5923000000039
+baseline,productPayload,invocation / Worker execution,711.428350000002,0.8712499999965075
+baseline,productPayload,invocation / Worker execution / Worker construction and ready,86.51575000000594,86.51575000000594
+baseline,productPayload,invocation / Worker execution / Worker dispatch,606.482799999998,29.88430000000517
+baseline,productPayload,invocation / Worker execution / Worker dispatch / Application point,6.3336249999956635,6.3336249999956635
+baseline,productPayload,invocation / Worker execution / Worker dispatch / medusa.product:update,326.9334999999992,326.9334999999992
+baseline,productPayload,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,44.281300000002375,44.281300000002375
+baseline,productPayload,invocation / Worker execution / Worker dispatch / medusa.product:listByHandle,43.93100000000413,43.93100000000413
+baseline,productPayload,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create,48.867099999995844,48.867099999995844
+baseline,productPayload,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID,33.623099999997066,33.623099999997066
+baseline,productPayload,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update,32.672150000005786,32.672150000005786
+baseline,productPayload,invocation / Worker execution / Worker disposal,17.55855000000156,17.55855000000156
+baseline,productPayload,invocation / journal seal and OCC verification,104.92180000000371,104.92180000000371
+baseline,productPayload,invocation / authoritative publication,104.37580000000162,104.37580000000162
+batched,productPayload,invocation,742.8578999999954,0.7260499999974854
+batched,productPayload,invocation / request admission,107.74330000000191,107.74330000000191
+batched,productPayload,invocation / Worker execution,426.4600999999966,0.8815500000055181
+batched,productPayload,invocation / Worker execution / Worker construction and ready,82.4858000000022,82.4858000000022
+batched,productPayload,invocation / Worker execution / Worker dispatch,330.02764999999636,31.30829999999696
+batched,productPayload,invocation / Worker execution / Worker dispatch / Application point,6.088725000001432,6.088725000001432
+batched,productPayload,invocation / Worker execution / Worker dispatch / medusa.product:update,239.36899999999878,239.36899999999878
+batched,productPayload,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,6.889999999999418,6.889999999999418
+batched,productPayload,invocation / Worker execution / Worker dispatch / medusa.product:listByHandle,7.228149999995367,7.228149999995367
+batched,productPayload,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create,24.731599999999162,24.731599999999162
+batched,productPayload,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID,2.444675000002462,2.444675000002462
+batched,productPayload,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update,3.4337999999988824,3.4337999999988824
+batched,productPayload,invocation / Worker execution / Worker disposal,13.065099999992526,13.065099999992526
+batched,productPayload,invocation / journal seal and OCC verification,102.25654999999824,102.25654999999824
+batched,productPayload,invocation / authoritative publication,105.67190000000119,105.67190000000119
+baseline,mixedWorkflow,invocation,1734.364499999996,0.6152000000074622
+baseline,mixedWorkflow,invocation / request admission,231.70334999999614,231.70334999999614
+baseline,mixedWorkflow,invocation / Worker execution,1201.465299999989,1.6572999999916647
+baseline,mixedWorkflow,invocation / Worker execution / Worker construction and ready,87.52724999999919,87.52724999999919
+baseline,mixedWorkflow,invocation / Worker execution / Worker dispatch,1096.9228499999954,31.79505000001518
+baseline,mixedWorkflow,invocation / Worker execution / Worker dispatch / Application point,6.4363999999986845,6.4363999999986845
+baseline,mixedWorkflow,invocation / Worker execution / Worker dispatch / medusa.product:update,315.05919999999605,315.05919999999605
+baseline,mixedWorkflow,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,47.85634999999456,47.85634999999456
+baseline,mixedWorkflow,invocation / Worker execution / Worker dispatch / medusa.workflow:run,529.4715000000069,529.4715000000069
+baseline,mixedWorkflow,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create,51.96800000000076,51.96800000000076
+baseline,mixedWorkflow,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID,35.43567499999699,35.43567499999699
+baseline,mixedWorkflow,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update,37.02859999999055,37.02859999999055
+baseline,mixedWorkflow,invocation / Worker execution / Worker disposal,15.3579000000027,15.3579000000027
+baseline,mixedWorkflow,invocation / journal seal and OCC verification,112.71435000000929,112.71435000000929
+baseline,mixedWorkflow,invocation / authoritative publication,187.86629999999423,187.86629999999423
+batched,mixedWorkflow,invocation,1253.5220999999947,0.6694000000061351
+batched,mixedWorkflow,invocation / request admission,104.46730000000389,104.46730000000389
+batched,mixedWorkflow,invocation / Worker execution,833.8631499999901,1.107350000012957
+batched,mixedWorkflow,invocation / Worker execution / Worker construction and ready,88.30754999998317,88.30754999998317
+batched,mixedWorkflow,invocation / Worker execution / Worker dispatch,728.3920999999973,30.638700000017707
+batched,mixedWorkflow,invocation / Worker execution / Worker dispatch / Application point,6.836300000002666,6.836300000002666
+batched,mixedWorkflow,invocation / Worker execution / Worker dispatch / medusa.product:update,255.44984999999724,255.44984999999724
+batched,mixedWorkflow,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,6.999949999997625,6.999949999997625
+batched,mixedWorkflow,invocation / Worker execution / Worker dispatch / medusa.workflow:run,387.57259999999224,387.57259999999224
+batched,mixedWorkflow,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create,25.890849999996135,25.890849999996135
+batched,mixedWorkflow,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID,2.326600000000326,2.326600000000326
+batched,mixedWorkflow,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update,3.5143499999903725,3.5143499999903725
+batched,mixedWorkflow,invocation / Worker execution / Worker disposal,16.056149999996705,16.056149999996705
+batched,mixedWorkflow,invocation / journal seal and OCC verification,119.27709999999934,119.27709999999934
+batched,mixedWorkflow,invocation / authoritative publication,195.2451499999952,195.2451499999952
+baseline,standaloneWorkflow,invocation,303.8226500000019,0.015249999996740371
+baseline,standaloneWorkflow,invocation / standalone native workflow,303.80740000000515,303.80740000000515
+batched,standaloneWorkflow,invocation,415.3229999999894,0.015999999988707714
+batched,standaloneWorkflow,invocation / standalone native workflow,415.3070000000007,415.3070000000007

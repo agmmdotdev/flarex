@@ -1,0 +1,62 @@
+checkpoint,workload,pool,phase,outcome,meanCount,meanDurationMs
+baseline,product,target,invocation / request admission,commit,10,80.68620000000737
+baseline,product,control,invocation / request admission,commit,1,1.5987999999997555
+baseline,product,target,invocation / Worker execution / Worker dispatch,commit,1,3.3034499999994296
+baseline,product,target,invocation / Worker execution / Worker dispatch / Application point,commit,2,9.404899999997724
+baseline,product,target,invocation / Worker execution / Worker dispatch / medusa.product:update,commit,16,297.39310000000114
+baseline,product,target,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,commit,2,37.223549999998795
+baseline,product,target,invocation / Worker execution / Worker dispatch / medusa.product:listByHandle,commit,2,36.65505000000485
+baseline,product,target,invocation / journal seal and OCC verification,commit,5,64.89594999999463
+baseline,product,target,invocation / authoritative publication,commit,2,78.57734999999957
+batched,product,target,invocation / request admission,commit,8,151.89420000000246
+batched,product,control,invocation / request admission,commit,1,1.569149999999354
+batched,product,target,invocation / Worker execution / Worker dispatch,commit,1,3.749099999993632
+batched,product,target,invocation / Worker execution / Worker dispatch / Application point,commit,2,9.507950000002893
+batched,product,target,invocation / Worker execution / Worker dispatch / medusa.product:update,commit,10,226.94104999999763
+batched,product,target,invocation / journal seal and OCC verification,commit,5,77.40504999999757
+batched,product,target,invocation / authoritative publication,commit,2,90.12485000000015
+baseline,productPayload,target,invocation / request admission,commit,12,105.7105500000107
+baseline,productPayload,control,invocation / request admission,commit,1,1.6048500000033528
+baseline,productPayload,target,invocation / Worker execution / Worker dispatch,commit,1,3.621450000006007
+baseline,productPayload,target,invocation / Worker execution / Worker dispatch / Application point,commit,2,9.299500000008265
+baseline,productPayload,target,invocation / Worker execution / Worker dispatch / medusa.product:update,commit,16,299.7616999999518
+baseline,productPayload,target,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,commit,2,37.819400000000314
+baseline,productPayload,target,invocation / Worker execution / Worker dispatch / medusa.product:listByHandle,commit,2,37.35894999998709
+baseline,productPayload,target,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create,commit,3,40.20780000000377
+baseline,productPayload,target,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID,commit,4,59.18835000000399
+baseline,productPayload,target,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update,commit,2,27.46904999999242
+baseline,productPayload,target,invocation / journal seal and OCC verification,commit,5,77.14479999999458
+baseline,productPayload,target,invocation / authoritative publication,commit,2,85.47129999999015
+batched,productPayload,target,invocation / request admission,commit,8,80.47300000000541
+batched,productPayload,control,invocation / request admission,commit,1,1.5825999999942724
+batched,productPayload,target,invocation / Worker execution / Worker dispatch,commit,1,3.448150000003807
+batched,productPayload,target,invocation / Worker execution / Worker dispatch / Application point,commit,2,8.519800000001851
+batched,productPayload,target,invocation / Worker execution / Worker dispatch / medusa.product:update,commit,10,212.81955000001471
+batched,productPayload,target,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create,commit,1,17.296049999997194
+batched,productPayload,target,invocation / journal seal and OCC verification,commit,5,73.08059999998659
+batched,productPayload,target,invocation / authoritative publication,commit,2,87.05740000000515
+baseline,mixedWorkflow,target,invocation / request admission,commit,18,200.5534000000407
+baseline,mixedWorkflow,control,invocation / request admission,commit,1,1.3650500000003376
+baseline,mixedWorkflow,target,invocation / Worker execution / Worker dispatch,commit,1,3.3299500000139233
+baseline,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / Application point,commit,2,9.005750000018452
+baseline,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / medusa.product:update,commit,16,288.57985000005283
+baseline,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / medusa.product:retrieve,commit,2,41.02085000000079
+baseline,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / medusa.workflow:run,commit,22,431.82079999995767
+baseline,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create,commit,3,43.63425000001007
+baseline,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-findByID,commit,4,62.44229999998788
+baseline,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-update,commit,2,31.951150000008056
+baseline,mixedWorkflow,target,invocation / journal seal and OCC verification,commit,5,77.63424999995914
+baseline,mixedWorkflow,target,invocation / authoritative publication,commit,2,161.76560000001336
+batched,mixedWorkflow,target,invocation / request admission,commit,8,79.43080000001646
+batched,mixedWorkflow,control,invocation / request admission,commit,1,1.4179500000027474
+batched,mixedWorkflow,target,invocation / Worker execution / Worker dispatch,commit,1,3.350449999990815
+batched,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / Application point,commit,2,9.660499999998137
+batched,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / medusa.product:update,commit,10,227.4792999999845
+batched,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / medusa.workflow:run,commit,13,291.61815000000206
+batched,mixedWorkflow,target,invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create,commit,1,18.009750000004715
+batched,mixedWorkflow,target,invocation / journal seal and OCC verification,commit,5,82.20750000000407
+batched,mixedWorkflow,target,invocation / authoritative publication,commit,2,168.43090000001393
+baseline,standaloneWorkflow,target,invocation / standalone native workflow,commit,5,290.76294999998936
+baseline,standaloneWorkflow,control,invocation / standalone native workflow,commit,1,1.4685500000050524
+batched,standaloneWorkflow,target,invocation / standalone native workflow,commit,5,402.25949999998556
+batched,standaloneWorkflow,control,invocation / standalone native workflow,commit,1,1.4316499999986263

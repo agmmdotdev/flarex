@@ -46,7 +46,9 @@ export type LogicalParticipantAttemptReadTransaction = <Value, Failure>(
 export interface LogicalParticipantSelection {
   readonly bindAttemptEffect: (application: ApplicationBindingInput, attempt: SessionJournalAttempt,
     root: LogicalParticipantAttemptRoot, readTransaction: LogicalParticipantAttemptReadTransaction,
-    methods: readonly string[]) => Effect.Effect<LogicalParticipantAttemptAdmission, LogicalParticipantAdmissionError>;
+    methods: readonly string[],
+    entry?: Readonly<{ tx: FlarexMetadataTransaction; authority: TrustedScopeAuthority; clock: ScopeClockRecord }>) =>
+      Effect.Effect<LogicalParticipantAttemptAdmission, LogicalParticipantAdmissionError>;
 }
 
 export type LogicalParticipantDocumentValidator = (tableId: CatalogTableId, document: CanonicalFlarexValueV1) =>
@@ -202,7 +204,7 @@ export const withLogicalParticipantAdmissionBundleEffect = Effect.fn("LogicalPar
         }
         return yield* read(tx);
       })));
-    yield* readTransaction(() => Effect.void);
+    if (first.root.executionProfile !== "finiteRoot") yield* readTransaction(() => Effect.void);
     return yield* work(Object.freeze({ admissions: state.admissions, readTransaction }));
   });
 
@@ -218,7 +220,8 @@ const requireAttemptState = (admission: LogicalParticipantAttemptAdmission, atte
     return Result.succeed(state);
   };
 
-/** Full readiness remains mandatory at operation entry, aggregate seal and publication. */
+/** Full readiness remains mandatory at aggregate entry, seal and publication.
+ * Durable operations also recheck it at each operation entry. */
 export const requireLogicalParticipantAttemptAdmissionInTransactionEffect = Effect.fn("LogicalParticipantAttemptAdmission.require")(
   function* (admission: LogicalParticipantAttemptAdmission, attempt: SessionJournalAttempt, method: string,
     tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) {
@@ -240,7 +243,7 @@ export const withLogicalParticipantAttemptAdmissionEffect = Effect.fn("LogicalPa
   function* <Prepared, Value, PreparationFailure, Failure, Requirements>(admission: LogicalParticipantAttemptAdmission,
     attempt: SessionJournalAttempt, method: string,
     prepare: (state: Readonly<{ root: LogicalParticipantAttemptRoot; tableIds: ReadonlySet<CatalogTableId> }>,
-      tx: FlarexMetadataTransaction,
+      tx: FlarexMetadataTransaction | undefined,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
         Effect.Effect<A, E | LogicalParticipantAdmissionError>) => Effect.Effect<Prepared, PreparationFailure>,
     work: (state: Readonly<{ root: LogicalParticipantAttemptRoot; tableIds: ReadonlySet<CatalogTableId> }>,
@@ -254,7 +257,9 @@ export const withLogicalParticipantAttemptAdmissionEffect = Effect.fn("LogicalPa
         requireLogicalParticipantAttemptReadAdmissionInTransactionEffect(admission, attempt, method, tx, authority, clock)
           .pipe(Effect.flatMap(() => read(tx))));
     const publicState = Object.freeze({ root: state.root, tableIds: new Set(state.tableIds) });
-    const prepared = yield* checkedRead(tx => prepare(publicState, tx, checkedRead));
+    const prepared = yield* (state.root.executionProfile === "finiteRoot"
+      ? prepare(publicState, undefined, checkedRead)
+      : checkedRead(tx => prepare(publicState, tx, checkedRead)));
     return yield* work(publicState, checkedRead, prepared);
   });
 

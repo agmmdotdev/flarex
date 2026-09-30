@@ -225,12 +225,13 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
     } finally { await fixture.close(); }
   }, 180_000);
 
-  it("allows tentative local handles after claim loss and refuses the next database read", async () => {
+  it("constructs a tentative Product context after claim loss and refuses the next database read", async () => {
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
     let localAfterRevocation = false;
     let checkedReadRefused = false;
+    let beforeConstruction = 0;
     fixture = await createMixedMutationProductFixture({ driver, suffix: `local-claim-loss-${driver}`,
-      hooks: { afterProductBorrow: (method, borrowed) => method !== "update" ? Effect.void : Effect.gen(function* () {
+      hooks: { beforeProductBorrow: method => method !== "update" ? Effect.void : Effect.gen(function* () {
         const expiredAt = new Date(Date.now() - 60_000);
         const claimedAt = new Date(Date.now() - 120_000);
         yield* Effect.tryPromise({
@@ -239,6 +240,9 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
             .where(eq(fxSystemTransactionExecutionClaims.sessionId, fixture.activation.anchor.sessionId)); },
           catch: cause => commerceError("resourceFailure", cause),
         });
+        beforeConstruction = fixture.getTransactionCounts().beginCount;
+      }), afterProductBorrow: (method, borrowed) => method !== "update" ? Effect.void : Effect.gen(function* () {
+        if (fixture.hasSqlObserver) expect(fixture.getTransactionCounts().beginCount).toBe(beforeConstruction);
         const beforeLocal = fixture.getTransactionCounts().beginCount;
         yield* borrowed.context.table("product");
         localAfterRevocation = true;
@@ -376,10 +380,11 @@ describe.each(drivers)("native Product in one Application mutation attempt on %s
     if (fixture.hasSqlObserver) {
       expect(sqlByPhase.get("product:update")).toBeGreaterThan(0);
       expect(sqlByPhase.get("publish")).toBeGreaterThan(0);
+      expect(sqlByPhase.get("product:retrieve") ?? 0).toBe(0);
+      expect(sqlByPhase.get("product:listByHandle") ?? 0).toBe(0);
       // A focused receipt for the connected proof; seed and postcommit reads are excluded.
       expect(Object.fromEntries(sqlByPhase)).toMatchObject({ application: expect.any(Number),
-        "product:update": expect.any(Number), "product:retrieve": expect.any(Number),
-        "product:listByHandle": expect.any(Number), seal: expect.any(Number), publish: expect.any(Number) });
+        "product:update": expect.any(Number), seal: expect.any(Number), publish: expect.any(Number) });
       console.info("Mixed attempt SQL statements by phase", Object.fromEntries(sqlByPhase));
     }
     } finally { await fixture.close(); }

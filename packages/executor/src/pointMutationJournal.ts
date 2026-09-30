@@ -500,7 +500,10 @@ export function createPointMutationJournalV1(
       schemaVersionId: inspection.schemaVersionId,
       executionClaim: claimState.observation,
       executionProfile,
-    }).pipe(Effect.mapError(mapPersistenceFailure));
+      ...(executionProfile === "finiteRoot" ? {
+        logicalParticipants: [...selectedParticipants.values()].map(participant => participant.admission),
+      } : {}),
+    }).pipe(Effect.mapError(mapAdmittedFailure));
     if (existing !== undefined) {
       const prior = attemptStates.get(existing);
       if (prior?.persistenceAttempt !== persistenceAttempt) {

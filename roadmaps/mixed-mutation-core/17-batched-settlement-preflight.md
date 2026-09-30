@@ -5,6 +5,12 @@ accepted and delivered [15](./15-admission-protection-preflight.md) and
 [16](./16-batched-read-execution-preflight.md) contracts before finalizing this
 cutover. The [successor roadmap](./14-execution-redesign-roadmap.md) owns order
 and shared acceptance; no new terminal authority or durable format is approved here.
+The draft requires reconciliation against delivered 16 before approval:
+its [current measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bounded-read-execution/README.md)
+are 643 / 670 / 1,034 / 354 driver dispatches and 29 / 30 / 43 / 6 explicit
+transactions. Aggregate seal/OCC still uses five transactions and publication
+two on each mixed graph. Audit that terminal graph, existing locks, durable
+formats and uncertainty recovery before setting a slice 17 budget or cutover.
 
 ## Connected outcome and reason
 
@@ -18,7 +24,7 @@ proves equivalent batching. Challenge the current journal/commit contract when
 it forces redundant work, while preserving one Postgres settlement authority.
 This is a connected consumer cutover, not an independent index or SQL helper.
 
-The [current evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bundled-dependency-validation/README.md)
+The [retained effect baseline](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bundled-dependency-validation/README.md)
 retains one commit per graph and exact row/index/event effects: 1/1/1 for Product,
 2/3/1 for Product + Payload, 7/36/7 for mixed workflow and 5/33/6 for standalone.
 Those effects and the existing terminal/recovery witnesses are the baseline.

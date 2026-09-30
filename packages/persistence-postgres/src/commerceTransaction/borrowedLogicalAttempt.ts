@@ -35,7 +35,15 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
 ) {
   let closePreparedLifetime: Effect.Effect<void> = Effect.void;
   return yield* withLogicalRelationalAttemptAdmissionEffect(input.admission, input.attempt, input.method,
-    (state, checkedRead, constructionTx: FlarexMetadataTransaction) => Effect.gen(function* () {
+    (state, checkedRead, constructionTx: FlarexMetadataTransaction | undefined) => Effect.gen(function* () {
+      if ((state.root.executionProfile === "finiteRoot") !== (input.rootEvaluator !== undefined))
+        return yield* Effect.fail(commerceError("invalidAuthority"));
+      const localRootGate = input.rootEvaluator === undefined ? Effect.void :
+        requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
+          attempt: input.attempt, scopeId: state.root.scopeId,
+          snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
+        }, () => commerceError("closed"));
+      yield* localRootGate;
       // This profile uses the captured owner policy; request input cannot
       // select or inspect a resource object while the checked SQL lock is held.
       const resources = defaultCommerceResources;
@@ -47,11 +55,6 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
         const id = yield* lifetime.begin(lifetime.context);
         for (const table of state.tables)
           yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
-        const localRootGate = input.rootEvaluator === undefined ? Effect.void :
-          requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
-            attempt: input.attempt, scopeId: state.root.scopeId,
-            snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
-          }, () => commerceError("closed"));
         const requireAdmission = input.rootEvaluator === undefined
           ? checkedRead(() => Effect.void).pipe(Effect.mapError(projectCommerceRequestFailure))
           : localRootGate;

@@ -138,6 +138,27 @@ transaction, whose kernel SHARE/NO KEY UPDATE lock conflicts with revocation's
 FOR UPDATE writer. Compact session guards and cheaper epoch attestation remain
 separate integrity decisions.
 
+The [approved bounded read-execution slice](../roadmaps/mixed-mutation-core/16-batched-read-execution-preflight.md)
+extends tentative local work to finite native method entry, borrowed context
+construction and workflow source inspection after one aggregate full root entry.
+These steps authenticate the existing issued attempt, method/source identity,
+root/fence, lifetime, deadline and resource limits locally. Native callbacks may
+execute tentatively after persisted revocation or readiness changes; pending-only
+results need no fresh database check and cannot establish durable success.
+The next actual storage frontier, aggregate seal or publication must detect those
+changes through fresh exact-running authority and required source-wide readiness.
+Every storage frontier retains full kernel locks and post-lock database time,
+source/head and physical evidence, and the mandatory protected-epoch tail; live
+evidence exists only within that exact transaction. Body or tail refusal latches
+the existing first failure/root abort before any result or contribution escapes.
+Relevant Application point seeds still require original snapshot hydration and
+observation authentication before pending membership is used; construction may
+defer that work to the first actual source frontier. Ordered dependency and
+resource accounting remain unchanged. No SQL spans native callbacks, hooks or
+workflow steps; standalone and durable-operation construction retain their named
+full-admission profiles. This amendment grants no new issuer, certificate,
+maintenance authority, settlement capability or durable format.
+
 ### Overall Direction
 
 The storage backbone is good, but the original unified-runtime proposal was

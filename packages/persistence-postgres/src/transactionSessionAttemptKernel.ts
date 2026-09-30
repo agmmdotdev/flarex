@@ -45,6 +45,8 @@ export interface ExactRunningAttemptKernelContextV1 {
   readonly scopeClock: ScopeClockRecord;
   readonly anchor: PointMutationSessionAnchorV1;
   readonly executionPin: PointMutationSessionAttemptExecutionPinV1;
+  /** Projected from the authenticated session already locked by this kernel. */
+  readonly principalDigest: string;
   readonly authorizationGrantExpiresAtMilliseconds: number;
   readonly hardExpiresAtMilliseconds: number;
   readonly databaseNow: Date;

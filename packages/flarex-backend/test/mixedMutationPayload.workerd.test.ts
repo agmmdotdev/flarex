@@ -9,10 +9,11 @@ import { decodeCanonicalFlarexValueEvidenceV1 } from "flarex-protocol/value";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { fxAppRowRevisions, fxSystemIdempotency, fxSystemTransactionJournalReceipts,
-  fxSystemTransactionJournals } from
+  fxSystemTransactionJournals, fxSystemTransactionExecutionClaims } from
   "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { createMixedMutationProductFixture } from "./support/mixedMutationProductFixture";
+import { CmsTransactionError } from "@flarex/persistence-postgres/internal/cms-adapter";
 
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
@@ -60,6 +61,42 @@ async function waitUntil(observe: () => boolean, description: string): Promise<v
 }
 
 describe.each(drivers)("native Payload Local API in one Product and Application attempt on %s", driver => {
+  it("constructs pending-only Payload calls after claim loss and refuses the next Application storage frontier", async () => {
+    let fixture: MixedFixture;
+    let revoked = false;
+    let beforePendingCalls = 0;
+    const tentativeMethods: string[] = [];
+    fixture = await createMixedMutationProductFixture({ driver,
+      suffix: `payload-pending-claim-loss-${driver}`, payloadProfile: "success",
+      hooks: { afterPayloadBeforeAck: (method, result) => Effect.gen(function* () {
+        if (method === "payload-create") {
+          yield* Effect.tryPromise({ try: async () => {
+            const updated = await fixture.currency.persistence.drizzle.update(fxSystemTransactionExecutionClaims)
+              .set({ claimedAt: new Date(Date.now() - 120_000), claimExpiresAt: new Date(Date.now() - 60_000) })
+              .where(eq(fxSystemTransactionExecutionClaims.sessionId, fixture.activation.anchor.sessionId)).returning();
+            expect(updated).toHaveLength(1);
+          }, catch: cause => new CmsTransactionError({ reason: "resourceFailure", cause }) });
+          revoked = true;
+          beforePendingCalls = fixture.getTransactionCounts().beginCount;
+        } else {
+          expect(revoked).toBe(true);
+          expect(result).toMatchObject({ title: fixture.seed.newTitle, score: 1 });
+          if (fixture.hasSqlObserver) expect(fixture.getTransactionCounts().beginCount).toBe(beforePendingCalls);
+          tentativeMethods.push(method);
+        }
+      }) } });
+    try {
+      const before = await publishedCounts(fixture);
+      await expect(fixture.runWorkerd()).rejects.toBeDefined();
+      expect(revoked).toBe(true);
+      expect(tentativeMethods).toEqual(["payload-findByID", "payload-update", "payload-findByID"]);
+      expect(fixture.nativeInvokeCount.get("payload-create")).toBe(1);
+      expect(fixture.nativeInvokeCount.get("payload-findByID")).toBe(2);
+      expect(fixture.nativeInvokeCount.get("payload-update")).toBe(1);
+      await assertNoPublishedMixedOutput(fixture, before);
+    } finally { await fixture.close(); }
+  }, 180_000);
+
   it("runs the selected create hook, nested update/read and outer update on one pending root", async () => {
     const fixture = await createMixedMutationProductFixture({ driver,
       suffix: `payload-happy-${driver}`, payloadProfile: "success" });

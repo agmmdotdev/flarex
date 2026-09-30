@@ -252,9 +252,10 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
         return { working, lifetime, id };
       });
       const first = yield* open(firstTable, "notes");
-      // Pending seed hydration is the first actual historical load.
-      expect(checkedReads - firstReadCount).toBe(1);
-      expect(rootSnapshotRevisions).toBe(1);
+      // Construction is local; the first operation authenticates the seed's
+      // historical base before it consumes the pending overlay.
+      expect(checkedReads - firstReadCount).toBe(0);
+      expect(rootSnapshotRevisions).toBe(0);
       expect(admissionTransactions - rootAdmissionCount).toBe(0);
       expect(yield* first.working.documents.get(first.lifetime.context, first.id, firstId, "notes"))
         .toMatchObject({ label: "pending" });
@@ -388,6 +389,20 @@ export async function logicalWorkingSetReadTransactionsScenario(db: FlarexMetada
       const latestApp = yield* open(firstTable, "notes", appUpdates);
       expect(yield* latestApp.working.documents.get(latestApp.lifetime.context, latestApp.id, firstId))
         .toMatchObject({ label: "later-pending" });
+      const cachedSeedReads = checkedReads;
+      const cachedSeedSql = rootSnapshotRevisions;
+      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow, observed: seed.observed,
+        overlay: { kind: "live", creationTime: firstTime, document: pending } })).toBe(true);
+      // A new App overlay is a checked frontier even though the original
+      // snapshot point is already cached. It must replace cached membership.
+      expect(yield* latestApp.working.documents.getMany(latestApp.lifetime.context, latestApp.id, "notes", [firstId]))
+        .toMatchObject([{ label: "pending" }]);
+      expect(checkedReads).toBe(cachedSeedReads + 1);
+      expect(rootSnapshotRevisions).toBe(cachedSeedSql);
+      expect(appUpdates.stageAppPoint({ tableId: firstTable, rowId: firstRow, observed: seed.observed,
+        overlay: { kind: "deleted" } })).toBe(true);
+      expect(yield* latestApp.working.documents.get(latestApp.lifetime.context, latestApp.id, firstId)).toEqual(null);
+      expect(checkedReads).toBe(cachedSeedReads + 2);
       yield* latestApp.lifetime.seal;
       yield* latestApp.working.close();
       appUpdates.close();

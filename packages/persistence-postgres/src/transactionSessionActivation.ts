@@ -295,6 +295,7 @@ const checkedTransactionSessionSelection = {
   protocolVersion: fxSystemTransactionSessions.protocolVersion,
   lifecycle: fxSystemTransactionSessions.lifecycle,
   schemaVersionId: fxSystemTransactionSessions.schemaVersionId,
+  identityAccessPolicySha256: fxSystemTransactionSessions.identityAccessPolicySha256,
   requestKey: fxSystemTransactionSessions.requestKey,
 };
 type CheckedTransactionSessionRow = Pick<
@@ -3104,7 +3105,9 @@ function runningAttemptKernelContextResult(
   const { clock, session, locked, journalRoot } = loaded;
   return decodeCheckedSchemaVersionIdResult(session.schemaVersionId).pipe(
     Result.mapError(cause => corruptionError(loaded.scopeId, "sessionRecordInvalid", cause)),
-    Result.map(schemaVersionId => Object.freeze({
+    Result.flatMap(schemaVersionId => !isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32)
+      ? Result.fail(corruptionError(loaded.scopeId, "sessionRecordInvalid"))
+      : Result.succeed(Object.freeze({
       scopeUuid: clock.scopeUuid,
       scopeClock: Object.freeze({
         ...clock.record,
@@ -3130,13 +3133,14 @@ function runningAttemptKernelContextResult(
         updatedAt: session.updatedAt.toISOString(),
       } satisfies PointMutationSessionAnchorV1),
       executionPin: Object.freeze({ schemaVersionId }),
+      principalDigest: encodeBytesToLowercaseHex(session.identityAccessPolicySha256),
       authorizationGrantExpiresAtMilliseconds:
         loaded.authorizationGrantExpiresAtMilliseconds,
       hardExpiresAtMilliseconds: loaded.hardExpiresAtMilliseconds,
       databaseNow: loaded.databaseNow,
       journalRoot: Object.freeze({ ...journalRoot }),
       executionClaim: loaded.executionClaim,
-      } satisfies ExactRunningAttemptKernelContextV1)),
+      } satisfies ExactRunningAttemptKernelContextV1))),
   );
 }
 

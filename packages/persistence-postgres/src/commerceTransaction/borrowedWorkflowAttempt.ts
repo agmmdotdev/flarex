@@ -63,6 +63,13 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           if (member === undefined || name === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
           yield* withLogicalRelationalAttemptAdmissionEffect(admission, input.attempt, name,
             () => Effect.void, (state) => Effect.gen(function* () {
+              if ((state.root.executionProfile === "finiteRoot") !== (input.rootEvaluator !== undefined))
+                return yield* Effect.fail(commerceError("invalidAuthority"));
+              if (input.rootEvaluator !== undefined)
+                yield* requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
+                  attempt: input.attempt, scopeId: state.root.scopeId,
+                  snapshotCommitSeq: state.root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
+                }, () => commerceError("closed"));
               const source = yield* Effect.fromResult(capturePrivateJsonData(member.logicalStorage.source,
                 MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, (reason, cause) => commerceError("invalidAuthority", { reason, cause })));
               const sourceValue = source.value;
@@ -82,6 +89,12 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
           state.root.sessionId !== root.sessionId || state.root.attemptFence !== root.attemptFence ||
           state.root.snapshotCommitSeq !== root.snapshotCommitSeq || state.root.schemaVersionId !== root.schemaVersionId))
           return yield* Effect.fail(commerceError("invalidAuthority"));
+        const localRootGate = input.rootEvaluator === undefined ? Effect.void :
+          requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
+            attempt: input.attempt, scopeId: root.scopeId,
+            snapshotCommitSeq: root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
+          }, () => commerceError("closed"));
+        yield* localRootGate;
         const tableNames = new Set<string>();
         const tableIds = new Set<number>();
         const tables: Array<{ tableId: LogicalRelationalAttemptAdmissionState["tables"][number]["tableId"];
@@ -105,14 +118,9 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
             yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
           const checkedRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
             readTransaction(work).pipe(Effect.mapError(projectCommerceRequestFailure));
-          const localRootGate = input.rootEvaluator === undefined ? Effect.void :
-            requireLogicalDocumentRootEvaluatorOpen(input.rootEvaluator, {
-              attempt: input.attempt, scopeId: root.scopeId,
-              snapshotCommitSeq: root.snapshotCommitSeq, attemptFence: input.rootAttemptFence,
-            }, () => commerceError("closed"));
           const requireAdmission = input.rootEvaluator === undefined ? checkedRead(() => Effect.void) : localRootGate;
           const creationTime = AppCreationTimeV1Schema.make(yield* Clock.currentTimeMillis);
-          const working = yield* checkedRead(constructionTx => makeLogicalDocumentWorkingSet({
+          const constructWorking = (constructionTx: FlarexMetadataTransaction | undefined) => makeLogicalDocumentWorkingSet({
             readTransaction: checkedRead, requireAdmission,
             scopeId: root.scopeId, clock: states[0]!.clock, snapshotCommitSeq: root.snapshotCommitSeq,
             ...(input.rootEvaluator === undefined ? { pendingRows: input.pendingRows } :
@@ -131,7 +139,10 @@ export const makeBorrowedWorkflowAttempt = Effect.fn("LogicalCommerce.borrowWork
             limits: { ...logicalCommerceWorkingSetLimits, pageRows: resources.queryRows,
               identities: resources.catalogRows },
           }, creationTime, states.flatMap(state => state.unique),
-            states.flatMap(state => state.indexes.filter(index => index.access.kind === "developer")), undefined, constructionTx));
+            states.flatMap(state => state.indexes.filter(index => index.access.kind === "developer")), undefined, constructionTx);
+          const working = yield* (root.executionProfile === "finiteRoot"
+            ? constructWorking(undefined)
+            : checkedRead(constructWorking));
           const eventPolicy = yield* prepareAtomicCommerceEvents(yield* Effect.fromResult(captureAtomicCommerceEvents(input.events)));
           const group = admittedCommerceEventGroup({ scopeUuid: projectScopeIdUuidV1(root.scopeId).scopeUuid,
             sessionId: root.sessionId, attemptFence: root.attemptFence });

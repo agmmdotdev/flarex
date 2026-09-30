@@ -1,10 +1,40 @@
 # Bounded batched read execution
 
-Status: **focused proposal ready for review; runtime scope unapproved.** The
+Status: **delivered; its stage cost gate passed.** The
 [delivered 15 contract](./15-admission-protection-preflight.md) is the baseline.
 The [successor roadmap](./14-execution-redesign-roadmap.md) owns sequence and final
-acceptance. Approval of the live-check timing and connected construction/read
-cutover is required before implementation.
+acceptance. The accepted timing amendment and connected construction/read cutover
+below are implemented for the existing private finite graph. Final mixed latency
+acceptance remains unmet; settlement is the next separately scoped gate.
+
+## Delivered behavior and current evidence
+
+Finite root entry authenticates all configured sources in one existing exact
+transaction and retains their issued grants. Finite method entry, borrowed
+Commerce/CMS construction and workflow source inspection use local exact
+attempt/method/root/fence/lifetime checks. Each real storage frontier still uses
+fresh full kernel authority, source-wide required readiness, physical evidence
+and the mandatory protected-epoch tail; body or tail refusal poisons the existing
+finite root. Standalone and durable-operation preparation retain their named
+checked profiles.
+
+The existing working-set owner groups captured ordered IN/disjunction demands,
+unique probes with owner hydration, bounded residual windows and ordered write
+probes. Relevant unhydrated Application point seeds authenticate their original
+snapshot before overlay membership is used. Existing native Medusa/Payload
+read/load plans consume that owner without a new planner API, callback authority,
+registry or adapter implementation. Native callbacks and steps remain outside
+SQL. Repeated finite setup cuts are removed; journal formats, one aggregate seal,
+publication and retained recovery obligations remain.
+
+The [bounded-read evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bounded-read-execution/README.md)
+retains all 120 samples with zero exclusions and setup failures. Measured SQL is
+**643 / 670 / 1,034 / 354** with **29 / 30 / 43 / 6** explicit transactions.
+Every stage ceiling below passes. Mixed warm p50/p95 is **635.4/668.3,
+690.0/751.7 and 1,169.3/1,226.9 ms**; standalone is **321.2/342.7 ms** and passes
+its median and strict regression gates. Final mixed latency goals remain unmet.
+[17](./17-batched-settlement-preflight.md) requires its own terminal graph,
+authority/locking/durable-data preflight and numeric stage budget before runtime.
 
 ## Connected outcome and recommended direction
 
@@ -27,23 +57,23 @@ The [prepared-admission baseline](../../packages/flarex-backend/benchmarks/mixed
 has **862 / 1,068 / 1,663 / 354** SQL dispatches and **41 / 52 / 78 / 6**
 explicit transactions on unchanged Product, Product + Payload, mixed workflow
 and standalone graphs. Warm p50/p95 is **783.7/1,011.6, 973.8/1,006.0,
-1,676.6/1,714.8 and 309.4/395.3 ms**. The next cost owner is repeated checked
+1,676.6/1,714.8 and 309.4/395.3 ms**. The baseline cost owner was repeated checked
 construction and storage transactions. This does not prove one transaction for
 an entire native method or sequential workflow.
 
 ## Material live-check timing amendment
 
-Current finite native method entry performs full live admission; borrowed
-construction uses checked source-read admission and does not always require
-full readiness. The proposal replaces those repeated checks with local nominal
+Before this cutover, finite native method entry performed full live admission; borrowed
+construction used checked source-read admission and did not always require
+full readiness. The approved cutover replaces those repeated checks with local nominal
 root/attempt/fence, method/source identity,
 lifetime, deadline and resource checks after aggregate full root entry.
 Callbacks may therefore execute tentatively after persisted revocation or
 readiness changes until their next actual database frontier or final full
 seal/publication detects the change. A call satisfied entirely from pending
 root state may return tentatively without a fresh database check. This is a
-material contract change requiring an accepted-design timing amendment with
-approval; it is not implied by a grant or immutable preparation.
+material contract change recorded in the accepted design; it is not implied by
+a grant or immutable preparation.
 
 Every actual database frontier retains fresh scope/placement, Application and
 binding pins, generation, revocation, session/lease/claim/fence, expiry and
@@ -91,7 +121,7 @@ An index range plus row hydration already shares one checked transaction. Each
 page window plus hydration also shares one. Replace surrounding repeated cuts
 through the actual planner/DAL owners:
 
-| Captured demand | Current cuts and proposed grouping | Evidence that must remain |
+| Captured demand | Current cuts and approved grouping | Evidence that must remain |
 | --- | --- | --- |
 | Point/getMany | Exact uncached identities; getMany already batches requested identities | Present/missing/tombstone revision, input order, duplicates and exact pending overlay |
 | Complete indexed read, IN/disjunction | Compiled selections call `selectCandidates` separately; execute ordered demands in one bounded frontier | Each complete range's membership including empty sets, hydrated point revisions, residual validation and stable deduplicated result order |
@@ -154,13 +184,13 @@ output charges. Do not decode a later branch early, parallelize shared-transacti
 statements or turn withheld oversized bodies into absence or fallback reads.
 All internal server pages count even when one frontier contains them.
 
-## Proposed stage budgets
+## Approved stage budgets
 
 The audited decomposition supplies a conservative stage gate. It credits setup
 removals only; compound data frontiers must still migrate real consumers and
 preserve dependency order, without claiming unproved data savings.
 
-| Explicit transaction category | Product current → proposed | Product + Payload | Mixed workflow |
+| Explicit transaction category | Product current → stage ceiling | Product + Payload | Mixed workflow |
 | --- | ---: | ---: | ---: |
 | Request admission | 11 → 9 | 13 → 9 | 19 → 9 |
 | Finite method admission / borrowed construction | 6 → 0 | 14 → 0 | 18 → 0 |
@@ -189,7 +219,7 @@ The two retained Application point transactions include a generated-ID negative
 point probe; only the later pending patch is local. Neither is credited as a
 native construction or data-frontier removal.
 
-Proposed SQL ceilings are **798 / 924 / 1,439**, conservatively subtracting eight
+SQL ceilings are **798 / 924 / 1,439**, conservatively subtracting eight
 dispatches for each of the **8 / 18 / 28** removed checked cuts from slice 15.
 Each removed cut accounts for BEGIN, COMMIT and the six existing kernel queries.
 The grouped entry moves existing proof reads and reuses the already locked
@@ -262,4 +292,4 @@ exact dependency/resource proof, durable preservation, deletion of displaced
 topology and agreed stage ceilings. Quiet traced structure and matched untraced
 distributions retain all samples and identify the next owner if latency remains
 short. Developer APIs, new operations/modules/search, hosted activation, remote
-effects/resource waits and advanced evolution remain outside this proposal.
+effects/resource waits and advanced evolution remain outside this slice.

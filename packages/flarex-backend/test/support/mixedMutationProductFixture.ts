@@ -141,6 +141,8 @@ import {
 } from "../../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
 
 export interface MixedMutationProductFixtureHooks {
+  readonly beforeProductBorrow?: (method: string) => Effect.Effect<void, CommerceTransactionError>;
+  readonly beforeWorkflowBorrow?: () => Effect.Effect<void, CommerceTransactionError>;
   readonly beforeNative?: (method: string) => Effect.Effect<void, CommerceTransactionError>;
   readonly afterProductBorrow?: (method: string, borrowed: Effect.Success<ReturnType<typeof makeBorrowedLogicalAttempt>>,
     rootEvaluator: Parameters<typeof makeBorrowedLogicalAttempt>[0]["rootEvaluator"]) =>
@@ -762,9 +764,10 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
           profileRevision: revision,
           sources: [{ selection: prepared, application: active.selection,
             methods: ["update", "retrieve", "listByHandle"] }] },
-        borrow: borrowedInput => makeBorrowedLogicalAttempt({
-          ...borrowedInput, admission: borrowedInput.admissions[0]!,
-        }).pipe(
+        borrow: borrowedInput => Effect.suspend(() => input.hooks?.beforeProductBorrow?.(borrowedInput.method) ?? Effect.void).pipe(
+          Effect.andThen(makeBorrowedLogicalAttempt({
+            ...borrowedInput, admission: borrowedInput.admissions[0]!,
+          })),
           Effect.map(borrowed => Object.freeze({
             abort: borrowed.abort,
             currentUsage: borrowed.currentUsage,
@@ -837,7 +840,8 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
             methods: source.methods,
           })) },
         borrow: (borrowedInput: Parameters<LogicalParticipantBorrow>[0]) =>
-          workflowBinding.borrow(borrowedInput).pipe(
+          Effect.suspend(() => input.hooks?.beforeWorkflowBorrow?.() ?? Effect.void).pipe(
+            Effect.andThen(workflowBinding.borrow(borrowedInput)),
             Effect.map(borrowed => {
               lastBorrowedWorkflowInvoke = value => Effect.runPromise(borrowed.invoke(value));
               return Object.freeze({

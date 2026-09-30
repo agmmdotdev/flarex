@@ -26,7 +26,7 @@ import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type Logical
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
   withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
   type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptRoot,
-  type LogicalParticipantAttemptReadTransaction, type LogicalParticipantCommitAuthority } from "./participantAdmission";
+  type LogicalParticipantAttemptReadTransaction, type LogicalParticipantCommitAuthority, type LogicalParticipantSelection } from "./participantAdmission";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import type { AdmittedParticipantOperation, SourceContribution } from "flarex-protocol/commit-protocol";
 
@@ -90,7 +90,7 @@ export const withLogicalDocumentAttemptAdmissionEffect = Effect.fn("LogicalDocum
     prepare: (state: LogicalDocumentAttemptAdmissionState,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
         Effect.Effect<A, E | LogicalParticipantAdmissionError>,
-      tx: FlarexMetadataTransaction) => Effect.Effect<Prepared, PreparationFailure>,
+      tx: FlarexMetadataTransaction | undefined) => Effect.Effect<Prepared, PreparationFailure>,
     work: (state: LogicalDocumentAttemptAdmissionState,
       readTransaction: <A, E>(read: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
         Effect.Effect<A, E | LogicalParticipantAdmissionError>, prepared: Prepared) => Effect.Effect<Value, Failure, Requirements>) {
@@ -190,18 +190,20 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
   const bindAttemptEffect = Effect.fn("LogicalDocumentAttemptAdmission.bind")(function* (
     application: ApplicationBindingInput, attempt: SessionJournalAttempt, root: LogicalParticipantAttemptRoot,
     readTransaction: LogicalParticipantAttemptReadTransaction, methods: readonly string[],
+    entry?: Parameters<LogicalParticipantSelection["bindAttemptEffect"]>[5],
   ) {
     if (root.scopeId !== capturedInput.scopeId || root.principalDigest.length === 0 || methods.length === 0 ||
       methods.some(method => method.length === 0) || new Set(methods).size !== methods.length)
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
-    const pinned = yield* readTransaction((tx, authority, clock) => selected.withBinding(
+    const pin = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) => selected.withBinding(
       application, tx, authority, clock, binding => {
         if (authority.scopeId !== root.scopeId || clock.scopeId !== root.scopeId ||
           clock.lastCommitSeq < root.snapshotCommitSeq || binding.schemaVersionId !== capturedInput.schemaVersionId ||
           binding.frame.payloadContent !== null || binding.frame.payloadLifecycle !== null)
           return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         return Effect.succeed(Object.freeze({ head: binding.head, clock, frame: binding.frame }));
-      }).pipe(Effect.mapError(projectAttemptFailure)));
+      }).pipe(Effect.mapError(projectAttemptFailure));
+    const pinned = yield* (entry === undefined ? readTransaction(pin) : pin(entry.tx, entry.authority, entry.clock));
     const verifyPinnedBinding = (binding: LogicalSourceBindingState, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
         binding.schemaVersionId === capturedInput.schemaVersionId &&
         binding.head.sequence === pinned.head.sequence && binding.head.sha256 === pinned.head.sha256 &&

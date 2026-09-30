@@ -718,7 +718,27 @@ export interface OpenSessionJournalAttemptInput {
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly executionClaim: TransactionExecutionClaimPinV1;
   readonly executionProfile?: PointMutationExecutionProfile;
+  readonly logicalParticipants?: readonly SessionJournalParticipantSelection[];
 }
+
+export type SessionJournalParticipantSelection = Readonly<{
+  participant: string;
+  operationMethods: readonly string[];
+  profileRevision: string;
+  sources: readonly Readonly<{ selection: LogicalParticipantSelection;
+    application: ApplicationBindingInput; methods: readonly string[] }>[];
+}>;
+
+const sameParticipantSelection = (left: SessionJournalParticipantSelection,
+  right: SessionJournalParticipantSelection): boolean =>
+  left.participant === right.participant && left.profileRevision === right.profileRevision &&
+  left.operationMethods.length === right.operationMethods.length &&
+  left.operationMethods.every((method, ordinal) => method === right.operationMethods[ordinal]) &&
+  left.sources.length === right.sources.length && left.sources.every((source, ordinal) => {
+    const other = right.sources[ordinal];
+    return other !== undefined && source.selection === other.selection && source.application === other.application &&
+      source.methods.length === other.methods.length && source.methods.every((method, position) => method === other.methods[position]);
+  });
 
 export interface PreparedSessionJournalSealResultV1 {
   readonly preparation: PreparedSessionJournalSealV1;
@@ -750,17 +770,12 @@ export interface SessionJournalStorePersistence {
     | SessionJournalPersistenceV1Error
     | SessionJournalStorageCorruptionV1Error
     | SessionJournalTargetUnavailableV1Error
+    | LogicalParticipantAdmissionError
   >;
   /** The journal owner binds a finite, ordered source set to one exact attempt. */
   readonly admitLogicalParticipantsEffect: (
     attempt: SessionJournalAttempt,
-    input: Readonly<{
-      participant: string;
-      operationMethods: readonly string[];
-      profileRevision: string;
-      sources: readonly Readonly<{ selection: LogicalParticipantSelection;
-        application: ApplicationBindingInput; methods: readonly string[] }>[];
-    }>,
+    input: SessionJournalParticipantSelection,
   ) => Effect.Effect<
     LogicalParticipantAdmissionBundle,
     InvalidSessionJournalCapabilityV1Error |
@@ -1449,6 +1464,8 @@ type FiniteRootRecord = FiniteRootAdmittedRecord | FiniteRootPointRecord |
   FiniteRootIndexRecord | FiniteRootRelationRecord;
 
 interface FiniteRootAttemptState {
+  readonly admissions: Map<string, Readonly<{ selection: SessionJournalParticipantSelection;
+    bundle: LogicalParticipantAdmissionBundle }>>;
   readonly evaluator: LogicalDocumentRootEvaluator;
   readonly entries: Map<bigint, FiniteRootRecord>;
   readonly points: Map<string, JournalPointMutationV1>;
@@ -1468,6 +1485,7 @@ interface FiniteRootAttemptState {
  * fenced observation permits removing its strong registry entry. */
 function discardFiniteRootEvidence(finite: FiniteRootAttemptState): void {
   finite.evaluator.close();
+  finite.admissions.clear();
   finite.entries.clear();
   finite.points.clear();
   finite.pointReads.clear();
@@ -2260,13 +2278,10 @@ export function createSessionJournalStorePersistence(
     PreparedSessionJournalSealStateV1
   >();
 
-  const createAttemptHandle = (
-    state: SessionJournalAttemptStateV1,
-  ): SessionJournalAttempt => {
+  const createAttemptHandle = (): SessionJournalAttempt => {
     const handle = Object.freeze({
       [sessionJournalAttemptBrand]: true as const,
     });
-    attemptStates.set(handle, state);
     return handle;
   };
 
@@ -2310,8 +2325,22 @@ export function createSessionJournalStorePersistence(
     "openAttemptEffect"
   ] = Effect.fn("SessionJournalStore.openAttempt")(function* (input) {
     const state = yield* Effect.fromResult(captureAttemptStateResult(input));
+    // Source factories and Application selections are trusted issued handles.
+    // Capture their functions and ordered grants before entering checked SQL.
+    const selected = input.logicalParticipants ?? [];
+    if (state.executionProfile === "finiteRoot" && (selected.length > 3 ||
+      new Set(selected.map(participant => participant.participant)).size !== selected.length ||
+      selected.some(participant => participant.sources.length === 0 || participant.sources.length > 3)))
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "unsupportedProfile" }));
+    const selections = selected.map(participant => Object.freeze({
+      participant: participant.participant, profileRevision: participant.profileRevision,
+      operationMethods: Object.freeze([...participant.operationMethods]),
+      sources: Object.freeze(participant.sources.map(source => Object.freeze({
+        selection: source.selection, application: source.application, methods: Object.freeze([...source.methods]),
+        bindAttemptEffect: source.selection.bindAttemptEffect.bind(source.selection),
+      }))),
+    }));
     const resolved = yield* resolveJournalTargetEffect(state);
-    yield* admitExactRunningAttemptEffect(resolved, state, "openAttempt");
     const finiteKey = state.executionProfile === "finiteRoot"
       ? JSON.stringify([state.selector.deploymentId, state.selector.scopeId,
         state.selector.sessionId,
@@ -2321,6 +2350,7 @@ export function createSessionJournalStorePersistence(
     if (finiteKey !== undefined) {
       const existing = finiteClaims.get(finiteKey);
       if (existing !== undefined) {
+        yield* admitExactRunningAttemptEffect(resolved, state, "openAttempt");
         const prior = attemptStates.get(existing.handle);
         if (prior === undefined ||
           prior.selector.deploymentId !== state.selector.deploymentId ||
@@ -2343,6 +2373,13 @@ export function createSessionJournalStorePersistence(
             issue: { reason: "executionClaimUnavailable" },
           }));
         }
+        if (input.logicalParticipants !== undefined &&
+          (selections.length !== existing.state.admissions.size ||
+            selections.some(selection => {
+              const issued = existing.state.admissions.get(selection.participant);
+              return issued === undefined || !sameParticipantSelection(issued.selection, selection);
+            })))
+          return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         return existing.handle;
       }
       if (finiteClaims.size >= 1_024) {
@@ -2357,9 +2394,34 @@ export function createSessionJournalStorePersistence(
         }));
       }
     }
-    const handle = createAttemptHandle(state);
+    const handle = createAttemptHandle();
     if (state.executionProfile === "finiteRoot") {
+      const admissions = yield* resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]({
+        selector: state.selector, preliminaryAuthority: resolved.authority, executionClaim: state.executionClaim,
+      }, (tx, context) => withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
+        if (!kernelContextMatchesAttempt(context, state) || context.journalRoot.executionProfile !== "finiteRoot" ||
+          context.journalRoot.state !== "open" || context.journalRoot.lastSyscallSequence !== 0n)
+          return yield* Effect.fail(corruption(state, "journalStateInvalid"));
+        const result = new Map<string, Readonly<{ selection: SessionJournalParticipantSelection; bundle: LogicalParticipantAdmissionBundle }>>();
+        const readTransaction = makeAttemptReadTransaction(state, resolved);
+        for (const selection of selections) {
+          const sources = [];
+          for (const source of selection.sources) {
+            const admission = yield* source.bindAttemptEffect(source.application, handle, {
+              scopeId: state.selector.scopeId, sessionId: state.selector.sessionId, attemptFence: state.selector.attemptFence,
+              principalDigest: context.principalDigest, executionProfile: state.executionProfile,
+              snapshotCommitSeq: state.snapshotToken.commitSeq, schemaVersionId: state.schemaVersionId,
+            }, readTransaction, source.methods, { tx, authority: resolved.authority, clock: context.scopeClock });
+            sources.push(Object.freeze({ admission, methods: source.methods }));
+          }
+          const bundle = yield* Effect.fromResult(issueLogicalParticipantAdmissionBundle(handle, { ...selection, sources }));
+          result.set(selection.participant, Object.freeze({ selection, bundle }));
+        }
+        return result;
+      }))).pipe(Effect.mapError(cause => cause instanceof ExactRunningAttemptTransactionV1Error
+        ? mapExactAdmissionFailure("openAttempt", cause) : cause));
       const finite: FiniteRootAttemptState = {
+        admissions,
         evaluator: makeLogicalDocumentRootEvaluator({
           attempt: handle,
           scopeId: state.selector.scopeId,
@@ -2376,13 +2438,36 @@ export function createSessionJournalStorePersistence(
         participantWorkBytes: 0,
         participantWorkCalls: 0,
       };
+      // Neither root nor source bundles escape until the checked body and tail commit.
+      attemptStates.set(handle, state);
       finiteRootStates.set(state, finite);
       if (finiteKey !== undefined) {
         finiteClaims.set(finiteKey, Object.freeze({ handle, state: finite }));
       }
+    } else {
+      yield* admitExactRunningAttemptEffect(resolved, state, "openAttempt");
+      attemptStates.set(handle, state);
     }
     return handle;
   });
+
+  /** Every real frontier rechecks live authority and poisons its existing finite
+   * owner on body, tail or settlement failure, even if framework code catches it. */
+  const makeAttemptReadTransaction = (state: SessionJournalAttemptStateV1,
+    resolved: ResolvedJournalTargetV1): LogicalParticipantAttemptReadTransaction =>
+    (work) => Effect.suspend(() => {
+      const finite = finiteRootStates.get(state);
+      if (state.executionProfile === "finiteRoot" && finite?.status !== "open")
+        return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      return resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]({
+        selector: state.selector, preliminaryAuthority: resolved.authority, executionClaim: state.executionClaim,
+      }, (tx, context) => work(tx, resolved.authority, context.scopeClock)).pipe(
+        Effect.onError(() => Effect.sync(() => {
+          if (finite !== undefined) { finite.status = "aborted"; discardFiniteRootEvidence(finite); }
+        })),
+        Effect.catchTag("ExactRunningAttemptTransactionV1Error", cause => Effect.fail(
+          new LogicalParticipantAdmissionError({ reason: "invalidAuthority", cause }))));
+    });
 
   const admitSourceEffect = Effect.fn("SessionJournalStore.admitSource")(function* (
     attempt: SessionJournalAttempt,
@@ -2398,21 +2483,7 @@ export function createSessionJournalStorePersistence(
       }));
     }
     const resolved = yield* resolveJournalTargetEffect(attemptState);
-    const readTransaction: LogicalParticipantAttemptReadTransaction =
-      <Value, Failure>(work: (tx: FlarexMetadataTransaction,
-        authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
-          Effect.Effect<Value, Failure>) =>
-        resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](
-          {
-            selector: attemptState.selector,
-            preliminaryAuthority: resolved.authority,
-            executionClaim: attemptState.executionClaim,
-          },
-          (tx, context) => work(tx, resolved.authority, context.scopeClock),
-        ).pipe(Effect.catchTag("ExactRunningAttemptTransactionV1Error", (cause) =>
-          Effect.fail(new LogicalParticipantAdmissionError({
-            reason: "invalidAuthority", cause,
-          }))));
+    const readTransaction = makeAttemptReadTransaction(attemptState, resolved);
     const principalRows = yield* readTransaction((tx) => Effect.tryPromise({
       try: () => tx.select({
           digest: fxSystemTransactionSessions.identityAccessPolicySha256,
@@ -2447,6 +2518,14 @@ export function createSessionJournalStorePersistence(
   ] = Effect.fn("SessionJournalStore.admitLogicalParticipants")(function* (
     attempt, input,
   ) {
+    const state = attemptStates.get(attempt);
+    if (state?.executionProfile === "finiteRoot") {
+      const finite = finiteRootStates.get(state);
+      const issued = finite?.admissions.get(input.participant);
+      if (finite?.status !== "open" || issued === undefined || !sameParticipantSelection(issued.selection, input))
+        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      return issued.bundle;
+    }
     if (input.sources.length === 0 || input.sources.length > 3) {
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "unsupportedProfile" }));
     }
@@ -2483,13 +2562,8 @@ export function createSessionJournalStorePersistence(
         capability: "attempt",
       }));
     }
-    const captured = yield* captureAdmittedOperationRequestEffect(input);
-    if (captured.frame.participant !== input.participant ||
-      captured.frame.operation !== input.method) {
-      return yield* Effect.fail(new LogicalParticipantAdmissionError({
-        reason: "invalidInput",
-      }));
-    }
+    if (attemptState.executionProfile === "finiteRoot" && finiteRootStates.get(attemptState)?.status !== "open")
+      return Object.freeze({ kind: "stateRejected", issue: Object.freeze({ reason: "journalFailed" }) });
     const sources = [];
     for (const [ordinal, source] of admitted.admissions.entries()) {
       const state = inspectLogicalParticipantAttemptAdmission(source, attempt,
@@ -2534,6 +2608,11 @@ export function createSessionJournalStorePersistence(
         operation: "runAdmittedOperation", cause,
       }),
     });
+    const captured = yield* captureAdmittedOperationRequestEffect(input);
+    if (captured.frame.participant !== input.participant ||
+      captured.frame.operation !== input.method) {
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidInput" }));
+    }
     const request = Object.freeze({
       format: "flarex.session-journal-syscall" as const,
       codecVersion: 2 as const,
@@ -2550,7 +2629,6 @@ export function createSessionJournalStorePersistence(
       readonly kind: "admittedLogicalOperation";
     }>);
     const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
-    const resolved = yield* resolveJournalTargetEffect(attemptState);
     const inFlightKey = `${attemptState.selector.scopeId}/${attemptState.selector.sessionId}/${attemptState.selector.attemptFence}`;
     if (admittedInFlight.has(inFlightKey)) {
       return Object.freeze({ kind: "stateRejected", issue: Object.freeze({
@@ -2559,32 +2637,15 @@ export function createSessionJournalStorePersistence(
     }
     admittedInFlight.add(inFlightKey);
     return yield* Effect.gen(function* () {
-      const pins = {
-        selector: attemptState.selector,
-        preliminaryAuthority: resolved.authority,
-        executionClaim: attemptState.executionClaim,
-      } as const;
       const finite = finiteRootStates.get(attemptState);
       if (attemptState.executionProfile === "finiteRoot") {
         if (finite === undefined) {
           return yield* Effect.fail(corruption(attemptState, "journalStateInvalid"));
         }
         return yield* Effect.gen(function* () {
-          // This short transaction authenticates the live claim, root position
-          // and selected source rights. It ends before framework callbacks.
-          yield* resolved.target[RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1](
-            pins,
-            (tx, context) => Effect.gen(function* () {
-              if (!kernelContextMatchesAttempt(context, attemptState) ||
-                context.journalRoot.executionProfile !== "finiteRoot" ||
-                context.journalRoot.state !== "open" ||
-                context.journalRoot.lastSyscallSequence !== 0n) {
-                return yield* Effect.fail(corruption(attemptState, "journalStateInvalid"));
-              }
-              yield* requireAdmittedBundleInTransactionEffect(admission,
-                attempt, request, tx, resolved.authority, context.scopeClock);
-            }),
-          ).pipe(Effect.mapError(mapAdmittedKernelFailure));
+          // The root and its complete source set were authenticated together.
+          // Invocation is tentative; actual storage frontiers and seal retain
+          // fresh database authority checks.
           if (finite.status !== "open") {
             return Object.freeze({ kind: "stateRejected" as const,
               issue: Object.freeze({ reason: "journalFailed" as const }) });
@@ -2634,6 +2695,8 @@ export function createSessionJournalStorePersistence(
           }
           const { completed, contribution, sources: preparedSources } =
             prepared.value;
+          if (finite.status !== "open")
+            return Object.freeze({ kind: "stateRejected" as const, issue: Object.freeze({ reason: "journalFailed" as const }) });
           const outcome = Object.freeze({ kind: "admittedLogicalResult" as const,
             result: completed.result, events: completed.eventIntents,
             sourceDependencies: preparedSources.map(source => ({
@@ -2738,6 +2801,8 @@ export function createSessionJournalStorePersistence(
               reason: "unsupportedProfile",
             }));
           }
+          if (finite.status !== "open")
+            return Object.freeze({ kind: "stateRejected" as const, issue: Object.freeze({ reason: "journalFailed" as const }) });
           finite.entries.set(request.syscallSequence, Object.freeze({ admission, request, ...structuredClone({
             kind: "admitted" as const, requestEvidence,
             bindingDigest, completed, contribution,
@@ -2759,6 +2824,12 @@ export function createSessionJournalStorePersistence(
           discardFiniteRootEvidence(finite);
         })));
       }
+      const resolved = yield* resolveJournalTargetEffect(attemptState);
+      const pins = {
+        selector: attemptState.selector,
+        preliminaryAuthority: resolved.authority,
+        executionClaim: attemptState.executionClaim,
+      } as const;
       const preflight = yield* resolved.target[
         RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
       ](pins, (tx, context) => preflightAdmittedOperationInTransactionEffect(

@@ -12,12 +12,14 @@ specific scope, decisions, affected contracts and remaining gates. The proposed
 [execution redesign](./14-execution-redesign-roadmap.md) owns the next connected
 latency plan: [admission/protection](./15-admission-protection-preflight.md) is
 delivered with its measured stage cost gate passed; [batched reads](./16-batched-read-execution-preflight.md)
-has a focused proposal ready for review with runtime unapproved;
-[settlement](./17-batched-settlement-preflight.md) is a dependent draft, and
+is delivered with its measured stage cost gate passed;
+[settlement](./17-batched-settlement-preflight.md) requires a focused terminal
+preflight reconciled against the delivered read contract, and
 [host lifecycle](./18-host-lifecycle-preflight.md) is conditional on attributable
 evidence. Slice 15 extends immutable target protection under existing full
-attestation and privileged quiescence. Later runtime and new authority contracts
-remain gated. The implemented
+attestation and privileged quiescence. Slice 16 accepts tentative finite native
+construction after full root entry and fresh live checks at actual storage
+frontiers. Later slices and new authority contracts remain gated. The implemented
 [first Application and Product attempt](./01-application-product-attempt-preflight.md)
 uses the real Worker, Product service and shared journal/commit owners. It is
 not activated on a named durable environment and exposes no public authoring API.
@@ -162,11 +164,29 @@ meeting the original **871 / 1,081 / 1,688 / 354** stage ceilings. Warm p50/p95 
 Actual lazy fills add **3 / 4 / 7** full captures in the request/series-owned
 benchmark lifetime. Standalone passes its median gate; the three final mixed
 latency goals remain unmet. All maxima are retained, including mixed workflow's
-**2,800.9 ms** sample, with zero exclusions. Slice 16's focused proposal retains
-source-wide readiness and moves repeated finite method/setup checks to aggregate
-full entry and actual bounded storage frontiers. It proposes **798 / 924 / 1,439**
-driver dispatches and **33 / 34 / 50** explicit transactions, preserving standalone
-**354 / 6**. Its tentative callback/live-check timing and runtime remain unapproved.
+**2,800.9 ms** sample, with zero exclusions.
+
+Delivered [bounded read execution](./16-batched-read-execution-preflight.md)
+retains source-wide readiness and moves repeated finite method/setup checks to
+aggregate full entry and actual bounded storage frontiers. Local construction and
+workflow source inspection authenticate the existing issued root; persisted changes
+are detected at the next real storage frontier or final full gate. Captured
+IN/disjunction, unique-owner hydration, residual windows and ordered write demands
+share the existing working-set frontier. Relevant Application seeds still
+authenticate original snapshot evidence before overlay membership is used.
+Existing native DAL plans consume this owner without new framework APIs.
+
+The [bounded-read measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bounded-read-execution/README.md)
+retain all 120 successful samples with zero exclusions and setup failures. SQL
+**643 / 670 / 1,034 / 354** and transactions **29 / 30 / 43 / 6** pass the
+**798 / 924 / 1,439 / 354** and **33 / 34 / 50 / 6** stage ceilings. Warm p50/p95 is
+**635.4/668.3, 690.0/751.7, 1,169.3/1,226.9 and 321.2/342.7 ms**. Mixed medians
+fall **18.9% / 29.1% / 30.3%**; standalone rises **3.8%** and passes its median
+and strict regression gates. Warm maxima **689.0 / 782.2 / 1,237.6 / 380.0 ms**
+remain retained. Final mixed latency targets remain unmet. Slice 17 is the next
+separately scoped settlement preflight; its runtime remains unapproved. Journal
+formats, settlement authority, standalone/durable profiles and uncertain-outcome
+recovery remain unchanged.
 
 The finite root has an immutable journal marker. Standalone selection and final
 publication still perform full live checks. Complete

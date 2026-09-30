@@ -45,7 +45,7 @@ const WorkerSuccess = Schema.Struct({ kind: Schema.Literal("result"),
   result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) });
 
 describe.each(drivers)("finite native Product launch workflow in one Worker attempt on %s", driver => {
-  it("requires a later Pricing source before the first Product child database read", async () => {
+  it("constructs a tentative workflow after Pricing readiness loss and refuses the first Product child database read", async () => {
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
     let changed = false;
     let dataStatements = 0;
@@ -55,7 +55,7 @@ describe.each(drivers)("finite native Product launch workflow in one Worker atte
         observeWorkflowSql: sql => {
           if (changed && /\bfx_app_(?:row_rev|index_entry_(?:rev|current)|unique_key)\b/.test(sql)) dataStatements++;
         },
-        beforeNative: method => method !== "workflow:run" ? Effect.void : Effect.gen(function* () {
+        beforeWorkflowBorrow: () => Effect.gen(function* () {
           const requirements = yield* readLogicalStorageRequirements(fixture.currency.control.drizzle,
             fixture.currency.deploymentId, fixture.logicalSchemaVersionId).pipe(
               Effect.mapError(cause => commerceError("resourceFailure", cause)));

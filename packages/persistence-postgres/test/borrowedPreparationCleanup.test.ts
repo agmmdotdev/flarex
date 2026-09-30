@@ -32,7 +32,7 @@ vi.mock("../src/logicalDocuments/relationalAdmission", async importOriginal => {
     prepare: (state: unknown, checkedRead: unknown, tx: unknown) => Effect.Effect<unknown>,
   ) => Effect.gen(function* () {
     yield* prepare({
-      root: { scopeId: "prepared-scope", snapshotCommitSeq: 1n },
+      root: { scopeId: "prepared-scope", snapshotCommitSeq: 1n, executionProfile: "durableOperations" },
       clock: {}, schema: { capabilities: [] }, tables: [], search: [], unique: [], indexes: [],
       values: { validate: () => Effect.void },
     }, () => Effect.void, Object.freeze({}));
@@ -49,7 +49,7 @@ vi.mock("../src/logicalDocuments/documentAdmission", async importOriginal => {
   ) => Effect.gen(function* () {
     yield* prepare({
       configuration: { profile: "payload.scalar" },
-      root: { scopeId: "prepared-scope", snapshotCommitSeq: 1n },
+      root: { scopeId: "prepared-scope", snapshotCommitSeq: 1n, executionProfile: "durableOperations" },
       clock: {}, tables: [{ tableId: 1, localName: "posts" }], unique: [], indexes: [],
       validate: () => Effect.void,
     }, () => Effect.void, Object.freeze({}));

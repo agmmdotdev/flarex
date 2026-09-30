@@ -143,6 +143,7 @@ export interface LogicalDocuments<Failure> {
 }
 
 export interface LogicalDocumentReadTestHooks<Failure> {
+  /** Fault injection owned by tests; production frontiers invoke no foreign hook. */
   readonly beforeRead?: (selection: "point" | "batch" | "scan" | "index") => Effect.Effect<void, Failure>;
   readonly observeQuery?: (query: Readonly<{ readonly name: "currentCapture" | "snapshotRevision";
     readonly sql: string; readonly params: ReadonlyArray<unknown> }>) => void;
@@ -159,8 +160,12 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   testHooks?: LogicalDocumentReadTestHooks<Failure>,
   constructionTx?: FlarexMetadataTransaction,
 ) {
+  // Only this working set's captured storage mechanics may enter a frontier.
+  // Its request lifetime rejects overlapping operations before they reach it.
+  let frontierTx: FlarexMetadataTransaction | undefined;
   const runRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
-    configuration.tx === undefined ? configuration.readTransaction(work) : work(configuration.tx);
+    frontierTx !== undefined ? work(frontierTx) :
+      configuration.tx === undefined ? configuration.readTransaction(work) : work(configuration.tx);
   const runConstructionRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
     constructionTx === undefined ? runRead(work) : work(constructionTx);
   const state = Object.freeze({ ...configuration, limits: Object.freeze({ ...configuration.limits }),
@@ -194,11 +199,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
   const { lifetime, tables, error } = state;
   const callIdentityLimit = state.limits.identities;
   const limits = Object.freeze({ ...state.limits, identities: root?.limits.identities ?? state.limits.identities });
+  let transactionTimeLoaded = false;
   const transactionTime = yield* Effect.cached(Effect.gen(function* () {
-    const result = yield* runRead(tx => runDrizzleStatementEffect(tx.select({ timestamp: sql<unknown>`current_timestamp` })
+    const result = yield* runStorageRead(tx => runDrizzleStatementEffect(tx.select({ timestamp: sql<unknown>`current_timestamp` })
       .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, state.scopeId)), cause => error("statementFailure", cause)));
     const value = databaseTimestampFromUnknown(result[0]?.timestamp);
     if (value === null) return yield* Effect.fail(error("storedCorruption"));
+    transactionTimeLoaded = true;
     return value.toISOString();
   }));
   const rows = root?.rows ?? new Map<AppDocumentIdV1, PendingDocument>();
@@ -382,60 +389,71 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         return yield* Effect.fail(error("invalidInput"));
       }
       yield* requireReadAdmission;
-      return yield* (checkedTx === undefined ? runRead(tx => readBaseInTransaction(tx, tableId, rowId, rowIds)) :
+      return yield* (checkedTx === undefined ? runStorageRead(tx => readBaseInTransaction(tx, tableId, rowId, rowIds)) :
         readBaseInTransaction(checkedTx, tableId, rowId, rowIds));
     });
-  const seededRows = root === undefined ? state.pendingRows : [...root.appPoints.entries()]
+  let hydratedLocalSeeds = false;
+  const pendingSeeds = () => root === undefined ? hydratedLocalSeeds ? [] : state.pendingRows ?? [] : [...root.appPoints.entries()]
     .filter(([documentId, seed]) => !root.hydratedAppPoints.has(documentId) &&
       tables.some(table => table.tableId === seed.tableId)).map(([, seed]) => seed);
-  if (seededRows !== undefined) {
-    if (state.snapshotCommitSeq === undefined || seededRows.length > limits.identities)
+  const hydratePendingSeeds = Effect.fn("LogicalDocuments.hydratePendingSeeds")(function* (tx: FlarexMetadataTransaction) {
+    const pendingRows = pendingSeeds();
+    if (pendingRows.length === 0) return;
+    if (state.snapshotCommitSeq === undefined || pendingRows.length > limits.identities)
       return yield* Effect.fail(error("invalidAuthority"));
     const seen = new Set<string>();
-    const pendingRows = seededRows;
-    if (pendingRows.length > 0) {
-      yield* requireReadAdmission;
-      yield* runConstructionRead(tx => Effect.gen(function* () {
-        for (const seed of pendingRows) {
-          const documentId = appDocumentIdV1FromRowIdentity(seed);
-          if (seen.has(documentId)) return yield* Effect.fail(error("storedCorruption"));
-          seen.add(documentId);
-          yield* readBaseInTransaction(tx, seed.tableId, seed.rowId);
-          const observation = dependencies.get(documentId)?.dependency.observed;
-          const expected = seed.observed;
-          const sameObservation = observation?.kind === expected.kind &&
-            (observation.kind === "present" && expected.kind === "present"
-              ? observation.revisionCommitSeq === expected.revisionCommitSeq
-              : observation.kind === "missing" && expected.kind === "missing" &&
-                observation.basis.kind === expected.basis.kind &&
-                (observation.basis.kind === "tombstone" && expected.basis.kind === "tombstone"
-                  ? observation.basis.revisionCommitSeq === expected.basis.revisionCommitSeq : true));
-          if (!sameObservation) return yield* Effect.fail(error("storedCorruption"));
-          const table = yield* Effect.fromResult(tableForId(seed.tableId));
-          const existing = rows.get(documentId);
-          if (seed.overlay.kind === "live") {
-            if (!isJsonObject(seed.overlay.document.valueJson) ||
-              seed.overlay.document.valueJson._id !== documentId ||
-              seed.overlay.document.valueJson._creationTime !== seed.overlay.creationTime)
-              return yield* Effect.fail(error("storedCorruption"));
-            yield* charge(128 + seed.overlay.document.canonicalBytes.byteLength);
-          } else yield* charge(128);
-          const seedCreationTime = seed.overlay.kind === "live" ? seed.overlay.creationTime : existing?.creationTime;
-          // An insert followed by delete has a missing snapshot dependency and no
-          // current row. Retain its absence witness without inventing row time.
-           if (seedCreationTime === undefined && seed.overlay.kind === "deleted" && expected.kind === "missing") {
-             root?.hydratedAppPoints.add(documentId);
-             continue;
-           }
-          if (seedCreationTime === undefined) return yield* Effect.fail(error("storedCorruption"));
-           rows.set(documentId, { tableId: seed.tableId, tableName: table.logicalName, rowId: seed.rowId,
-             documentId, base: existing?.base ?? null, creationTime: seedCreationTime,
-             current: seed.overlay.kind === "live" ? seed.overlay.document : null, attempts: [], seeded: true });
-           root?.hydratedAppPoints.add(documentId);
-        }
-      }));
+    for (const seed of pendingRows) {
+      const documentId = appDocumentIdV1FromRowIdentity(seed);
+      if (seen.has(documentId)) return yield* Effect.fail(error("storedCorruption"));
+      seen.add(documentId);
+      yield* readBaseInTransaction(tx, seed.tableId, seed.rowId);
+      const observation = dependencies.get(documentId)?.dependency.observed;
+      const expected = seed.observed;
+      const sameObservation = observation?.kind === expected.kind &&
+        (observation.kind === "present" && expected.kind === "present"
+          ? observation.revisionCommitSeq === expected.revisionCommitSeq
+          : observation.kind === "missing" && expected.kind === "missing" &&
+            observation.basis.kind === expected.basis.kind &&
+            (observation.basis.kind === "tombstone" && expected.basis.kind === "tombstone"
+              ? observation.basis.revisionCommitSeq === expected.basis.revisionCommitSeq : true));
+      if (!sameObservation) return yield* Effect.fail(error("storedCorruption"));
+      const table = yield* Effect.fromResult(tableForId(seed.tableId));
+      const existing = rows.get(documentId);
+      if (seed.overlay.kind === "live") {
+        if (!isJsonObject(seed.overlay.document.valueJson) ||
+          seed.overlay.document.valueJson._id !== documentId ||
+          seed.overlay.document.valueJson._creationTime !== seed.overlay.creationTime)
+          return yield* Effect.fail(error("storedCorruption"));
+        yield* charge(128 + seed.overlay.document.canonicalBytes.byteLength);
+      } else yield* charge(128);
+      const seedCreationTime = seed.overlay.kind === "live" ? seed.overlay.creationTime : existing?.creationTime;
+      // An insert followed by delete has a missing snapshot dependency and no
+      // current row. Retain its absence witness without inventing row time.
+      if (seedCreationTime === undefined && seed.overlay.kind === "deleted" && expected.kind === "missing") {
+        root?.hydratedAppPoints.add(documentId);
+        continue;
+      }
+      if (seedCreationTime === undefined) return yield* Effect.fail(error("storedCorruption"));
+      rows.set(documentId, { tableId: seed.tableId, tableName: table.logicalName, rowId: seed.rowId,
+        documentId, base: existing?.base ?? null, creationTime: seedCreationTime,
+        current: seed.overlay.kind === "live" ? seed.overlay.document : null, attempts: [], seeded: true });
+      root?.hydratedAppPoints.add(documentId);
     }
+    hydratedLocalSeeds = true;
+  });
+  // Finite root construction owns no SQL lifetime. Authenticate a seed's
+  // original base before the first storage demand consumes its pending overlay.
+  // Independent durable/native construction keeps its existing checked path.
+  if (root === undefined && pendingSeeds().length > 0) {
+    yield* requireReadAdmission;
+    yield* runConstructionRead(hydratePendingSeeds);
   }
+  const runStorageRead = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>
+    runRead(tx => hydratePendingSeeds(tx).pipe(Effect.andThen(() => work(tx))));
+  const withStorageFrontier = <A>(work: Effect.Effect<A, Failure>): Effect.Effect<A, Failure> =>
+    Effect.suspend(() => frontierTx !== undefined ? work : runStorageRead(tx =>
+      Effect.acquireUseRelease(Effect.sync(() => { frontierTx = tx; }), () => work,
+        () => Effect.sync(() => { frontierTx = undefined; }))));
   const locate = Effect.fn("LogicalDocuments.locate")(function* (inputId: string, tableName?: string,
     checkedTx?: FlarexMetadataTransaction) {
     const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(inputId).pipe(Result.mapError(cause => error("invalidInput", cause))));
@@ -443,110 +461,128 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     if (tableName !== undefined && (yield* Effect.fromResult(tableForName(tableName))).tableId !== identity.tableId) {
       return yield* Effect.fail(error("invalidInput"));
     }
-    if (!dependencies.has(identity.id) && !scanned.has(identity.tableId)) yield* readBase(identity.tableId, identity.rowId, undefined, checkedTx);
-    if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
-    return { identity, pending: rows.get(identity.id) };
+    const read = Effect.gen(function* () {
+      if (!dependencies.has(identity.id) && !scanned.has(identity.tableId)) yield* readBase(identity.tableId, identity.rowId, undefined, checkedTx);
+      if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
+      return { identity, pending: rows.get(identity.id) };
+    });
+    return yield* (pendingSeeds().length > 0 && frontierTx === undefined && checkedTx === undefined
+      ? withStorageFrontier(read) : read);
   });
   const locateUnique = Effect.fn("LogicalDocuments.locateUnique")(function* (
     definition: LocatedAppUniqueConstraintDefinitionV1, projected: LoweredCanonicalAppUniqueConstraintV1,
   ) {
     const readKey = uniqueReadKey(definition, projected);
     if (projected.kind !== "claim" || readKey === null) return null;
-    const cached = uniqueReads.get(readKey);
-    if (cached !== undefined) return cached.owner === null ? null : appDocumentIdV1FromRowIdentity(cached.owner);
-    if (state.snapshotCommitSeq !== undefined) {
-      // Unique slots are current-only. A matching retained ordered index gives
-      // the historical owner and the negative membership witness. The final
-      // unique slot is still checked under publication exclusion at settlement.
-      const fields = definition.physicalSpec.orderedFields;
-      const predicate = definition.physicalSpec.predicate;
-      const index = indexDefinitions.find(candidate => candidate.access.kind === "developer" &&
-        candidate.access.tableId === definition.tableId &&
-        candidate.physicalSpec.orderedFields.length >= fields.length &&
-        fields.every((field, position) => {
-          const member = candidate.physicalSpec.orderedFields[position];
-          return member?.kind === "documentPath" && member.path === field && member.valueFormat === undefined;
-        }) && (predicate === undefined ? candidate.physicalSpec.predicate === undefined :
-          candidate.physicalSpec.predicate?.kind === "fieldIsNull" &&
-          candidate.physicalSpec.predicate.field === predicate.field));
-      if (fields.length === 0 || projected.projection.values.length !== fields.length || index === undefined)
-        return yield* Effect.fail(error("invalidAuthority"));
-      const expressions: OrderedIndexRangeExpressionV1[] = fields.map((_, position) => ({
-        op: "eq", field: index.physicalSpec.orderedFields[position]!,
-        value: projected.projection.values[position]!,
-      }));
-      const bounds = yield* Effect.fromResult(Result.try({
-        try: () => compileAppOrderedIndexBoundsV1({ spec: index.physicalSpec, expressions }),
-        catch: cause => {
-          if (cause instanceof InvalidOrderedIndexRangeV1Error || cause instanceof OrderedIndexCodecV1InputError ||
-            cause instanceof OrderedIndexKeyTooLargeError || cause instanceof FlarexValueCodecV1Error)
-            return error("invalidAuthority", cause);
-          throw cause;
-        },
-      }));
-      const selected = { definition: index, bounds,
-        identity: JSON.stringify([index.indexDefinitionId, bounds.startInclusive ?? null,
-          bounds.endExclusive ?? null]) };
-      const entries = yield* runRead(tx => readLogicalIndexRange(tx, state.scopeId, selected, 2, error,
-        testHooks?.observeIndexQuery, state.snapshotCommitSeq));
-      if (entries.length > 1 || entries.some(entry => entry.tableId !== definition.tableId))
-        return yield* Effect.fail(error("storedCorruption"));
-      yield* charge(128 + entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
-      indexReads.set(selected.identity, Object.freeze({ definition: index, bounds: selected.bounds, entries }));
-      const entry = entries[0];
-      if (entry !== undefined) {
-        const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(entry));
-        if (owned?.base?.kind !== "live" || owned.base.commitSeq < entry.commitSeq)
-          return yield* Effect.fail(error("writeConflict"));
+    const read = Effect.gen(function* () {
+      const cached = uniqueReads.get(readKey);
+      if (cached !== undefined) return cached.owner === null ? null : appDocumentIdV1FromRowIdentity(cached.owner);
+      if (state.snapshotCommitSeq !== undefined) {
+        // Unique slots are current-only. A matching retained ordered index gives
+        // the historical owner and the negative membership witness. The final
+        // unique slot is still checked under publication exclusion at settlement.
+        const fields = definition.physicalSpec.orderedFields;
+        const predicate = definition.physicalSpec.predicate;
+        const index = indexDefinitions.find(candidate => candidate.access.kind === "developer" &&
+          candidate.access.tableId === definition.tableId &&
+          candidate.physicalSpec.orderedFields.length >= fields.length &&
+          fields.every((field, position) => {
+            const member = candidate.physicalSpec.orderedFields[position];
+            return member?.kind === "documentPath" && member.path === field && member.valueFormat === undefined;
+          }) && (predicate === undefined ? candidate.physicalSpec.predicate === undefined :
+            candidate.physicalSpec.predicate?.kind === "fieldIsNull" &&
+            candidate.physicalSpec.predicate.field === predicate.field));
+        if (fields.length === 0 || projected.projection.values.length !== fields.length || index === undefined)
+          return yield* Effect.fail(error("invalidAuthority"));
+        const expressions: OrderedIndexRangeExpressionV1[] = fields.map((_, position) => ({
+          op: "eq", field: index.physicalSpec.orderedFields[position]!,
+          value: projected.projection.values[position]!,
+        }));
+        const bounds = yield* Effect.fromResult(Result.try({
+          try: () => compileAppOrderedIndexBoundsV1({ spec: index.physicalSpec, expressions }),
+          catch: cause => {
+            if (cause instanceof InvalidOrderedIndexRangeV1Error || cause instanceof OrderedIndexCodecV1InputError ||
+              cause instanceof OrderedIndexKeyTooLargeError || cause instanceof FlarexValueCodecV1Error)
+              return error("invalidAuthority", cause);
+            throw cause;
+          },
+        }));
+        const selected = { definition: index, bounds,
+          identity: JSON.stringify([index.indexDefinitionId, bounds.startInclusive ?? null,
+            bounds.endExclusive ?? null]) };
+        const entries = yield* runRead(tx => readLogicalIndexRange(tx, state.scopeId, selected, 2, error,
+          testHooks?.observeIndexQuery, state.snapshotCommitSeq));
+        if (entries.length > 1 || entries.some(entry => entry.tableId !== definition.tableId))
+          return yield* Effect.fail(error("storedCorruption"));
+        yield* charge(128 + entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
+        indexReads.set(selected.identity, Object.freeze({ definition: index, bounds: selected.bounds, entries }));
+        const entry = entries[0];
+        if (entry !== undefined) {
+          const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(entry));
+          if (owned?.base?.kind !== "live" || owned.base.commitSeq < entry.commitSeq)
+            return yield* Effect.fail(error("writeConflict"));
+          const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
+            .pipe(Result.mapError(cause => error("storedCorruption", cause))));
+          if (base.kind !== "claim" || base.localeKey !== projected.localeKey ||
+            base.encodedKey !== projected.encodedKey) return yield* Effect.fail(error("storedCorruption"));
+        }
+        yield* charge(128 + projected.canonicalKeyBytes.byteLength);
+        uniqueReads.set(readKey, Object.freeze({ constraintId: definition.uniqueConstraintDefinitionId,
+          key: projected.projection, owner: entry === undefined ? null :
+            Object.freeze({ tableId: entry.tableId, rowId: entry.rowId }) }));
+        return entry === undefined ? null : appDocumentIdV1FromRowIdentity(entry);
+      }
+      const slot = yield* runRead(tx => readAppUniqueKeySlotInTransactionEffect(tx, { scopeId: state.scopeId,
+        constraintId: definition.uniqueConstraintDefinitionId, key: projected.projection })).pipe(Effect.mapError(cause =>
+        error(cause instanceof AppUniqueKeyPersistenceError ? "statementFailure" : cause instanceof AppUniqueKeyHashError ? "resourceFailure" : "storedCorruption", cause)));
+      if (Option.isSome(slot)) {
+        const owner = slot.value;
+        if (owner.tableId !== definition.tableId) return yield* Effect.fail(error("storedCorruption"));
+        const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(owner));
+        // Slot and owner revision were captured together. A cached or later row
+        // capture can differ legitimately under concurrent publication.
+        if (owned?.base?.commitSeq !== owner.ownerCommitSeq) return yield* Effect.fail(error("writeConflict"));
+        if (owned.base.kind !== "live") return yield* Effect.fail(error("storedCorruption"));
         const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
           .pipe(Result.mapError(cause => error("storedCorruption", cause))));
         if (base.kind !== "claim" || base.localeKey !== projected.localeKey ||
           base.encodedKey !== projected.encodedKey) return yield* Effect.fail(error("storedCorruption"));
       }
+      const ownerId = Option.isNone(slot) ? null : appDocumentIdV1FromRowIdentity(slot.value);
       yield* charge(128 + projected.canonicalKeyBytes.byteLength);
       uniqueReads.set(readKey, Object.freeze({ constraintId: definition.uniqueConstraintDefinitionId,
-        key: projected.projection, owner: entry === undefined ? null :
-          Object.freeze({ tableId: entry.tableId, rowId: entry.rowId }) }));
-      return entry === undefined ? null : appDocumentIdV1FromRowIdentity(entry);
-    }
-    const slot = yield* runRead(tx => readAppUniqueKeySlotInTransactionEffect(tx, { scopeId: state.scopeId,
-      constraintId: definition.uniqueConstraintDefinitionId, key: projected.projection })).pipe(Effect.mapError(cause =>
-      error(cause instanceof AppUniqueKeyPersistenceError ? "statementFailure" : cause instanceof AppUniqueKeyHashError ? "resourceFailure" : "storedCorruption", cause)));
-    if (Option.isSome(slot)) {
-      const owner = slot.value;
-      if (owner.tableId !== definition.tableId) return yield* Effect.fail(error("storedCorruption"));
-      const { pending: owned } = yield* locate(appDocumentIdV1FromRowIdentity(owner));
-      // Slot and owner revision were captured together. A cached or later row
-      // capture can differ legitimately under concurrent publication.
-      if (owned?.base?.commitSeq !== owner.ownerCommitSeq) return yield* Effect.fail(error("writeConflict"));
-      if (owned.base.kind !== "live") return yield* Effect.fail(error("storedCorruption"));
-      const base = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, owned.base.document)
-        .pipe(Result.mapError(cause => error("storedCorruption", cause))));
-      if (base.kind !== "claim" || base.localeKey !== projected.localeKey ||
-        base.encodedKey !== projected.encodedKey) return yield* Effect.fail(error("storedCorruption"));
-    }
-    const ownerId = Option.isNone(slot) ? null : appDocumentIdV1FromRowIdentity(slot.value);
-    yield* charge(128 + projected.canonicalKeyBytes.byteLength);
-    uniqueReads.set(readKey, Object.freeze({ constraintId: definition.uniqueConstraintDefinitionId,
-      key: projected.projection, owner: Option.isNone(slot) ? null : Object.freeze({ tableId: slot.value.tableId, rowId: slot.value.rowId }) }));
-    return ownerId;
+        key: projected.projection, owner: Option.isNone(slot) ? null : Object.freeze({ tableId: slot.value.tableId, rowId: slot.value.rowId }) }));
+      return ownerId;
+    });
+    return yield* (pendingSeeds().length > 0 || !uniqueReads.has(readKey) ? withStorageFrontier(read) : read);
   });
-  const ensureUnique = Effect.fn("LogicalDocuments.validateUnique")(function* (pending: PendingDocument, document: CanonicalFlarexValueV1) {
-    for (const definition of uniqueDefinitions) {
-      if (definition.tableId !== pending.tableId) continue;
+  const withUniqueValidation = Effect.fn("LogicalDocuments.validateUnique")(function* <Value>(
+    pending: PendingDocument, document: CanonicalFlarexValueV1, consume: Effect.Effect<Value, Failure>,
+  ): Effect.fn.Return<Value, Failure> {
+    const validateNext = Effect.fn("LogicalDocuments.validateNextUnique")(function* (position: number): Effect.fn.Return<Value, Failure> {
+      const definition = uniqueDefinitions[position];
+      if (definition === undefined) return yield* consume;
+      if (definition.tableId !== pending.tableId) return yield* validateNext(position + 1);
       const projected = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, document)
         .pipe(Result.mapError(cause => error("documentInvalid", cause))));
-      if (projected.kind !== "claim") continue;
-      yield* locateUnique(definition, projected);
-      for (const other of rows.values()) {
-        if (other.tableId !== pending.tableId || other.documentId === pending.documentId || other.current === null) continue;
-        const existing = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, other.current)
-          .pipe(Result.mapError(cause => error("storedCorruption", cause))));
-        if (existing.kind === "claim" && existing.localeKey === projected.localeKey &&
-          existing.encodedKey === projected.encodedKey) return yield* Effect.fail(state.uniqueConflict(Object.freeze({ tableName: localTableName(pending.tableId) ?? pending.tableName,
-            orderedFields: Object.freeze([...definition.physicalSpec.orderedFields]) })));
-      }
-    }
+      if (projected.kind !== "claim") return yield* validateNext(position + 1);
+      const validate = Effect.gen(function* () {
+        yield* locateUnique(definition, projected);
+        for (const other of rows.values()) {
+          if (other.tableId !== pending.tableId || other.documentId === pending.documentId || other.current === null) continue;
+          const existing = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, other.current)
+            .pipe(Result.mapError(cause => error("storedCorruption", cause))));
+          if (existing.kind === "claim" && existing.localeKey === projected.localeKey &&
+            existing.encodedKey === projected.encodedKey) return yield* Effect.fail(state.uniqueConflict(Object.freeze({ tableName: localTableName(pending.tableId) ?? pending.tableName,
+              orderedFields: Object.freeze([...definition.physicalSpec.orderedFields]) })));
+        }
+        return yield* validateNext(position + 1);
+      });
+      const key = uniqueReadKey(definition, projected);
+      return yield* (pendingSeeds().length > 0 || key !== null && !uniqueReads.has(key)
+        ? withStorageFrontier(validate) : validate);
+    });
+    return yield* validateNext(0);
   });
   const recordAttempt = (pending: PendingDocument, operation: LogicalDocumentAttempt["operation"],
     after: CanonicalFlarexValueV1 | null) => {
@@ -557,22 +593,27 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       attempts.push(attempt);
     }));
   };
-  const write = Effect.fn("LogicalDocuments.validateWrite")(function* (pending: PendingDocument, fields: JsonObject,
-    operation: "insert" | "patch" | "replace") {
+  const withWrittenDocument = Effect.fn("LogicalDocuments.validateWrite")(function* <Value>(pending: PendingDocument, fields: JsonObject,
+    operation: "insert" | "patch" | "replace", consume: (written: JsonObject) => Effect.Effect<Value, Failure>,
+  ): Effect.fn.Return<Value, Failure> {
     const document = yield* canonicalizeFlarexValueV1Effect({ ...fields, _id: pending.documentId, _creationTime: pending.creationTime }, "appDocument")
       .pipe(Effect.mapError(cause => error("documentInvalid", cause)));
     if (document.canonicalBytes.byteLength > limits.documentBytes) return yield* Effect.fail(error("limitExceeded"));
     const table = yield* Effect.fromResult(tableForId(pending.tableId));
     yield* state.validateDocument({ operation, tableName: table.logicalName, tableId: pending.tableId, documentId: pending.documentId,
       creationTime: pending.creationTime, document });
-    yield* ensureUnique(pending, document);
-    if (!rows.has(pending.documentId) && rows.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
-    yield* charge(document.canonicalBytes.byteLength);
-    yield* Effect.fromResult(recordAttempt(pending, operation, document));
-    pending.current = document;
-    rows.set(pending.documentId, pending);
-    return yield* Effect.fromResult(output(document, true));
+    return yield* withUniqueValidation(pending, document, Effect.gen(function* () {
+      if (!rows.has(pending.documentId) && rows.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
+      yield* charge(document.canonicalBytes.byteLength);
+      yield* Effect.fromResult(recordAttempt(pending, operation, document));
+      pending.current = document;
+      rows.set(pending.documentId, pending);
+      const written = yield* Effect.fromResult(output(document, true));
+      return yield* consume(written);
+    }));
   });
+  const write = (pending: PendingDocument, fields: JsonObject, operation: "insert" | "patch" | "replace") =>
+    withWrittenDocument(pending, fields, operation, Effect.succeed);
   const get: LogicalDocuments<Failure>["get"] = Effect.fn("LogicalDocuments.get")((context, id, documentId, tableName) =>
     state.tx !== undefined || root !== undefined ? runOperation(context, id, "read", Effect.gen(function* () {
       if (typeof documentId !== "string" || tableName !== undefined && typeof tableName !== "string")
@@ -606,32 +647,41 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       if (identities.some(identity => identity.tableId !== table.tableId) || new Set(identities.map(identity => identity.id)).size !== identities.length) {
         return yield* Effect.fail(error("invalidInput"));
       }
-      const missing = identities.filter(identity => !dependencies.has(identity.id));
-      if (!scanned.has(table.tableId) && dependencies.size + missing.length > limits.identities) return yield* Effect.fail(error("limitExceeded"));
-      if (!scanned.has(table.tableId) && missing.length > 0) yield* readBase(table.tableId, undefined, missing.map(identity => identity.rowId));
-      for (const identity of missing) if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
-      return Object.freeze(yield* Effect.forEach(identities, identity => {
-        const pending = rows.get(identity.id);
-        return pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true));
-      }));
+      const read = Effect.gen(function* () {
+        const missing = identities.filter(identity => !dependencies.has(identity.id));
+        if (!scanned.has(table.tableId) && dependencies.size + missing.length > limits.identities) return yield* Effect.fail(error("limitExceeded"));
+        if (!scanned.has(table.tableId) && missing.length > 0) yield* readBase(table.tableId, undefined, missing.map(identity => identity.rowId));
+        for (const identity of missing) if (!dependencies.has(identity.id)) yield* observe(identity.tableId, identity.rowId, null);
+        return Object.freeze(yield* Effect.forEach(identities, identity => {
+          const pending = rows.get(identity.id);
+          return pending?.current == null ? Effect.succeed(null) : Effect.fromResult(output(pending.current, true));
+        }));
+      });
+      return yield* (pendingSeeds().length > 0 ? withStorageFrontier(read) : read);
     })));
-  const insertRecord = Effect.fn("LogicalDocuments.insertRecord")(function* (tableName: string, input: unknown) {
+  const withInsertedRecord = Effect.fn("LogicalDocuments.insertRecord")(function* <Value>(tableName: string, input: unknown,
+    consume: (written: JsonObject) => Effect.Effect<Value, Failure>,
+  ): Effect.fn.Return<Value, Failure> {
       const table = yield* Effect.fromResult(tableForName(tableName));
       const fields = yield* Effect.fromResult(captureFields(input));
-      if (rows.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
-      yield* charge(128);
-      const rowId = yield* Effect.fromResult(appRowIdHexV1FromBytesResult(crypto.getRandomValues(new Uint8Array(16)))
-        .pipe(Result.mapError(cause => error("resourceFailure", cause))));
-      const documentId = appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId });
-      if (rows.has(documentId) || dependencies.has(documentId)) return yield* Effect.fail(error("uniqueConflict"));
-      // This ID was generated inside the trusted working set. Record a missing
-      // point dependency and let settlement prove it remains absent; a separate
-      // current-row query for every new ID would serialize large graph writes.
-      yield* observe(table.tableId, rowId, null);
-      const time = AppCreationTimeV1Schema.make(nextCreationTime());
-      return yield* write({ tableId: table.tableId, tableName, rowId, documentId, base: null,
-        creationTime: time, current: null, attempts: [] }, fields, "insert");
+      const insertOwned = Effect.gen(function* () {
+        if (rows.size >= limits.identities) return yield* Effect.fail(error("limitExceeded"));
+        yield* charge(128);
+        const rowId = yield* Effect.fromResult(appRowIdHexV1FromBytesResult(crypto.getRandomValues(new Uint8Array(16)))
+          .pipe(Result.mapError(cause => error("resourceFailure", cause))));
+        const documentId = appDocumentIdV1FromRowIdentity({ tableId: table.tableId, rowId });
+        if (rows.has(documentId) || dependencies.has(documentId)) return yield* Effect.fail(error("uniqueConflict"));
+        // This ID was generated inside the trusted working set. Record a missing
+        // point dependency and let settlement prove it remains absent; a separate
+        // current-row query for every new ID would serialize large graph writes.
+        yield* observe(table.tableId, rowId, null);
+        const time = AppCreationTimeV1Schema.make(nextCreationTime());
+        return yield* withWrittenDocument({ tableId: table.tableId, tableName, rowId, documentId, base: null,
+          creationTime: time, current: null, attempts: [] }, fields, "insert", consume);
+      });
+      return yield* (pendingSeeds().length > 0 ? withStorageFrontier(insertOwned) : insertOwned);
     });
+  const insertRecord = (tableName: string, input: unknown) => withInsertedRecord(tableName, input, Effect.succeed);
   const insert: LogicalDocuments<Failure>["insert"] = Effect.fn("LogicalDocuments.insert")((context, id, tableName, input) =>
     runOperation(context, id, "write", insertRecord(tableName, input)));
   const edit = Effect.fn("LogicalDocuments.edit")((context: BoundedRequestContext, id: PresentedTransactionId,
@@ -651,76 +701,89 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       pending.deletedValue = pending.current;
       pending.current = null;
     })));
-  const selectCandidates = Effect.fn("LogicalDocuments.selectCandidates")(function* (tableName: string, where: LogicalWhere,
-    indexedOnly = false, exactPoint?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) {
+  const withCandidateSelection = Effect.fn("LogicalDocuments.withCandidateSelection")(function* <Value>(
+    tableName: string, where: LogicalWhere, indexedOnly: boolean,
+    exactPoint: Readonly<{ columns: readonly string[]; nullColumn?: string }> | undefined,
+    consume: (candidates: Iterable<PendingDocument>) => Effect.Effect<Value, Failure>,
+  ): Effect.fn.Return<Value, Failure> {
     const table = yield* Effect.fromResult(tableForName(tableName));
-    let candidates: Iterable<PendingDocument> = rows.values();
+    const continueSelection = (needsStorage: boolean, selection: Effect.Effect<Iterable<PendingDocument>, Failure>) => {
+      const work = selection.pipe(Effect.flatMap(consume));
+      return needsStorage || pendingSeeds().length > 0 ? withStorageFrontier(work) : work;
+    };
     if (where._id !== undefined) {
       const identity = yield* Effect.fromResult(decodeAppDocumentIdentityV1Result(where._id).pipe(
         Result.mapError(cause => error("invalidInput", cause))));
       if (identity.tableId !== table.tableId) return yield* Effect.fail(error("invalidInput"));
-      const { pending } = yield* locate(identity.id, tableName);
-      candidates = pending === undefined ? [] : [pending];
-    } else {
-      const definition = uniqueDefinitions.find(candidate => candidate.tableId === table.tableId &&
-        candidate.physicalSpec.predicate === undefined &&
-        !(candidate.physicalSpec.nullsDistinct === true && candidate.physicalSpec.orderedFields.some(field => where[field] === null)) &&
-        candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field) && !isLogicalRange(where[field])));
-      if (definition === undefined) {
-        const selected = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, where, error, exactPoint));
-        if (Option.isNone(selected)) {
-            if (indexedOnly || Object.values(where).some(isLogicalRange)) return yield* Effect.fail(error("invalidInput"));
-          if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
-          candidates = rows.values();
-        } else if (!scanned.has(table.tableId) || indexReads.has(selected.value.identity)) {
-          const selection = selected.value;
-          let read = indexReads.get(selection.identity);
-          if (read === undefined) {
-            if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-            yield* requireReadAdmission;
-            const entries = yield* runRead(tx => Effect.gen(function* () {
-              const rangeEntries = yield* readLogicalIndexRange(tx, state.scopeId, selection, callIdentityLimit, error,
-                testHooks?.observeIndexQuery, state.snapshotCommitSeq);
-              yield* charge(128 + rangeEntries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
-              if (rangeEntries.some(entry => entry.tableId !== table.tableId) || new Set(rangeEntries.map(entry => entry.rowId)).size !== rangeEntries.length) {
-                return yield* Effect.fail(error("storedCorruption"));
-              }
-              if (!scanned.has(table.tableId)) {
-                const missing = rangeEntries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
-                if (missing.length > 0) yield* readBaseInTransaction(tx, table.tableId, undefined, missing.map(entry => entry.rowId));
-              }
-              return rangeEntries;
-            }));
-            for (const entry of entries) {
-              const { pending } = yield* locate(appDocumentIdV1FromRowIdentity(entry));
-              if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));
-              const encoded = yield* Effect.fromResult(lowerAppDeveloperIndexKeyV1(selection.definition, pending.base.document, pending.base.creationTime)
-                .pipe(Result.mapError(cause => error("storedCorruption", cause))));
-              if (encoded !== entry.encodedKey) return yield* Effect.fail(error("writeConflict"));
-            }
-            read = Object.freeze({ definition: selection.definition, bounds: selection.bounds, entries });
-            indexReads.set(selection.identity, read);
-          }
-          const members = new Set(read.entries.map(entry => appDocumentIdV1FromRowIdentity(entry)));
-          candidates = [...rows.values()].filter(row => row.tableId === table.tableId && (members.has(row.documentId) || row.seeded === true || row.attempts.length > 0));
-        }
-      } else {
-        const document = yield* canonicalizeFlarexValueV1Effect(where, "appDocument")
-          .pipe(Effect.mapError(cause => error("invalidInput", cause)));
-        const projected = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, document)
-          .pipe(Result.mapError(cause => error("invalidInput", cause))));
-        const readKey = uniqueReadKey(definition, projected);
-        if (readKey === null) return yield* Effect.fail(error("invalidInput"));
-        // An earlier key observation survives later scans. Otherwise a prior
-        // scan already owns this key's committed view. Local edits apply to both.
-        if (!scanned.has(table.tableId) || uniqueReads.has(readKey)) {
-          const ownerId = yield* locateUnique(definition, projected);
-          candidates = [...rows.values()].filter(row => row.tableId === table.tableId &&
-            (row.documentId === ownerId || row.seeded === true || row.attempts.length > 0));
-        }
-      }
+      return yield* continueSelection(!dependencies.has(identity.id) && !scanned.has(table.tableId),
+        locate(identity.id, tableName).pipe(Effect.map(({ pending }) => pending === undefined ? [] : [pending])));
     }
-    return candidates;
+    const definition = uniqueDefinitions.find(candidate => candidate.tableId === table.tableId &&
+      candidate.physicalSpec.predicate === undefined &&
+      !(candidate.physicalSpec.nullsDistinct === true && candidate.physicalSpec.orderedFields.some(field => where[field] === null)) &&
+      candidate.physicalSpec.orderedFields.every(field => !field.includes(".") && Object.hasOwn(where, field) && !isLogicalRange(where[field])));
+    if (definition !== undefined) {
+      const document = yield* canonicalizeFlarexValueV1Effect(where, "appDocument")
+        .pipe(Effect.mapError(cause => error("invalidInput", cause)));
+      const projected = yield* Effect.fromResult(lowerCanonicalAppUniqueConstraintV1Result(definition, document)
+        .pipe(Result.mapError(cause => error("invalidInput", cause))));
+      const readKey = uniqueReadKey(definition, projected);
+      if (readKey === null) return yield* Effect.fail(error("invalidInput"));
+      // Earlier key observations survive scans; local edits apply to both.
+      const usesKey = !scanned.has(table.tableId) || uniqueReads.has(readKey);
+      return yield* continueSelection(usesKey && !uniqueReads.has(readKey), Effect.gen(function* () {
+        if (!usesKey) return rows.values();
+        const ownerId = yield* locateUnique(definition, projected);
+        return [...rows.values()].filter(row => row.tableId === table.tableId &&
+          (row.documentId === ownerId || row.seeded === true || row.attempts.length > 0));
+      }));
+    }
+    const selected = yield* Effect.fromResult(selectLogicalIndex(indexDefinitions, table.tableId, where, error, exactPoint));
+    if (Option.isNone(selected)) {
+      if (indexedOnly || Object.values(where).some(isLogicalRange)) return yield* Effect.fail(error("invalidInput"));
+      return yield* continueSelection(!scanned.has(table.tableId), Effect.gen(function* () {
+        if (!scanned.has(table.tableId)) yield* readBase(table.tableId);
+        return rows.values();
+      }));
+    }
+    const selection = selected.value;
+    const usesIndex = !scanned.has(table.tableId) || indexReads.has(selection.identity);
+    return yield* continueSelection(usesIndex && !indexReads.has(selection.identity), Effect.gen(function* () {
+      if (!usesIndex) return rows.values();
+      let read = indexReads.get(selection.identity);
+      if (read === undefined) {
+        if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
+        yield* requireReadAdmission;
+        const entries = yield* runRead(tx => Effect.gen(function* () {
+          const rangeEntries = yield* readLogicalIndexRange(tx, state.scopeId, selection, callIdentityLimit, error,
+            testHooks?.observeIndexQuery, state.snapshotCommitSeq);
+          yield* charge(128 + rangeEntries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
+          if (rangeEntries.some(entry => entry.tableId !== table.tableId) || new Set(rangeEntries.map(entry => entry.rowId)).size !== rangeEntries.length)
+            return yield* Effect.fail(error("storedCorruption"));
+          if (!scanned.has(table.tableId)) {
+            const missing = rangeEntries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
+            if (missing.length > 0) yield* readBaseInTransaction(tx, table.tableId, undefined, missing.map(entry => entry.rowId));
+          }
+          return rangeEntries;
+        }));
+        for (const entry of entries) {
+          const { pending } = yield* locate(appDocumentIdV1FromRowIdentity(entry));
+          if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));
+          const encoded = yield* Effect.fromResult(lowerAppDeveloperIndexKeyV1(selection.definition, pending.base.document, pending.base.creationTime)
+            .pipe(Result.mapError(cause => error("storedCorruption", cause))));
+          if (encoded !== entry.encodedKey) return yield* Effect.fail(error("writeConflict"));
+        }
+        read = Object.freeze({ definition: selection.definition, bounds: selection.bounds, entries });
+        indexReads.set(selection.identity, read);
+      }
+      const members = new Set(read.entries.map(entry => appDocumentIdV1FromRowIdentity(entry)));
+      return [...rows.values()].filter(row => row.tableId === table.tableId &&
+        (members.has(row.documentId) || row.seeded === true || row.attempts.length > 0));
+    }));
+  });
+  const selectCandidates = Effect.fn("LogicalDocuments.selectCandidates")(function* (tableName: string, where: LogicalWhere,
+    indexedOnly = false, exactPoint?: Readonly<{ columns: readonly string[]; nullColumn?: string }>) {
+    return yield* withCandidateSelection(tableName, where, indexedOnly, exactPoint, Effect.succeed);
   });
   const find: LogicalDocuments<Failure>["find"] = Effect.fn("LogicalDocuments.find")((context, id, tableName, input) =>
     runOperation(context, id, "read", Effect.gen(function* () {
@@ -779,7 +842,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       yield* requireReadAdmission;
       // Candidate evidence and its previously unseen row revisions share one
       // checked read. A later operation obtains a fresh authority check.
-      const entries = yield* runRead(tx => Effect.gen(function* () {
+      const entries = yield* runStorageRead(tx => Effect.gen(function* () {
         let matches: readonly LogicalSearchMember[] | undefined;
         if (jsonPattern !== null) {
           // The JSON path may be broad while a scalar equality path is small.
@@ -819,7 +882,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
             return yield* Effect.fail(error("writeConflict"));
         }
         for (const row of rows.values()) if (row.tableId === table.tableId && row.current !== null &&
-          (members.has(row.rowId) || row.attempts.length > 0)) selected.set(row.documentId, row);
+          (members.has(row.rowId) || row.seeded === true || row.attempts.length > 0)) selected.set(row.documentId, row);
       }
     }
     if (!usedSearchCandidates) {
@@ -830,10 +893,17 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
             ...(selection.nullColumn === undefined ? {} : { [selection.nullColumn]: null }) },
           exactPoint: { columns: selection.columns, ...(selection.nullColumn === undefined ? {} : { nullColumn: selection.nullColumn }) },
         });
-      for (const selection of selections) for (const row of yield* selectCandidates(tableName, selection.where, true,
-        "exactPoint" in selection ? selection.exactPoint : undefined)) {
-        if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
-      }
+      const collectSelections = Effect.fn("LogicalDocuments.collectSelections")(function* (position: number): Effect.fn.Return<void, Failure> {
+        const selection = selections[position];
+        if (selection === undefined) return;
+        return yield* withCandidateSelection(tableName, selection.where, true,
+          "exactPoint" in selection ? selection.exactPoint : undefined, candidates => Effect.gen(function* () {
+            for (const row of candidates)
+              if (row.tableId === table.tableId && row.current !== null) selected.set(row.documentId, row);
+            yield* collectSelections(position + 1);
+          }));
+      });
+      yield* collectSelections(0);
     }
     const matched: { document: JsonObject; order: Uint8Array; documentId: AppDocumentIdV1 }[] = [];
     for (const row of selected.values()) {
@@ -896,66 +966,68 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       const inspected = yield* Effect.fromResult(query.inspect(document));
       if (inspected.matches) matched.set(row.documentId, { row, key, document });
     });
-    let examined = 0;
-    for (const row of rows.values()) if (row.tableId === table.tableId && (row.seeded === true || row.attempts.length > 0)) {
-      if (++examined > callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
-      yield* charge(64);
-      yield* add(row);
-    }
-    const needed = query.offset + query.limit + 1;
-    let after: AppIndexRangeCursorV1 | undefined;
-    let result: Member[] = [];
-    while (true) {
-      const remaining = callIdentityLimit - examined;
-      if (remaining < 1) return yield* Effect.fail(error("limitExceeded"));
-      // Batch residual filtering while charging the actual hidden lookahead.
-      const limit = Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, Math.max(16, needed - matched.size), remaining);
-      if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
-      yield* requireReadAdmission;
-      const page = yield* runRead(tx => Effect.gen(function* () {
-        const window = yield* readLogicalIndexPage(tx, state.scopeId, { ...selection, ...(after === undefined ? {} : { after }) },
-          limit, error, testHooks?.observeIndexQuery, state.snapshotCommitSeq);
-        examined += window.entries.length + (window.isDone ? 0 : 1);
-        if (examined > callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
-        yield* charge(128 + window.entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
-        const read = Object.freeze({ ...selection, ...(after === undefined ? {} : { after: Object.freeze({ ...after }) }),
-          entries: window.entries, isDone: window.isDone });
-        pageReads.push(read);
-        if (window.entries.some(entry => entry.tableId !== table.tableId)) return yield* Effect.fail(error("storedCorruption"));
-        const missing = window.entries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
-        if (missing.length > 0) yield* readBaseInTransaction(tx, table.tableId, undefined, missing.map(entry => entry.rowId));
-        return window;
-      }));
-      for (const entry of page.entries) {
-        const { pending } = yield* locate(appDocumentIdV1FromRowIdentity(entry), tableName);
-        if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));
-        const baseKey = yield* Effect.fromResult(lowerAppDeveloperIndexKeyV1(selection.definition, pending.base.document, pending.base.creationTime)
-          .pipe(Result.mapError(cause => error("storedCorruption", cause))));
-        if (baseKey !== entry.encodedKey) return yield* Effect.fail(error("writeConflict"));
-        if (pending.attempts.length === 0) yield* add(pending);
+    return yield* withStorageFrontier(Effect.gen(function* () {
+      let examined = 0;
+      for (const row of rows.values()) if (row.tableId === table.tableId && (row.seeded === true || row.attempts.length > 0)) {
+        if (++examined > callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
+        yield* charge(64);
+        yield* add(row);
       }
-      result = [...matched.values()].toSorted((left, right) => comparePagePosition({ key: left.key, rowId: left.row.rowId }, { key: right.key, rowId: right.row.rowId }));
-      const frontier = result[needed - 1], witness = page.entries[page.entries.length - 1];
-      // A pending-only frontier still requires a committed successor or EOF.
-      // Each captured window includes that witness, protecting its negative gap.
-      if (page.isDone || frontier !== undefined && witness !== undefined &&
-        comparePagePosition({ key: frontier.key, rowId: frontier.row.rowId }, { key: witness.encodedKey, rowId: witness.rowId }) <= 0) break;
-      if (page.continueCursor === null) return yield* Effect.fail(error("storedCorruption"));
-      after = page.continueCursor;
-    }
-    const projected: JsonObject[] = [];
-    for (const member of result.slice(query.offset, query.offset + query.limit)) {
-      const row: Record<string, Json> = {};
-      for (const field of query.fields) {
-        const value = member.document[field];
-        if (value === undefined) return yield* Effect.fail(error("storedCorruption"));
-        row[field] = value;
+      const needed = query.offset + query.limit + 1;
+      let after: AppIndexRangeCursorV1 | undefined;
+      let result: Member[] = [];
+      while (true) {
+        const remaining = callIdentityLimit - examined;
+        if (remaining < 1) return yield* Effect.fail(error("limitExceeded"));
+        // Batch residual filtering while charging the actual hidden lookahead.
+        const limit = Math.min(MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, Math.max(16, needed - matched.size), remaining);
+        if (testHooks?.beforeRead !== undefined) yield* testHooks.beforeRead("index");
+        yield* requireReadAdmission;
+        const page = yield* runRead(tx => Effect.gen(function* () {
+          const window = yield* readLogicalIndexPage(tx, state.scopeId, { ...selection, ...(after === undefined ? {} : { after }) },
+            limit, error, testHooks?.observeIndexQuery, state.snapshotCommitSeq);
+          examined += window.entries.length + (window.isDone ? 0 : 1);
+          if (examined > callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
+          yield* charge(128 + window.entries.reduce((bytes, entry) => bytes + 128 + entry.encodedKey.length / 2, 0));
+          const read = Object.freeze({ ...selection, ...(after === undefined ? {} : { after: Object.freeze({ ...after }) }),
+            entries: window.entries, isDone: window.isDone });
+          pageReads.push(read);
+          if (window.entries.some(entry => entry.tableId !== table.tableId)) return yield* Effect.fail(error("storedCorruption"));
+          const missing = window.entries.filter(entry => !dependencies.has(appDocumentIdV1FromRowIdentity(entry)));
+          if (missing.length > 0) yield* readBaseInTransaction(tx, table.tableId, undefined, missing.map(entry => entry.rowId));
+          return window;
+        }));
+        for (const entry of page.entries) {
+          const { pending } = yield* locate(appDocumentIdV1FromRowIdentity(entry), tableName);
+          if (pending?.base?.kind !== "live" || pending.base.commitSeq < entry.commitSeq) return yield* Effect.fail(error("writeConflict"));
+          const baseKey = yield* Effect.fromResult(lowerAppDeveloperIndexKeyV1(selection.definition, pending.base.document, pending.base.creationTime)
+            .pipe(Result.mapError(cause => error("storedCorruption", cause))));
+          if (baseKey !== entry.encodedKey) return yield* Effect.fail(error("writeConflict"));
+          if (pending.attempts.length === 0) yield* add(pending);
+        }
+        result = [...matched.values()].toSorted((left, right) => comparePagePosition({ key: left.key, rowId: left.row.rowId }, { key: right.key, rowId: right.row.rowId }));
+        const frontier = result[needed - 1], witness = page.entries[page.entries.length - 1];
+        // A pending-only frontier still requires a committed successor or EOF.
+        // Each captured window includes that witness, protecting its negative gap.
+        if (page.isDone || frontier !== undefined && witness !== undefined &&
+          comparePagePosition({ key: frontier.key, rowId: frontier.row.rowId }, { key: witness.encodedKey, rowId: witness.rowId }) <= 0) break;
+        if (page.continueCursor === null) return yield* Effect.fail(error("storedCorruption"));
+        after = page.continueCursor;
       }
-      const capturedRow = yield* Effect.fromResult(capturePrivateJsonData(row, limits.documentBytes, error));
-      yield* charge(capturedRow.bytes);
-      projected.push(row);
-    }
-    return Object.freeze({ rows: Object.freeze(projected), hasMore: result.length > query.offset + query.limit });
+      const projected: JsonObject[] = [];
+      for (const member of result.slice(query.offset, query.offset + query.limit)) {
+        const row: Record<string, Json> = {};
+        for (const field of query.fields) {
+          const value = member.document[field];
+          if (value === undefined) return yield* Effect.fail(error("storedCorruption"));
+          row[field] = value;
+        }
+        const capturedRow = yield* Effect.fromResult(capturePrivateJsonData(row, limits.documentBytes, error));
+        yield* charge(capturedRow.bytes);
+        projected.push(row);
+      }
+      return Object.freeze({ rows: Object.freeze(projected), hasMore: result.length > query.offset + query.limit });
+    }));
   })));
   const relationalAggregate = Effect.fn("LogicalDocuments.relationalAggregate")((context: BoundedRequestContext,
     id: PresentedTransactionId, tableName: string, input: unknown) => runOperation(context, id, "read", Effect.gen(function* () {
@@ -1025,52 +1097,67 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
         lifecycle.push(Object.freeze({ tableId: table.tableId, tableName, key: Object.freeze({ ...key }), operation: lifecycleOperation,
           beforeDeletedAt: previous, afterDeletedAt: next, attemptOrdinal, rowAtOperation }));
       });
-      for (const { identity, row: inputRow } of rowsByKey.values()) {
-        let pending: PendingDocument | undefined;
-        for (const candidate of yield* selectCandidates(tableName, identity, true)) {
-          const current = candidate.current?.value;
-          if (candidate.tableId !== table.tableId || !isNonArrayRecord(current) ||
-            !policy.keyColumns.every(column => current[column] === identity[column])) continue;
-          if (pending !== undefined) return yield* Effect.fail(error("storedCorruption"));
-          pending = candidate;
-        }
-        if (pending === undefined && (operation === "update" || operation === "delete" || operation === "softDelete" || operation === "restore")) continue;
-        if (pending !== undefined && operation === "insert") return yield* Effect.fail(error("uniqueConflict"));
-        const prior = pending?.current == null ? null : yield* Effect.fromResult(output(pending.current));
-        const previous = prior === null ? null : Object.fromEntries(Object.entries(prior).filter(([name]) => name !== "_id" && name !== "_creationTime"));
-        if (previous !== null) yield* Effect.fromResult(policy.validate(previous, "storedCorruption"));
-        if (operation === "delete") {
-          if (pending === undefined || previous === null || pending.current === null) return yield* Effect.fail(error("storedCorruption"));
-          yield* Effect.fromResult(recordAttempt(pending, "delete", null));
-          pending.deletedValue = pending.current;
-          pending.current = null;
-          result.push(previous);
-          continue;
-        }
-        let supplied = inputRow;
-        // Native relational upsert reactivates a soft-deleted row on key
-        // conflict. Keep that behavior with the shared logical row owner.
-        if (operation === "upsert" && previous !== null && policy.deletedAt !== undefined)
-          supplied = { ...inputRow, [policy.deletedAt]: null };
-        if (operation === "softDelete" || operation === "restore") {
-          if (policy.deletedAt === undefined || previous === null) return yield* Effect.fail(error("invalidInput"));
-          supplied = { ...inputRow, [policy.deletedAt]: operation === "restore" ? null : yield* transactionTime };
-          if (operation === "restore" && previous[policy.deletedAt] === null) {
-            yield* observeLifecycle(identity, operation, previous, previous, null);
-            result.push(previous); continue;
+      const capturedRows = [...rowsByKey.values()];
+      const changeRows = Effect.fn("LogicalDocuments.changeRows")(function* (position: number): Effect.fn.Return<void, Failure> {
+        const selectedRow = capturedRows[position];
+        if (selectedRow === undefined) return;
+        const { identity, row: inputRow } = selectedRow;
+        return yield* withCandidateSelection(tableName, identity, true, undefined, candidates => Effect.gen(function* () {
+          let pending: PendingDocument | undefined;
+          for (const candidate of candidates) {
+            const current = candidate.current?.value;
+            if (candidate.tableId !== table.tableId || !isNonArrayRecord(current) ||
+              !policy.keyColumns.every(column => current[column] === identity[column])) continue;
+            if (pending !== undefined) return yield* Effect.fail(error("storedCorruption"));
+            pending = candidate;
           }
-        }
-        // A native upsert conflict writes supplied fields and reactivates the
-        // row without advancing a managed update timestamp. Ordinary updates
-        // and lifecycle transitions still advance it.
-        const fields = yield* Effect.fromResult(policy.normalize(supplied, previous,
-          yield* transactionTime, operation === "upsert" ? "preserve" : "advance"));
-        const written = pending === undefined ? yield* insertRecord(tableName, fields) : yield* write(pending, fields, "patch");
-        const { _id: _internalId, _creationTime: _internalTime, ...native } = written;
-        if ((operation === "softDelete" || operation === "restore") && previous !== null)
-          yield* observeLifecycle(identity, operation, previous, native, attempts.length - 1);
-        result.push(native);
-      }
+          if (pending === undefined && (operation === "update" || operation === "delete" || operation === "softDelete" || operation === "restore")) return yield* changeRows(position + 1);
+          if (pending !== undefined && operation === "insert") return yield* Effect.fail(error("uniqueConflict"));
+          const prior = pending?.current == null ? null : yield* Effect.fromResult(output(pending.current));
+          const previous = prior === null ? null : Object.fromEntries(Object.entries(prior).filter(([name]) => name !== "_id" && name !== "_creationTime"));
+          if (previous !== null) yield* Effect.fromResult(policy.validate(previous, "storedCorruption"));
+          if (operation === "delete") {
+            if (pending === undefined || previous === null || pending.current === null) return yield* Effect.fail(error("storedCorruption"));
+            yield* Effect.fromResult(recordAttempt(pending, "delete", null));
+            pending.deletedValue = pending.current;
+            pending.current = null;
+            result.push(previous);
+            return yield* changeRows(position + 1);
+          }
+          if (operation === "restore" && policy.deletedAt !== undefined && previous?.[policy.deletedAt] === null) {
+            yield* observeLifecycle(identity, operation, previous, previous, null);
+            result.push(previous);
+            return yield* changeRows(position + 1);
+          }
+          const applyChange = Effect.gen(function* () {
+            let supplied = inputRow;
+            // Native relational upsert reactivates a soft-deleted row on key
+            // conflict. Keep that behavior with the shared logical row owner.
+            if (operation === "upsert" && previous !== null && policy.deletedAt !== undefined)
+              supplied = { ...inputRow, [policy.deletedAt]: null };
+            if (operation === "softDelete" || operation === "restore") {
+              if (policy.deletedAt === undefined || previous === null) return yield* Effect.fail(error("invalidInput"));
+              supplied = { ...inputRow, [policy.deletedAt]: operation === "restore" ? null : yield* transactionTime };
+            }
+            // A native upsert conflict writes supplied fields and reactivates the
+            // row without advancing a managed update timestamp. Ordinary updates
+            // and lifecycle transitions still advance it.
+            const fields = yield* Effect.fromResult(policy.normalize(supplied, previous,
+              yield* transactionTime, operation === "upsert" ? "preserve" : "advance"));
+            const afterWrite = (written: JsonObject) => Effect.gen(function* () {
+              const { _id: _internalId, _creationTime: _internalTime, ...native } = written;
+              if ((operation === "softDelete" || operation === "restore") && previous !== null)
+                yield* observeLifecycle(identity, operation, previous, native, attempts.length - 1);
+              result.push(native);
+              yield* changeRows(position + 1);
+            });
+            return yield* (pending === undefined ? withInsertedRecord(tableName, fields, afterWrite) :
+              withWrittenDocument(pending, fields, "patch", afterWrite));
+          });
+          return yield* (transactionTimeLoaded ? applyChange : withStorageFrontier(applyChange));
+        }));
+      });
+      yield* changeRows(0);
       const returned = yield* Effect.fromResult(capturePrivateJsonData(result, lifetime.remainingBytes(), error));
       yield* charge(returned.bytes);
       return Object.freeze(result);

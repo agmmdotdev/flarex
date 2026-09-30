@@ -8,7 +8,8 @@ import { encodeAdmittedFrameworkOperationV1Result } from
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { selectApplicationMutationAdmission } from "../src/applicationMutationAdmission";
 import { createApplicationMutationSessionActivationPersistenceV1 } from "../src/transactionSessionActivation";
-import { createSessionJournalStorePersistence } from "../src/sessionJournalStore";
+import { createSessionJournalStorePersistence, type SessionJournalAttempt } from "../src/sessionJournalStore";
+import { closeProtectedMetadataFinalGuardScope } from "../src/preparedMetadataEpoch";
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
   LogicalParticipantAdmissionError,
   withLogicalParticipantAdmissionBundleEffect,
@@ -216,20 +217,27 @@ describe("neutral admitted operation source bundle", () => {
         ...finiteInput, executionProfile: "finiteRoot",
       }));
       if (finiteActivation.status !== "created") throw new Error("Expected finite attempt");
-      const finiteAttempt = await Effect.runPromise(store.openAttemptEffect({
-        selector: { deploymentId: finiteActivation.anchor.deploymentId, scopeId: finiteActivation.anchor.scopeId,
-          sessionId: finiteActivation.anchor.sessionId, attemptFence: finiteActivation.anchor.attemptFence },
-        snapshotToken: finiteActivation.anchor.snapshotToken, schemaVersionId: fixture.active.basis.schemaVersionId,
-        executionProfile: finiteActivation.anchor.executionProfile,
-        executionClaim: finiteActivation.executionClaim,
-      }));
+      const principalRows = await fixture.target.query<{ digest: string }>(
+        `select encode(identity_access_policy_sha256, 'hex') as digest from fx_system_tx_session where session_id = $1`,
+        [finiteActivation.anchor.sessionId]);
+      expect(principalRows.rows).toHaveLength(1);
       const pinChecks: number[] = [];
+      const entryChecks: number[] = [];
+      let entryFailure: "body" | "tail" | undefined;
+      let privatelySelectedAttempt: SessionJournalAttempt | undefined;
       let rejectLaterPin = false;
       let dataReads = 0;
       const finiteSources = [0, 1, 2].map(index => ({
         application: active.selection, methods: [`read-${index}`],
-        selection: { bindAttemptEffect: (_application, selectedAttempt, root, readTransaction, methods) =>
-          Effect.sync(() => issueLogicalParticipantAttemptAdmission({
+        selection: { bindAttemptEffect: (_application, selectedAttempt, root, readTransaction, methods, entry) =>
+          Effect.gen(function* () {
+            if (entry === undefined) return yield* Effect.die("Finite entry must bind in its exact open transaction");
+            privatelySelectedAttempt = selectedAttempt;
+            entryChecks.push(index);
+            expect(root.principalDigest).toBe(principalRows.rows[0]?.digest);
+            if (entryFailure === "body" && index === 1)
+              return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "sourceMismatch" }));
+            const admission = issueLogicalParticipantAttemptAdmission({
             attempt: selectedAttempt, root, readTransaction, methods: new Set(methods),
             verifyBinding: () => Effect.die("Finite internal reads must use the issued read verifier"),
             verifyReadBinding: () => Effect.sync(() => { pinChecks.push(index); }).pipe(
@@ -238,22 +246,54 @@ describe("neutral admitted operation source bundle", () => {
             sourceKey: `neutral.finite.${index}`, sourceSha256: `${index + 4}`.repeat(64),
             head: Object.freeze({ sequence: "1", sha256: `${index + 1}`.repeat(64) }),
             tableIds: new Set([decodeCatalogTableId(100 + index)]), indexes: [], unique: [],
-          })) } satisfies LogicalParticipantSelection,
+            });
+            // Force the existing accepting tail to refuse after source issue.
+            // No entry handle or bundle may escape that checked transaction.
+            if (entryFailure === "tail" && index === 2) closeProtectedMetadataFinalGuardScope(entry.tx);
+            return admission;
+          }) } satisfies LogicalParticipantSelection,
       }));
-      const finiteBundle = await Effect.runPromise(store.admitLogicalParticipantsEffect(finiteAttempt, {
+      const finiteSelection = {
         participant: "neutral.workflow", operationMethods: ["run"], profileRevision: revision, sources: finiteSources,
-      }));
+      };
+      const finiteOpen = {
+        selector: { deploymentId: finiteActivation.anchor.deploymentId, scopeId: finiteActivation.anchor.scopeId,
+          sessionId: finiteActivation.anchor.sessionId, attemptFence: finiteActivation.anchor.attemptFence },
+        snapshotToken: finiteActivation.anchor.snapshotToken, schemaVersionId: fixture.active.basis.schemaVersionId,
+        executionProfile: finiteActivation.anchor.executionProfile,
+        executionClaim: finiteActivation.executionClaim,
+        logicalParticipants: [finiteSelection],
+      };
+      for (const failure of ["body", "tail"] as const) {
+        entryFailure = failure;
+        await expect(Effect.runPromise(store.openAttemptEffect(finiteOpen))).rejects.toBeDefined();
+        if (privatelySelectedAttempt === undefined) throw new Error("Expected private entry binding");
+        await expect(Effect.runPromise(store.admitLogicalParticipantsEffect(privatelySelectedAttempt, finiteSelection)))
+          .rejects.toBeDefined();
+      }
+      expect(entryChecks).toEqual([0, 1, 0, 1, 2]);
+      entryFailure = undefined;
+      const finiteAttempt = await Effect.runPromise(store.openAttemptEffect(finiteOpen));
+      expect(entryChecks).toEqual([0, 1, 0, 1, 2, 0, 1, 2]);
+      const finiteBundle = await Effect.runPromise(store.admitLogicalParticipantsEffect(finiteAttempt, finiteSelection));
+      await expect(Effect.runPromise(store.admitLogicalParticipantsEffect(finiteAttempt,
+        { ...finiteSelection, sources: [...finiteSources].reverse() }))).rejects.toBeDefined();
       await Effect.runPromise(withLogicalParticipantAdmissionBundleEffect(finiteBundle, finiteAttempt,
         "neutral.workflow", "run", revision, ({ readTransaction }) => Effect.gen(function* () {
-          expect(pinChecks).toEqual([0, 1, 2]);
+          expect(pinChecks).toEqual([]);
           yield* readTransaction(() => Effect.sync(() => { dataReads++; }));
-          expect(pinChecks).toEqual([0, 1, 2, 0, 1, 2]);
+          expect(pinChecks).toEqual([0, 1, 2]);
           rejectLaterPin = true;
           expect(yield* Effect.result(readTransaction(() => Effect.sync(() => { dataReads++; }))))
             .toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
-          expect(pinChecks).toEqual([0, 1, 2, 0, 1, 2, 0, 1]);
+          expect(pinChecks).toEqual([0, 1, 2, 0, 1]);
           expect(dataReads).toBe(1);
         })));
+      // Catching a frontier refusal cannot recover the local root or mint a
+      // second bundle on the same still-durable execution claim.
+      await expect(Effect.runPromise(store.admitLogicalParticipantsEffect(finiteAttempt, finiteSelection)))
+        .rejects.toBeDefined();
+      await expect(Effect.runPromise(store.openAttemptEffect(finiteOpen))).rejects.toBeDefined();
 
       // Preparation follows a durable invocation marker. Interruption must
       // settle that marker before joining, without running the native command.
