@@ -715,6 +715,65 @@ const preparedCandidateWriteGuardStates = new WeakMap<
   PreparedCandidateWriteGuardState
 >();
 
+const candidatePlanningHeadBrand: unique symbol = Symbol("Flarex/CandidatePlanningHead");
+export interface AppSchemaCandidateWriteGuardPlanningHead {
+  readonly [candidatePlanningHeadBrand]: true;
+}
+const candidatePlanningHeads = new WeakMap<AppSchemaCandidateWriteGuardPlanningHead,
+  Readonly<{ authority: TrustedScopeAuthority; row: HeadRow | null;
+    issuer: PointMutationSessionAuthorityResolutionPortsV1 }>>();
+
+/** Internal seal capture. No control read, frame hashing or validator compilation
+ * runs while the accepting transaction is open. The journal releases this
+ * handle only after the seal transaction has committed. */
+export const captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect =
+  Effect.fn("AppSchemaCandidateValidation.capturePlanningHead")(function* (
+    tx: AppRowTransaction, authority: TrustedScopeAuthority,
+    issuer: PointMutationSessionAuthorityResolutionPortsV1,
+  ) {
+    const rows = yield* queryEffect("readHead", tx.select()
+      .from(fxSystemAppSchemaCandidateValidations).where(
+        eq(fxSystemAppSchemaCandidateValidations.scopeId, authority.scopeId),
+      ).limit(1));
+    const handle = Object.freeze({ [candidatePlanningHeadBrand]: true as const });
+    candidatePlanningHeads.set(handle, Object.freeze({
+      authority: Object.freeze(structuredClone(authority)), issuer,
+      row: rows[0] === undefined ? null : structuredClone(rows[0]),
+    }));
+    return handle;
+  });
+
+export const prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect =
+  Effect.fn("AppSchemaCandidateValidation.prepareCapturedWriteGuard")(function* (
+    guard: AppSchemaCandidateWriteGuardPort,
+    captured: AppSchemaCandidateWriteGuardPlanningHead,
+  ): Effect.fn.Return<PreparedAppSchemaCandidateWriteGuard,
+    AppSchemaCandidateWriteGuardError> {
+    const state = candidateWriteGuardStates.get(guard);
+    const capture = candidatePlanningHeads.get(captured);
+    if (state === undefined || capture === undefined) {
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "notIssued" }));
+    }
+    if (state.pointCommitAuthority !== capture.issuer) {
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
+    }
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(
+      { deploymentId: capture.authority.deploymentId, scopeId: capture.authority.scopeId },
+      { ...state.candidateValidation.authority, scopeMetadata: {
+        getScopeMetadata: scopeId => getScopeMetadata(state.candidateValidation.controlDb, scopeId),
+      } },
+    ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+    if (!trustedAuthoritiesEqual(located.authority, capture.authority)) {
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({ reason: "compositionMismatch" }));
+    }
+    const head = capture.row === null ? null : yield* decodeHeadRowEffect(
+      capture.row, "load",
+    ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+    return yield* prepareWriteGuardFromDecodedHeadEffect(guard, state,
+      { deploymentId: capture.authority.deploymentId, scopeId: capture.authority.scopeId },
+      capture.authority, head);
+  });
+
 export function createAppSchemaCandidateWriteGuardPort(
   dependencies: AppSchemaCandidateWriteGuardDependencies,
 ): AppSchemaCandidateWriteGuardPort {
@@ -1122,6 +1181,47 @@ export const loadAppSchemaCandidateValidationEffect = Effect.fn(
     loadInTransaction(tx, located.authority, decoded));
 });
 
+const prepareWriteGuardFromDecodedHeadEffect = Effect.fn("AppSchemaCandidateValidation.prepareWriteGuardFromHead")(function* (
+  guard: AppSchemaCandidateWriteGuardPort,
+  state: CandidateWriteGuardState,
+  input: Readonly<{ readonly deploymentId: string; readonly scopeId: ScopeId }>,
+  authority: TrustedScopeAuthority,
+  head: StoredAppSchemaCandidateValidationHead | null,
+): Effect.fn.Return<PreparedAppSchemaCandidateWriteGuard, AppSchemaCandidateWriteGuardError> {
+  let validator: CandidateDocumentValidator | null = null;
+  if (
+    head !== null &&
+    head.frame.kind !== "app_schema_candidate_validation_failure_evidence"
+  ) {
+    const snapshot = yield* loadCandidateSnapshot(
+      state.candidateValidation.controlDb,
+      Object.freeze({
+        deploymentId: input.deploymentId,
+        scopeId: input.scopeId,
+        schemaVersionId: head.schemaVersionId,
+      }),
+      "advance",
+    ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+    if (!headMatchesSnapshot(head, authority, snapshot)) {
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+        reason: "corruption",
+      }));
+    }
+    validator = prepareCandidateDocumentValidator(snapshot.manifest);
+  }
+  const prepared = Object.freeze({
+    [preparedAppSchemaCandidateWriteGuardBrand]: true as const,
+  });
+  preparedCandidateWriteGuardStates.set(prepared, Object.freeze({
+    guard,
+    deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
+    head,
+    validator,
+  }));
+  return prepared;
+});
+
 export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
   "AppSchemaCandidateValidation.prepareWriteGuard",
 )(function* (
@@ -1156,38 +1256,7 @@ export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
     "load",
     (tx) => readHeadEffect(tx, located.authority.scopeId, "planning"),
   ).pipe(Effect.mapError(mapCandidateWriteGuardError));
-  let validator: CandidateDocumentValidator | null = null;
-  if (
-    head !== null &&
-    head.frame.kind !== "app_schema_candidate_validation_failure_evidence"
-  ) {
-    const snapshot = yield* loadCandidateSnapshot(
-      state.candidateValidation.controlDb,
-      Object.freeze({
-        deploymentId: input.deploymentId,
-        scopeId: input.scopeId,
-        schemaVersionId: head.schemaVersionId,
-      }),
-      "advance",
-    ).pipe(Effect.mapError(mapCandidateWriteGuardError));
-    if (!headMatchesSnapshot(head, located.authority, snapshot)) {
-      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
-        reason: "corruption",
-      }));
-    }
-    validator = prepareCandidateDocumentValidator(snapshot.manifest);
-  }
-  const prepared = Object.freeze({
-    [preparedAppSchemaCandidateWriteGuardBrand]: true as const,
-  });
-  preparedCandidateWriteGuardStates.set(prepared, Object.freeze({
-    guard,
-    deploymentId: input.deploymentId,
-    scopeId: input.scopeId,
-    head,
-    validator,
-  }));
-  return prepared;
+  return yield* prepareWriteGuardFromDecodedHeadEffect(guard, state, input, located.authority, head);
 });
 
 export const applyAppSchemaCandidateWriteGuardInTransactionEffect = Effect.fn(

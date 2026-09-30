@@ -1,6 +1,8 @@
+import { closeExactAttemptScopeClockObservation, exactScopeWriteClockObservationIdentity, readExactScopeWriteClockObservation } from "./scopeClock";
 import { and, desc, eq, getTableColumns, inArray, lte, or, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import {
@@ -583,7 +585,8 @@ const consumeSnapshotRows = Effect.fn(
   error: (cause: ReadAppRowError) => Failure,
   consume: (rowId: AppRowIdHexV1, revision: AppRowReadResultV1) => Effect.Effect<void, Failure, Requirements>,
   observer?: Parameters<typeof observeDrizzleQuery<"snapshotRevision">>[2],
-): Effect.fn.Return<void, Failure, Requirements> {
+  settlementWindow = false,
+): Effect.fn.Return<number, Failure, Requirements> {
   const selected = yield* Effect.gen(function* () {
   if (input.rowIds.length > MAX_BOUNDED_APP_ROW_READ_IDENTITIES) {
     return yield* Effect.fail(new InvalidAppRowReadInputError({
@@ -646,7 +649,9 @@ const consumeSnapshotRows = Effect.fn(
   // precedes the consumer's byte-budget refusal. Later bodies never transfer.
   const precedingBytes = sql<number>`coalesce(sum(coalesce(octet_length(${latest.valueBytes}), 0))
     over (order by ${requestedOrder} rows between unbounded preceding and 1 preceding), 0)`;
-  const withheld = transferBudget === undefined ? sql<boolean>`false` : sql<boolean>`${precedingBytes} > ${transferBudget}`;
+  const withheld = transferBudget === undefined ? sql<boolean>`false` : settlementWindow
+    ? sql<boolean>`${precedingBytes} > 0 and ${precedingBytes} + coalesce(octet_length(${latest.valueBytes}), 0) > ${transferBudget}`
+    : sql<boolean>`${precedingBytes} > ${transferBudget}`;
   const query = tx.select({ scopeUuid: latest.scopeUuid, tableId: latest.tableId, rowId: latest.rowId,
     commitSeq: latest.commitSeq, prevCommitSeq: latest.prevCommitSeq, writeEpochUuid: latest.writeEpochUuid,
     schemaVersionId: latest.schemaVersionId, creationTime: latest.creationTime, valueCodecVersion: latest.valueCodecVersion,
@@ -677,15 +682,19 @@ const consumeSnapshotRows = Effect.fn(
   }
   return { rowIds, byRowId, decodedIdentity };
   }).pipe(Effect.mapError(error));
-  if (selected === undefined) return;
+  if (selected === undefined) return 0;
   const { rowIds, byRowId, decodedIdentity } = selected;
+  let consumed = 0;
   for (const rowId of rowIds) {
     const row = byRowId.get(rowId);
+    if (row?.bodyWithheld && settlementWindow) return consumed;
     if (row?.bodyWithheld) return yield* Effect.die(new Error("Trusted snapshot hydration reached a withheld body after its transfer budget"));
     const revision = row === undefined ? MISSING_APP_ROW_REVISION_V1 :
       yield* decodeRevisionRowEffect({ ...decodedIdentity.identity, rowId }, row).pipe(Effect.mapError(error));
     yield* consume(rowId, revision);
+    consumed++;
   }
+  return consumed;
 });
 
 /** Private working-set hydration. The trusted consumer must refuse once
@@ -701,6 +710,26 @@ export const consumeBoundedAppRowsAtSnapshotInTransactionEffect = Effect.fn("App
       input.maximumTotalValueBytes > MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES)
       return yield* Effect.fail(error(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.maximumTotalValueBytes })));
     yield* consumeSnapshotRows(tx, input, input.maximumTotalValueBytes, error, consume, observer);
+  });
+
+/** Ordered settlement hydration. The transaction owner supplies at most one
+ * 32-identity frontier; missing and tombstone revisions remain observable, and
+ * the consumer can refuse before a later canonical body is decoded. */
+export const consumeAppRowSnapshotRevisionsInTransactionEffect = Effect.fn("AppRows.consumeSettlementSnapshotRevisions")(
+  function* <Failure, Requirements>(tx: AppRowTransaction, input: ReadAppRowsAtSnapshotV1Input,
+    error: (cause: ReadAppRowError) => Failure,
+    consume: (rowId: AppRowIdHexV1, revision: AppRowReadResultV1) => Effect.Effect<void, Failure, Requirements>,
+    observer?: Parameters<typeof observeDrizzleQuery<"snapshotRevision">>[2],
+  ): Effect.fn.Return<void, Failure, Requirements> {
+    if (input.rowIds.length > 32)
+      return yield* Effect.fail(error(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.rowIds.length })));
+    let offset = 0;
+    while (offset < input.rowIds.length) {
+      const consumed = yield* consumeSnapshotRows(tx, { ...input, rowIds: input.rowIds.slice(offset) },
+        262_144, error, consume, observer, true);
+      if (consumed === 0) return yield* Effect.die(new Error("Settlement snapshot window made no progress"));
+      offset += consumed;
+    }
   });
 
 /** Bounded live materialization for identities selected by an authenticated index. */
@@ -899,14 +928,14 @@ type BoundedCurrentAppRowReadInput = Readonly<{ scopeId: ScopeId; tableId: Catal
   maximumIdentities: number; maximumDocumentBytes: number; maximumTotalValueBytes: number;
   rowId?: AppRowIdHexV1; rowIds?: readonly AppRowIdHexV1[] }>;
 
-const readBoundedCurrentAppRows = Effect.fn(
+const captureBoundedCurrentAppRows = Effect.fn(
   "AppRows.readBoundedCurrentSet",
 )(function* (
   tx: AppRowTransaction,
   input: BoundedCurrentAppRowReadInput,
   observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2],
-  pendingCommitSeq?: CommitSeq,
-): Effect.fn.Return<Readonly<{ rows: readonly AppRowRevisionV1[]; commitSeq: CommitSeq }>, ReadAppRowError> {
+  profile?: "publicationTargets",
+) {
   if (!Number.isSafeInteger(input.maximumIdentities) || input.maximumIdentities < 0 || input.maximumIdentities > MAX_BOUNDED_APP_ROW_READ_IDENTITIES ||
     !Number.isSafeInteger(input.maximumDocumentBytes) || input.maximumDocumentBytes < 1 || input.maximumDocumentBytes > 1_048_576 ||
     !Number.isSafeInteger(input.maximumTotalValueBytes) || input.maximumTotalValueBytes < 0 || input.maximumTotalValueBytes > MAX_BOUNDED_APP_ROW_READ_VALUE_BYTES) {
@@ -954,6 +983,7 @@ const readBoundedCurrentAppRows = Effect.fn(
         observedCommitSeq: clock.lastCommitSeq,
         observedEpoch: clock.epoch,
         withinBudget,
+        bodyWithheld: sql<boolean>`false`,
         pointer: fxAppRowCurrent,
         revision: {
           ...getTableColumns(fxAppRowRevisions),
@@ -973,16 +1003,20 @@ const readBoundedCurrentAppRows = Effect.fn(
     }).from(fxAppRowCurrent).leftJoin(fxAppRowRevisions, join).where(where)
       .orderBy(fxAppRowCurrent.rowId).limit(input.maximumIdentities + 1));
     const budget = tx.$with("current_capture_budget").as(tx.select({
-      allowed: sql<boolean>`count(*) <= ${input.maximumIdentities}
+      allowed: (profile === "publicationTargets" ? sql<boolean>`count(*) <= ${input.maximumIdentities}` : sql<boolean>`count(*) <= ${input.maximumIdentities}
         and coalesce(max(${bounded.bytes}), 0) <= ${input.maximumDocumentBytes}
-        and coalesce(sum(${bounded.bytes}), 0) <= ${input.maximumTotalValueBytes}`.as("within_budget"),
+        and coalesce(sum(${bounded.bytes}), 0) <= ${input.maximumTotalValueBytes}`).as("within_budget"),
     }).from(bounded));
     return tx.with(clock, bounded, budget).select({
       observedCommitSeq: clock.lastCommitSeq,
       observedEpoch: clock.epoch,
       withinBudget: budget.allowed,
+      bodyWithheld: profile === "publicationTargets"
+        ? sql<boolean>`coalesce(${bounded.bytes} > ${input.maximumDocumentBytes}, false)` : sql<boolean>`false`,
       pointer: { scopeUuid: bounded.scopeUuid, tableId: bounded.tableId, rowId: bounded.rowId, commitSeq: bounded.commitSeq },
-      revision: fxAppRowRevisions,
+      revision: profile === "publicationTargets" ? { ...getTableColumns(fxAppRowRevisions),
+        valueBytes: sql`case when ${bounded.bytes} <= ${input.maximumDocumentBytes} then ${fxAppRowRevisions.valueBytes} else null end`
+          .mapWith(fxAppRowRevisions.valueBytes) } : fxAppRowRevisions,
     }).from(clock).crossJoin(budget).leftJoin(bounded, sql`${budget.allowed}`).leftJoin(fxAppRowRevisions, and(
       eq(fxAppRowRevisions.scopeUuid, bounded.scopeUuid),
       eq(fxAppRowRevisions.tableId, bounded.tableId),
@@ -1000,6 +1034,14 @@ const readBoundedCurrentAppRows = Effect.fn(
     return yield* Effect.fail(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: "bounded current view exceeds capture budget" }));
   }
   const commitSeq = yield* Effect.fromResult(decodeReadFieldResult(decodeCommitSeqResult(verdict.observedCommitSeq), "invalidSnapshotCommitSeq"));
+  return { rows, commitSeq, verdict, scopeId, tableId, scopeUuid };
+});
+
+const readBoundedCurrentAppRows = Effect.fn("AppRows.readBoundedCurrentSet")(function* (
+  tx: AppRowTransaction, input: BoundedCurrentAppRowReadInput,
+  observer?: Parameters<typeof observeDrizzleQuery<"currentCapture">>[2], pendingCommitSeq?: CommitSeq,
+): Effect.fn.Return<Readonly<{ rows: readonly AppRowRevisionV1[]; commitSeq: CommitSeq }>, ReadAppRowError> {
+  const { rows, commitSeq, verdict, scopeId, tableId, scopeUuid } = yield* captureBoundedCurrentAppRows(tx, input, observer);
   const revisions: AppRowRevisionV1[] = [];
   const pendingRowIds: AppRowIdHexV1[] = [];
   for (const row of rows) {
@@ -1044,6 +1086,73 @@ const readBoundedCurrentAppRows = Effect.fn(
   }
   return Object.freeze({ rows: Object.freeze(revisions), commitSeq });
 });
+
+
+/** A publication target reader opens at most four 64-KiB bodies on demand.
+ * Canonical decoding and the finished-fact check stay at the requested ordinal;
+ * a target constraint may refuse before a later corrupt body is examined. */
+export const withPublicationAppRowTargetsInTransactionEffect = Effect.fn("AppRows.withPublicationTargets")(
+  function* <Value, Failure, Requirements>(tx: AppRowTransaction, input: {
+    readonly scopeId: ScopeId; readonly tableId: CatalogTableId; readonly rowIds: readonly AppRowIdHexV1[];
+    readonly minimumCommitSeq: CommitSeq; readonly pendingCommitSeq: CommitSeq;
+  }, error: (cause: ReadAppRowError) => Failure,
+    use: (read: (ordinal: number) => Effect.Effect<AppRowRevisionV1 | null, Failure>) => Effect.Effect<Value, Failure, Requirements>,
+  ): Effect.fn.Return<Value, Failure, Requirements> {
+    if (input.rowIds.length > 32 || new Set(input.rowIds).size !== input.rowIds.length)
+      return yield* Effect.fail(error(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: input.rowIds.length })));
+    type Capture = Effect.Success<ReturnType<typeof captureBoundedCurrentAppRows>>;
+    const captures = new Map<number, Capture>();
+    const decoded = new Map<number, AppRowRevisionV1 | null>();
+    const publicationFacts = new Map<number, readonly { rowId: Uint8Array }[]>();
+    const clockIdentity = exactScopeWriteClockObservationIdentity(tx, input.scopeId);
+    let active = true;
+    const read = Effect.fn("AppRows.readPublicationTargetOrdinal")(function* (ordinal: number) {
+      if (!active || clockIdentity !== exactScopeWriteClockObservationIdentity(tx, input.scopeId) ||
+        !Number.isSafeInteger(ordinal) || input.rowIds[ordinal] === undefined)
+        return yield* Effect.fail(error(new InvalidAppRowReadInputError({ reason: "rowLimitExceeded", cause: "closed target capture or unrequested ordinal" })));
+      if (decoded.has(ordinal)) return decoded.get(ordinal) ?? null;
+      const offset = Math.floor(ordinal / 4) * 4;
+      let capture = captures.get(offset);
+      if (capture === undefined) {
+        const rowIds = input.rowIds.slice(offset, offset + 4);
+        capture = yield* captureBoundedCurrentAppRows(tx, { ...input, rowIds, maximumIdentities: rowIds.length,
+          maximumDocumentBytes: 65_536, maximumTotalValueBytes: 262_144 }, undefined, "publicationTargets").pipe(Effect.mapError(error));
+        if (capture.commitSeq !== input.minimumCommitSeq) return yield* Effect.fail(error(new AppRowStorageCorruptionError(
+          { scopeId: input.scopeId, tableId: input.tableId, rowId: input.rowIds[ordinal]! }, "publication target clock changed")));
+        captures.set(offset, capture);
+      }
+      const rowId = input.rowIds[ordinal]!;
+      const matches = capture.rows.filter(row => row.pointer !== null && bytesEqualFullScan(row.pointer.rowId, appRowIdHexV1ToBytes(rowId)));
+      if (matches.length > 1) return yield* Effect.fail(error(new AppRowStorageCorruptionError(
+        { scopeId: input.scopeId, tableId: input.tableId, rowId }, "publication target has multiple current pointers")));
+      const stored = matches[0];
+      if (stored === undefined) { decoded.set(ordinal, null); return null; }
+      if (stored.bodyWithheld) return yield* Effect.fail(error(new InvalidAppRowReadInputError({
+        reason: "rowLimitExceeded", cause: "publication target body exceeds its admitted read bound" })));
+      const identity = { scopeId: input.scopeId, tableId: input.tableId, rowId };
+      if (stored.pointer === null || stored.revision === null || (stored.pointer.commitSeq > stored.observedCommitSeq &&
+        (stored.pointer.commitSeq !== input.pendingCommitSeq || input.pendingCommitSeq !== stored.observedCommitSeq + 1n)))
+        return yield* Effect.fail(error(new AppRowStorageCorruptionError(identity, "bounded current pointer exceeds its statement publication clock")));
+      const revision = yield* decodeRevisionRowEffect(identity, stored.revision).pipe(Effect.mapError(error));
+      if (stored.pointer.commitSeq > stored.observedCommitSeq) {
+        const epoch = projectScopeEpochUuidV1(capture.verdict.observedEpoch).epochUuid;
+        if (stored.revision.writeEpochUuid !== epoch) return yield* Effect.fail(error(new AppRowStorageCorruptionError(identity, "pending current revision has a stale scope epoch")));
+        let facts = publicationFacts.get(offset);
+        if (facts === undefined) {
+        const pendingRows = capture.rows.filter(row => row.pointer !== null && row.pointer.commitSeq > row.observedCommitSeq);
+        facts = yield* readAppRowRowsEffect(tx.select({ rowId: fxSystemCommitAppRowChanges.rowId }).from(fxSystemCommitAppRowChanges)
+          .where(and(eq(fxSystemCommitAppRowChanges.scopeUuid, capture.scopeUuid.scopeUuid),
+            eq(fxSystemCommitAppRowChanges.epochUuid, epoch), eq(fxSystemCommitAppRowChanges.tableId, input.tableId),
+            eq(fxSystemCommitAppRowChanges.commitSeq, input.pendingCommitSeq), inArray(fxSystemCommitAppRowChanges.rowId, pendingRows.flatMap(row => row.pointer === null ? [] : [row.pointer.rowId])))), "readPublicationFact").pipe(Effect.mapError(error));
+        publicationFacts.set(offset, facts);
+        }
+        if (facts.filter(fact => bytesEqualFullScan(fact.rowId, appRowIdHexV1ToBytes(rowId))).length !== 1) return yield* Effect.fail(error(new AppRowStorageCorruptionError(identity, "pending current pointer has no exact publication fact")));
+      }
+      decoded.set(ordinal, revision);
+      return revision;
+    });
+    return yield* use(read).pipe(Effect.ensuring(Effect.sync(() => { active = false; })));
+  });
 
 /** Published current view. Unpublished current pointers remain corruption. */
 export const readBoundedCurrentAppRowsInTransactionEffect = Effect.fn("AppRows.readBoundedPublishedCurrentSet")(
@@ -1106,7 +1215,9 @@ export const appendPreparedAppRowRevisionsInTransactionEffect = Effect.fn(
   const identities = new Set<string>();
   const projection = projectScopeIdUuidV1(first.scopeId);
   const authorityQuery = selectScopeAuthorityRows(tx, projection);
-  const authority = yield* appRowBatchQueryEffect(() => authorityQuery);
+  const observedClock = readExactScopeWriteClockObservation(tx, first.scopeId);
+  const authority = observedClock === undefined ? yield* appRowBatchQueryEffect(() => authorityQuery)
+    : [{ scopeId: observedClock.scopeId, scopeUuid: projectScopeIdUuidV1(observedClock.scopeId).scopeUuid }];
   if (authority[0]?.scopeUuid !== projection.scopeUuid)
     return yield* Effect.fail(
       new AppRowScopeAuthorityUnavailableError(first.scopeId),
@@ -1168,7 +1279,7 @@ export const appendPreparedAppRowRevisionsInTransactionEffect = Effect.fn(
     yield* appendPreparedRowBatchEffect(tx, batch, statements);
   }
   return decoded.map(projectAppRowRevision);
-});
+}, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
 
 const appRowWriteIdentityColumns = {
   scopeUuid: fxAppRowRevisions.scopeUuid,
@@ -1897,6 +2008,8 @@ const requireScopeUuidInTransactionEffect = Effect.fn(
   AppRowScopeAuthorityUnavailableError | AppRowReadPersistenceError
 > {
   const { identity, projection } = decodedIdentity;
+  const observed = readExactScopeWriteClockObservation(tx, decodedIdentity.identity.scopeId);
+  if (observed !== undefined) return decodedIdentity.projection.scopeUuid;
   const query = selectScopeAuthorityRows(
     tx,
     projection,

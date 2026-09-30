@@ -1,5 +1,6 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
+import type { ConfirmedFiniteRootSealCapture } from "@flarex/persistence-postgres/session-journal-store";
 
 import type {
   VerifiedApplicationMutationGrantInspectionV1,
@@ -773,6 +774,7 @@ export interface StoredAttemptEvidencePersistencePortErrorV1 {
 export interface StoredAttemptEvidenceLoaderPortV1 {
   readonly loadEffect: (
     authority: StoredAttemptEvidenceAuthorityPortV1,
+    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     StoredAttemptEvidenceLoadResultPortV1,
     StoredAttemptEvidencePersistencePortErrorV1
@@ -800,6 +802,7 @@ export interface StoredAttemptAuthenticationV1 {
   readonly authenticate: (
     authority: TrustedStoredAttemptAuthorityV1,
     envelope: unknown,
+    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     AuthenticatedStoredAttemptV1,
     StoredAttemptAuthenticationV1Error
@@ -839,6 +842,7 @@ export interface StoredCommitAuthorityAuthenticationV1
 }
 
 export interface AuthenticatedStoredAttemptStateV1 {
+  readonly terminalCapture?: ConfirmedFiniteRootSealCapture;
   readonly authority: StoredAttemptAuthorityStateV1;
   /** Private process-local execution scope; never projected into persistence. */
   readonly executionScope?: PointMutationExecutionScopeV1;

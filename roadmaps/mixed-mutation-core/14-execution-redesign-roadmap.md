@@ -1,12 +1,13 @@
 # Mixed execution redesign
 
-Status: **slices 15 and 16 delivered with their stage cost gates passed; slice 17 is an audited focused proposal awaiting runtime scope agreement.**
+Status: **slices 15–17 delivered for the existing private profiles with their stage cost gates passed; final mixed latency targets remain unmet.**
 The private finite Application/Product/Payload/workflow profile is implemented.
 Its mixed latency targets remain unmet. This document selects the connected
 redesign sequence. Delivered 15 owns target protection under existing full
 attestation and privileged quiescence; delivered 16 owns aggregate full entry,
-tentative local construction and bounded storage frontiers. Settlement runtime,
-new attestation/maintenance and host contracts remain gated.
+tentative local construction and bounded storage frontiers; delivered 17 owns
+authenticated aggregate seal capture, separate finishing and batched settlement.
+New attestation/maintenance and host contracts remain gated.
 
 ## Outcome and current evidence
 
@@ -19,26 +20,34 @@ The current implementation is a correctness baseline, not an API constraint.
 The [accepted DB design](../../design-notes/flarex-db-accepted-design.md),
 [mixed design](../../design-notes/flarexdb-mixed-mutation-execution.md) and
 [package boundaries](../16-package-boundaries.md) govern authority and placement.
-The [bounded-read evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bounded-read-execution/README.md)
-contains 16 traced and 104 untraced samples with zero exclusions. The prior
+The [settlement evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/batched-settlement/README.md)
+contains matched full traced/untraced series with zero exclusions and a separate
+Node CPU diagnostic. The prior bounded-read baseline remains unchanged. The prior
 [bundled evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bundled-dependency-validation/README.md)
 and the [prepared-admission baseline](../../packages/flarex-backend/benchmarks/mixed-mutation-core/prepared-admission/README.md)
 remain preserved with all their samples and outliers.
 
 | Existing graph | SQL dispatches | Transactions | Warm p50 / p95 (ms) | Proposed p50 / p95 goal (ms) |
 | --- | ---: | ---: | ---: | ---: |
-| Product | 643 | 29 | 635.4 / 668.3 | 100 / 200 |
-| Product + Payload | 670 | 30 | 690.0 / 751.7 | 200 / 400 |
-| Mixed finite workflow | 1,034 | 43 | 1,169.3 / 1,226.9 | 500 / 1,000 |
-| Standalone finite workflow | 354 | 6 | 321.2 / 342.7 | Median below 400; median regression strictly below 10% |
+| Product | 562 | 25 | 595.6 / 616.1 | 100 / 200 |
+| Product + Payload | 585 | 26 | 627.4 / 784.6 | 200 / 400 |
+| Mixed finite workflow | 888 | 39 | 1,056.7 / 1,094.7 | 500 / 1,000 |
+| Standalone finite workflow | 309 | 6 | 287.1 / 316.8 | Median below 400; median regression strictly below 10% |
 
-Slice 16 passes its 798 / 924 / 1,439 dispatch and 33 / 34 / 50 transaction
-ceilings, removing 219 / 398 / 629 dispatches and 12 / 22 / 35 transactions
-from slice 15. Warm medians fall 18.9% / 29.1% / 30.3%; standalone rises 3.8%
-and passes both median gates with unchanged SQL/transaction structure. All warm
-maxima remain: 689.0 / 782.2 / 1,237.6 / 380.0 ms. The comparison does not isolate
-latency causes. Final mixed goals remain unmet; slice 17 proposes a connected
-terminal cutover while retaining the delivered read contract.
+Slice 17 passes its 633 / 660 / 1,024 / 354 dispatch and 25 / 26 / 39 / 6
+transaction ceilings. Mixed terminal transactions are seven to three, with
+175 / 180 / 218 dispatches below ceilings 228 / 236 / 321. The remaining
+nonterminal SQL is 387 / 405 / 670 across 22 / 23 / 36 transactions, including
+nine initial admission transactions, ten Product data frontiers and thirteen
+additional workflow frontiers. The full ledger retains original observations,
+definitions, chunks and measured bytes; unavailable reference/wire demands stay
+unavailable. The previous read contract, business effects and durable formats
+remain intact.
+
+Mixed warm medians improve 6.3% / 9.1% / 9.6%; standalone improves 10.6% and
+passes both median gates. Product + Payload p95 rises from 751.7 to 784.6 ms.
+All maxima remain in the artifact owner. Final mixed goals remain unmet; neither
+SQL reductions nor the comparison establish a latency cause.
 
 The benchmark creates a fresh single-use Worker per mixed request. Startup may
 be a structural floor, but local lifecycle observations do not establish that
@@ -49,9 +58,8 @@ with mixed snapshot, journal, recovery and publication obligations identified.
 
 ## Ordered connected slices
 
-**15 and 16 are delivered and their stage cost gates passed.** Audited proposal
-17 is reconciled with the delivered read contract and awaits runtime scope
-agreement. Draft 18 is conditional. Neither authorizes runtime changes.
+**15–17 are delivered and their stage cost gates passed.** Slice 17 retains the
+delivered read contract. Draft 18 remains conditional and unapproved.
 Revisit ordering if the dependency graph shows that a safe
 cutover must combine or rearrange owners; explain that change before runtime.
 
@@ -59,7 +67,7 @@ cutover must combine or rearrange owners; explain that change before runtime.
 | --- | --- | --- |
 | [15: admission and protection](./15-admission-protection-preflight.md), delivered; stage passed | Protect current immutable target metadata and remove repeated structure/clock reads across existing consumers | 23-table coverage, full existing attestation/quiescence, exact accepting-transaction clock provenance; measured SQL 862 / 1,068 / 1,663 meets ceilings 871 / 1,081 / 1,688 with unchanged 41 / 52 / 78 transactions |
 | [16: batched read execution](./16-batched-read-execution-preflight.md), delivered; stage passed | Aggregate finite full entry, local method/construction and actual bounded storage frontiers; retain source-wide readiness and exact ordered data dependencies | Accepted tentative callback/live-check timing; measured 643 / 670 / 1,034 driver dispatches and 29 / 30 / 43 explicit transactions pass 798 / 924 / 1,439 and 33 / 34 / 50 ceilings; standalone 354 / 6 passes median gates |
-| [17: batched settlement](./17-batched-settlement-preflight.md), audited proposal awaiting runtime scope agreement | Separate aggregate seal and fresh finishing, remove the separate candidate planning-head preparation transaction, and batch remaining validation reads through existing owners | Detached authenticated seal body/authority/planning head after COMMIT; executor verification and candidate-guard compilation outside SQL; publication retains its existing fresh head recheck/full OCC; durable formats and recovery retained |
+| [17: batched settlement](./17-batched-settlement-preflight.md), delivered; stage passed | Separate aggregate seal and fresh finishing, remove the separate candidate planning-head preparation transaction, and batch remaining validation reads through existing owners | Detached authenticated seal body/authority/planning head after COMMIT; executor verification and candidate-guard compilation outside SQL; publication retains its existing fresh head recheck/full OCC; durable formats and recovery retained |
 | [18: host lifecycle](./18-host-lifecycle-preflight.md), conditional draft | Remove attributable startup/serialization overhead if a separately accepted host contract permits it | Include or skip from evidence; isolation, capability lifetime, cleanup and host-specific parity |
 
 These are medium-to-large coherent capabilities. A helper, test matrix, profile
@@ -68,7 +76,7 @@ Measurements must answer an implementation or acceptance question. Each slice
 includes affected real consumers, failure proofs, removal and one scoped commit
 after validation; documents and profiling alone do not deliver runtime behavior.
 
-### Slice 17 proposed terminal contract
+### Slice 17 delivered terminal contract
 
 One aggregate seal transaction returns detached authenticated body, authority
 and candidate planning head after COMMIT. Existing executor crypto, schema,
@@ -82,18 +90,26 @@ transaction. No SQL transaction spans callbacks.
 
 Journal, schema, result and event bytes, Repeatable Read recovery readers, and
 the sealed-running and finishing state contracts remain retained. The healthy
-seal/OCC path proposes **5 to 2** transactions and publication **2 to 1**:
+seal/OCC path uses **5 to 2** transactions and publication **2 to 1**:
 terminal **7 to 3**, removing four transactions, with whole-request counts **29 / 30 / 43 / 6 to
-25 / 26 / 39 / 6**. Standalone remains **354 dispatches / 6 transactions**.
+25 / 26 / 39 / 6**. Standalone benefits from shared owner batching at **309 dispatches / 6 transactions**.
 
-The proposed combined terminal dispatch ceilings are **228 / 236 / 321**
+The agreed combined terminal dispatch ceilings are **228 / 236 / 321**
 against **238 / 246 / 331**; whole-request ceilings are **633 / 660 / 1,024 /
 354**. These are conservative stage ceilings based on ten fewer
 transaction-control queries. Meaningful batching of the
 remaining original-snapshot, dependency, index and reference validation reads,
 plus duplicate preparation cleanup, is mandatory through existing owners.
 Materialization writes already batch. The focused preflight owns the exact bounds,
-proofs and agreement gate.
+proofs and approved acceptance gates.
+
+The Node diagnostic observes real readiness/index-build decoding and private JSON
+capture ancestry, with Effect/Drizzle/driver work also present. Idle, generated
+frames and profiler overhead are explicit and unassigned. These observations
+support investigating existing metadata/admission/preparation owners before
+choosing a host change; they neither quantify the entire remaining gap nor
+approve another runtime slice. Slice 18 needs its own attributable host evidence
+and contract decision. The whole latency goal remains unfinished.
 
 ## Owners and invariants
 
@@ -134,8 +150,7 @@ slice, complete the actual bounded operation/dependency graph for all four
 workloads and agree numeric transaction, sequential round-trip and server SQL
 limits, plus batch-size/byte formulas and retry/saturation limits. Slice 16's
 approved source-derived preflight fixes conservative dispatch/transaction stage
-ceilings. Slice 17 records proposed terminal and whole-request limits awaiting
-scope agreement; slice 18 limits remain conditional. A call containing 100
+ceilings. Slice 17 records approved terminal and whole-request limits; slice 18 limits remain conditional. A call containing 100
 server statements still accounts for all 100 statements.
 
 | Cost category | Required graph-derived budget and attribution |
@@ -181,8 +196,7 @@ connected slice with a quantified remaining gap and named cost owner. If the
 stage budget fails, reconcile within that slice or explain the changed contract
 before proceeding. Slice 15 passed its stage gate with the remaining latency gap
 quantified above. Slice 16's focused graph, timing contract and measured stage
-gate are delivered; slice 17's audited terminal proposal awaits runtime scope
-agreement.
+gate and slice 17's terminal contract are delivered.
 The final latency targets govern whole-successor acceptance.
 
 Functional delivery and whole-goal performance acceptance are separate: green

@@ -173,6 +173,70 @@ describe("cross-source relationship publication and source admission", () => {
     }
   }, 150_000);
 
+  it("settles 33 reference sources against distinct targets in one publication", async () => {
+    const productHost = await prepareLogicalProductHost(fixture);
+    const compiled = await Effect.runPromise(compilePayloadCollections(payloadCollections));
+    const targets = Array.from({ length: 33 }, (_, ordinal) => ({
+      id: `batched-reference-${ordinal}`, title: `Batched target ${ordinal}`, handle: `batched-reference-${ordinal}`,
+    }));
+    const create = defineCmsCommand({ name: "createBatchedReferencedNews", mode: "write",
+      run: ctx => Effect.gen(function* () {
+        const rows = [];
+        for (const target of targets) rows.push(yield* ctx.documents.insert(ctx.context,
+          ctx.transactionId, "news", { title: target.id, createdAt: "2026-10-01T00:00:00.000Z",
+            updatedAt: "2026-10-01T00:00:00.000Z" }));
+        return rows;
+      }) });
+    const cms = await Effect.runPromise(makeCmsHost({
+      hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle), database: fixture.persistence.drizzle,
+      controlDatabase: fixture.control.drizzle, session: fixture.session, deploymentId: fixture.deploymentId,
+      scopeId: fixture.application.authority.scopeId, authority: fixture.application.authorityPorts,
+      application: fixture.application.activation, commands: [create],
+      identityAndAccessPolicy: { profile: "batched-source-reference" }, materialization: {},
+      expectedContentIdentity: compiled.contentIdentity,
+      logicalStorage: { ports: { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
+        unique: fixture.application.uniqueConstraintEligibility, schemaVersionId: fixture.schemaVersionId,
+        source: compiled.sourceContract },
+    }));
+    try {
+      await Effect.runPromise(productHost.host.initialize([]));
+      await Effect.runPromise(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductCreate, targets));
+      const before = await logicalCurrencyInventory(fixture);
+      const key = cms.newRequestKey();
+      const statements: string[] = [];
+      fixture.observeSql?.(text => { statements.push(text); });
+      try { expect(await Effect.runPromise(cms.run(key, create, null))).toHaveLength(33); }
+      finally { fixture.observeSql?.(undefined); }
+      if (fixture.observeSql !== undefined) {
+        const factOrdinal = statements.findLastIndex(text => text.startsWith("select") &&
+          text.includes('"fx_system_commit_app_row_change"') && text.includes('"change_ordinal"'));
+        expect(factOrdinal).toBeGreaterThanOrEqual(0);
+        const referenceReads = statements.slice(factOrdinal + 1);
+        expect(referenceReads.filter(text => text.includes("rows between unbounded preceding"))).toHaveLength(2);
+        expect(referenceReads.filter(text => text.includes("with requested(ordinal, row_id)"))).toHaveLength(2);
+        expect(referenceReads.filter(text => text.includes("pendingFact") ||
+          (text.includes("exists (select 1") && text.includes("fact.table_id")))).toHaveLength(2);
+        // Two source pages plus eight groups of four targets and the final one.
+        expect(referenceReads.filter(text => text.includes('"current_capture_budget"'))).toHaveLength(11);
+      }
+      const published = await logicalCurrencyInventory(fixture);
+      expect(published.rows).toHaveLength(before.rows.length + 33);
+      expect(published.rowChanges).toHaveLength(before.rowChanges.length + 33);
+      expect(published.commits).toHaveLength(before.commits.length + 1);
+      expect(await Effect.runPromise(cms.run(key, create, null))).toHaveLength(33);
+      expect(await logicalCurrencyInventory(fixture)).toEqual(published);
+      expect(await Effect.runPromise(Effect.flip(productHost.host.run(productHost.host.newRequestKey(),
+        productHost.runtime.commands.internalProductSoftDelete, targets[32]!.id))))
+        .toMatchObject({ reason: "invalidInput",
+          cause: { reason: "targetDeleteRestricted", reference: "news_product" } });
+      expect(await logicalCurrencyInventory(fixture)).toEqual(published);
+    } finally {
+      await Effect.runPromise(cms.close);
+      await Effect.runPromise(productHost.host.close);
+    }
+  }, 180_000);
+
   it("settles Application and Payload references with Currency in one publication", async () => {
     const productHost = await prepareLogicalProductHost(fixture);
     const payload = await Effect.runPromise(compilePayloadCollections(payloadCollections));

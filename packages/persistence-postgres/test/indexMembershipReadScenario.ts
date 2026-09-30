@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { eq } from "drizzle-orm";
 import { expect, vi } from "vitest";
 import {
@@ -44,6 +45,7 @@ import {
   type AppIndexEntryPositionV1,
 } from "../src/appIndexEntries";
 import { appendPreparedAppRowRevisionsInTransactionEffect } from "../src/appRows";
+import { closeExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
   deployments,
@@ -190,6 +192,48 @@ export async function verifyMembershipReadPreparation(
     { ...tombstonePosition, rowId: missingRowId },
   ];
   const positions = Array.from({ length: 9 }, () => group).flat();
+  const rollbackProof = new Error("membership proof rollback");
+  await expect(db.transaction(async tx => {
+    await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+    try {
+      const captured = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx, { scopeId, positions: [livePosition] }));
+      const action = { ...livePosition, kind: "tombstone" as const, scopeId, writeEpoch: epoch,
+        commitSeq: CommitSeqSchema.make(3n), membershipHeadEvidence: captured.evidence };
+      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+        [{ ...action, membershipHeadEvidence: { ...captured.evidence } }])))
+        .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+      await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+      const exactPositionProof = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
+        { scopeId, positions: [livePosition] }));
+      // A genuine issuer does not grant an unobserved position.
+      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+        [{ ...action, rowId: missingRowId, membershipHeadEvidence: exactPositionProof.evidence }])))
+        .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+      await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+      const writeProof = await runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
+        { scopeId, positions: [livePosition] }));
+      await runEffect(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+        [{ ...action, membershipHeadEvidence: writeProof.evidence }]));
+      // The first mutation consumes the captured transition generation.
+      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+        [{ ...action, commitSeq: CommitSeqSchema.make(4n) }]))).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+      closeExactAttemptScopeClockObservation(tx);
+      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+        [{ ...action, commitSeq: CommitSeqSchema.make(4n) }]))).toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+      throw rollbackProof;
+    } finally { closeExactAttemptScopeClockObservation(tx); }
+  })).rejects.toBe(rollbackProof);
+  const detached = await db.transaction(tx => runEffect(readAppIndexMembershipHeadsInTransactionEffect(tx,
+    { scopeId, positions: [livePosition] })));
+  await db.transaction(async tx => {
+    await runEffect(lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, scopeId));
+    try {
+      expect(await runEffectFailure(appendAppIndexEntryRevisionsInTransactionEffect(tx,
+        [{ ...livePosition, kind: "tombstone", scopeId, writeEpoch: epoch, commitSeq: CommitSeqSchema.make(3n),
+          membershipHeadEvidence: detached.evidence }])))
+        .toMatchObject({ _tag: "AppIndexEntryStorageCorruptionError" });
+    } finally { closeExactAttemptScopeClockObservation(tx); }
+  });
   await db.transaction(async (tx) => {
     const select = vi.spyOn(tx, "select");
     const execute = vi.spyOn(tx, "execute");
@@ -200,7 +244,7 @@ export async function verifyMembershipReadPreparation(
             readAppIndexMembershipHeadsInTransactionEffect(tx, {
               scopeId,
               positions,
-            }),
+            }).pipe(Effect.map(selection => selection.heads)),
           ),
         ).toEqual(
           Array.from({ length: 9 }, () => [
@@ -295,7 +339,7 @@ export async function verifyMembershipReadPreparation(
       });
       const execute = vi.spyOn(tx, "execute");
       try {
-        const read = readAppIndexMembershipHeadsInTransactionEffect(tx, input);
+        const read = readAppIndexMembershipHeadsInTransactionEffect(tx, input).pipe(Effect.map(selection => selection.heads));
         if (mutation === "scope") {
           expect(await runEffectFailure(read)).toMatchObject({
             issue: "invalidLocatedDefinition",
@@ -321,7 +365,7 @@ export async function verifyMembershipReadPreparation(
   await db.transaction(async (tx) => {
     expect(
       await runEffect(
-        readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput),
+        readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput).pipe(Effect.map(selection => selection.heads)),
       ),
     ).toEqual([null]);
     await tx
@@ -329,7 +373,7 @@ export async function verifyMembershipReadPreparation(
       .where(eq(fxSystemScopeClocks.scopeId, otherScope));
     expect(
       await runEffectFailure(
-        readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput),
+        readAppIndexMembershipHeadsInTransactionEffect(tx, otherInput).pipe(Effect.map(selection => selection.heads)),
       ),
     ).toBeInstanceOf(AppIndexEntryScopeAuthorityUnavailableError);
   });
@@ -387,7 +431,7 @@ export async function verifyMembershipReadPreparation(
           readAppIndexMembershipHeadsInTransactionEffect(tx, {
             scopeId: "invalid" as ScopeId,
             positions: [],
-          }),
+          }).pipe(Effect.map(selection => selection.heads)),
         ),
       ).toEqual([]);
       expect(select).not.toHaveBeenCalled();
@@ -397,7 +441,7 @@ export async function verifyMembershipReadPreparation(
           readAppIndexMembershipHeadsInTransactionEffect(tx, {
             scopeId,
             positions: sample.positions,
-          }),
+          }).pipe(Effect.map(selection => selection.heads)),
         );
         expect(failure).toBeInstanceOf(InvalidAppIndexEntryInputError);
         expect(failure).toMatchObject({ issue: sample.issue });

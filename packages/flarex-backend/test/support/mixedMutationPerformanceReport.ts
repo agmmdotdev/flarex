@@ -1,6 +1,38 @@
 export type PerformanceWorkload = "product" | "productPayload" | "mixedWorkflow" | "standaloneWorkflow";
 export type PerformanceTemperature = "warmup" | "warm" | "cold" | "probe";
 
+/** Original owner demands, captured after the timed request. Counts here are
+ * evidence observations, never net committed-row deltas. */
+export interface PerformanceSettlementLedger {
+  readonly syscallReceipts: number;
+  readonly readDocumentOccurrences: number;
+  readonly admittedRangeDemands: number;
+  readonly admittedPageDemands: number;
+  readonly admittedUniqueDemands: number;
+  readonly admittedRangeEntryOccurrences: number;
+  readonly admittedPageEntryOccurrences: number;
+  readonly admittedIndexDefinitionDemands: number;
+  readonly admittedConstraintDefinitionDemands: number;
+  readonly distinctAdmittedIndexDefinitions: number;
+  readonly distinctAdmittedConstraintDefinitions: number;
+  readonly dependencyBytesBySource: Readonly<Record<string, number>>;
+  readonly publicationQueries: readonly Readonly<{ ownerQuery: string; dispatches: number;
+    parameterCount: number; scalarParameterBytes: number; unknownEncodingParameters: number }>[];
+  readonly pointDependencies: number;
+  readonly indexedQuerySyscalls: number;
+  readonly indexRangeDependencies: number;
+  readonly relationReadSyscalls: number;
+  readonly relationDependencies: number;
+  readonly pointProjectionRows: number;
+  readonly sealProjectionChunkRows: 128;
+  readonly pointProjectionChunks: number;
+  readonly receiptProjectionChunks: number;
+  readonly indexRangeProjectionChunks: number;
+  readonly relationProjectionChunks: number;
+  readonly bytes: Readonly<Record<string, number>>;
+  readonly unavailable: readonly string[];
+}
+
 export interface PerformanceInventory {
   readonly rowCurrent: number;
   readonly indexCurrent: number;
@@ -74,6 +106,7 @@ export interface PerformanceSample {
   readonly requestWorkerConstructionMs: number | null;
   /** Encoded canonical journal bytes captured at a successful seal through the test store port. */
   readonly sealedJournalBytes: number | null;
+  readonly settlementLedger?: PerformanceSettlementLedger | null;
   /** Outer envelope minus the trace's inner request duration; includes trace finalization. */
   readonly instrumentationFinalizationMs: number | null;
   /** Reusable host construction and seeding are outside the request; fresh admission is inside it. */
@@ -269,6 +302,32 @@ export function renderMixedMutationPerformanceReport(raw: PerformanceRawReport):
       `${shown(distribution(completed.flatMap(sample => sample.sealedJournalBytes === null
         ? [] : [sample.sealedJournalBytes])).median)} | ` +
       `${shown(delta(value => value.liveJournalBytes))} |`);
+  }
+  lines.push("", "## Original settlement demands and seal chunks", "",
+    "These observations come from the confirmed owner capture after the request timer. Projection chunks use the owner's 128-row bound. Unobserved publication demands are unavailable rather than inferred from net rows.", "",
+    "| Sample | Receipts / document occurrences | Point dependencies | Indexed syscalls | Range dependencies | Relation syscalls / dependencies | Admitted range / page / unique observations | Range / page entry occurrences | Admitted index / constraint definitions (distinct) | Receipt / point / range / relation chunks | Owner byte partitions | Unavailable demands |",
+    "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |");
+  for (const sample of raw.samples.filter(sample => sample.status === "ok" && sample.settlementLedger != null)) {
+    const ledger = sample.settlementLedger;
+    if (ledger === undefined || ledger === null) continue;
+    lines.push(`| ${sample.id} | ${ledger.syscallReceipts} / ${ledger.readDocumentOccurrences} | ${ledger.pointDependencies} | ${ledger.indexedQuerySyscalls} | ` +
+      `${ledger.indexRangeDependencies} | ${ledger.relationReadSyscalls} / ${ledger.relationDependencies} | ` +
+      `${ledger.admittedRangeDemands} / ${ledger.admittedPageDemands} / ${ledger.admittedUniqueDemands} | ` +
+      `${ledger.admittedRangeEntryOccurrences} / ${ledger.admittedPageEntryOccurrences} | ` +
+      `${ledger.admittedIndexDefinitionDemands} / ${ledger.admittedConstraintDefinitionDemands} (${ledger.distinctAdmittedIndexDefinitions} / ${ledger.distinctAdmittedConstraintDefinitions}) | ` +
+      `${ledger.receiptProjectionChunks} / ${ledger.pointProjectionChunks} / ${ledger.indexRangeProjectionChunks} / ${ledger.relationProjectionChunks} | ` +
+      `${Object.entries(ledger.bytes).map(([owner, bytes]) => `${owner}: ${bytes}`).join("; ")}; ` +
+      `${Object.entries(ledger.dependencyBytesBySource).map(([owner, bytes]) => `${owner} dependencies: ${bytes}`).join("; ")} | ${ledger.unavailable.join(", ")} |`);
+  }
+  lines.push("", "## Observed publication query partitions", "",
+    "Traced samples only: parameter counts and scalar bytes come from existing owner query observers. Quiet untraced samples install no SQL observer. Complex PostgreSQL wire encodings and owners without observers remain unavailable. No parameter values are retained.", "",
+    "| Sample | Owner query | Dispatches | Parameters | Scalar UTF-8 / byte parameters | Parameters with unknown encoding |",
+    "| --- | --- | ---: | ---: | ---: | ---: |");
+  for (const sample of raw.samples) {
+    for (const query of sample.settlementLedger?.publicationQueries ?? []) {
+      lines.push(`| ${sample.id} | ${query.ownerQuery} | ${query.dispatches} | ${query.parameterCount} | ` +
+        `${query.scalarParameterBytes} | ${query.unknownEncodingParameters} |`);
+    }
   }
   lines.push("", "## Observed database transaction intervals in successful warm requests", "",
     "These BEGIN-to-settlement intervals include application work and waits; they are not lock-hold measurements.", "",

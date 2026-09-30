@@ -335,6 +335,12 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
           throw new Error("Admitted call ended before native staging");
         }),
       ]);
+      // Exercise the persistence freeze directly while the native callback is
+      // still active; the executor's serial journal would otherwise queue seal.
+      expect(fixture.getOpenTransactionDepth()).toBe(0);
+      await expect(Effect.runPromise(fixture.sealFiniteRootDirect({ ok: true })))
+        .rejects.toBeDefined();
+      expect(fixture.journal.confirmedSealCapture?.(fixture.attempt)).toBeUndefined();
       await Effect.runPromise(Fiber.interrupt(fiber));
       const interrupted = await Effect.runPromise(Fiber.await(fiber));
       expect(Exit.isFailure(interrupted)).toBe(true);

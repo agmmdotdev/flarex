@@ -1,4 +1,5 @@
 import { Effect, Result } from "effect";
+import type { ConfirmedFiniteRootSealCapture } from "@flarex/persistence-postgres/session-journal-store";
 
 import {
   decodeCommitEnvelopeV1Effect,
@@ -84,6 +85,7 @@ export interface StoredAttemptAuthenticationOperationsV1 {
   ) => StoredAttemptAuthorityCapabilityStateV1 | undefined;
   readonly loadAndVerifyStoredEvidence: (
     authorityCapability: StoredAttemptAuthorityCapabilityStateV1,
+    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     Readonly<{
       readonly evidence: StoredAttemptEvidencePortV1;
@@ -219,9 +221,11 @@ export function makeStoredAttemptAuthenticationOperationsV1(
 
   const loadAndVerifyStoredEvidence = Effect.fn(
     "StoredAttemptAuthentication.loadAndVerifyStoredEvidence",
-  )(function* (authorityCapability: StoredAttemptAuthorityCapabilityStateV1) {
+  )(function* (authorityCapability: StoredAttemptAuthorityCapabilityStateV1,
+    capture?: ConfirmedFiniteRootSealCapture) {
     const result = yield* loader.loadEffect(
       captureAuthorityPort(authorityCapability.authority),
+      capture,
     ).pipe(Effect.mapError((error) =>
       new StoredAttemptPersistenceV1Error({ cause: error.cause })
     ));
@@ -236,7 +240,7 @@ export function makeStoredAttemptAuthenticationOperationsV1(
 
   const authenticate: StoredAttemptAuthenticationV1["authenticate"] =
     Effect.fn("StoredAttemptAuthentication.authenticate")(
-      function* (authority, input) {
+      function* (authority, input, capture) {
         const decodedEnvelope = yield* decodeCommitEnvelopeV1Effect(input);
         const envelope = yield*
           requireStoredForSessionAttemptCommitEnvelopeV1Effect(
@@ -251,7 +255,7 @@ export function makeStoredAttemptAuthenticationOperationsV1(
           );
         }
         const { evidence, verified } = yield* loadAndVerifyStoredEvidence(
-          authorityCapability,
+          authorityCapability, capture,
         );
         const envelopeMismatch = yield*
           compareCallerEnvelopeWithVerifiedState(
@@ -262,7 +266,8 @@ export function makeStoredAttemptAuthenticationOperationsV1(
         if (envelopeMismatch !== undefined) {
           return yield* Effect.fail(envelopeMismatch);
         }
-        return mintAuthenticatedStoredAttempt(verified);
+        return mintAuthenticatedStoredAttempt(Object.freeze({ ...verified,
+          ...(capture === undefined ? {} : { terminalCapture: capture }) }));
       },
     );
 

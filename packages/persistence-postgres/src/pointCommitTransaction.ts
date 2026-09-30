@@ -1,3 +1,5 @@
+import { closeExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect, ScopeAuthorizationRevocationEpochPersistenceError } from "./scopeClock";
+import type { AppSchemaCandidateWriteGuardPlanningHead } from "./appSchemaCandidateValidation";
 import { sqlCall } from "./pointCommitErrors";
 import { prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, type AppUniqueConstraintSetPreparation } from "./appUniqueConstraintSetBuildV1";
 import { hasApplicationDocumentOrderedIndexComposition } from "./applicationDocumentMaterialization/indexComposition";
@@ -9,7 +11,7 @@ import { PointCommitDependencyV1, PointCommitRowIntentV1, PreparedLivePointCommi
 import { hasApplicationRelationCommitAuthorityForPointCommit } from "./applicationRelationCommit";
 import { hasAppSchemaCandidateWriteGuardComposition } from "./appSchemaCandidateValidation";
 import { PointCommitConflictV1Error, PointCommitConflictEvidenceV1, PointCommitStaleAuthorityV1Error, PointCommitStaleAuthorityReasonV1, PointCommitCorruptionV1Error, PointCommitCorruptionReasonV1, PointCommitSqlFailureMarkerV1, PointCommitSqlOperationV1, PointCommitSqlErrorV1, mapTransactionFailure, PointCommitRollbackProofV1Error, corruption, sqlError, findSqlState } from "./pointCommitErrors";
-import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, hasOwn, parseNonNegativeIntegerTextResult, parseNullableCommitSeqTextResult, decodePointCommitSeqResult, decodePointCommitCreationTimeResult, validatePointCommitDependenciesResult, findPointCommitConflictAfterEvidenceValidationResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, pointDependenciesEqual, emitTransactionStep, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidation } from "./applicationDocumentMaterialization/materialization";
+import { prepareIntrinsicIndexDefinitions, prepareDeveloperIndexDefinitions, prepareUniqueConstraintDefinitions, validateApplicationUniqueTransitionBudget, prepareCandidateSchemaWriteGuard, prepareApplicationRelationDefinitions, lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState, hasOwn, parseNonNegativeIntegerTextResult, parseNullableCommitSeqTextResult, decodePointCommitSeqResult, decodePointCommitCreationTimeResult, validatePointCommitDependenciesResult, findPointCommitConflictAfterEvidenceValidationResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions, preparePointCommitUniqueKeyActions, runCandidateSchemaWriteGuard, materializeApplicationDocumentRows, pointDependenciesEqual, emitTransactionStep, maintainPointCommitApplicationRelationsEffect, resetPointCommitDeveloperIndexValidations } from "./applicationDocumentMaterialization/materialization";
 
 import { type ScopePublicationContribution } from "./commitPublication/scopePublicationModel";
 
@@ -48,7 +50,7 @@ import { type LocatedAppUniqueConstraintDefinitionV1 } from "./appUniqueConstrai
 import { hasAppUniqueConstraintSetEligibilityPortV1, hasAppUniqueConstraintSetEligibilityCompositionV1, hasAppUniqueConstraintSetEligibilityForDefinitionPortV1, loadAppUniqueConstraintSetEligibilityV1Effect, loadAppUniqueConstraintSetEligibilityForReadinessV1Effect, validateAppUniqueConstraintSetEligibilityEvidenceInTransactionV1Effect, AppUniqueConstraintSetEligibilityV1Error, AppUniqueConstraintSetBuildIntegrationV1Error, type AppUniqueConstraintSetEligibilityInputV1, type AppUniqueConstraintSetEligibilityEvidenceV1, type AppUniqueConstraintSetEligibilityPortV1, type AppUniqueConstraintSetEligibilityResultV1, type AppUniqueConstraintSetBuildStaleAuthorityV1Error, type AppUniqueConstraintSetBuildStateV1Error, type LoadAppUniqueConstraintSetEligibilityV1Error } from "./appUniqueConstraintSetBuildV1";
 
 import type { LocatedAppIndexDefinitionV1 } from "./appIndexDefinitions";
-import { AppRowReadPersistenceError, readAppRowAtSnapshotInTransactionEffect, isAppendAppRowRevisionV1Error, type AppRowTransaction } from "./appRows";
+import { AppRowReadPersistenceError, consumeAppRowSnapshotRevisionsInTransactionEffect, isAppendAppRowRevisionV1Error, type AppRowTransaction } from "./appRows";
 import { AppRelationEdgePersistenceError, readAppRelationEdgeAdjacencyVersionInTransactionEffect, readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect } from "./appRelationEdges";
 import { ApplicationRelationCommitUnavailableError, type ApplicationRelationAdjacencyChange, type ApplicationRelationCommitPort } from "./applicationRelationCommit";
 import { readCoherentApplicationActiveHeadForShareInTransactionEffect } from "./applicationActiveHeadRead";
@@ -207,6 +209,7 @@ export interface PointCommitTransactionCommandV1
   extends PointCommitAttemptScalarCommandV1 {
   /** Full authenticated journal preserves attempted writes before net-zero coalescing. */
   readonly journalBytes?: Uint8Array;
+  readonly candidatePlanningHead?: AppSchemaCandidateWriteGuardPlanningHead;
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
   readonly indexRangeDependencies: ReadonlyArray<
     LogicalIndexRangeReadDependencyV1
@@ -2054,6 +2057,7 @@ function capturePointCommitCommandResult(
       relationDependencies,
       rowIntents,
       ...(journalBytes === undefined ? {} : { journalBytes }),
+      ...(input.candidatePlanningHead === undefined ? {} : { candidatePlanningHead: input.candidatePlanningHead }),
     });
   });
 }
@@ -4816,6 +4820,7 @@ async function runRollbackProof(
 ): Promise<PointCommitWouldCommitV1> {
   try {
     await target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+    try {
       await runPointCommitTransactionKernel(
         tx,
         preliminaryAuthority,
@@ -4830,6 +4835,7 @@ async function runRollbackProof(
       );
       await emitTransactionStep(options, command, "beforeRollback");
       throw ROLLBACK_SENTINEL;
+    } finally { closeExactAttemptScopeClockObservation(tx); }
     });
   } catch (cause) {
     if (cause === ROLLBACK_SENTINEL) return WOULD_COMMIT;
@@ -4858,6 +4864,7 @@ async function runPointCommitPublication(
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitPublicationDecisionV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+    try {
     const kernel = await runPointCommitTransactionKernel(
       tx,
       preliminaryAuthority,
@@ -4889,6 +4896,7 @@ async function runPointCommitPublication(
         commitSeq: ready.commitSeq,
       }),
     });
+    } finally { closeExactAttemptScopeClockObservation(tx); }
   });
 }
 
@@ -5173,9 +5181,7 @@ async function runPointCommitTransactionKernel(
     );
     projectPointCommitTransactionResult(relationMaintenance);
   }
-  for (const developer of developerBuilds) {
-    await resetPointCommitDeveloperIndexValidation(tx, developer.build);
-  }
+  await resetPointCommitDeveloperIndexValidations(tx, developerBuilds.map(developer => developer.build));
   return Object.freeze({
     kind: "ready",
     clock,
@@ -5235,38 +5241,58 @@ async function validateParticipantPointCorrelation(
       .toSorted((left, right) => left.effectOrdinal - right.effectOrdinal))
     if (!firstBefore.has(effect.documentId)) firstBefore.set(effect.documentId, effect);
   const rowById = new Map(command.rowIntents.map(row => [row.documentId, row] as const));
-  for (const [documentId, first] of firstBefore) {
-    const point = pointById.get(first.documentId);
-    const intent = rowById.get(documentId);
-    if (point === undefined || intent === undefined || intent.tableId !== first.tableId)
-      throw corruption("occEvidenceInvalid");
-    const historical = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-      readAppRowAtSnapshotInTransactionEffect(tx, {
-        scopeId: command.authorityPins.scopeId, tableId: first.tableId, rowId: intent.rowId,
+  const selected = [...firstBefore];
+  for (let offset = 0; offset < selected.length;) {
+    const firstEntry = selected[offset];
+    if (firstEntry === undefined) throw corruption("occEvidenceInvalid");
+    const tableId = firstEntry[1].tableId;
+    const batch: typeof selected = [];
+    while (offset < selected.length && batch.length < 32) {
+      const entry = selected[offset];
+      if (entry === undefined || entry[1].tableId !== tableId) break;
+      const intent = rowById.get(entry[0]);
+      if (intent === undefined || intent.tableId !== tableId || !pointById.has(entry[0])) {
+        if (batch.length === 0) throw corruption("occEvidenceInvalid");
+        break;
+      }
+      batch.push(entry);
+      offset++;
+    }
+    let ordinal = 0;
+    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      consumeAppRowSnapshotRevisionsInTransactionEffect(tx, {
+        scopeId: command.authorityPins.scopeId, tableId,
+        rowIds: batch.map(([documentId]) => rowById.get(documentId)!.rowId),
         snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
-      }).pipe(Effect.mapError(error => error instanceof AppRowReadPersistenceError
+      }, error => error instanceof AppRowReadPersistenceError
         ? new PointCommitSqlFailureMarkerV1("validateParticipantEvidence", error.cause ?? error)
-        : corruption("occEvidenceInvalid")))));
+        : corruption("occEvidenceInvalid"), (_rowId, historical) => Effect.gen(function* () {
+            const entry = batch[ordinal++];
+            if (entry === undefined) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+            const [documentId, first] = entry;
+            const point = pointById.get(documentId);
+            const intent = rowById.get(documentId);
+            if (point === undefined || intent === undefined) return yield* Effect.fail(corruption("occEvidenceInvalid"));
     if (point.observed.kind === "present") {
       if (historical.kind !== "live" || historical.commitSeq !== point.observed.revisionCommitSeq ||
-        first.before === null) throw corruption("occEvidenceInvalid");
-      const prior = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-        Effect.tryPromise({ try: () => canonicalizeFlarexValueV1(first.before!, "appDocument"),
-          catch: () => corruption("occEvidenceInvalid") })));
-      if (!bytesEqual(prior.canonicalBytes, historical.document.canonicalBytes)) throw corruption("occEvidenceInvalid");
+        first.before === null) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      const prior = yield* Effect.tryPromise({ try: () => canonicalizeFlarexValueV1(first.before!, "appDocument"),
+          catch: () => corruption("occEvidenceInvalid") });
+      if (!bytesEqual(prior.canonicalBytes, historical.document.canonicalBytes)) return yield* Effect.fail(corruption("occEvidenceInvalid"));
     } else if (point.observed.basis.kind === "tombstone") {
       if (historical.kind !== "tombstone" || historical.commitSeq !== point.observed.basis.revisionCommitSeq)
-        throw corruption("occEvidenceInvalid");
-    } else if (historical.kind !== "missing") throw corruption("occEvidenceInvalid");
+        return yield* Effect.fail(corruption("occEvidenceInvalid"));
+    } else if (historical.kind !== "missing") return yield* Effect.fail(corruption("occEvidenceInvalid"));
     if (point.overlayKind === "live") {
-      if (intent.kind !== "live" || point.overlayValueJson === null) throw corruption("occEvidenceInvalid");
-      const final = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-        Effect.tryPromise({ try: () => canonicalizeFlarexValueV1(point.overlayValueJson!, "appDocument"),
-          catch: () => corruption("occEvidenceInvalid") })));
-      if (!bytesEqual(final.canonicalBytes, intent.document.canonicalBytes)) throw corruption("occEvidenceInvalid");
+      if (intent.kind !== "live" || point.overlayValueJson === null) return yield* Effect.fail(corruption("occEvidenceInvalid"));
+      const final = yield* Effect.tryPromise({ try: () => canonicalizeFlarexValueV1(point.overlayValueJson!, "appDocument"),
+          catch: () => corruption("occEvidenceInvalid") });
+      if (!bytesEqual(final.canonicalBytes, intent.document.canonicalBytes)) return yield* Effect.fail(corruption("occEvidenceInvalid"));
     } else if (point.overlayKind === "deleted") {
-      if (intent.kind !== "deleted") throw corruption("occEvidenceInvalid");
-    } else throw corruption("occEvidenceInvalid");
+      if (intent.kind !== "deleted") return yield* Effect.fail(corruption("occEvidenceInvalid"));
+    } else return yield* Effect.fail(corruption("occEvidenceInvalid"));
+        })),
+    ));
   }
 }
 
@@ -5435,8 +5461,13 @@ async function lockPointCommitClock(
     ))
     .limit(2)
     .for(protection);
-  observeDrizzleQuery("lockScopeClock", query, options);
-  const rows = await sqlCall("lockScopeClock", () => query);
+  if (protection === "key share") observeDrizzleQuery("lockScopeClock", query, options);
+  const rows = protection === "no key update"
+    ? projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+      lockScopeClockRowsForOrdinaryWriteInTransactionEffect(tx, command.authorityPins.scopeId, options.observeQuery).pipe(Effect.mapError(cause =>
+        cause instanceof ScopeAuthorizationRevocationEpochPersistenceError
+          ? new PointCommitSqlFailureMarkerV1("lockScopeClock", cause.cause) : corruption("scopeClockInvalid")))))
+    : await sqlCall("lockScopeClock", () => query);
   return projectPointCommitTransactionResult(
     materializeLockedPointCommitClockResult(rows),
   );

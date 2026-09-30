@@ -24,6 +24,8 @@ import {
   createAppSchemaCandidateWriteGuardPort,
   type PreparedAppSchemaCandidateWriteGuard,
   prepareAppSchemaCandidateWriteGuardEffect,
+  captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
+  prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
   applyAppSchemaCandidateWriteGuardInTransactionEffect,
   createLocatedAppSchemaCandidateValidationTarget,
   advanceAppSchemaCandidateValidationEffect,
@@ -63,11 +65,12 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
       ));
 
       const dependencies = portDependencies(fixture);
+      const pointCommitAuthority = { scopeMetadata: dependencies.authority.scopeMetadata,
+        provisioningReceipts: dependencies.authority.provisioningReceipts,
+        scopeSessionTargets: dependencies.authority.scopeClockTargets };
       const guard = createAppSchemaCandidateWriteGuardPort({
         candidateValidation: createAppSchemaCandidateValidationPort(dependencies),
-        pointCommitAuthority: { scopeMetadata: dependencies.authority.scopeMetadata,
-          provisioningReceipts: dependencies.authority.provisioningReceipts,
-          scopeSessionTargets: dependencies.authority.scopeClockTargets },
+        pointCommitAuthority,
       });
       let preparation: PreparedAppSchemaCandidateWriteGuard;
       const blocker = await persistence.pool.connect();
@@ -90,8 +93,16 @@ describePostgres("M03-A candidate validation - PostgreSQL", () => {
           "select 1 from fx_system_app_schema_candidate_validation where scope_id = $1 for update",
           [fixture.scopeId],
         );
-        preparation = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(guard,
-          { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId }).pipe(Effect.timeout(2_000)));
+        const clock = await fixture.target.getCurrentClock(fixture.scopeId);
+        if (clock === null) throw new Error("Missing candidate capture clock.");
+        const capture = await persistence.drizzle.transaction(tx => runEffect(
+          captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx,
+            { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId, physicalLocator: LOCATOR,
+              storageGeneration: clock.storageGeneration, storageGenerationFence: clock.storageGenerationFence,
+              epoch: clock.epoch, lastCommitSeq: clock.lastCommitSeq }, pointCommitAuthority),
+        ));
+        preparation = await runEffect(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard,
+          capture).pipe(Effect.timeout(2_000)));
         const first = install(fixture, fixture.replacementSchemaVersionId);
         const second = install(fixture, fixture.emptySchemaVersionId);
         await waitForBlockedBy(persistence, blockerPid, 2);

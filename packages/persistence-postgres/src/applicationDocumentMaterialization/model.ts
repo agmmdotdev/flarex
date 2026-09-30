@@ -1,3 +1,4 @@
+import type { AppIndexMembershipHeadEvidence } from "../appIndexEntries";
 import {
   PointCommitCorruptionV1Error,
   PointCommitSqlFailureMarkerV1,
@@ -51,6 +52,7 @@ import {
 
 import {
   type AppSchemaCandidateWriteGuardPort,
+  type AppSchemaCandidateWriteGuardPlanningHead,
   type PreparedAppSchemaCandidateWriteGuard,
 } from "../appSchemaCandidateValidation";
 import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from "../intrinsicCreationTimeIndexBuildV1";
@@ -157,6 +159,7 @@ export type PreparedPointCommitRowIntentV1 =
 
 /** Shared document mechanics require no Application function, journal or session. */
 export interface ApplicationDocumentDefinitionCommand {
+  readonly candidatePlanningHead?: AppSchemaCandidateWriteGuardPlanningHead;
   readonly authorityPins: {
     readonly deploymentId: TransactionGrantDeploymentIdV1;
     readonly scopeId: ReplacementScopeIdV1;
@@ -224,6 +227,7 @@ export interface PointCommitDeveloperIndexEntryHeadV1 {
 }
 
 export interface PointCommitDeveloperIndexEntryActionV1 {
+  readonly membershipHeadEvidence: AppIndexMembershipHeadEvidence;
   readonly kind: "live" | "tombstone";
   readonly definition: LocatedAppIndexDefinitionV1;
   readonly encodedKey: OrderedIndexKeyHexV1;

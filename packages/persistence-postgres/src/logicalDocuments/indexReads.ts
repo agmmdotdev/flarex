@@ -5,7 +5,11 @@ import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import { scanAppIndexAtSnapshotInTransactionEffect, scanCurrentAppIndexInTransactionEffect, AppIndexEntryReadPersistenceError, AppIndexEntryHashError,
   MAX_APP_INDEX_RANGE_PAGE_SIZE_V1, type AppIndexRangeEntryV1, type AppIndexEntryTransaction,
   type AppIndexRangeCursorV1 } from "../appIndexEntries";
-import type { LogicalDocumentFailure } from "./model";
+import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
+
+export const logicalIndexReadFailureReason = (cause: unknown): LogicalDocumentFailureReason =>
+  cause instanceof AppIndexEntryReadPersistenceError ? "statementFailure" :
+    cause instanceof AppIndexEntryHashError ? "resourceFailure" : "storedCorruption";
 
 export interface LogicalIndexRead {
   readonly definition: LocatedAppIndexDefinitionV1;
@@ -28,8 +32,7 @@ export const readLogicalIndexPage = Effect.fn("LogicalDocuments.readIndexPage")(
   return yield* (snapshotCommitSeq === undefined
     ? scanCurrentAppIndexInTransactionEffect(tx, { scopeId, ...selection, limit }, observer)
     : scanAppIndexAtSnapshotInTransactionEffect(tx, { scopeId, ...selection, limit, snapshotCommitSeq }, observer))
-    .pipe(Effect.mapError(cause => error(cause instanceof AppIndexEntryReadPersistenceError ? "statementFailure" :
-      cause instanceof AppIndexEntryHashError ? "resourceFailure" : "storedCorruption", cause)));
+    .pipe(Effect.mapError(cause => error(logicalIndexReadFailureReason(cause), cause)));
 });
 
 /** Complete bounded membership, shared by request capture and settlement. */

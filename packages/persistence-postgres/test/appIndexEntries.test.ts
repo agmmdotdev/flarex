@@ -105,7 +105,7 @@ describe("S10 app-index revision and current storage", () => {
         });
         try {
           const reading = kind === "membership"
-            ? readAppIndexMembershipHeadsInTransactionEffect(tx, { scopeId, positions: [{ definition: locatedDefinition, encodedKey: keyA, rowId: rowA }] }).pipe(Effect.asVoid)
+            ? readAppIndexMembershipHeadsInTransactionEffect(tx, { scopeId, positions: [{ definition: locatedDefinition, encodedKey: keyA, rowId: rowA }] }).pipe(Effect.map(selection => selection.heads)).pipe(Effect.asVoid)
             : scanCurrentAppIndexInTransactionEffect(tx, { scopeId, definition: locatedDefinition, bounds: {}, limit: 10 }).pipe(Effect.asVoid);
           const exit = await runEffect(Effect.exit(reading));
           if (mode === "construction") {
@@ -362,7 +362,7 @@ describe("S10 app-index revision and current storage", () => {
             positions: [
               { definition: locatedDefinition, encodedKey: keyA, rowId: rowA },
             ],
-          }),
+          }).pipe(Effect.map(selection => selection.heads)),
         ),
       );
       expect(failure).toBeInstanceOf(AppIndexEntryStorageCorruptionError);

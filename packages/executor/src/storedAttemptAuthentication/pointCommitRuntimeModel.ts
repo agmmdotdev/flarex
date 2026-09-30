@@ -429,6 +429,9 @@ export function capturePointCommitTransactionCommand(
   const rowIntents = Object.freeze(
     state.plan.rowIntents.map(capturePointCommitRowIntent),
   );
+  const terminalCapture = state.executionAuthority.storedAttempt.terminalCapture;
+  const candidatePlanningHead = terminalCapture === undefined ? undefined :
+    confirmedFiniteRootSealCandidatePlanningHead(terminalCapture);
   return Object.freeze({
     ...scalar,
     journalBytes: copyBytes(state.plan.journalBytes),
@@ -436,6 +439,7 @@ export function capturePointCommitTransactionCommand(
     indexRangeDependencies: capturePointCommitIndexRangeDependencies(state),
     relationDependencies: capturePointCommitRelationDependencies(state),
     rowIntents,
+    ...(candidatePlanningHead === undefined ? {} : { candidatePlanningHead }),
   } satisfies PointCommitTransactionCommandV1);
 }
 
@@ -634,8 +638,12 @@ export function pointCommitPublicationCommandsEqual(
     | "rowIntents"
     | "journalBytes"
     | "successfulResult"
+    | "candidatePlanningHead"
   > extends never ? true : never = true;
   void commandFieldsAreExhaustive;
+  // Candidate planning is process-local preparation, never durable command
+  // identity. Recovery recreates it through its owner and publication always
+  // locks/rechecks the current head before applying the immutable plan.
   if (left.journalBytes === undefined || right.journalBytes === undefined
     ? left.journalBytes !== right.journalBytes
     : !bytesEqual(left.journalBytes, right.journalBytes)) return false;
@@ -913,3 +921,4 @@ function pointCommitSuccessfulResultsEqual(
       flarexValueToJsonV1(right.value),
     );
 }
+import { confirmedFiniteRootSealCandidatePlanningHead } from "@flarex/persistence-postgres/session-journal-store";

@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import { Option, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appRowIdHexV1ToBytes, decodeAppRowIdHexV1 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
@@ -9,7 +9,7 @@ import { CommitSeqSchema, FlarexDbV1StorageGenerationSchema, ScopeEpochSchema, S
   projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { decodeAppUniqueConstraintIdV1Result } from "../src/appUniqueKeyContract";
 import { AppUniqueKeyStorageCorruptionError, applyAppUniqueKeyMutationsInTransactionEffect,
-  readAppUniqueKeySlotForPublicationInTransactionEffect, readAppUniqueKeySlotInTransactionEffect } from "../src/appUniqueKeys";
+  withAppUniqueKeySlotsInTransactionEffect, readAppUniqueKeySlotInTransactionEffect } from "../src/appUniqueKeys";
 import { AppRowStorageCorruptionError, appendPreparedAppRowRevisionsInTransactionEffect,
   readBoundedCurrentAppRowsInTransactionEffect, readBoundedPublicationAppRowsInTransactionEffect } from "../src/appRows";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
@@ -52,8 +52,8 @@ export async function verifyPublicationSlotFinalState(tx: FlarexMetadataTransact
     { ...bounded, pendingCommitSeq: pending }))).toBeInstanceOf(AppRowStorageCorruptionError);
   expect(await runEffectFailure(readAppUniqueKeySlotInTransactionEffect(tx, selection)))
     .toBeInstanceOf(AppUniqueKeyStorageCorruptionError);
-  expect(await runEffectFailure(readAppUniqueKeySlotForPublicationInTransactionEffect(tx,
-    { ...selection, pendingCommitSeq: pending }))).toBeInstanceOf(AppUniqueKeyStorageCorruptionError);
+  expect(await runEffectFailure(withAppUniqueKeySlotsInTransactionEffect(tx,
+    [{ ...selection, pendingCommitSeq: pending }], cause => cause, capture => capture.read(0)).pipe(Effect.map(owners => owners[0]!)))).toBeInstanceOf(AppUniqueKeyStorageCorruptionError);
 
   await tx.insert(fxSystemCommits).values({ scopeUuid, epochUuid, commitSeq: pending, changeCount: 1 });
   await tx.insert(fxSystemCommitAppRowChanges).values({ scopeUuid, epochUuid, commitSeq: pending,
@@ -66,13 +66,13 @@ export async function verifyPublicationSlotFinalState(tx: FlarexMetadataTransact
     .toBeInstanceOf(AppRowStorageCorruptionError);
   expect(await runEffectFailure(readBoundedPublicationAppRowsInTransactionEffect(tx,
     { ...bounded, pendingCommitSeq: CommitSeqSchema.make(102n) }))).toBeInstanceOf(AppRowStorageCorruptionError);
-  const slot = await runEffect(readAppUniqueKeySlotForPublicationInTransactionEffect(tx,
-    { ...selection, pendingCommitSeq: pending }));
+  const slot = await runEffect(withAppUniqueKeySlotsInTransactionEffect(tx,
+    [{ ...selection, pendingCommitSeq: pending }], cause => cause, capture => capture.read(0)).pipe(Effect.map(owners => owners[0]!)));
   expect(Option.isSome(slot)).toBe(true);
   if (Option.isSome(slot)) expect(slot.value).toMatchObject({ tableId, rowId, ownerCommitSeq: pending });
   expect(await runEffectFailure(readAppUniqueKeySlotInTransactionEffect(tx, selection)))
     .toBeInstanceOf(AppUniqueKeyStorageCorruptionError);
-  expect(await runEffectFailure(readAppUniqueKeySlotForPublicationInTransactionEffect(tx,
-    { ...selection, pendingCommitSeq: CommitSeqSchema.make(102n) })))
+  expect(await runEffectFailure(withAppUniqueKeySlotsInTransactionEffect(tx,
+    [{ ...selection, pendingCommitSeq: CommitSeqSchema.make(102n) }], cause => cause, capture => capture.read(0)).pipe(Effect.map(owners => owners[0]!))))
     .toBeInstanceOf(AppUniqueKeyStorageCorruptionError);
 }

@@ -1552,7 +1552,7 @@ const ensureCurrentIndexEntry = Effect.fn(
         }),
     ),
   );
-  const heads = yield* readAppIndexMembershipHeadsInTransactionEffect(tx, {
+  const selection = yield* readAppIndexMembershipHeadsInTransactionEffect(tx, {
     scopeId: state.scopeId,
     positions: [{ definition, encodedKey, rowId }],
   }).pipe(
@@ -1572,7 +1572,7 @@ const ensureCurrentIndexEntry = Effect.fn(
           }),
     ),
   );
-  const head = heads[0] ?? null;
+  const head = selection.heads[0] ?? null;
   if (head !== null) {
     if (
       head.commitSeq > current.commitSeq ||

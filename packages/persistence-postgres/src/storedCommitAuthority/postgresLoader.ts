@@ -1,6 +1,7 @@
 import { isTerminalTransactionSessionLifecycleV1 } from "../transactionSessionAttemptFacet";
 import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
+import { readConfirmedFiniteRootSealCapture, type ConfirmedFiniteRootSealCapture } from "../sessionJournalStore";
 
 import {
   MAX_SCHEMA_MANIFEST_APP_TABLES,
@@ -125,11 +126,18 @@ export function createStoredCommitAuthorityEvidenceLoaderV1(
 ): StoredCommitAuthorityEvidenceLoaderV1 {
   const loadEffect = Effect.fn("StoredCommitAuthority.load")(function* (
     input: StoredCommitAuthorityEvidenceAuthorityV1,
+    capture?: ConfirmedFiniteRootSealCapture,
   ): Effect.fn.Return<
     StoredCommitAuthorityEvidenceLoadResultV1,
     StoredCommitAuthorityEvidencePersistenceV1Error
   > {
     const authority = captureAuthority(input);
+    if (capture !== undefined) {
+      const captured = readConfirmedFiniteRootSealCapture(capture, ports);
+      if (captured === undefined) return Object.freeze({ kind: "corrupt", reason: "authorityProjectionInvalid" });
+      return yield* materializeEffect(authority, captured.preliminaryAuthority,
+        captured.authorityRows, options);
+    }
     const capturedResult = yield* captureStoredCommitAuthorityRowsEffect(
       ports,
       authority,
@@ -156,6 +164,55 @@ interface ApplicationGraphSelector {
   readonly functionPath: string;
   readonly applicationSchemaSha256: Uint8Array;
 }
+
+export interface PreparedTerminalControl {
+  readonly schemaSizeRows: ReadonlyArray<SchemaSizeRow>;
+  readonly schemaPayloadRows: ReadonlyArray<SchemaPayloadRow>;
+  readonly schemaAuthoritySizeRows: Readonly<Awaited<ReturnType<typeof selectApplicationSchemaAuthoritySizeRows>>>;
+  readonly schemaAuthorityPayloadRows: Readonly<Awaited<ReturnType<typeof selectApplicationSchemaAuthorityPayloadRows>>>;
+  readonly bindingRows: ReadonlyArray<unknown>;
+}
+
+/** Immutable control preparation only. The target capture still authenticates
+ * the complete selected graph and admits all representations before decoding. */
+export const prepareTerminalControlEffect = Effect.fn("StoredCommitAuthority.prepareTerminalControl")(function* (
+  ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
+  authority: StoredCommitAuthorityCaptureAuthorityV1,
+  session: SessionSizeRow | undefined,
+): Effect.fn.Return<PreparedTerminalControl | undefined, StoredCommitAuthorityEvidencePersistenceV1Error> {
+  const selector = captureApplicationGraphSelector(session);
+  if (session?.executionAuthorityGeneration !== "application_v1") return undefined;
+  if (selector === undefined || ports.applicationControlDb === undefined) {
+    return yield* Effect.fail(new StoredCommitAuthorityEvidencePersistenceV1Error({
+      operation: "beforeSchemaArtifactDecode", cause: "Application terminal control evidence unavailable",
+    }));
+  }
+  const db = ports.applicationControlDb;
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const schemaSizeRows = detachDriverRows(await selectSchemaSizeRows(db, authority.deploymentId, authority.schemaVersionId));
+      const schemaAuthoritySizeRows = detachDriverRows(await selectApplicationSchemaAuthoritySizeRows(db, authority.deploymentId, selector.applicationSchemaSha256, {}));
+      const size = schemaSizeRows[0];
+      const schemaLengths = size === undefined ? [] : [size.manifestJsonByteLengthText, size.manifestCanonicalByteLengthText].map(parseLength);
+      const bindingLength = parseLength(schemaAuthoritySizeRows[0]?.schemaBindingByteLengthText);
+      const admitted = schemaSizeRows.length === 1 && schemaLengths.every(value => value !== undefined) &&
+        schemaLengths.reduce((total, value) => total + (value ?? 0), 0) + (bindingLength ?? 0) <=
+          MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1;
+      const schemaPayloadRows = admitted ? detachSchemaPayloadRows(await db.select({
+        deploymentId: fxControlSchemaVersions.deploymentId, schemaVersionId: fxControlSchemaVersions.schemaVersionId,
+        version: fxControlSchemaVersions.version, manifestCodecVersion: fxControlSchemaVersions.manifestCodecVersion,
+        manifestJsonText: sql<string>`${fxControlSchemaVersions.manifestJson}::text`,
+        manifestBytes: fxControlSchemaVersions.manifestBytes, manifestSha256: fxControlSchemaVersions.manifestSha256,
+        createdAt: fxControlSchemaVersions.createdAt,
+      }).from(fxControlSchemaVersions).where(and(eq(fxControlSchemaVersions.deploymentId, authority.deploymentId), eq(fxControlSchemaVersions.schemaVersionId, authority.schemaVersionId))).limit(2)) : Object.freeze([]);
+      const schemaAuthorityPayloadRows = admitted && bindingLength !== undefined
+        ? detachDriverRows(await selectApplicationSchemaAuthorityPayloadRows(db, authority.deploymentId, selector.applicationSchemaSha256, {})) : Object.freeze([]);
+      return Object.freeze({ schemaSizeRows, schemaPayloadRows, schemaAuthoritySizeRows,
+        schemaAuthorityPayloadRows, bindingRows: admitted ? await selectTerminalStableBindings(db, authority, {}) : Object.freeze([]) });
+    },
+    catch: cause => new StoredCommitAuthorityEvidencePersistenceV1Error({ operation: "beforeSchemaArtifactDecode", cause }),
+  });
+});
 
 const DECIMAL_SEQUENCE = /^[1-9][0-9]*$/;
 const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/;
@@ -275,7 +332,7 @@ export const captureStoredCommitAuthorityRowsEffect = Effect.fn(
     Effect.tryPromise({
       try: () =>
         repeatableReadTarget[RUN_LOCATED_REPEATABLE_READ_V1]((tx) =>
-          captureRows(tx, authority, ports, options, includeAttemptChildren),
+          captureStoredCommitAuthorityRowsInTransaction(tx, authority, ports, options, includeAttemptChildren),
         ),
       catch: (cause) =>
         new StoredCommitAuthorityEvidencePersistenceV1Error({
@@ -338,12 +395,13 @@ function captureAuthority(
   });
 }
 
-async function captureRows(
+export async function captureStoredCommitAuthorityRowsInTransaction(
   tx: AppRowTransaction,
   authority: StoredCommitAuthorityCaptureAuthorityV1,
   ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
   includeAttemptChildren: boolean,
+  preparedControl?: PreparedTerminalControl,
 ): Promise<CapturedRowsV1> {
   // Each join uses the complete primary key; absent children stay absent.
   // Keep large session and sealed-journal payloads behind size admission.
@@ -433,7 +491,7 @@ async function captureRows(
   if (schemaSizeQuery !== null) {
     observeDrizzleQuery("schemaSizes", schemaSizeQuery, options.observeQuery);
   }
-  const schemaSizeRows = schemaSizeQuery === null
+  const schemaSizeRows = preparedControl !== undefined ? preparedControl.schemaSizeRows : schemaSizeQuery === null
     ? Object.freeze([])
     : await schemaSizeQuery;
   const scopeApplicationGraphSizeRows = applicationSelector !== undefined
@@ -450,7 +508,7 @@ async function captureRows(
     : Object.freeze([]);
   const scopeApplicationGraphSize = scopeApplicationGraphSizeRows[0];
   const applicationGraphKind = scopeApplicationGraphSize?.kind;
-  const schemaAuthoritySizeRows = applicationSelector !== undefined &&
+  const schemaAuthoritySizeRows = preparedControl !== undefined ? preparedControl.schemaAuthoritySizeRows : applicationSelector !== undefined &&
       applicationGraphKind === "legacy" &&
       ports.applicationControlDb !== undefined
     ? await selectApplicationSchemaAuthoritySizeRows(
@@ -561,7 +619,7 @@ async function captureRows(
       options.observeQuery,
     );
   }
-  const schemaPayloadRows = schemaPayloadQuery === null
+  const schemaPayloadRows = preparedControl !== undefined ? preparedControl.schemaPayloadRows : schemaPayloadQuery === null
     ? Object.freeze([])
     : await schemaPayloadQuery;
   const scopeApplicationGraphPayloadRows = applicationGraphSizeRows.length === 1 &&
@@ -578,7 +636,7 @@ async function captureRows(
         options,
       )
     : Object.freeze([]);
-  const schemaAuthorityPayloadRows = applicationGraphSizeRows.length === 1 &&
+  const schemaAuthorityPayloadRows = preparedControl !== undefined ? preparedControl.schemaAuthorityPayloadRows : applicationGraphSizeRows.length === 1 &&
       applicationGraphKind === "legacy" && applicationSelector !== undefined &&
       ports.applicationControlDb !== undefined
     ? await selectApplicationSchemaAuthorityPayloadRows(
@@ -606,50 +664,7 @@ async function captureRows(
       })]);
     }
   }
-  const bindingStatement = sql`
-    select
-      declared.ordinality::bigint::text as "ordinalText",
-      case
-        when jsonb_typeof(declared.value -> 'tableId') = 'number'
-          then declared.value ->> 'tableId'
-        else null
-      end as "declaredTableIdText",
-      stable.table_id::text as "stableTableIdText"
-    from fx_control_schema_version as schema_version
-    cross join lateral jsonb_array_elements(
-      case
-        when jsonb_typeof(
-          schema_version.manifest_json #> '{tableDefinitions,tables}'
-        ) = 'array'
-          then schema_version.manifest_json #> '{tableDefinitions,tables}'
-        else '[]'::jsonb
-      end
-    ) with ordinality as declared(value, ordinality)
-    left join fx_control_table as stable
-      on stable.deployment_id = schema_version.deployment_id
-      and stable.namespace = 'app'
-      and stable.logical_name = case
-        when jsonb_typeof(declared.value -> 'logicalName') = 'string'
-          then declared.value ->> 'logicalName'
-        else null
-      end
-    where schema_version.deployment_id = ${authority.deploymentId}
-      and schema_version.schema_version_id = ${authority.schemaVersionId}
-    order by declared.ordinality asc
-    limit ${MAX_SCHEMA_MANIFEST_APP_TABLES + 1}
-  `;
-  options.observeQuery?.(Object.freeze({
-    name: "stableBindings",
-    sql: "bounded pinned-manifest ordinality binding join",
-    params: Object.freeze([
-      authority.deploymentId,
-      authority.schemaVersionId,
-      MAX_SCHEMA_MANIFEST_APP_TABLES + 1,
-    ]),
-  }));
-  const bindingResult: unknown = schemaDb === undefined
-    ? Object.freeze({ rows: Object.freeze([]) })
-    : await schemaDb.execute(bindingStatement);
+  const bindingRows = preparedControl?.bindingRows ?? await selectTerminalStableBindings(schemaDb, authority, options);
 
   return Object.freeze({
     clockRows: detachDriverRows(clockRows),
@@ -665,16 +680,7 @@ async function captureRows(
     schemaPayloadRows: detachSchemaPayloadRows(schemaPayloadRows),
     applicationGraphPayloadRows:
       detachApplicationGraphPayloadRows(applicationGraphPayloadRows),
-    bindingRows: detachUnknownDriverRows(
-      rowsFromDriverExecuteResult(
-        bindingResult,
-        () => {
-          throw new Error(
-            "Stable-binding query returned an invalid driver result.",
-          );
-        },
-      ),
-    ),
+    bindingRows,
   });
 }
 
@@ -698,7 +704,7 @@ async function selectExecutionClaimRows(
   return await query;
 }
 
-async function selectAttemptChildExistenceRows(
+export async function selectAttemptChildExistenceRows(
   tx: AppRowTransaction,
   scopeUuid: ScopeUuidV1,
   sessionId: TransactionSessionIdV1,
@@ -1451,4 +1457,57 @@ function detachSchemaPayloadRows(
     manifestBytes: new Uint8Array(row.manifestBytes),
     manifestSha256: new Uint8Array(row.manifestSha256),
   })));
+}
+
+async function selectTerminalStableBindings(schemaDb: AppRowTransaction | FlarexMetadataDatabase | undefined, authority: StoredCommitAuthorityCaptureAuthorityV1, options: StoredCommitAuthorityEvidenceLoaderOptionsV1) {
+  const bindingStatement = sql`
+    select
+      declared.ordinality::bigint::text as "ordinalText",
+      case
+        when jsonb_typeof(declared.value -> 'tableId') = 'number'
+          then declared.value ->> 'tableId'
+        else null
+      end as "declaredTableIdText",
+      stable.table_id::text as "stableTableIdText"
+    from fx_control_schema_version as schema_version
+    cross join lateral jsonb_array_elements(
+      case
+        when jsonb_typeof(
+          schema_version.manifest_json #> '{tableDefinitions,tables}'
+        ) = 'array'
+          then schema_version.manifest_json #> '{tableDefinitions,tables}'
+        else '[]'::jsonb
+      end
+    ) with ordinality as declared(value, ordinality)
+    left join fx_control_table as stable
+      on stable.deployment_id = schema_version.deployment_id
+      and stable.namespace = 'app'
+      and stable.logical_name = case
+        when jsonb_typeof(declared.value -> 'logicalName') = 'string'
+          then declared.value ->> 'logicalName'
+        else null
+      end
+    where schema_version.deployment_id = ${authority.deploymentId}
+      and schema_version.schema_version_id = ${authority.schemaVersionId}
+    order by declared.ordinality asc
+    limit ${MAX_SCHEMA_MANIFEST_APP_TABLES + 1}
+  `;
+  options.observeQuery?.(Object.freeze({
+    name: "stableBindings",
+    sql: "bounded pinned-manifest ordinality binding join",
+    params: Object.freeze([
+      authority.deploymentId,
+      authority.schemaVersionId,
+      MAX_SCHEMA_MANIFEST_APP_TABLES + 1,
+    ]),
+  }));
+  const bindingResult: unknown = schemaDb === undefined
+    ? Object.freeze({ rows: Object.freeze([]) })
+    : await schemaDb.execute(bindingStatement);
+
+  return detachUnknownDriverRows(rowsFromDriverExecuteResult(bindingResult, () => { throw new Error("Stable-binding query returned an invalid driver result."); }));
+}
+
+export async function captureTerminalSessionSizeInTransaction(tx: AppRowTransaction, scopeUuid: ScopeUuidV1, sessionId: TransactionSessionIdV1) {
+  return detachDriverRows(await tx.select(sessionSizeFields).from(fxSystemTransactionSessions).where(and(eq(fxSystemTransactionSessions.scopeUuid, scopeUuid), eq(fxSystemTransactionSessions.sessionId, sessionId))).limit(2));
 }

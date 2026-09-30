@@ -170,6 +170,7 @@ export function makeStoredPointCommitPlanningOperationsV1(
     }
     const loadResult = yield* configuration.evidenceLoader.loadEffect(
         captureCommitAuthorityPort(storedAttempt),
+        storedAttempt.terminalCapture,
       ).pipe(Effect.mapError((error) =>
         new StoredCommitAuthorityPersistenceV1Error({ cause: error.cause })
       ));

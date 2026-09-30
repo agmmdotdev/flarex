@@ -8,7 +8,7 @@ import { validateApplicationUniqueTransitionBudget,
   lockPointCommitIntrinsicIndexBuilds, lockPointCommitDeveloperIndexBuilds, loadPointCommitHeads, loadApplicationDocumentPriorState,
   validatePointCommitDependenciesResult, preparePointCommitApplicationRelationPlan, preparePointCommitDeveloperIndexActions,
   preparePointCommitUniqueKeyActions, materializeApplicationDocumentRows, maintainPointCommitApplicationRelationsEffect,
-  resetPointCommitDeveloperIndexValidation } from "../applicationDocumentMaterialization/materialization";
+  resetPointCommitDeveloperIndexValidations } from "../applicationDocumentMaterialization/materialization";
 import { PointCommitSqlFailureMarkerV1, PointCommitSqlErrorV1, PointCommitConflictV1Error,
   PointCommitDeveloperIndexMaintenanceUnavailableV1Error, mapTransactionFailure } from "../pointCommitErrors";
 import { AppUniqueKeyConflictError } from "../appUniqueKeys";
@@ -261,10 +261,9 @@ export const enterLogicalDocumentMaterialization = Effect.fn("LogicalDocumentMat
                   : logicalMaterializationError("storedCorruption", cause),
             ),
           );
-        for (const index of selectedDeveloper)
-          yield* participantKernel(() =>
-            resetPointCommitDeveloperIndexValidation(tx, index.build),
-          );
+        yield* participantKernel(() =>
+          resetPointCommitDeveloperIndexValidations(tx, selectedDeveloper.map(index => index.build)),
+        );
 
         loweredCommitSeq = commitSeq;
         if (prepared.batch === true) {

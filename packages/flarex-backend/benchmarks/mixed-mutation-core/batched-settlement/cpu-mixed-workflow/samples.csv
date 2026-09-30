@@ -1,0 +1,5 @@
+"id","workload","temperature","index","status","wallMs","workerConstructionMs","failureStage","failureName","failureCode","failureReason","latencyAcceptance"
+"mixedWorkflow-warm-0-0","mixedWorkflow","warmup","0","ok","1474.587099999997","109.47239999999874","","","","","false"
+"mixedWorkflow-warm-0-1","mixedWorkflow","warm","1","ok","1138.9541000000027","81.06979999999749","","","","","false"
+"mixedWorkflow-warm-0-2","mixedWorkflow","warm","2","ok","1098.5599000000002","78.51100000000588","","","","","false"
+"mixedWorkflow-cold-0-0","mixedWorkflow","cold","0","ok","1215.324900000007","89.39409999999043","","","","","false"

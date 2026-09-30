@@ -138,6 +138,7 @@ import {
   AppIndexEntryWritePersistenceError,
   AppIndexEntryReadPersistenceError,
   readAppIndexMembershipHeadsInTransactionEffect,
+  type AppIndexMembershipHeadEvidence,
   type AppIndexEntryPositionV1,
   type AppendAppIndexEntryRevisionV1Input,
 } from "../appIndexEntries";
@@ -172,6 +173,7 @@ import { ReadApplicationRelationBindingError } from "../applicationRelationBindi
 import {
   applyAppSchemaCandidateWriteGuardInTransactionEffect,
   prepareAppSchemaCandidateWriteGuardEffect,
+  prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
   AppSchemaCandidateWriteGuardError,
   type AppSchemaCandidateWriteGuardPort,
   type PreparedAppSchemaCandidateWriteGuard,
@@ -478,10 +480,9 @@ export const prepareCandidateSchemaWriteGuard = Effect.fn(
       }),
     );
   }
-  const prepared = yield* prepareAppSchemaCandidateWriteGuardEffect(guard, {
-    deploymentId: command.authorityPins.deploymentId,
-    scopeId: command.authorityPins.scopeId,
-  });
+  const prepared = yield* (command.candidatePlanningHead === undefined
+    ? prepareAppSchemaCandidateWriteGuardEffect(guard, { deploymentId: command.authorityPins.deploymentId, scopeId: command.authorityPins.scopeId })
+    : prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, command.candidatePlanningHead));
   return Object.freeze({ guard, prepared });
 });
 
@@ -672,7 +673,7 @@ export async function materializeApplicationDocumentRows(
     ...intrinsicActions.values(),
     ...developerIndexActions.map(action => ({
       kind: action.kind, scopeId: command.authorityPins.scopeId, definition: action.definition,
-      encodedKey: action.encodedKey, rowId: action.rowId, writeEpoch, commitSeq,
+      encodedKey: action.encodedKey, rowId: action.rowId, writeEpoch, commitSeq, membershipHeadEvidence: action.membershipHeadEvidence,
     })),
   ];
   if (indexActions.length > 0) {
@@ -689,9 +690,7 @@ export async function materializeApplicationDocumentRows(
     for (let i = 0; i < developerIndexActions.length; i++)
       await emitTransactionStep(options, command, "developerIndexEntryWritten");
   }
-  for (const intrinsic of intrinsicBuilds) {
-    await resetPointCommitIntrinsicIndexValidation(tx, intrinsic.build);
-  }
+  await resetPointCommitIndexValidations(tx, intrinsicBuilds.map(intrinsic => intrinsic.build), "intrinsic");
   await writePointCommitUniqueKeyActions(
     tx,
     command,
@@ -1450,12 +1449,12 @@ export async function preparePointCommitDeveloperIndexActions(
     command,
     positions,
   );
-  const actions: PointCommitDeveloperIndexEntryActionV1[] = [];
+  const actions: Omit<PointCommitDeveloperIndexEntryActionV1, "membershipHeadEvidence">[] = [];
   for (const plan of plans) {
     const priorHead =
       plan.priorKey === null
         ? null
-        : (heads.get(
+        : (heads.heads.get(
             developerIndexPositionKey(
               plan.definition.indexDefinitionId,
               plan.priorKey,
@@ -1465,7 +1464,7 @@ export async function preparePointCommitDeveloperIndexActions(
     const finalHead =
       plan.finalKey === null
         ? null
-        : (heads.get(
+        : (heads.heads.get(
             developerIndexPositionKey(
               plan.definition.indexDefinitionId,
               plan.finalKey,
@@ -1535,7 +1534,7 @@ export async function preparePointCommitDeveloperIndexActions(
     });
   }
   actions.sort(compareDeveloperIndexEntryActions);
-  return Object.freeze(actions);
+  return Object.freeze(actions.map(action => Object.freeze({ ...action, membershipHeadEvidence: heads.evidence })));
 }
 
 export async function preparePointCommitUniqueKeyActions(
@@ -1988,7 +1987,7 @@ async function loadPointCommitDeveloperIndexEntryHeads(
   tx: AppRowTransaction,
   command: ApplicationDocumentMaterializationCommand,
   positions: ReadonlyArray<PointCommitDeveloperIndexPositionV1>,
-): Promise<ReadonlyMap<string, PointCommitDeveloperIndexEntryHeadV1>> {
+): Promise<Readonly<{ heads: ReadonlyMap<string, PointCommitDeveloperIndexEntryHeadV1>; evidence: AppIndexMembershipHeadEvidence }>> {
   const entries = projectPointCommitTransactionResult(
     await runPointCommitInTransactionEffect(
       readAppIndexMembershipHeadsInTransactionEffect(tx, {
@@ -2004,7 +2003,7 @@ async function loadPointCommitDeveloperIndexEntryHeads(
     const position = positions[index];
     if (position === undefined)
       throw corruption("developerIndexTransitionInvalid");
-    const head = entries[index];
+    const head = entries.heads[index];
     heads.set(
       developerIndexPositionKey(
         position.definitionId,
@@ -2017,7 +2016,7 @@ async function loadPointCommitDeveloperIndexEntryHeads(
       }),
     );
   }
-  return heads;
+  return { heads, evidence: entries.evidence };
 }
 
 function developerIndexPositionKey(
@@ -2029,8 +2028,8 @@ function developerIndexPositionKey(
 }
 
 function compareDeveloperIndexEntryActions(
-  left: PointCommitDeveloperIndexEntryActionV1,
-  right: PointCommitDeveloperIndexEntryActionV1,
+  left: Omit<PointCommitDeveloperIndexEntryActionV1, "membershipHeadEvidence">,
+  right: Omit<PointCommitDeveloperIndexEntryActionV1, "membershipHeadEvidence">,
 ): number {
   return (
     left.definition.indexDefinitionId - right.definition.indexDefinitionId ||
@@ -2130,40 +2129,31 @@ export const runCandidateSchemaWriteGuard = Effect.fn(
     ),
 );
 
-export async function resetPointCommitDeveloperIndexValidation(
-  tx: AppRowTransaction,
-  build: IndexBuildStateRecord,
+export async function resetPointCommitDeveloperIndexValidations(
+  tx: AppRowTransaction, builds: readonly IndexBuildStateRecord[],
 ): Promise<void> {
-  if (build.lifecycle !== "validating") return;
-  const updated = await sqlCall("resetDeveloperIndexValidation", () =>
-    tx
-      .update(fxSystemIndexBuildStates)
-      .set({
-        backfillCursorRowId: null,
-        updatedAt: sql`clock_timestamp()`,
-      })
-      .where(
-        and(
+  await resetPointCommitIndexValidations(tx, builds, "developer");
+}
+
+async function resetPointCommitIndexValidations(
+  tx: AppRowTransaction, builds: readonly IndexBuildStateRecord[], family: "intrinsic" | "developer",
+): Promise<void> {
+  const selected = builds.filter(build => build.lifecycle === "validating");
+  for (let offset = 0; offset < selected.length; offset += 32) {
+    const batch = selected.slice(offset, offset + 32);
+    const updated = await sqlCall(family === "intrinsic" ? "resetIntrinsicIndexValidation" : "resetDeveloperIndexValidation", () =>
+      tx.update(fxSystemIndexBuildStates).set({ backfillCursorRowId: null, updatedAt: sql`clock_timestamp()` })
+        .where(or(...batch.map(build => and(
           eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
-          eq(
-            fxSystemIndexBuildStates.indexDefinitionId,
-            build.indexDefinitionId,
-          ),
-          eq(
-            fxSystemIndexBuildStates.storageGenerationFence,
-            build.storageGenerationFence,
-          ),
+          eq(fxSystemIndexBuildStates.indexDefinitionId, build.indexDefinitionId),
+          eq(fxSystemIndexBuildStates.storageGenerationFence, build.storageGenerationFence),
           eq(fxSystemIndexBuildStates.epoch, build.epoch),
           eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
           eq(fxSystemIndexBuildStates.lifecycle, "validating"),
-        ),
-      )
-      .returning({
-        indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId,
-      }),
-  );
-  if (updated.length !== 1) {
-    throw corruption("developerIndexBuildInvalid");
+        )))).returning({ scopeId: fxSystemIndexBuildStates.scopeId, indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId }));
+    if (updated.length !== batch.length || batch.some(build => updated.filter(row =>
+      row.scopeId === build.scopeId && row.indexDefinitionId === build.indexDefinitionId).length !== 1))
+      throw corruption(family === "intrinsic" ? "intrinsicIndexBuildInvalid" : "developerIndexBuildInvalid");
   }
 }
 
@@ -2174,24 +2164,22 @@ export async function lockPointCommitIntrinsicIndexBuilds(
   command: ApplicationDocumentMaterializationCommand,
 ): Promise<ReadonlyArray<LockedPointCommitIntrinsicIndexV1>> {
   const locked: LockedPointCommitIntrinsicIndexV1[] = [];
-  for (const definition of definitions) {
-    const rows = await sqlCall("lockIntrinsicIndexBuild", () =>
-      tx
-        .select()
-        .from(fxSystemIndexBuildStates)
-        .where(
-          and(
-            eq(fxSystemIndexBuildStates.scopeId, command.authorityPins.scopeId),
-            eq(
-              fxSystemIndexBuildStates.indexDefinitionId,
-              definition.indexDefinitionId,
-            ),
-          ),
-        )
-        .limit(1)
-        .for("share"),
-    );
-    const row = rows[0];
+  if (definitions.length === 0) return Object.freeze(locked);
+  if (new Set(definitions.map(definition => definition.indexDefinitionId)).size !== definitions.length)
+    throw corruption("intrinsicIndexBuildInvalid");
+  for (let offset = 0; offset < definitions.length; offset += 32) {
+    const batch = definitions.slice(offset, offset + 32);
+    // PostgreSQL locks after this explicit input-ordinal sort. It retains the
+    // former definition order rather than introducing a new build-ID order.
+    const order = sql<number>`case ${fxSystemIndexBuildStates.indexDefinitionId} ${sql.join(batch.map((definition, ordinal) =>
+      sql`when ${definition.indexDefinitionId} then ${ordinal}`), sql` `)} end`;
+    const rows = await sqlCall("lockIntrinsicIndexBuild", () => tx.select().from(fxSystemIndexBuildStates)
+      .where(and(eq(fxSystemIndexBuildStates.scopeId, command.authorityPins.scopeId),
+        inArray(fxSystemIndexBuildStates.indexDefinitionId, batch.map(definition => definition.indexDefinitionId))))
+      .orderBy(order).for("share"));
+    for (const definition of batch) {
+      const row = rows.find(member => member.indexDefinitionId === definition.indexDefinitionId);
+
     if (row === undefined) throw corruption("intrinsicIndexBuildInvalid");
     const state = projectPointCommitTransactionResult(
       decodeIndexBuildStateRowResult(
@@ -2215,6 +2203,7 @@ export async function lockPointCommitIntrinsicIndexBuilds(
       ).pipe(Result.mapError(() => corruption("intrinsicIndexBuildInvalid"))),
     );
     locked.push(Object.freeze({ definition, build: state }));
+  }
   }
   return Object.freeze(locked);
 }
@@ -2267,7 +2256,7 @@ const prepareIntrinsicIndexActionsEffect = Effect.fn(
     );
     positions.push({ row, build, definition, encodedKey, rowId });
   }
-  const heads = yield* readAppIndexMembershipHeadsInTransactionEffect(tx, {
+  const selection = yield* readAppIndexMembershipHeadsInTransactionEffect(tx, {
     scopeId,
     positions,
   }).pipe(
@@ -2280,6 +2269,7 @@ const prepareIntrinsicIndexActionsEffect = Effect.fn(
         : failure,
     ),
   );
+  const heads = selection.heads;
   const actions = new Map<
     AppendPreparedAppRowRevisionV1Input,
     AppendAppIndexEntryRevisionV1Input
@@ -2328,6 +2318,7 @@ const prepareIntrinsicIndexActionsEffect = Effect.fn(
       }
     }
     actions.set(row, {
+      membershipHeadEvidence: selection.evidence,
       kind: row.kind,
       scopeId: row.scopeId,
       definition,
@@ -2340,42 +2331,6 @@ const prepareIntrinsicIndexActionsEffect = Effect.fn(
   return actions;
 });
 
-async function resetPointCommitIntrinsicIndexValidation(
-  tx: AppRowTransaction,
-  build: IndexBuildStateRecord,
-): Promise<void> {
-  if (build.lifecycle !== "validating") return;
-  const updated = await sqlCall("resetIntrinsicIndexValidation", () =>
-    tx
-      .update(fxSystemIndexBuildStates)
-      .set({
-        backfillCursorRowId: null,
-        updatedAt: sql`clock_timestamp()`,
-      })
-      .where(
-        and(
-          eq(fxSystemIndexBuildStates.scopeId, build.scopeId),
-          eq(
-            fxSystemIndexBuildStates.indexDefinitionId,
-            build.indexDefinitionId,
-          ),
-          eq(
-            fxSystemIndexBuildStates.storageGenerationFence,
-            build.storageGenerationFence,
-          ),
-          eq(fxSystemIndexBuildStates.epoch, build.epoch),
-          eq(fxSystemIndexBuildStates.attemptFence, build.attemptFence),
-          eq(fxSystemIndexBuildStates.lifecycle, "validating"),
-        ),
-      )
-      .returning({
-        indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId,
-      }),
-  );
-  if (updated.length !== 1) {
-    throw corruption("intrinsicIndexBuildInvalid");
-  }
-}
 
 function prepareTentativePointCommitRowResult(
   writeEpoch: ScopeEpoch,

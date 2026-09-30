@@ -1,13 +1,13 @@
 # Batched authoritative settlement
 
-Status: **audited focused planning preflight; runtime scope agreement pending.**
+Status: **delivered for the existing private profiles; structural cost gates passed. Final mixed latency targets remain unmet.**
 Reconciled against delivered [15](./15-admission-protection-preflight.md) and
 [16](./16-batched-read-execution-preflight.md). The
 [successor roadmap](./14-execution-redesign-roadmap.md) owns sequence and final
-acceptance. This proposal changes internal capture/provenance and transaction
+acceptance. This approved slice changes internal capture/provenance and transaction
 orchestration within the accepted architecture; it does not amend the accepted
-design or authorize runtime, durable-format, schema, locking, host or activation
-changes. The internal cutover requires scope agreement before implementation.
+design. The internal runtime cutover is delivered; durable-format, schema, locking, host
+and activation changes remain outside this slice.
 
 ## Connected outcome and evidence
 
@@ -26,7 +26,8 @@ local tentative construction and bounded storage frontiers. Its
 [measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/bounded-read-execution/README.md)
 are **643 / 670 / 1,034 / 354** driver dispatches and **29 / 30 / 43 / 6** explicit
 transactions for Product, Product + Payload, mixed workflow and standalone.
-Each mixed graph still has five seal/OCC and two publication transactions.
+That baseline has five seal/OCC and two publication transactions; the delivered
+path has two and one respectively.
 Final mixed latency targets remain unmet. Dispatch totals and overlapping phase
 intervals do not isolate server work, lock hold or terminal latency.
 
@@ -38,9 +39,9 @@ Checked-in Convex [transaction](../../../../crates/database/src/transaction.rs),
 [write set](../../../../crates/database/src/writes.rs) anchor accumulated snapshot
 and pending semantics; native frameworks retain business and lifecycle ownership.
 
-## Audited terminal graph and proposed cutover
+## Audited terminal graph and delivered cutover
 
-| Stage | Current healthy measured path | Proposed path |
+| Stage | Handed-off slice 16 path | Delivered path |
 | --- | --- | --- |
 | Seal | `sealFiniteRootEffect` stages projections, rereads through `captureSealRowsInTransaction`, materializes candidate and completes seal | Freeze ordered issued graph and prepare intrinsic canonical journal/result before SQL; derive normalized projections directly; one checked seal persists projections/body, promotes lease and captures detached body/session/authority plus candidate-schema planning head |
 | Planning evidence | Fixture reload, stored-attempt repeatable read and stored-authority repeatable read | Confirmed seal output supplies exact detached healthy planning inputs; existing canonical/signed grant, arguments, schema, `verifyCommitInput` and planner run outside SQL |
@@ -132,7 +133,39 @@ The minimum wrapper-removal gate is source-derived, not a latency forecast:
 | Mixed workflow | **1,024** (1,034 − 10) | **321** (331 − 10) | **39** (43 − 4) |
 | Standalone workflow | **354** | Existing profile | **6** |
 
-Current seal wrappers have 13 dispatches: five BEGIN, five COMMIT, two
+The [full matched measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/batched-settlement/README.md)
+pass every agreed structural ceiling. Actual counts are:
+
+| Graph | Whole-request SQL / transactions | Terminal SQL / transactions | Nonterminal SQL / transactions | Warm untraced p50 / p95 (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Product | 562 / 25 | 175 / 3 | 387 / 22 | 595.6 / 616.1 |
+| Product + Payload | 585 / 26 | 180 / 3 | 405 / 23 | 627.4 / 784.6 |
+| Mixed workflow | 888 / 39 | 218 / 3 | 670 / 36 | 1,056.7 / 1,094.7 |
+| Standalone workflow | 309 / 6 | Existing profile | Existing profile | 287.1 / 316.8 |
+
+The three mixed totals remove 81 / 85 / 146 dispatches, exceeding the minimum
+ten-wrapper reduction by 71 / 75 / 136. Existing-owner OCC/index/unique/build and
+materialization input batching delivers actual query reductions; no per-row
+write saving is inferred from net effects. All mixed graphs still have nine
+initial admission transactions, ten Product data frontiers, two Application
+point transactions and one root table bootstrap. Payload adds one create frontier;
+the workflow adds thirteen native data frontiers. These are observed selected
+graphs, not a universal frontier floor.
+
+The original-demand ledger retains mixed receipts/points 5/11, 9/12 and 9/15;
+logical range/page/unique demands 10/0/4, 11/0/5 and 26/0/15; index definition
+demands 219/227/269 (73/75/117 distinct) and constraint definition demands
+72/76/87 (24/25/36 distinct). Actual sample byte partitions and publication owner
+query observations are retained. Strong-reference demand counts, unobserved
+publication parameters, nonscalar wire encoding and standalone original demands
+remain unavailable; net committed effects do not fill those gaps.
+
+Mixed p50 improves 6.3% / 9.1% / 9.6%; every final mixed p50 and p95 target remains
+unmet. Product + Payload p95 rises from 751.7 to 784.6 ms. Standalone passes
+287.1 < 400 ms and the strict regression gate with a 10.6% median improvement.
+All samples, maxima and the prior baseline remain retained in the artifact owner.
+
+The slice 16 seal wrappers had 13 dispatches: five BEGIN, five COMMIT, two
 repeatable-read SET and one read-committed SET. Two retained transactions require
 six wrappers, saving seven. Publication wrappers fall six to three, saving three.
 Moving candidate preparation queries into seal is phase movement, not extra
@@ -183,8 +216,11 @@ planning, stored evidence, candidate, index/unique, commit evidence/contribution
 search/FK/reference/point projection, event/protocol and early-conflict recovery
 owners. Preserve the old 120-sample baseline and every outlier; compare matched
 quiet traced/untraced full sample plans. Attribute preparation/seal/publication,
-CPU/decode/hash, driver await, server/wait/lock/connection cost where observed;
-mark unavailable attribution. Phase sums overlap and driver await includes
+driver await and phase/transaction intervals where observed; keep unavailable
+attribution explicit. A separate Node CPU diagnostic retains leaf samples and
+actual ancestry, including readiness/index-build decoding and private JSON
+capture. Effect/Drizzle work, idle and profiler overhead stay separately named;
+these sampled weights are not exact CPU or server/lock budgets. Phase sums overlap and driver await includes
 transport/server/waits. No planning benchmark is required.
 
 Final mixed p50 goals remain **100 / 200 / 500 ms**, p95 **200 / 400 / 1,000 ms**;
@@ -194,16 +230,30 @@ remain separate.
 
 ## Internal breaks, cutover and cleanup
 
-Break internal seal/capture, prepared materialization and issued writer-transition/
-callback APIs as required. Migrate `ApplicationMutationSystem`/private system V1,
+The cutover replaces internal seal/capture and prepared-materialization seams.
+It migrates `ApplicationMutationSystem`/private system V1,
 durable Application task mutation authority, executor initial/OCC/finishing/crash,
 genuine mixed fixture, Application participant, CMS contribution/publication,
 Commerce logical participant/publication and cross-domain materialization/
 publication consumers. Retain Task lifecycle and standalone/durable profile
-semantics. Exact signature/export/caller census is an implementation gate.
+semantics. The concrete internal contract inventory is:
 
-Remove redundant healthy reload/loaders, stage/reread orchestration and displaced
-single-item paths after their actual consumers move. Retain repeatable-read
+| Internal contract | Delivered owner and actual consumers | Cleanup / retained obligation |
+| --- | --- | --- |
+| `sealFiniteRootEffect` result and `ConfirmedFiniteRootSealCapture` | Journal owner returns envelope, byte length and issuer-bound capture only after confirmed COMMIT; executor journal retains the capture through `confirmedSealCapture(attempt)` | Removes healthy finite seal reread/canonical reconstruction; ordinary `prepareSealEffect`/`completeSealEffect` stays for actual durable-operation callers |
+| Stored-attempt and stored-authority capture consumption | `createStoredAttemptEvidenceLoaderV1.loadEffect` and stored-authority authentication accept the confirmed issuer capability; executor exact execution and genuine mixed fixture pass it | Removes healthy fixture reload and repeatable-read planning loads; real sealed-running, finishing and crash recovery still read durable storage |
+| `terminalCapture` and `candidatePlanningHead` | Executor authentication/runtime command propagates the seal's head; Application materialization uses `prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect` | Removes finite healthy head-preparation transaction; ordinary/recovery callers without a seal capture retain their real preparation path and publication always rechecks the live head |
+| Prepared row/index/unique work | Existing persistence owners retain their typed batch statements, ordinal transition checks and materialization consumers | Removes displaced per-item query work within those owners; no registry, adapter finalizer, schema or durable codec replacement |
+
+Application mutation authority, ordinary Application, durable-task authority and
+the private executor share these persistence owners while retaining their own
+profiles. Standalone Medusa/Payload and durable operations keep their real
+transaction/lifecycle and recovery contracts. These are internal signature and
+orchestration changes; no public developer contract or durable-data cutover is
+introduced.
+
+The delivered path removes redundant healthy reload/loaders, stage/reread
+orchestration and displaced per-item queries after migrating their consumers. It retains repeatable-read
 recovery readers and durable projections for real obligations, not a legacy
 facade. No compatibility wrapper, dual reader, fallback or second authority.
 
@@ -216,6 +266,26 @@ plus live claim `finishOnly`, finishing/sealed reconstruction with no durable
 execution claim, committed resolution and `relation_conflicted` replacement readers.
 
 ## Failure, validation and exit
+
+The finite seal correlates every persisted child column and canonical byte using
+server equality against timestamp-rebased issuer projections. Each child INSERT
+and staged root UPDATE return only an integer match ordinal. The sealed root
+UPDATE returns its state and ordinal to preserve the existing stale-preparation
+first failure; the actual stored root is then checked against the same expected sealed row to catch AFTER UPDATE changes. Final
+ordered child correlation runs after every seal write and before any capture
+payload read, in chunks of 128 expected rows. The last
+chunk requests at most 129 scalar verdicts to detect extra membership; an empty
+family requests one. Missing, duplicate, altered and reordered projections fail
+closed. Trigger-inflated bodies never enter these driver outputs, including
+initial BEFORE INSERT changes, later root/sibling rewrites and altered sealed
+result bytes. Stored-attempt, stored-authority (with empty observer options and
+prepared control rows) and candidate-head capture are journal SELECT-only after
+these checks; no journal write follows the proof. The final child checks
+cost `sum(max(1, ceil(familyRows / 128)))` statements across the five families, plus one actual-root scalar SELECT;
+comparisons per returned row are bounded by 128 full issuer rows, with existing
+issued byte limits bounding SQL inputs. This replaces the healthy full-body
+reread and clones without canonical reconstruction, another transaction, schema
+or format change, or digest authority. Recovery retains its actual durable reader.
 
 - Seal COMMIT loss abandons local root and resolves exact durable sealed state;
   no capture release, child reopening or native callback replay. Finishing loss
@@ -245,14 +315,15 @@ execution claim, committed resolution and `relation_conflicted` replacement read
   Worker/source/core+diff lint, both final project reviewers (`gpt-6.1-sol`, high),
   substantive-fix re-review, cleanup, staged lint and scoped commit after validation.
 
-Exit requires scope agreement, healthy seven-to-three terminal path, minimum
-structural ceilings plus meaningful actual owner batching/removal, complete
-consumer migration, failure/recovery proofs and unchanged durable disposition.
-Reconcile failed agreed stage budgets within the slice or discuss changed
-contracts. Quantify remaining latency and evidence-derived owners across existing
-core frontiers, protection, settlement and hosts. Terminal traced intervals and
-untraced whole-request medians do not support a subtraction forecast. Conditional
-[18](./18-host-lifecycle-preflight.md) requires attributable host evidence; an
-unmet target does not assign the remaining gap to it. Scope-clock partitioning, reduced
-attestation, new framework/query/search support, developer APIs, hosted activation,
+The delivered exit has the healthy seven-to-three terminal path, passed minimum
+structural ceilings plus actual owner batching/removal, migrated consumers,
+connected failure/recovery proofs and unchanged durable disposition.
+The whole-request latency goal remains unfinished. Terminal traced intervals and
+untraced whole-request medians do not support a subtraction forecast. The
+observed Node calltrees name existing readiness/metadata and preparation work,
+while substantial nonterminal SQL remains. A follow-on investigation and its
+scope are pending; no further core or host optimization is approved here.
+Conditional [18](./18-host-lifecycle-preflight.md) requires attributable host
+evidence; an unmet target does not assign the remaining gap to it. Scope-clock
+partitioning, reduced attestation, new framework/query/search support, developer APIs, hosted activation,
 async delivery, waits/effects/locks and advanced schema evolution remain gated.

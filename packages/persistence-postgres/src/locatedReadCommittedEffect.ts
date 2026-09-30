@@ -1,3 +1,4 @@
+import { closeExactAttemptScopeClockObservation } from "./scopeClock";
 import { Cause, Effect, Exit } from "effect";
 
 import type { AppRowTransaction } from "./appRows";
@@ -111,7 +112,9 @@ function startLocatedRead<Value, Failure>(
   const rollbackSignal = new Error(rollbackMessage);
   let callbackCause: Cause.Cause<Failure> | undefined;
   const promise = target[RUN_LOCATED_READ_COMMITTED_V1](async tx => {
-    const exit = await Effect.runPromiseExit(body(tx));
+    const exit = await Effect.runPromiseExit(body(tx).pipe(Effect.ensuring(
+      Effect.sync(() => closeExactAttemptScopeClockObservation(tx)),
+    )));
     if (Exit.isSuccess(exit)) return exit.value;
     callbackCause = exit.cause;
     throw rollbackSignal;

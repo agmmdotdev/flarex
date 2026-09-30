@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import type { ConfirmedFiniteRootSealCapture } from "../sessionJournalStore";
 import type { ApplicationManifest } from
   "@flarex/analysis/application-analysis";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -214,6 +215,7 @@ export class StoredCommitAuthorityEvidencePersistenceV1Error
 export interface StoredCommitAuthorityEvidenceLoaderV1 {
   readonly loadEffect: (
     authority: StoredCommitAuthorityEvidenceAuthorityV1,
+    capture?: ConfirmedFiniteRootSealCapture,
   ) => Effect.Effect<
     StoredCommitAuthorityEvidenceLoadResultV1,
     StoredCommitAuthorityEvidencePersistenceV1Error

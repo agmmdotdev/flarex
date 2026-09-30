@@ -1,4 +1,6 @@
+import { issueSetupSeededSyscallValidatorProofV1 } from "./applicationRevisionSyscallValidatorTestSupport";
 import { setTimeout as delay } from "node:timers/promises";
+import { loseBindingCommitResponse } from "./frameworkDataBindingPostgresTestSupport";
 
 import {
   canonicalizeApplicationManifestV1,
@@ -173,7 +175,7 @@ import {
   fxSystemEdgeDefinitionBuilds,
   fxSystemEdgeDefinitionReadiness,
   fxSystemScopeClocks,
-  fxSystemTransactionJournalReceipts,
+  fxSystemTransactionJournalPoints, fxSystemTransactionJournalReceipts,
   fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournals,
 } from "../src/schema";
@@ -252,6 +254,271 @@ describe("E01-B PostgreSQL acceptance environment", () => {
 });
 
 describePostgres("real PostgreSQL E01-B application relation readiness", () => {
+  it.each(["healthy", "missingFinalChunk", "extraFinalChunk"] as const)(
+    "correlates 129 finite point observations with %s final receipt membership", async fault => {
+      await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const ready = await readyExactRelationReadFixture({ persistence: target, controlPersistence: control });
+      const randomUuid = relationFoldUuidSequence(111, 112, 113);
+      const activation = await activatePointMutationSession(
+        createPointMutationSessionActivationPersistenceV1(ready.fixture.pointCommitAuthority,
+          { leaseDurationMilliseconds: 60_000, randomUuid, randomExecutionClaimOwner: randomUuid }),
+        pointMutationSessionActivationFixture(ready.fixture.deploymentId,
+          decodeReplacementScopeIdV1(ready.readiness.scopeId), { executionProfile: "finiteRoot",
+            evidence: { schemaVersionId: ready.fixture.relation.binding.schemaVersionId } }),
+      );
+      if (activation.status !== "created") throw new Error("Expected finite chunk witness.");
+      const store = createSessionJournalStorePersistence(ready.fixture.pointCommitAuthority,
+        { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1, applicationRelations: ready.reads });
+      const attempt = await runEffect(store.openAttemptEffect({
+        selector: selectorFromRelationAnchor(activation.anchor), executionClaim: activation.executionClaim,
+        snapshotToken: activation.anchor.snapshotToken, schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+        executionProfile: "finiteRoot",
+      }));
+      const table = await runEffect(store.resolvePointTableEffect(attempt, "posts"));
+      const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: activation.anchor.scopeId,
+        schemaVersionId: ready.fixture.relation.binding.schemaVersionId });
+      for (let ordinal = 1; ordinal <= 129; ordinal++) {
+        expect(await runEffect(store.runPointOperationEffect(table, {
+          kind: "get", syscallSequence: CommitSyscallSequenceV1Schema.make(BigInt(ordinal)),
+          documentId: appDocumentIdV1FromRowIdentity({ tableId: ready.binding.sourceTableId,
+            rowId: relationBuildRowId(95_000 + ordinal) }),
+        }, validator))).toMatchObject({ kind: "completed", outcome: { kind: "missing" } });
+      }
+      const db = target.drizzle;
+      if (fault !== "healthy") {
+        await db.execute(fault === "missingFinalChunk" ? sql`
+          create function finite_seal_chunk_fault() returns trigger language plpgsql as
+          'begin if new.state = ''sealed'' then delete from fx_system_tx_journal_receipt
+            where scope_uuid = new.scope_uuid and session_id = new.session_id and attempt_fence = new.attempt_fence
+              and last_syscall_sequence = 129; end if; return new; end'` : sql`
+          create function finite_seal_chunk_fault() returns trigger language plpgsql as
+          'begin if new.state = ''sealed'' then insert into fx_system_tx_journal_receipt
+            (scope_uuid, session_id, attempt_fence, last_syscall_sequence, operation_kind,
+             participant_binding_sha256, request_codec_version, request_bytes, request_sha256,
+             outcome_kind, outcome_codec_version, outcome_bytes, outcome_sha256, created_at, updated_at)
+            select scope_uuid, session_id, attempt_fence, 130, operation_kind, participant_binding_sha256,
+              request_codec_version, request_bytes, request_sha256, outcome_kind, outcome_codec_version,
+              outcome_bytes, outcome_sha256, created_at, updated_at from fx_system_tx_journal_receipt
+            where scope_uuid = new.scope_uuid and session_id = new.session_id and attempt_fence = new.attempt_fence
+              and last_syscall_sequence = 129; end if; return new; end'`);
+        await db.execute(sql`create trigger finite_seal_chunk_fault before update on fx_system_tx_journal
+          for each row execute function finite_seal_chunk_fault()`);
+      }
+      const result = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
+      if (fault === "healthy") {
+        const seal = await runEffect(store.sealFiniteRootEffect(attempt, result));
+        expect(seal.envelope.finalSyscallSequence).toBe(129n);
+        const authority = relationAuthorityFromAnchor(activation.anchor,
+          ready.fixture.relation.binding.schemaVersionId, activation.executionClaim);
+        expect(await runEffect(createStoredAttemptEvidenceLoaderV1(ready.fixture.pointCommitAuthority)
+          .loadEffect(authority, seal.capture))).toMatchObject({ kind: "loaded" });
+      } else {
+        let captureReleased = false;
+        expect(await runEffectFailure(store.sealFiniteRootEffect(attempt, result).pipe(
+          Effect.tap(() => Effect.sync(() => { captureReleased = true; }))))).toMatchObject({
+          _tag: "SessionJournalStorageCorruptionV1Error", reason: "journalRootOperationUpdateMismatch",
+        });
+        expect(captureReleased).toBe(false);
+        expect(await runEffectFailure(store.sealFiniteRootEffect(attempt, result))).toMatchObject({
+          _tag: "SessionJournalSealV1Error", reason: "journalFailed",
+        });
+      }
+      expect(await db.select().from(fxSystemTransactionJournalReceipts).where(
+        eq(fxSystemTransactionJournalReceipts.sessionId, activation.anchor.sessionId)))
+        .toHaveLength(fault === "healthy" ? 129 : 0);
+      expect(await db.select().from(fxSystemTransactionJournalPoints).where(
+        eq(fxSystemTransactionJournalPoints.sessionId, activation.anchor.sessionId)))
+        .toHaveLength(fault === "healthy" ? 129 : 0);
+      expect(await db.select({ state: fxSystemTransactionJournals.state,
+        sequence: fxSystemTransactionJournals.lastSyscallSequence }).from(fxSystemTransactionJournals).where(
+        eq(fxSystemTransactionJournals.sessionId, activation.anchor.sessionId)))
+        .toEqual([{ state: fault === "healthy" ? "sealed" : "open", sequence: fault === "healthy" ? 129n : 0n }]);
+      });
+    });
+
+  it.each(["suppressedInsert", "alteredInsert", "alteredRootUpdate", "alteredSealBody",
+    "lateRootProjectionRewrite", "afterInsertSiblingRewrite", "oversizedInsert", "oversizedLateRootProjectionRewrite", "oversizedSealBody", "oversizedLatePointProjection", "afterSealedRootRewrite"] as const)(
+    "rolls back finite seal when PostgreSQL persists %s receipts", async fault => {
+      await withTemporaryPostgresPersistencePair(async (control, target) => {
+        const ready = await readyExactRelationReadFixture({ persistence: target, controlPersistence: control });
+        const randomUuid = relationFoldUuidSequence(91, 92, 93);
+        const activation = await activatePointMutationSession(
+          createPointMutationSessionActivationPersistenceV1(ready.fixture.pointCommitAuthority,
+            { leaseDurationMilliseconds: 60_000, randomUuid, randomExecutionClaimOwner: randomUuid }),
+          pointMutationSessionActivationFixture(ready.fixture.deploymentId,
+            decodeReplacementScopeIdV1(ready.readiness.scopeId), { executionProfile: "finiteRoot",
+              evidence: { schemaVersionId: ready.fixture.relation.binding.schemaVersionId } }),
+        );
+        if (activation.status !== "created") throw new Error("Expected finite persistence witness.");
+        const store = createSessionJournalStorePersistence(ready.fixture.pointCommitAuthority,
+          { grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1, applicationRelations: ready.reads });
+        const attempt = await runEffect(store.openAttemptEffect({
+          selector: selectorFromRelationAnchor(activation.anchor), executionClaim: activation.executionClaim,
+          snapshotToken: activation.anchor.snapshotToken,
+          schemaVersionId: ready.fixture.relation.binding.schemaVersionId, executionProfile: "finiteRoot",
+        }));
+        const relation = await runEffect(store.resolveApplicationRelationReadEffect(attempt, ready.capability));
+        await runEffect(store.runApplicationRelationIncomingReadEffect(relation, {
+          kind: "relationIncoming", syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          targetDocumentId: appDocumentIdV1FromRowIdentity({ tableId: ready.binding.targetTableId,
+            rowId: relationBuildRowId(49_043) }), limit: 2,
+        }));
+        if (fault === "afterInsertSiblingRewrite") {
+          await runEffect(store.runApplicationRelationIncomingReadEffect(relation, {
+            kind: "relationIncoming", syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+            targetDocumentId: appDocumentIdV1FromRowIdentity({ tableId: ready.binding.targetTableId,
+              rowId: relationBuildRowId(49_045) }), limit: 2,
+          }));
+        }
+        if (fault === "oversizedLatePointProjection") {
+          const table = await runEffect(store.resolvePointTableEffect(attempt, "posts"));
+          const validator = issueSetupSeededSyscallValidatorProofV1({ scopeId: activation.anchor.scopeId,
+            schemaVersionId: ready.fixture.relation.binding.schemaVersionId });
+          const documentId = appDocumentIdV1FromRowIdentity({ tableId: ready.binding.targetTableId,
+            rowId: relationBuildRowId(96_043) });
+          expect(await runEffect(store.runPointOperationEffect(table, {
+            kind: "insert", syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+            fields: { author: documentId, reviewer: documentId },
+          }, validator))).toMatchObject({ kind: "completed", outcome: { kind: "inserted" } });
+        }
+        // Intentional PostgreSQL trigger fault: a successful INSERT dispatch is
+        // insufficient when RETURNING suppresses or changes the exact projection.
+        if (fault === "oversizedLatePointProjection") {
+          await target.drizzle.execute(sql`create function finite_seal_point_fault() returns trigger language plpgsql as
+            'begin if new.state = ''open'' and new.last_syscall_sequence > 0 then
+              update fx_system_tx_journal_point set overlay_value_bytes = decode(repeat(''00'', 1048576), ''hex''),
+                overlay_value_json = jsonb_build_object(''inflated'', repeat(''x'', 1048576))
+              where scope_uuid = new.scope_uuid and session_id = new.session_id and attempt_fence = new.attempt_fence;
+            end if; return new; end'`);
+          await target.drizzle.execute(sql`create trigger finite_seal_point_fault before update on fx_system_tx_journal
+            for each row execute function finite_seal_point_fault()`);
+        } else if (fault === "afterSealedRootRewrite") {
+          await target.drizzle.execute(sql`create function finite_seal_after_root_fault() returns trigger language plpgsql as
+            'begin if pg_trigger_depth() = 1 and new.state = ''sealed'' and old.state <> ''sealed'' then
+              update fx_system_tx_journal set sealed_result_bytes = decode(repeat(''00'', 1048576), ''hex'')
+              where scope_uuid = new.scope_uuid and session_id = new.session_id and attempt_fence = new.attempt_fence;
+            end if; return new; end'`);
+          await target.drizzle.execute(sql`create trigger finite_seal_after_root_fault after update on fx_system_tx_journal
+            for each row execute function finite_seal_after_root_fault()`);
+        } else if ((fault === "lateRootProjectionRewrite" || fault === "oversizedLateRootProjectionRewrite")) {
+          await target.drizzle.execute(sql`create function finite_seal_late_root_fault() returns trigger language plpgsql as
+            'begin if new.state = ''open'' and new.last_syscall_sequence > 0 then
+              update fx_system_tx_journal_receipt set request_bytes = decode(repeat(''00'', ${sql.raw(fault === "oversizedLateRootProjectionRewrite" ? "1048576" : "1")}), ''hex'')
+                where scope_uuid = new.scope_uuid and session_id = new.session_id and attempt_fence = new.attempt_fence;
+            end if; return new; end'`);
+          await target.drizzle.execute(sql`create trigger finite_seal_late_root_fault before update on fx_system_tx_journal
+            for each row execute function finite_seal_late_root_fault()`);
+        } else if (fault === "afterInsertSiblingRewrite") {
+          await target.drizzle.execute(sql`create function finite_seal_sibling_fault() returns trigger language plpgsql as
+            'begin update fx_system_tx_journal_receipt set request_bytes = decode(''00'', ''hex'')
+              where scope_uuid = new.scope_uuid and session_id = new.session_id and attempt_fence = new.attempt_fence
+                and last_syscall_sequence <> new.last_syscall_sequence; return new; end'`);
+          await target.drizzle.execute(sql`create trigger finite_seal_sibling_fault after insert on fx_system_tx_journal_receipt
+            for each row execute function finite_seal_sibling_fault()`);
+        } else if (fault === "alteredRootUpdate" || fault === "alteredSealBody" || fault === "oversizedSealBody") {
+          await target.drizzle.execute(fault === "alteredRootUpdate" ? sql`
+            create function finite_seal_root_fault() returns trigger language plpgsql as
+            'begin new.participant_work_calls = new.participant_work_calls + 1; return new; end'` : sql`
+            create function finite_seal_root_fault() returns trigger language plpgsql as
+            'begin if new.state = ''sealed'' then new.sealed_result_bytes = decode(repeat(''00'', ${sql.raw(fault === "oversizedSealBody" ? "1048576" : "1")}), ''hex''); end if; return new; end'`);
+          await target.drizzle.execute(sql`create trigger finite_seal_root_fault before update on fx_system_tx_journal
+            for each row execute function finite_seal_root_fault()`);
+        } else {
+          await target.drizzle.execute(fault === "suppressedInsert" ? sql`
+          create function finite_seal_receipt_fault() returns trigger language plpgsql as
+          'begin return null; end'` : fault === "oversizedInsert" ? sql`
+          create function finite_seal_receipt_fault() returns trigger language plpgsql as
+          'begin new.request_bytes = decode(repeat(''00'', 1048576), ''hex''); return new; end'` : sql`
+          create function finite_seal_receipt_fault() returns trigger language plpgsql as
+          'begin new.request_bytes = decode(''00'', ''hex''); return new; end'`);
+          await target.drizzle.execute(sql`create trigger finite_seal_receipt_fault before insert on fx_system_tx_journal_receipt
+            for each row execute function finite_seal_receipt_fault()`);
+        }
+        const projectionOutputs: unknown[] = [];
+        let pointPayloadReads = 0;
+        const observePayloadRead = (text: unknown) => {
+          if (typeof text === "string" && /^select\b/i.test(text) &&
+            text.includes('"overlay_value_bytes"') && !text.includes("is not distinct from")) pointPayloadReads++;
+        };
+        const observeProjection = (text: unknown, result: unknown) => {
+          if (typeof text !== "string" || !text.includes("is not distinct from") ||
+            !(fault === "oversizedSealBody" || fault === "afterSealedRootRewrite"
+              ? text.includes('update "fx_system_tx_journal"') || (text.includes('from "fx_system_tx_journal"') && !text.includes("fx_system_tx_journal_receipt"))
+              : fault === "oversizedLatePointProjection" ? text.includes('"fx_system_tx_journal_point"')
+              : text.includes("fx_system_tx_journal_receipt"))) return;
+          if (result === null || typeof result !== "object" || !("rows" in result)) throw new Error("Expected driver rows.");
+          expect(result.rows).toHaveLength(1);
+          expect(result.rows).toEqual(text.includes('returning "state"')
+            ? [["sealed", expect.any(Number)]] : [[expect.any(Number)]]);
+          expect(JSON.stringify(result.rows).length).toBeLessThan(32);
+          projectionOutputs.push(result.rows);
+        };
+        const patched = new Map<PoolClient, PoolClient["query"]>();
+        const onAcquire = (client: PoolClient) => {
+          const original = client.query;
+          client.query = new Proxy(original, {
+            apply(query, receiver, args: unknown[]) {
+              const first = args[0];
+              const text = typeof first === "string" ? first :
+                first !== null && typeof first === "object" && "text" in first ? first.text : null;
+              observePayloadRead(text);
+              return Promise.resolve(Reflect.apply(query, receiver, args)).then(result => {
+                observeProjection(text, result);
+                return result;
+              });
+            },
+          });
+          patched.set(client, original);
+        };
+        const onRelease = (_error: Error | undefined, client: PoolClient) => {
+          const original = patched.get(client);
+          if (original !== undefined) client.query = original;
+          patched.delete(client);
+        };
+        if (fault === "oversizedInsert" || fault === "oversizedLateRootProjectionRewrite" || fault === "oversizedSealBody" ||
+          fault === "oversizedLatePointProjection" || fault === "afterSealedRootRewrite") {
+          target.pool.on("acquire", onAcquire);
+          target.pool.on("release", onRelease);
+        }
+        const result = await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true }));
+        let captureReleased = false;
+        let failure: unknown;
+        try {
+          failure = await runEffectFailure(store.sealFiniteRootEffect(attempt, result).pipe(
+            Effect.tap(() => Effect.sync(() => { captureReleased = true; }))));
+        } finally {
+          target.pool.off("acquire", onAcquire);
+          target.pool.off("release", onRelease);
+          for (const [client, original] of patched) client.query = original;
+        }
+        expect(failure).toMatchObject({
+          _tag: "SessionJournalStorageCorruptionV1Error",
+          reason: "journalRootOperationUpdateMismatch",
+        });
+        if (fault === "oversizedInsert" || fault === "oversizedLateRootProjectionRewrite" || fault === "oversizedSealBody" ||
+          fault === "oversizedLatePointProjection" || fault === "afterSealedRootRewrite") {
+          expect(projectionOutputs).toEqual(fault === "oversizedInsert" ? [[[-1]]] :
+            fault === "oversizedSealBody" ? [[[0]], [["sealed", -1]]] :
+            fault === "afterSealedRootRewrite" ? [[[0]], [["sealed", 0]], [[-1]]] : [[[0]], [[-1]]]);
+        }
+        expect(pointPayloadReads).toBe(0);
+        expect(captureReleased).toBe(false);
+        expect(await target.drizzle.select().from(fxSystemTransactionJournals).where(
+          eq(fxSystemTransactionJournals.sessionId, activation.anchor.sessionId))).toMatchObject([
+          { state: "open", lastSyscallSequence: 0n, sealedJournalBytes: null },
+        ]);
+        expect(await target.drizzle.select().from(fxSystemTransactionJournalReceipts).where(
+          eq(fxSystemTransactionJournalReceipts.sessionId, activation.anchor.sessionId))).toHaveLength(0);
+        expect(await target.drizzle.select().from(fxSystemTransactionJournalRelationIncomingDependencies).where(
+          eq(fxSystemTransactionJournalRelationIncomingDependencies.sessionId, activation.anchor.sessionId))).toHaveLength(0);
+        expect(await target.drizzle.select().from(fxSystemTransactionJournalPoints).where(
+          eq(fxSystemTransactionJournalPoints.sessionId, activation.anchor.sessionId))).toHaveLength(0);
+        expect(await runEffectFailure(store.sealFiniteRootEffect(attempt, result))).toMatchObject({
+          _tag: "SessionJournalSealV1Error", reason: "journalFailed",
+        });
+      });
+    });
+
   it("seals finite relation adjacency evidence with no provisional child rows", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const ready = await readyExactRelationReadFixture({
@@ -396,11 +663,26 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         targetDocumentId: appDocumentIdV1FromRowIdentity({
           tableId: ready.binding.targetTableId, rowId: targetRowId,
         }), limit: 2 };
-      expect(await runEffect(store.runApplicationRelationIncomingReadEffect(
-        oldRelation, conflictOperation))).toMatchObject({
-        kind: "conflicted", conflict: { kind: "relationConflict",
-          expectedAdjacencyVersion: 1n, actualAdjacencyVersion: 2n },
+      const conflictClient = await target.pool.connect();
+      const queryDescriptor = Object.getOwnPropertyDescriptor(conflictClient, "query");
+      let lostConflictAcknowledgement = false;
+      loseBindingCommitResponse(conflictClient, () => !lostConflictAcknowledgement, () => {
+        lostConflictAcknowledgement = true;
+        throw new Error("Finite relation-conflict COMMIT response lost");
       });
+      conflictClient.release();
+      try {
+        await expect(runEffect(store.runApplicationRelationIncomingReadEffect(
+          oldRelation, conflictOperation))).rejects.toBeDefined();
+        expect(lostConflictAcknowledgement).toBe(true);
+      } finally {
+        if (queryDescriptor === undefined) Reflect.deleteProperty(conflictClient, "query");
+        else Object.defineProperty(conflictClient, "query", queryDescriptor);
+      }
+      // A committed aggregate with a lost response cannot reopen local children
+      // or execute the same relation read again. Recovery uses durable evidence.
+      await expect(runEffect(store.runApplicationRelationIncomingReadEffect(
+        oldRelation, conflictOperation))).rejects.toBeDefined();
       const terminalRoot = await target.drizzle.select().from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId, older.anchor.sessionId));
       expect(terminalRoot).toMatchObject([{ state: "relation_conflicted",

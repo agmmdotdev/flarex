@@ -8,13 +8,13 @@ profile. The finite-root redesign is delivered for that graph; its proposed
 latency goal is unmet. The [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md)
 owns architecture and open contract questions. This roadmap owns current status,
 sequencing and finite delivery gates. Numbered slice preflights own their
-specific scope, decisions, affected contracts and remaining gates. The proposed
-[execution redesign](./14-execution-redesign-roadmap.md) owns the next connected
-latency plan: [admission/protection](./15-admission-protection-preflight.md) is
+specific scope, decisions, affected contracts and remaining gates. The
+[execution redesign](./14-execution-redesign-roadmap.md) owns the delivered
+connected latency work and its remaining goal: [admission/protection](./15-admission-protection-preflight.md) is
 delivered with its measured stage cost gate passed; [batched reads](./16-batched-read-execution-preflight.md)
 is delivered with its measured stage cost gate passed;
-[settlement](./17-batched-settlement-preflight.md) is an audited focused proposal
-reconciled against the delivered read contract and awaiting runtime scope agreement;
+[settlement](./17-batched-settlement-preflight.md) is delivered with its measured
+structural stage cost gates passed;
 [host lifecycle](./18-host-lifecycle-preflight.md) is conditional on attributable
 evidence. Slice 15 extends immutable target protection under existing full
 attestation and privileged quiescence. Slice 16 accepts tentative finite native
@@ -185,24 +185,32 @@ fall **18.9% / 29.1% / 30.3%**; standalone rises **3.8%** and passes its median
 and strict regression gates. Warm maxima **689.0 / 782.2 / 1,237.6 / 380.0 ms**
 remain retained. Final mixed latency targets remain unmet.
 
-Slice 17 is an audited focused settlement proposal awaiting runtime scope
-agreement. Aggregate seal would return detached authenticated body, authority
-and candidate planning head after COMMIT; existing executor crypto/schema/grant/
-input verification stays outside SQL, followed by separate fresh finishing.
-The seal's candidate planning head allows candidate-guard compilation outside
-SQL and removes the separate planning-head preparation transaction. Publication
-retains its existing fresh head recheck and full OCC in one SQL transaction.
-Existing journal/schema/result/event bytes, Repeatable Read
-recovery readers and sealed-running/finishing state contracts remain retained.
-Healthy seal/OCC **5 to 2** and publication **2 to 1** remove four terminal
-transactions (**7 to 3**), proposing whole-request counts **25 / 26 / 39 / 6**.
-Proposed terminal dispatch ceilings **228 / 236 / 321** against **238 / 246 /
-331**, and whole-request ceilings **633 / 660 / 1,024 / 354**, conservatively
-account for ten transaction-control queries removed. They are stage ceilings;
-meaningful remaining original-snapshot/dependency/index/reference validation-read
-batching and duplicate preparation cleanup through existing owners are mandatory.
-Materialization writes already batch. Standalone retains **354 / 6** structure.
-The final latency gap requires attribution before selecting any host slice.
+Delivered [batched settlement](./17-batched-settlement-preflight.md) returns
+authenticated body/authority/candidate-head capture after confirmed seal COMMIT,
+verifies outside SQL, then performs separate fresh finishing and publication.
+Scalar equality covers the actual root and all child projections before payload
+capture. Healthy terminal transactions fall **7 to 3**. Existing persistence
+owners batch OCC/index/unique/build and materialization input work; durable
+formats and ordinary/standalone/recovery profiles remain intact.
+
+The [full settlement measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/batched-settlement/README.md)
+show **562 / 585 / 888 / 309** SQL dispatches and **25 / 26 / 39 / 6** explicit
+transactions, passing all slice 17 ceilings. Mixed terminal SQL is
+**175 / 180 / 218**; nonterminal SQL remains **387 / 405 / 670**, including nine
+initial admission transactions, ten Product data frontiers and thirteen
+additional workflow frontiers. Original demand/definition/byte/chunk observations
+are retained; unavailable reference and wire counts are not inferred from effects.
+Warm untraced p50/p95 is **595.6/616.1, 627.4/784.6, 1,056.7/1,094.7 and
+287.1/316.8 ms**. Standalone passes its strict median gates; Product + Payload
+p95 rises from 751.7 to 784.6 ms. All outliers remain retained and every final
+mixed latency goal remains unmet.
+
+The separate Node diagnostic names readiness/index-build decoding, private JSON
+capture and library/query work on actual calltrees. Idle/generated frames and
+profiler overhead remain explicit. Existing metadata/admission/preparation work
+warrants investigation before selecting a host change; no further runtime slice
+is approved. Host slice 18 remains conditional and unapproved, and the whole
+latency goal remains unfinished.
 
 The finite root has an immutable journal marker. Standalone selection and final
 publication still perform full live checks. Complete

@@ -9,18 +9,19 @@ import { compileAppOrderedIndexBoundsV1, orderedIndexRowIdHexV1FromBytesResult, 
   orderedIndexValueFromFlarexValueV1 } from "flarex-protocol/ordered-index";
 import type { CommitSeq } from "flarex-protocol/storage-authority";
 import type { StrongReferenceActivationProjection } from "../frameworkSchema/binding/strongReferenceProjection";
-import { readAppRowAtSnapshotInTransactionEffect, readBoundedPublicationAppRowsInTransactionEffect,
+import { consumeAppRowSnapshotRevisionsInTransactionEffect, readBoundedPublicationAppRowsInTransactionEffect,
+  withPublicationAppRowTargetsInTransactionEffect,
   AppRowReadPersistenceError, type AppRowRevisionV1 } from "../appRows";
 import { appendPublicationIndexEntryRevisionsInTransactionEffect,
   AppIndexEntryReadPersistenceError, AppIndexEntryWritePersistenceError,
-  readCurrentAppIndexEntriesForRowInTransactionEffect,
+  withCurrentPublicationIndexRowsInTransactionEffect,
   scanCurrentPublicationIndexInTransactionEffect,
   type AppendPublicationIndexEntryRevisionInput } from "../appIndexEntries";
 import { lowerAppOrderedIndexPhysicalKeyV1 } from "../appDeveloperIndexCommitV1";
-import { AppUniqueKeyPersistenceError, readAppUniqueKeySlotForPublicationInTransactionEffect } from "../appUniqueKeys";
+import { AppUniqueKeyPersistenceError, withAppUniqueKeySlotsInTransactionEffect } from "../appUniqueKeys";
 import { decodeIndexBuildStateRowResult, isIndexBuildSnapshotCoveredInTransactionEffect,
   readIndexCoverageContextInTransactionEffect, readRequiredEnabledIndexBuildsInTransactionEffect,
-  IndexBuildStatePersistenceError } from "../indexBuildStates";
+  IndexBuildStatePersistenceError, type IndexBuildStateRecord } from "../indexBuildStates";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import type { ScopeClockRecord } from "../scopeClock";
 import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
@@ -45,7 +46,7 @@ const capacity = (dimension: ScopePublicationReferenceCapacityError["dimension"]
       ? MAX_REFERENCE_SCAN_MILLISECONDS : MAX_REFERENCE_ROWS, observedAtLeast });
 const persistence = (operation: "readStrongReferenceFacts" | "readStrongReferenceProjection", cause: unknown) =>
   new ScopePublicationSqlFailure({ operation, cause });
-const classify = (cause: unknown) => cause instanceof AppRowReadPersistenceError ||
+const classify = (cause: unknown): Failure => cause instanceof AppRowReadPersistenceError ||
   cause instanceof AppUniqueKeyPersistenceError || cause instanceof AppIndexEntryReadPersistenceError ||
   cause instanceof AppIndexEntryWritePersistenceError || cause instanceof IndexBuildStatePersistenceError ||
   (cause instanceof IndexMaintenanceError && cause.reason === "resourceFailure")
@@ -112,42 +113,82 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
         return yield* Effect.fail(corruption("changed row has no pending current revision"));
       return selected;
     });
-    const requireTarget = Effect.fn("ScopePublication.requireReferenceTarget")(function* (
-      reference: StrongReferenceActivationProjection, value: string,
+    const requireTargets = Effect.fn("ScopePublication.requireReferenceTargets")(function* (
+      reference: StrongReferenceActivationProjection, demands: readonly string[],
     ) {
-      const targetKey = JSON.stringify([reference.name, value]);
-      if (validatedTargets.has(targetKey)) return;
-      let rowId: AppRowIdHexV1 | null = null;
-      if (reference.targetIdentity.kind === "documentId") {
-        const identity = decodeAppDocumentIdentityV1Result(value);
-        if (Result.isSuccess(identity) && identity.success.tableId === reference.targetTableId)
-          rowId = identity.success.rowId;
-      } else {
-        const key = { sparse: false, localeKey: null,
-          values: [orderedIndexValueFromFlarexValueV1(value)] } as const;
-        const slot = yield* readAppUniqueKeySlotForPublicationInTransactionEffect(tx, {
-          scopeId: clock.scopeId, constraintId: reference.targetIdentity.uniqueConstraintDefinitionId,
-          key, pendingCommitSeq,
-        }).pipe(Effect.mapError(classify));
-        if (Option.isSome(slot)) {
-          if (slot.value.tableId !== reference.targetTableId) return yield* Effect.fail(corruption());
-          rowId = slot.value.rowId;
-        }
-      }
-      if (rowId === null) return yield* Effect.fail(new ScopePublicationReferenceConstraintError({
+      const values = [...new Set(demands)].filter(value =>
+        !validatedTargets.has(JSON.stringify([reference.name, value])));
+      if (values.length === 0) return;
+      const refuse = (value: string) => new ScopePublicationReferenceConstraintError({
         reason: "targetNotLive", reference: reference.name, value,
-      }));
-      const target = (yield* finalRows(reference.targetTableId, [rowId], false))[0] ?? null;
-      if (!live(target, reference.targetLiveness) || target === null ||
-        targetValue(reference, rowId, target) !== value)
-        return yield* Effect.fail(new ScopePublicationReferenceConstraintError({
-          reason: "targetNotLive", reference: reference.name, value,
+      });
+      const consumeTargets = Effect.fn("ScopePublication.consumeReferenceTargets")(function* (
+        rowIds: readonly AppRowIdHexV1[],
+        resolve: (ordinal: number) => Effect.Effect<AppRowIdHexV1 | null, Failure>,
+      ) {
+        const missing = rowIds.filter(rowId => !cache.has(rowKey(reference.targetTableId, rowId)));
+        yield* withPublicationAppRowTargetsInTransactionEffect(tx, {
+          scopeId: clock.scopeId, tableId: reference.targetTableId, rowIds: missing,
+          minimumCommitSeq: clock.lastCommitSeq, pendingCommitSeq,
+        }, classify, read => Effect.gen(function* () {
+          for (let ordinal = 0; ordinal < values.length; ordinal++) {
+            const value = values[ordinal]!;
+            const rowId = yield* resolve(ordinal);
+            if (rowId === null) return yield* Effect.fail(refuse(value));
+            yield* requireTime();
+            const key = rowKey(reference.targetTableId, rowId);
+            if (!cache.has(key)) {
+              const rowOrdinal = missing.indexOf(rowId);
+              if (rowOrdinal < 0) return yield* Effect.fail(corruption("slot capture changed its target identity"));
+              const row = yield* read(rowOrdinal);
+              if (row !== null) {
+                const excess = charge(row.kind === "live" ? row.document.canonicalBytes.byteLength : 64);
+                if (excess !== null) return yield* Effect.fail(excess);
+              }
+              cache.set(key, row);
+            }
+            const target = cache.get(key) ?? null;
+            if (target === null || !live(target, reference.targetLiveness) ||
+              targetValue(reference, rowId, target) !== value)
+              return yield* Effect.fail(refuse(value));
+            validatedTargets.add(JSON.stringify([reference.name, value]));
+          }
         }));
-      validatedTargets.add(targetKey);
+      });
+      if (reference.targetIdentity.kind === "documentId") {
+        const identities = values.map(value => {
+          const identity = decodeAppDocumentIdentityV1Result(value);
+          return Result.isSuccess(identity) && identity.success.tableId === reference.targetTableId
+            ? identity.success.rowId : null;
+        });
+        yield* consumeTargets([...new Set(identities.filter(rowId => rowId !== null))],
+          ordinal => Effect.succeed(identities[ordinal] ?? null));
+        return;
+      }
+      const constraintId = reference.targetIdentity.uniqueConstraintDefinitionId;
+      yield* withAppUniqueKeySlotsInTransactionEffect(tx, values.map(value => ({
+        scopeId: clock.scopeId, constraintId, pendingCommitSeq,
+        key: { sparse: false, localeKey: null, values: [orderedIndexValueFromFlarexValueV1(value)] },
+      })), classify, capture => Effect.gen(function* () {
+        // Identity projections select bounded bodies. The ordinal read alone
+        // authenticates the canonical claim and its pending publication fact.
+        const rowIds = [...new Set(capture.identities.flatMap(identity =>
+          Result.isSuccess(identity) && identity.success?.tableId === reference.targetTableId
+            ? [identity.success.rowId] : []))];
+        yield* consumeTargets(rowIds, ordinal => Effect.gen(function* () {
+          const slot = yield* capture.read(ordinal);
+          if (Option.isNone(slot)) return null;
+          if (slot.value.tableId !== reference.targetTableId) return yield* Effect.fail(corruption());
+          return slot.value.rowId;
+        }));
+      }));
     });
+    const coveredReferences = new Map<StrongReferenceActivationProjection, IndexBuildStateRecord>();
     const coverage = Effect.fn("ScopePublication.requireReferenceIndexCoverage")(function* (
       reference: StrongReferenceActivationProjection,
     ) {
+      const cached = coveredReferences.get(reference);
+      if (cached !== undefined) return cached;
       const indexId = reference.reverseIndex.indexDefinitionId;
       const build = yield* readRequiredEnabledIndexBuildsInTransactionEffect(tx, clock, [indexId], "share")
         .pipe(Effect.mapError(classify));
@@ -166,6 +207,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
         }, clock.lastCommitSeq, context, pendingCommitSeq).pipe(Effect.mapError(classify));
         if (!covered) return yield* Effect.fail(corruption("reference reverse index is not covered"));
       }
+      coveredReferences.set(reference, state);
       return state;
     });
     const maintainReverseIndex = Effect.fn("ScopePublication.maintainReferenceIndex")(function* (
@@ -180,18 +222,21 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
         const batch = sourceIds.slice(offset, offset + PAGE_ROWS);
         const current = yield* finalRows(reference.sourceTableId, batch, true);
         const actions: AppendPublicationIndexEntryRevisionInput[] = [];
-        for (let index = 0; index < batch.length; index++) {
-          const rowId = batch[index];
-          if (rowId === undefined) return yield* Effect.fail(corruption());
-          const previous = yield* readAppRowAtSnapshotInTransactionEffect(tx, {
-            scopeId: clock.scopeId, tableId: reference.sourceTableId, rowId,
-            snapshotCommitSeq: clock.lastCommitSeq,
-          }).pipe(Effect.mapError(classify));
+        let index = 0;
+        const orderedRowIds = yield* Effect.forEach(batch, rowId => Effect.fromResult(orderedIndexRowIdHexV1FromBytesResult(
+          appRowIdHexV1ToBytes(rowId)).pipe(Result.mapError(cause => corruption(cause)))));
+        yield* withCurrentPublicationIndexRowsInTransactionEffect(tx, { scopeId: clock.scopeId,
+          publicationIndex: reference.reverseIndex, rowIds: orderedRowIds }, classify, readMembership =>
+        consumeAppRowSnapshotRevisionsInTransactionEffect(tx, {
+          scopeId: clock.scopeId, tableId: reference.sourceTableId, rowIds: batch,
+          snapshotCommitSeq: clock.lastCommitSeq,
+        }, classify, (rowId, previous) => Effect.gen(function* () {
           if (previous.kind === "live") {
             const excess = charge(previous.document.canonicalBytes.byteLength);
             if (excess !== null) return yield* Effect.fail(excess);
           }
-          const next = current[index] ?? null;
+          const ordinal = index++;
+          const next = current[ordinal] ?? null;
           const lower = (row: AppRowRevisionV1 | null) => row?.kind === "live"
             ? lowerAppOrderedIndexPhysicalKeyV1(reference.reverseIndex.physicalSpec,
               row.document, row.creationTime) : Result.succeed(null);
@@ -205,9 +250,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
             }))));
           const orderedRowId = yield* Effect.fromResult(orderedIndexRowIdHexV1FromBytesResult(
             appRowIdHexV1ToBytes(rowId)).pipe(Result.mapError(cause => corruption(cause))));
-          const entries = yield* readCurrentAppIndexEntriesForRowInTransactionEffect(tx, {
-            scopeId: clock.scopeId, publicationIndex: reference.reverseIndex, rowId: orderedRowId,
-          }).pipe(Effect.mapError(classify));
+          const entries = yield* readMembership(ordinal);
           if (entries.length > 1) return yield* Effect.fail(corruption("reference index has multiple current keys for one row"));
           const observed = entries[0]?.encodedKey ?? null;
           if (build.maintenance !== null && observed !== finalKey)
@@ -215,7 +258,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
           if (observed === finalKey) {
             if (observed !== null && priorKey !== finalKey && entries[0]?.commitSeq !== pendingCommitSeq)
               return yield* Effect.fail(corruption("new reference index key has no pending revision"));
-            continue;
+            return;
           }
           if (observed !== priorKey || (observed === null && priorKey !== null && finalKey !== null))
             return yield* Effect.fail(corruption("reference index disagrees with prior and final row keys"));
@@ -225,7 +268,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
           if (finalKey !== null) actions.push({ kind: "live", scopeId: clock.scopeId,
             reference, encodedKey: finalKey, rowId: orderedRowId, writeEpoch: clock.epoch,
             commitSeq: pendingCommitSeq });
-        }
+        })));
         if (actions.length > 0) yield* appendPublicationIndexEntryRevisionsInTransactionEffect(tx, actions)
           .pipe(Effect.mapError(classify));
       }
@@ -247,6 +290,7 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
         .returning({ indexDefinitionId: fxSystemIndexBuildStates.indexDefinitionId }),
       catch: cause => persistence("readStrongReferenceProjection", cause) });
       if (updated.length !== 1) return yield* Effect.fail(corruption("reference index coverage failed to advance"));
+      coveredReferences.set(reference, { ...build, coveredThroughCommitSeq: pendingCommitSeq });
     });
     const requireNoSources = Effect.fn("ScopePublication.requireNoReferenceSources")(function* (
       reference: StrongReferenceActivationProjection, value: string,
@@ -295,36 +339,38 @@ export const validateStrongReferenceFinalState = Effect.fn("ScopePublication.val
       yield* maintainReverseIndex(reference, sourceIds);
       for (let offset = 0; offset < sourceIds.length; offset += PAGE_ROWS) {
         const rows = yield* finalRows(reference.sourceTableId, sourceIds.slice(offset, offset + PAGE_ROWS), true);
+        const values: string[] = [];
+        let invalidSource = false;
         for (const source of rows) {
           if (!live(source, reference.sourceLiveness) || source === null) continue;
           const value = fieldValue(source, reference.sourceField);
           if (value === null || value === undefined) continue;
-          if (typeof value !== "string") return yield* Effect.fail(corruption("reference source value is not text"));
-          yield* requireTarget(reference, value);
+          if (typeof value !== "string") { invalidSource = true; break; }
+          values.push(value);
         }
+        yield* requireTargets(reference, values);
+        if (invalidSource) return yield* Effect.fail(corruption("reference source value is not text"));
       }
       for (let offset = 0; offset < targetIds.length; offset += PAGE_ROWS) {
         const batch = targetIds.slice(offset, offset + PAGE_ROWS);
         const current = yield* finalRows(reference.targetTableId, batch, true);
-        for (let index = 0; index < batch.length; index++) {
-          const rowId = batch[index];
-          if (rowId === undefined) return yield* Effect.fail(corruption());
-          const previous = yield* readAppRowAtSnapshotInTransactionEffect(tx, {
-            scopeId: clock.scopeId, tableId: reference.targetTableId, rowId,
-            snapshotCommitSeq: clock.lastCommitSeq,
-          }).pipe(Effect.mapError(classify));
+        let index = 0;
+        yield* consumeAppRowSnapshotRevisionsInTransactionEffect(tx, {
+          scopeId: clock.scopeId, tableId: reference.targetTableId, rowIds: batch,
+          snapshotCommitSeq: clock.lastCommitSeq,
+        }, classify, (rowId, previous) => Effect.gen(function* () {
           if (previous.kind === "live") {
             const excess = charge(previous.document.canonicalBytes.byteLength);
             if (excess !== null) return yield* Effect.fail(excess);
           }
-          if (previous.kind !== "live" || !live(previous, reference.targetLiveness)) continue;
+          const next = current[index++] ?? null;
+          if (previous.kind !== "live" || !live(previous, reference.targetLiveness)) return;
           const oldValue = targetValue(reference, rowId, previous);
           if (typeof oldValue !== "string") return yield* Effect.fail(corruption("reference target key is not text"));
-          const next = current[index] ?? null;
           if (live(next, reference.targetLiveness) && next !== null &&
-            targetValue(reference, rowId, next) === oldValue) continue;
+            targetValue(reference, rowId, next) === oldValue) return;
           yield* requireNoSources(reference, oldValue);
-        }
+        }));
       }
     }
   },

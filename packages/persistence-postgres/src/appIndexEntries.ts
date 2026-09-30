@@ -1,3 +1,4 @@
+import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation, exactScopeWriteClockObservationIdentity } from "./scopeClock";
 import { bytesEqualFullScan, isUint8Array } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
@@ -82,6 +83,7 @@ export interface AppIndexEntryIdentityV1 {
 }
 
 interface AppendAppIndexEntryRevisionV1Base {
+  readonly membershipHeadEvidence?: AppIndexMembershipHeadEvidence;
   readonly scopeId: ScopeId;
   readonly definition: LocatedAppIndexDefinitionV1;
   readonly encodedKey: OrderedIndexKeyHexV1;
@@ -399,8 +401,8 @@ export const appendAppIndexEntryRevisionsInTransactionEffect = Effect.fn(
   inputs: ReadonlyArray<AppendAppIndexEntryRevisionV1Input>,
 ) {
   const revisions = yield* decodeAppendInputsEffect(tx, inputs);
-  return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions);
-});
+  return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions, inputs.map(input => input.membershipHeadEvidence));
+}, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
 
 /** The common publisher supplies only a reference read from its authenticated
  * active target binding. The ordinary index revision writer still owns row
@@ -410,7 +412,7 @@ export const appendPublicationIndexEntryRevisionsInTransactionEffect = Effect.fn
 )(function* (tx: AppIndexEntryTransaction, inputs: readonly AppendPublicationIndexEntryRevisionInput[]) {
   const revisions = yield* decodeAppendInputsEffect(tx, inputs);
   return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions);
-});
+}, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
 
 const decodeAppendInputsEffect = Effect.fn(
   "AppIndexEntries.decodeAppendInputs",
@@ -448,7 +450,8 @@ const decodeAppendInputsEffect = Effect.fn(
   }
   const first = captures[0];
   if (first === undefined) return [];
-  const clocks = yield* appendQueryEffect(
+  const observed = readExactScopeWriteClockObservation(tx, first.identity.scopeId);
+  const clocks = observed === undefined ? yield* appendQueryEffect(
     tx
       .select({
         scopeUuid: fxSystemScopeClocks.scopeUuid,
@@ -457,7 +460,8 @@ const decodeAppendInputsEffect = Effect.fn(
       .from(fxSystemScopeClocks)
       .where(eq(fxSystemScopeClocks.scopeId, first.identity.scopeId))
       .limit(1),
-  );
+  ) : [{ scopeUuid: first.scopeProjection.scopeUuid,
+    epochUuid: (yield* Effect.fromResult(projectScopeEpochUuidV1Result(observed.epoch)).pipe(Effect.mapError(cause => corruption("issued clock epoch is invalid", cause)))).epochUuid }];
   if (
     clocks[0]?.scopeUuid !== first.scopeProjection.scopeUuid ||
     clocks[0].epochUuid !== first.writeEpochUuid
@@ -708,11 +712,28 @@ const appendDecodedAppIndexEntryRevisionsEffect = Effect.fn(
 )(function* (
   tx: AppIndexEntryTransaction,
   revisions: ReadonlyArray<DecodedAppendAppIndexEntryRevisionV1>,
+  evidence?: readonly (AppIndexMembershipHeadEvidence | undefined)[],
 ): Effect.fn.Return<
   ReadonlyArray<AppIndexEntryRevisionV1>,
   AppendAppIndexEntryRevisionV1Error
 > {
-  const heads = yield* readDecodedMembershipHeadsEffect(tx, revisions);
+  const heads: (AppIndexMembershipHeadV1 | null)[] = [];
+  if (evidence?.some(value => value !== undefined)) {
+    if (evidence.length !== revisions.length) return yield* Effect.fail(corruption("membership proof count differs"));
+    for (let ordinal = 0; ordinal < revisions.length; ordinal++) {
+      const revision = revisions[ordinal];
+      const handle = evidence[ordinal];
+      const issued = handle === undefined ? undefined : membershipHeadEvidence.get(handle);
+      if (revision === undefined || issued?.tx !== tx || issued.epoch !== indexMutationEpoch(tx) || issued.clockIdentity === undefined ||
+        issued.clockIdentity !== exactScopeWriteClockObservationIdentity(tx, revision.identity.scopeId))
+        return yield* Effect.fail(corruption("membership proof is not current for this transaction"));
+      const position = issued.positions.get(indexPositionKey(revision.scopeUuid, revision.identity));
+      if (position === undefined || position.tableId !== revision.identity.tableId || !bytesEqualFullScan(position.physicalSpecSha256, revision.physicalSpecSha256))
+        return yield* Effect.fail(corruption("membership proof does not cover this exact index position"));
+      heads.push(position.head);
+    }
+  } else heads.push(...yield* readDecodedMembershipHeadsEffect(tx, revisions));
+  indexMutationEpochs.set(tx, indexMutationEpoch(tx) + 1);
   const transitions: {
     revision: DecodedAppendAppIndexEntryRevisionV1;
     prior: CommitSeq | null;
@@ -908,6 +929,12 @@ const decodeMembershipHeadEnvelope = Schema.decodeUnknownResult(
   MembershipHeadEnvelopeSchema,
 );
 
+export interface AppIndexMembershipHeadEvidence { readonly _tag: "AppIndexMembershipHeadEvidence" }
+const membershipHeadEvidence = new WeakMap<AppIndexMembershipHeadEvidence, Readonly<{
+  tx: AppIndexEntryTransaction; epoch: number; clockIdentity: object | undefined;
+  positions: ReadonlyMap<string, Readonly<{ head: AppIndexMembershipHeadV1 | null; tableId: CatalogTableId; physicalSpecSha256: Uint8Array }>>;
+}>>();
+
 /** Authenticate latest membership and its exact current pointer before omitting a write. */
 export const readAppIndexMembershipHeadsInTransactionEffect = Effect.fn(
   "AppIndexEntries.readMembershipHeads",
@@ -918,7 +945,7 @@ export const readAppIndexMembershipHeadsInTransactionEffect = Effect.fn(
     readonly positions: ReadonlyArray<AppIndexEntryPositionV1>;
   },
 ): Effect.fn.Return<
-  ReadonlyArray<AppIndexMembershipHeadV1 | null>,
+  Readonly<{ heads: ReadonlyArray<AppIndexMembershipHeadV1 | null>; evidence: AppIndexMembershipHeadEvidence }>,
   ReadAppIndexRangeV1Error
 > {
   const scopeId = input.scopeId;
@@ -976,7 +1003,18 @@ export const readAppIndexMembershipHeadsInTransactionEffect = Effect.fn(
       keyBytes: orderedIndexKeyBytesHexV1ToBytes(encodedKey),
     });
   }
-  return yield* readDecodedMembershipHeadsEffect(tx, decoded);
+  const heads = yield* readDecodedMembershipHeadsEffect(tx, decoded);
+  const positions = new Map<string, Readonly<{ head: AppIndexMembershipHeadV1 | null; tableId: CatalogTableId; physicalSpecSha256: Uint8Array }>>();
+  for (let ordinal = 0; ordinal < decoded.length; ordinal++) {
+    const position = decoded[ordinal];
+    const head = heads[ordinal];
+    if (position === undefined || head === undefined) return yield* Effect.die(new Error("Membership proof lost a position"));
+    positions.set(indexPositionKey(position.scopeUuid, position.identity),
+      Object.freeze({ head, tableId: position.identity.tableId, physicalSpecSha256: new Uint8Array(position.physicalSpecSha256) }));
+  }
+  const evidence = Object.freeze({ _tag: "AppIndexMembershipHeadEvidence" as const });
+  membershipHeadEvidence.set(evidence, Object.freeze({ tx, epoch: indexMutationEpoch(tx), clockIdentity: exactScopeWriteClockObservationIdentity(tx, scopeId), positions }));
+  return Object.freeze({ heads, evidence });
 });
 
 const readDecodedMembershipHeadsEffect = Effect.fn(
@@ -1125,6 +1163,75 @@ export const scanCurrentAppIndexInTransactionEffect = Effect.fn(
   );
 });
 
+const decodePageBatchEnvelope = Schema.decodeUnknownResult(Schema.Struct({
+  ordinal: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)), present: Schema.NullOr(Schema.Boolean),
+}));
+
+/** Bounded ordinal predicates, including empty predicates. Preparation failures
+ * and stored body decoding remain in demand order; the trusted consumer can
+ * reject one observation before a later stored body is decoded. */
+export const consumeCurrentAppIndexPagesInTransactionEffect = Effect.fn("AppIndexEntries.consumeCurrentPages")(
+  function* <Failure, Requirements>(tx: AppIndexEntryTransaction, inputs: readonly ScanCurrentAppIndexV1Input[],
+    error: (cause: ReadAppIndexRangeV1Error) => Failure,
+    consume: (ordinal: number, page: AppIndexRangePageV1) => Effect.Effect<void, Failure, Requirements>,
+  ): Effect.fn.Return<void, Failure, Requirements> {
+    for (let offset = 0; offset < inputs.length;) {
+      const prepared: DecodedAppIndexRangeReadV1[] = [];
+      let outputBound = 0;
+      let preparationFailure: ReadAppIndexRangeV1Error | undefined;
+      while (offset + prepared.length < inputs.length && prepared.length < 32) {
+        const input = inputs[offset + prepared.length];
+        if (input === undefined) return yield* Effect.die(new Error("Index batch lost a demand"));
+        const bound = (input.limit + 1) * (2048 + 256);
+        if (prepared.length > 0 && outputBound + bound > 262_144) break;
+        const previous = prepared[0];
+        const decoded = yield* Effect.result(decodeRangeReadEffect(tx, input,
+          previous === undefined ? undefined : { scopeId: previous.scopeId, scopeUuid: previous.scopeUuid }));
+        if (Result.isFailure(decoded)) { preparationFailure = decoded.failure; break; }
+        prepared.push(decoded.success);
+        outputBound += bound;
+      }
+      if (prepared.length > 0) {
+        const statement = sql.join(prepared.map((input, ordinal) => sql`
+          select ${ordinal}::integer as "ordinal", member.* from (values (1)) as request(present)
+          left join lateral (select true as "present", page.* from (${buildCurrentRangeStatement(input)}) as page) as member on true
+        `), sql` union all `);
+        const result = yield* Effect.uninterruptible(runDrizzleStatementEffect(tx.execute(sql`
+          select * from (${statement}) as demands order by "ordinal", "encodedKeyBytes", "rowIdBytes"
+        `), cause => new AppIndexEntryReadPersistenceError("scanCurrent", cause))).pipe(Effect.mapError(error));
+        const rows = yield* Effect.fromResult(captureDriverRowsResult(result)).pipe(Effect.mapError(error));
+        const grouped: unknown[][] = prepared.map(() => []);
+        for (const raw of rows) {
+          const envelope = yield* Effect.fromResult(decodePageBatchEnvelope(raw)).pipe(Effect.mapError(cause =>
+            error(corruption("invalid index batch envelope", cause))));
+          const group = grouped[envelope.ordinal];
+          if (group === undefined) return yield* Effect.fail(error(corruption("unrequested index batch ordinal")));
+          group.push(raw);
+        }
+        for (let ordinal = 0; ordinal < prepared.length; ordinal++) {
+          const input = prepared[ordinal];
+          const group = grouped[ordinal];
+          if (input === undefined || group === undefined || group.length === 0)
+            return yield* Effect.fail(error(corruption("missing index batch ordinal")));
+          const entries: AppIndexRangeEntryV1[] = [];
+          for (const raw of group) {
+            const envelope = yield* Effect.fromResult(decodePageBatchEnvelope(raw)).pipe(Effect.mapError(cause =>
+              error(corruption("invalid index batch envelope", cause))));
+            if (envelope.present === null) {
+              if (group.length !== 1) return yield* Effect.fail(error(corruption("duplicate empty index batch ordinal")));
+            } else if (envelope.present === true) entries.push(yield* decodeRangeRowEffect(input, raw).pipe(Effect.mapError(error)));
+            else return yield* Effect.fail(error(corruption("invalid index batch presence")));
+          }
+          if (entries.length > input.limit + 1) return yield* Effect.fail(error(corruption("index batch exceeded ordinal bound")));
+          const page = projectRangePage(input.limit, entries);
+          yield* consume(offset + ordinal, page);
+        }
+        offset += prepared.length;
+      }
+      if (preparationFailure !== undefined) return yield* Effect.fail(error(preparationFailure));
+    }
+  });
+
 /** Reuse the bounded current-index reader for an index copied into the
  * target-side activation. This never opens the control catalog at settlement. */
 export const scanCurrentPublicationIndexInTransactionEffect = Effect.fn(
@@ -1172,6 +1279,76 @@ export const countCurrentAppIndexRangeUpToLimitInTransactionEffect = Effect.fn(
     return yield* Effect.fail(new AppIndexEntryStorageCorruptionError("out-of-range bounded count"));
   return count;
 });
+
+const indexMutationEpochs = new WeakMap<AppIndexEntryTransaction, number>();
+const indexMutationEpoch = (tx: AppIndexEntryTransaction) => indexMutationEpochs.get(tx) ?? 0;
+
+/** Prefetch fixed reverse memberships; only the trusted callback may decode
+ * an ordinal, so historical/lowering failures precede later membership bodies. */
+export const withCurrentPublicationIndexRowsInTransactionEffect = Effect.fn("AppIndexEntries.withPublicationRowMemberships")(
+  function* <Value, Failure, Requirements>(tx: AppIndexEntryTransaction, input: {
+    readonly scopeId: ScopeId; readonly publicationIndex: StrongReferenceActivationProjection["reverseIndex"];
+    readonly rowIds: readonly OrderedIndexRowIdHexV1[];
+  }, error: (cause: ReadAppIndexRangeV1Error) => Failure,
+    consume: (read: (ordinal: number) => Effect.Effect<readonly AppIndexRangeEntryV1[], Failure>) => Effect.Effect<Value, Failure, Requirements>,
+  ): Effect.fn.Return<Value, Failure, Requirements> {
+    if (input.rowIds.length > 32) return yield* Effect.fail(error(new InvalidAppIndexEntryInputError("invalidBatch")));
+    const decoded = yield* decodeRangeReadEffect(tx, { scopeId: input.scopeId, publicationIndex: input.publicationIndex,
+      bounds: {}, limit: 2 }).pipe(Effect.mapError(error));
+    const rowIds: OrderedIndexRowIdHexV1[] = [];
+    for (const rowId of input.rowIds) rowIds.push(yield* Effect.fromResult(decodeOrderedRowIdResult(rowId)).pipe(
+      Effect.mapError(cause => error(new InvalidAppIndexEntryInputError("invalidRowId", cause)))));
+    if (new Set(rowIds).size !== rowIds.length) return yield* Effect.fail(error(new InvalidAppIndexEntryInputError("invalidBatch")));
+    const values = sql.join(rowIds.map((rowId, ordinal) => sql`(${ordinal}::integer, ${orderedIndexRowIdHexV1ToBytes(rowId)}::bytea)`), sql`, `);
+    const result = rowIds.length === 0 ? [] : yield* Effect.uninterruptible(runDrizzleStatementEffect(tx.execute(sql`
+      with requested(ordinal, row_id) as (values ${values})
+      select requested.ordinal as "ordinal", member.* from requested left join lateral (
+        select true as "present", revision.table_id::text as "tableIdText", revision.key_codec_version::text as "keyCodecVersionText",
+          revision.physical_spec_sha256 as "physicalSpecSha256", revision.encoded_key as "encodedKeyBytes",
+          revision.key_sha256 as "keySha256", revision.row_id as "rowIdBytes", revision.commit_seq::text as "commitSeqText",
+          revision.is_tombstone as "isTombstone"
+        from fx_app_index_entry_current as current_entry join fx_app_index_entry_rev as revision
+          on revision.scope_uuid = current_entry.scope_uuid and revision.index_definition_id = current_entry.index_definition_id
+          and revision.encoded_key = current_entry.encoded_key and revision.row_id = current_entry.row_id
+          and revision.commit_seq = current_entry.commit_seq
+        where current_entry.scope_uuid = ${decoded.scopeUuid} and current_entry.index_definition_id = ${decoded.indexDefinitionId}
+          and current_entry.row_id = requested.row_id order by current_entry.encoded_key limit 3
+      ) as member on true order by requested.ordinal, member."encodedKeyBytes"
+    `), cause => new AppIndexEntryReadPersistenceError("scanCurrent", cause))).pipe(Effect.mapError(error));
+    const rawRows = yield* Effect.fromResult(captureDriverRowsResult(result)).pipe(Effect.mapError(error));
+    const groups: unknown[][] = rowIds.map(() => []);
+    for (const raw of rawRows) {
+      const envelope = yield* Effect.fromResult(decodePageBatchEnvelope(raw)).pipe(Effect.mapError(cause => error(corruption("reverse membership envelope invalid", cause))));
+      const group = groups[envelope.ordinal];
+      if (group === undefined) return yield* Effect.fail(error(corruption("reverse membership has an unrequested ordinal")));
+      group.push(raw);
+    }
+    let active = true;
+    const epoch = indexMutationEpoch(tx);
+    const clockIdentity = exactScopeWriteClockObservationIdentity(tx, input.scopeId);
+    const read = Effect.fn("AppIndexEntries.readPublicationRowOrdinal")(function* (ordinal: number) {
+      if (!active || epoch !== indexMutationEpoch(tx) ||
+        clockIdentity !== exactScopeWriteClockObservationIdentity(tx, input.scopeId))
+        return yield* Effect.fail(error(corruption("reverse membership capture is closed")));
+      const rows = groups[ordinal];
+      if (rows === undefined || rows.length === 0 || rows.length > 3)
+        return yield* Effect.fail(error(corruption("reverse membership ordinal bound differs")));
+      const entries: AppIndexRangeEntryV1[] = [];
+      for (const raw of rows) {
+        const envelope = yield* Effect.fromResult(decodePageBatchEnvelope(raw)).pipe(Effect.mapError(cause => error(corruption("reverse membership envelope invalid", cause))));
+        if (envelope.present === null) {
+          if (rows.length !== 1) return yield* Effect.fail(error(corruption("reverse membership empty ordinal duplicated")));
+        } else {
+          const entry = yield* decodeRangeRowEffect(decoded, raw).pipe(Effect.mapError(error));
+          if (entry.rowId !== rowIds[ordinal]) return yield* Effect.fail(error(corruption("reverse membership row differs")));
+          entries.push(entry);
+        }
+      }
+      if (entries.length > 2) return yield* Effect.fail(error(corruption("one row has more than two current index entries")));
+      return Object.freeze(entries);
+    });
+    return yield* consume(read).pipe(Effect.ensuring(Effect.sync(() => { active = false; })));
+  });
 
 type ReadCurrentAppIndexEntriesForRowV1Input = {
   readonly scopeId: ScopeId;
@@ -1501,6 +1678,7 @@ const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
   function* (
     tx: AppIndexEntryTransaction,
     input: AppIndexRangeReadV1Base | PublicationIndexRangeInput,
+    observedScope?: Readonly<{ scopeId: ScopeId; scopeUuid: ScopeUuidV1 }>,
   ): Effect.fn.Return<DecodedAppIndexRangeReadV1, ReadAppIndexRangeV1Error> {
     const captured = yield* Effect.fromResult(
       decodeRangeReadInputResult(input, () => "publicationIndex" in input
@@ -1523,11 +1701,8 @@ const decodeRangeReadEffect = Effect.fn("AppIndexEntries.decodeRangeRead")(
       if (!bytesEqualFullScan(definition.physicalSpecSha256, appIndexPhysicalSpecSha256HexV1ToBytes(digest)))
         return yield* Effect.fail(new AppIndexEntryStorageCorruptionError("activation index digest mismatch"));
     }
-    const scopeUuid = yield* requireScopeUuidEffect(
-      tx,
-      captured.scopeId,
-      captured.scopeProjection,
-    );
+    const scopeUuid = observedScope?.scopeId === captured.scopeId && observedScope.scopeUuid === captured.scopeProjection.scopeUuid
+      ? observedScope.scopeUuid : yield* requireScopeUuidEffect(tx, captured.scopeId, captured.scopeProjection);
     return Object.freeze({
       scopeId: captured.scopeId,
       scopeUuid,
@@ -1816,15 +1991,16 @@ const executeAndDecodeRangeEffect = Effect.fn(
   for (const row of rows) {
     decoded.push(yield* decodeRangeRowEffect(input, row));
   }
-  const isDone = decoded.length <= input.limit;
-  const entries = Object.freeze(decoded.slice(0, input.limit));
-  const last = entries.at(-1);
-  const continueCursor =
-    isDone || last === undefined
-      ? null
-      : Object.freeze({ encodedKey: last.encodedKey, rowId: last.rowId });
-  return Object.freeze({ entries, isDone, continueCursor });
+  return projectRangePage(input.limit, decoded);
 });
+
+function projectRangePage(limit: number, decoded: readonly AppIndexRangeEntryV1[]): AppIndexRangePageV1 {
+  const isDone = decoded.length <= limit;
+  const entries = Object.freeze(decoded.slice(0, limit));
+  const last = entries.at(-1);
+  const continueCursor = isDone || last === undefined ? null : Object.freeze({ encodedKey: last.encodedKey, rowId: last.rowId });
+  return Object.freeze({ entries, isDone, continueCursor });
+}
 
 const decodeRangeRowEffect = Effect.fn("AppIndexEntries.decodeRangeRow")(
   function* (
@@ -1981,7 +2157,9 @@ const requireScopeUuidEffect = Effect.fn("AppIndexEntries.requireScopeUuid")(
     | AppIndexEntryScopeAuthorityUnavailableError
     | AppIndexEntryReadPersistenceError
   > {
-    const query = tx
+    const observed = readExactScopeWriteClockObservation(tx, scopeId);
+  if (observed !== undefined) return projection.scopeUuid;
+  const query = tx
       .select({ scopeUuid: fxSystemScopeClocks.scopeUuid })
       .from(fxSystemScopeClocks)
       .where(eq(fxSystemScopeClocks.scopeId, scopeId))

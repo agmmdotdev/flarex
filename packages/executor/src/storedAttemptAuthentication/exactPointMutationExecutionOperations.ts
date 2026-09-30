@@ -435,6 +435,7 @@ export function makeExactPointMutationExecutionOperationsV1(
         const storedAttempt = yield* authenticate(
           storedAuthority,
           encodedEnvelope,
+          journal.confirmedSealCapture?.(journalAttempt),
         );
         const authenticatedAuthority = yield* authenticateCommitAuthority(
           storedAttempt,

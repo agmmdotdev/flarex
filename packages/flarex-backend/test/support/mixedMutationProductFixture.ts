@@ -5,13 +5,18 @@ import { Miniflare } from "miniflare";
 import { Effect, Exit, Result, Schema, Scope } from "effect";
 import { commerceError, isJsonObject, type CommerceTransactionError, type Json } from
   "@flarex/persistence-postgres/internal/commerce-values";
-import { CommitEnvelopeV1Schema, CommitSyscallSequenceV1Schema } from "flarex-protocol/commit-protocol";
+import { CommitEnvelopeV1Schema, CommitSyscallSequenceV1Schema, canonicalizeSuccessfulResultV1Effect,
+  decodeCanonicalSessionJournalEffect } from "flarex-protocol/commit-protocol";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { decodeLogicalParticipantDependencyEvidence } from "../../../persistence-postgres/src/logicalDocuments/journalEvidence";
+import { inspectLogicalParticipantCommitAuthority } from "../../../persistence-postgres/src/logicalDocuments/participantAdmission";
 import { decodePointMutationExactRuntimeResultV1Effect } from
   "flarex-protocol/point-mutation-exact-runtime";
 import { requirePointMutationArgumentSemanticSizeV1 } from
   "flarex-protocol/point-mutation-start";
 import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { encodeCanonicalJson } from "flarex-protocol/json";
 import { encodeAdmittedFrameworkOperationV1Result } from
   "flarex-protocol/internal/admitted-framework-operation-v1";
 import { selectApplicationMutationAdmission } from
@@ -26,10 +31,11 @@ import { createStoredOccExecutionEvidenceLoaderV1 } from
   "../../../persistence-postgres/src/storedOccExecution";
 import { createPointMutationExecutionClaimLivenessV1 } from
   "../../../persistence-postgres/src/transactionExecutionClaimLiveness";
-import { createSessionJournalStorePersistence } from
+import { createSessionJournalStorePersistence, readConfirmedFiniteRootSealCapture } from
   "../../../persistence-postgres/src/sessionJournalStore";
 import type { LogicalParticipantBorrow } from
   "@flarex/persistence-postgres/session-journal-store";
+import type { PerformanceSettlementLedger } from "./mixedMutationPerformanceReport";
 import { createStoredAttemptEvidenceLoaderV1 } from
   "../../../persistence-postgres/src/storedAttemptEvidence";
 import { createStoredCommitAuthorityEvidenceLoaderV1 } from
@@ -197,6 +203,7 @@ type CreatedActivation = Extract<Effect.Success<ReturnType<
 >>, { status: "created" }>;
 
 export interface MixedMutationProductFixture {
+  readonly readSettlementLedger: () => Promise<PerformanceSettlementLedger | null>;
   readonly currency: CurrencyFixture;
   readonly product: ProductFixture;
   readonly pricing?: PricingFixture;
@@ -217,6 +224,10 @@ export interface MixedMutationProductFixture {
   readonly eventGroup: string;
   readonly journal: Journal;
   readonly store: ReturnType<typeof createSessionJournalStorePersistence>;
+  readonly sealFiniteRootDirect: (result: unknown) => Effect.Effect<
+    Effect.Success<ReturnType<ReturnType<typeof createSessionJournalStorePersistence>["sealFiniteRootEffect"]>>,
+    Effect.Error<ReturnType<ReturnType<typeof createSessionJournalStorePersistence>["sealFiniteRootEffect"]>> |
+      Effect.Error<ReturnType<typeof canonicalizeSuccessfulResultV1Effect>>>;
   readonly executionClaims: ReturnType<typeof createPointMutationExecutionClaimVaultV1>;
   readonly attempt: Effect.Success<ReturnType<Journal["openAttempt"]>>;
   readonly reopenJournalAttempt: () => ReturnType<Journal["openAttempt"]>;
@@ -747,13 +758,18 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
       for (const scope of payloadScopes) yield* Scope.close(scope, Exit.succeed(undefined));
       payloadScopes.clear();
     });
-    const journalStore = performance === undefined ? store : Object.freeze({ ...store,
+    let initialPersistenceAttempt: Effect.Success<ReturnType<typeof store.openAttemptEffect>> | undefined;
+    const journalStore = Object.freeze({ ...store,
+      openAttemptEffect: (...args: Parameters<typeof store.openAttemptEffect>) =>
+        store.openAttemptEffect(...args).pipe(Effect.tap(handle => Effect.sync(() => {
+          initialPersistenceAttempt ??= handle;
+        }))),
       completeSealEffect: (...args: Parameters<typeof store.completeSealEffect>) =>
         store.completeSealEffect(...args).pipe(Effect.tap(() => Effect.sync(() =>
-          performance.onSealBytes(args[1].canonicalBytes.byteLength)))),
+          performance?.onSealBytes(args[1].canonicalBytes.byteLength)))),
       sealFiniteRootEffect: (...args: Parameters<typeof store.sealFiniteRootEffect>) =>
         store.sealFiniteRootEffect(...args).pipe(Effect.tap(sealed => Effect.sync(() =>
-          performance.onSealBytes(sealed.journalByteLength)))),
+          performance?.onSealBytes(sealed.journalByteLength)))),
     });
     const journal = createPointMutationJournalV1(journalStore, executionClaims.admission,
       issueSetupSeededSyscallValidatorProofV1({ scopeId: application.authority.scopeId,
@@ -1151,7 +1167,23 @@ export default { async fetch(_request, env) {
   const uniqueConstraintEligibility = createAppUniqueConstraintSetEligibilityPortV1({
     controlDb: application.control.drizzle, authority: application.authorityPorts,
   }, uniqueConstraints);
+  const publicationQueries = new Map<string, { ownerQuery: string; dispatches: number;
+    parameterCount: number; scalarParameterBytes: number; unknownEncodingParameters: number }>();
   const publisherOptions = Object.freeze({
+    ...(performance?.trace === undefined ? {} : { observeQuery: (query: { name: string; params: readonly unknown[] }) => {
+      const observation = publicationQueries.get(query.name) ?? { ownerQuery: query.name,
+        dispatches: 0, parameterCount: 0, scalarParameterBytes: 0, unknownEncodingParameters: 0 };
+      observation.dispatches++;
+      observation.parameterCount += query.params.length;
+      for (const parameter of query.params) {
+        if (parameter instanceof Uint8Array) observation.scalarParameterBytes += parameter.byteLength;
+        else if (typeof parameter === "string") observation.scalarParameterBytes += new TextEncoder().encode(parameter).byteLength;
+        else if (typeof parameter === "number" || typeof parameter === "bigint" || typeof parameter === "boolean")
+          observation.scalarParameterBytes += new TextEncoder().encode(String(parameter)).byteLength;
+        else if (parameter !== null) observation.unknownEncodingParameters++;
+      }
+      publicationQueries.set(query.name, observation);
+    } }),
     developerIndexes: application.developerIndexes,
     intrinsicCreationTimeIndexes: application.intrinsicCreationTimeIndexes,
     uniqueConstraints,
@@ -1245,11 +1277,9 @@ export default { async fetch(_request, env) {
       : undefined;
     if (occExecutor !== undefined) retryExecutor = occExecutor;
     const executor = occExecutor ?? createStoredPointCommitExecutorV1(loader, common, executionClaims);
-    const loadedForCommit = await Effect.runPromise(createPointMutationSessionAttemptLoadingV1(
-      createPointMutationSessionAttemptLoadPersistenceV1(application.sessionAuthority)).load(rawSelector));
-    const authority = await Effect.runPromise(executor.deriveAuthority(loadedForCommit, execution));
+    const authority = await Effect.runPromise(executor.deriveAuthority(loaded, execution));
     const stored = await Effect.runPromise(executor.authenticate(authority,
-      Schema.encodeSync(CommitEnvelopeV1Schema)(envelope)));
+      Schema.encodeSync(CommitEnvelopeV1Schema)(envelope), journal.confirmedSealCapture?.(attempt)));
     const authenticated = await Effect.runPromise(executor.authenticateCommitAuthority(stored));
     const verified = await Effect.runPromise(executor.verifyCommitInput(authenticated));
     const planned = await Effect.runPromise(executor.planPointCommit(verified));
@@ -1455,6 +1485,99 @@ export default { async fetch(_request, env) {
     ...(workflowBinding === undefined ? {} : { workflowBinding }),
     schemaVersionId, logicalSchemaVersionId,
     eventPolicy, eventGroup, store, executionClaims, journal, attempt, bound, runAdmitted, selector,
+    readSettlementLedger: async () => {
+      const handle = journal.confirmedSealCapture?.(attempt);
+      if (handle === undefined) return null;
+      const captured = readConfirmedFiniteRootSealCapture(handle, application.sessionAuthority);
+      const root = captured?.attemptRows.rootRows[0];
+      if (captured === undefined || root === undefined) return null;
+      if (root.sealedJournalBytes === null || root.sealedJournalSha256 === null)
+        throw new Error("Missing confirmed canonical journal for settlement ledger");
+      const canonical = await Effect.runPromise(decodeCanonicalSessionJournalEffect({
+        canonicalBytes: root.sealedJournalBytes, expectedSha256Hex: encodeBytesToLowercaseHex(root.sealedJournalSha256),
+      }));
+      let admittedRangeDemands = 0;
+      let admittedPageDemands = 0;
+      let admittedUniqueDemands = 0;
+      let admittedRangeEntryOccurrences = 0;
+      let admittedPageEntryOccurrences = 0;
+      let admittedIndexDefinitionDemands = 0;
+      let admittedConstraintDefinitionDemands = 0;
+      const indexIds = new Set<number>();
+      const constraintIds = new Set<number>();
+      const dependencyBytesBySource: Record<string, number> = {};
+      for (const operation of canonical.journal.participantOperations) {
+        for (const contribution of operation.sourceContributions) {
+          const evidence = await Effect.runPromise(Effect.fromResult(
+            decodeLogicalParticipantDependencyEvidence(contribution.dependencyEvidence)));
+          const selected = logicalParticipants.flatMap(token => {
+            const member = inspectLogicalParticipantCommitAuthority(token, operation, contribution);
+            return member === null ? [] : [member];
+          })[0];
+          if (selected === undefined) throw new Error("Missing issued contribution for settlement ledger");
+          admittedRangeDemands += evidence.indexRanges.length;
+          admittedPageDemands += evidence.indexPages.length;
+          admittedUniqueDemands += evidence.uniqueReads.length;
+          admittedRangeEntryOccurrences += evidence.indexRanges.reduce((sum, range) => sum + range.entries.length, 0);
+          admittedPageEntryOccurrences += evidence.indexPages.reduce((sum, page) => sum + page.entries.length, 0);
+          admittedIndexDefinitionDemands += selected.indexes.length;
+          admittedConstraintDefinitionDemands += selected.unique.length;
+          for (const definition of selected.indexes) indexIds.add(definition.indexDefinitionId);
+          for (const definition of selected.unique) constraintIds.add(definition.uniqueConstraintDefinitionId);
+          // This representation is the exact checked persisted JSON evidence;
+          // UTF-8 bytes include the complete repeated observation arrays.
+          dependencyBytesBySource[contribution.sourceKey] = (dependencyBytesBySource[contribution.sourceKey] ?? 0) +
+            new TextEncoder().encode(encodeCanonicalJson(contribution.dependencyEvidence,
+              () => { throw new Error("Checked contribution evidence is not canonical JSON"); })).byteLength;
+        }
+      }
+      const bytes: Record<string, number> = {
+        canonicalJournal: root.sealedJournalBytes?.byteLength ?? 0,
+        canonicalResult: root.sealedResultBytes?.byteLength ?? 0,
+        rangeEvidence: root.indexRangeDependencyEvidenceBytes,
+        materialWriteEventEvidence: Number(root.materialWriteEventEvidenceBytes),
+        receiptEvidence: root.receiptEvidenceBytes,
+      };
+      for (const session of captured.authorityRows.sessionSizeRows) {
+        for (const [name, length] of Object.entries({ argsJson: session.validatedArgsJsonByteLengthText,
+          argsCanonical: session.validatedArgsCanonicalByteLengthText,
+          grantJson: session.authorizationGrantJsonByteLengthText,
+          grantCanonical: session.authorizationGrantCanonicalByteLengthText,
+          authorityJson: session.applicationExecutionAuthorityJsonByteLengthText,
+          authorityCanonical: session.applicationExecutionAuthorityCanonicalByteLengthText }))
+          if (length !== null) bytes[name] = Number(length);
+      }
+      for (const schema of captured.authorityRows.schemaSizeRows) {
+        bytes.schemaManifestJson = Number(schema.manifestJsonByteLengthText);
+        bytes.schemaManifestCanonical = Number(schema.manifestCanonicalByteLengthText);
+      }
+      for (const graph of captured.authorityRows.applicationGraphSizeRows)
+        for (const [name, length] of Object.entries(graph))
+          if (name !== "kind") bytes[`applicationGraph.${name}`] = Number(length);
+      return Object.freeze({ syscallReceipts: Number(root.lastSyscallSequence),
+        readDocumentOccurrences: root.readDocuments,
+        admittedRangeDemands, admittedPageDemands, admittedUniqueDemands,
+        admittedRangeEntryOccurrences, admittedPageEntryOccurrences,
+        admittedIndexDefinitionDemands, admittedConstraintDefinitionDemands,
+        distinctAdmittedIndexDefinitions: indexIds.size, distinctAdmittedConstraintDefinitions: constraintIds.size,
+        dependencyBytesBySource: Object.freeze(dependencyBytesBySource),
+        publicationQueries: Object.freeze([...publicationQueries.values()].map(query => Object.freeze({ ...query }))),
+        pointDependencies: root.pointDependencyCount, indexedQuerySyscalls: root.indexedQuerySyscalls,
+        indexRangeDependencies: root.indexRangeDependencyCount, relationReadSyscalls: root.relationReadSyscalls,
+        relationDependencies: root.relationDependencyCount, pointProjectionRows: captured.attemptRows.pointRows.length,
+        sealProjectionChunkRows: 128, receiptProjectionChunks: Math.ceil(Number(root.lastSyscallSequence) / 128),
+        pointProjectionChunks: Math.ceil(captured.attemptRows.pointRows.length / 128),
+        indexRangeProjectionChunks: Math.ceil(root.indexRangeDependencyCount / 128),
+        relationProjectionChunks: Math.ceil(root.relationDependencyCount / 128), bytes: Object.freeze(bytes),
+        unavailable: Object.freeze(["strongReferenceDemands", "unobservedPublicationOwnerParameters",
+          "nonScalarParameterWireEncoding"]),
+      });
+    },
+    sealFiniteRootDirect: result => Effect.gen(function* () {
+      if (initialPersistenceAttempt === undefined) throw new Error("Missing initial finite persistence attempt");
+      const canonical = yield* canonicalizeSuccessfulResultV1Effect(result);
+      return yield* store.sealFiniteRootEffect(initialPersistenceAttempt, canonical);
+    }),
     reopenJournalAttempt: () => journal.openAttempt(loaded, execution),
     serviceTransactionDepth, pgTransactionObservations,
     observePgNativeSqlTransactions,

@@ -14,6 +14,7 @@ import type {
   SessionJournalAttempt,
   SessionJournalPointOperationV1,
   SessionJournalStorePersistence,
+  ConfirmedFiniteRootSealCapture,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
   InvalidSessionJournalCapabilityV1Error,
@@ -229,6 +230,8 @@ export type PointMutationJournalBoundaryV1Error =
   | ApplicationTableWriteDeniedError;
 
 export interface PointMutationJournalV1 {
+  /** Present only after this finite root's seal confirms database COMMIT. */
+  readonly confirmedSealCapture?: (attempt: PointMutationJournalAttemptV1) => ConfirmedFiniteRootSealCapture | undefined;
   readonly openAttempt: (
     attempt: LoadedPointMutationSessionAttemptV1,
     executionClaim: PointMutationExecutionScopeV1,
@@ -404,6 +407,7 @@ export function createPointMutationJournalV1(
     }));
   }
   const attemptStates = new WeakMap<object, JournalAttemptStateV1>();
+  const confirmedSeals = new WeakMap<object, ConfirmedFiniteRootSealCapture>();
   const tableStates = new WeakMap<object, JournalTableStateV1>();
   const indexStates = new WeakMap<object, JournalIndexStateV1>();
   const relationStates = new WeakMap<object, JournalRelationState>();
@@ -799,7 +803,10 @@ export function createPointMutationJournalV1(
               return yield* Effect.uninterruptible(
                 persistence.sealFiniteRootEffect(state.persistenceAttempt,
                   result).pipe(Effect.mapError(mapPersistenceFailure),
-                    Effect.map(sealed => sealed.envelope)),
+                    Effect.map(sealed => {
+                      confirmedSeals.set(attempt, sealed.capture);
+                      return sealed.envelope;
+                    })),
               );
             }
             const prepared = yield* Effect.uninterruptible(
@@ -847,6 +854,7 @@ export function createPointMutationJournalV1(
     captureRecoveredRelationConflict,
     claimPersistedRelationConflictForRetry,
     sealSuccessfulResult,
+    confirmedSealCapture: (attempt: PointMutationJournalAttemptV1) => confirmedSeals.get(attempt),
     discardTentativeRoot,
   });
   return journal;

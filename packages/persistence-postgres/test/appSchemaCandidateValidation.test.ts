@@ -22,6 +22,7 @@ import {
   CommitSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
+  StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -41,6 +42,8 @@ import {
   loadAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
   prepareAppSchemaCandidateWriteGuardEffect,
+  captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect,
+  prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect,
   validateAppSchemaCandidateReadinessInTransactionEffect,
 } from "../src/appSchemaCandidateValidation";
 import {
@@ -64,6 +67,43 @@ const LOCATOR = Object.freeze({
 let fixtureOrdinal = 0;
 
 describe("M03-A app-schema candidate validation", () => {
+  it("fences captured empty heads by issuer and target before detecting a new candidate", async () => {
+    const fixture = await fixtureFor("captured_empty_head");
+    const dependencies = portDependencies(fixture);
+    const candidateValidation = createAppSchemaCandidateValidationPort(dependencies);
+    const pointCommitAuthority = { scopeMetadata: dependencies.authority.scopeMetadata,
+      provisioningReceipts: dependencies.authority.provisioningReceipts,
+      scopeSessionTargets: dependencies.authority.scopeClockTargets };
+    const guard = createAppSchemaCandidateWriteGuardPort({ candidateValidation, pointCommitAuthority });
+    const clock = await fixture.target.getCurrentClock(fixture.scopeId);
+    if (clock === null) throw new Error("Missing capture clock.");
+    const authority = { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId,
+      physicalLocator: LOCATOR, storageGeneration: clock.storageGeneration,
+      storageGenerationFence: clock.storageGenerationFence, epoch: clock.epoch, lastCommitSeq: clock.lastCommitSeq };
+    const capture = await fixture.persistence.drizzle.transaction(tx => runEffect(
+      captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx, authority, pointCommitAuthority),
+    ));
+    const foreignGuard = createAppSchemaCandidateWriteGuardPort({ candidateValidation,
+      pointCommitAuthority: { ...pointCommitAuthority } });
+    expect(await runEffectFailure(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(foreignGuard, capture)))
+      .toMatchObject({ reason: "compositionMismatch" });
+    expect(await runEffectFailure(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, structuredClone(capture))))
+      .toMatchObject({ reason: "notIssued" });
+    const foreignScope = await fixture.persistence.drizzle.transaction(tx => runEffect(
+      captureAppSchemaCandidateWriteGuardPlanningHeadInTransactionEffect(tx,
+        { ...authority, storageGenerationFence: StorageGenerationFenceSchema.make(clock.storageGenerationFence + 1n) }, pointCommitAuthority),
+    ));
+    expect(await runEffectFailure(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, foreignScope)))
+      .toMatchObject({ reason: "compositionMismatch" });
+    const prepared = await runEffect(prepareAppSchemaCandidateWriteGuardFromPlanningHeadEffect(guard, capture));
+    await runEffect(installAppSchemaCandidateValidationEffect(candidateValidation, input(fixture, fixture.schemaVersionId)));
+    await fixture.persistence.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      const freshClock = yield* lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId);
+      expect(yield* Effect.flip(applyAppSchemaCandidateWriteGuardInTransactionEffect(tx, guard, prepared,
+        authority, freshClock, CommitSeqSchema.make(1n), []))).toMatchObject({ reason: "concurrentStateChange" });
+    })));
+  });
+
   it("advances the selected shop when another scope shares its deployment", async () => {
     const fixture = await fixtureFor("shared_deployment_peer");
     await fixture.persistence.insertScopeMetadata({

@@ -1,9 +1,10 @@
+import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation } from "./scopeClock";
 import {
   bytesEqualFullScan,
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
-import { and, eq, or, isNull } from "drizzle-orm";
+import { and, eq, or, isNull, sql } from "drizzle-orm";
 import { Effect, Option, Result, Schema } from "effect";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import {
@@ -355,6 +356,12 @@ const StoredClaimSchema = Schema.Struct({
 });
 const decodeStoredClaimRowResult =
   Schema.decodeUnknownResult(StoredClaimSchema);
+const decodeSlotCorrelationEnvelope = Schema.decodeUnknownResult(Schema.Struct({ claim: Schema.Struct({
+  scopeUuid: StoredClaimSchema.fields.scopeUuid,
+  constraintId: StoredClaimSchema.fields.constraintId,
+  localeKey: StoredClaimSchema.fields.localeKey,
+  canonicalKeySha256: StoredClaimSchema.fields.canonicalKeySha256,
+}) }));
 const OwnerPositionsSchema = Schema.Array(
   Schema.Struct({
     constraintId: CatalogUniqueConstraintDefinitionIdSchema,
@@ -643,7 +650,7 @@ export const applyAppUniqueKeyMutationsInTransactionEffect = Effect.fn(
     yield* Effect.fromResult(verifyUniqueWritesResult(batch, returned));
   }
   return results;
-});
+}, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
 
 function mutationOwnerKey(
   mutation: CapturedMutationV1 | DecodedMutationV1,
@@ -1036,7 +1043,8 @@ const requireScopeAuthorityEffect = Effect.fn(
   expectedScopeUuid: ScopeUuidV1,
   expectedEpoch: ScopeEpoch,
 ) {
-  const scope = yield* persistenceEffect(
+  const observed = readExactScopeWriteClockObservation(tx, scopeId);
+  const scope = observed === undefined ? yield* persistenceEffect(
     tx
       .select({
         scopeUuid: fxSystemScopeClocks.scopeUuid,
@@ -1045,7 +1053,7 @@ const requireScopeAuthorityEffect = Effect.fn(
       .from(fxSystemScopeClocks)
       .where(eq(fxSystemScopeClocks.scopeId, scopeId))
       .limit(1),
-  );
+  ) : [{ scopeUuid: expectedScopeUuid, epoch: observed.epoch }];
   const authority = scope[0];
   if (authority === undefined) {
     return yield* Effect.fail(
@@ -1415,41 +1423,26 @@ export const readAppUniqueKeySlotInTransactionEffect = Effect.fn("AppUniqueKeys.
   }) => readSlot(tx, input),
 );
 
-/** Publication-only final-state lookup. The owning transaction must have
- * finished its row-change prefix under the scope write lock. A newly written
- * slot owner is accepted only when this exact commit contains its row fact. */
-export const readAppUniqueKeySlotForPublicationInTransactionEffect = Effect.fn("AppUniqueKeys.readPublicationSlot")(
-  (tx: AppUniqueKeyTransaction, input: {
-    readonly scopeId: ScopeId; readonly constraintId: AppUniqueConstraintIdV1; readonly key: AppUniqueKeyProjectionV1;
-    readonly pendingCommitSeq: CommitSeq;
-  }) => readSlot(tx, input, input.pendingCommitSeq),
-);
+type SlotReadInput = Readonly<{ scopeId: ScopeId; constraintId: AppUniqueConstraintIdV1;
+  key: AppUniqueKeyProjectionV1; pendingCommitSeq?: CommitSeq }>;
 
-const readSlot = Effect.fn("AppUniqueKeys.readSlotState")(
-  function* (tx: AppUniqueKeyTransaction, input: {
-    readonly scopeId: ScopeId; readonly constraintId: AppUniqueConstraintIdV1; readonly key: AppUniqueKeyProjectionV1;
-  }, pendingCommitSeq?: CommitSeq) {
-    const identity = yield* Effect.fromResult(decodeSlotIdentity(input)).pipe(Effect.mapError(cause => invalid("invalidTransition", cause)));
-    const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(identity.scopeId)).pipe(Effect.mapError(cause => invalid("invalidScopeId", cause)));
-    const canonical = yield* Effect.fromResult(canonicalizeAppUniqueKeyV1Result(input.key)).pipe(Effect.mapError(cause => invalid("invalidNextKey", cause)));
-    if (canonical.kind === "omitted") return Option.none();
-    const expected = yield* hashClaimEffect(canonical, liveSha256);
-    const rows = yield* persistenceEffect(tx.select({ claim: fxAppUniqueKeys,
-      ownerCommitSeq: fxAppRowCurrent.commitSeq, tombstone: fxAppRowRevisions.isTombstone,
-      publishedThrough: fxSystemScopeClocks.lastCommitSeq,
-    }).from(fxAppUniqueKeys).leftJoin(fxAppRowCurrent, and(
-      eq(fxAppRowCurrent.scopeUuid, fxAppUniqueKeys.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppUniqueKeys.tableId),
-      eq(fxAppRowCurrent.rowId, fxAppUniqueKeys.rowId),
-    )).leftJoin(fxAppRowRevisions, and(
-      eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
-      eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
-    )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).where(and(
-      eq(fxAppUniqueKeys.scopeUuid, scope.scopeUuid), eq(fxAppUniqueKeys.constraintId, identity.constraintId),
-      eq(fxAppUniqueKeys.localeKey, expected.localeKey), eq(fxAppUniqueKeys.canonicalKeySha256, expected.canonicalKeySha256),
-    )).limit(2));
-    if (rows.length > 1) return yield* Effect.fail(corruption("one unique-key slot has multiple owners"));
-    const stored = rows[0];
-    if (stored === undefined) return Option.none();
+const prepareSlotRead = Effect.fn("AppUniqueKeys.prepareSlotRead")(function* (input: SlotReadInput) {
+  const identity = yield* Effect.fromResult(decodeSlotIdentity(input)).pipe(Effect.mapError(cause => invalid("invalidTransition", cause)));
+  const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(identity.scopeId)).pipe(Effect.mapError(cause => invalid("invalidScopeId", cause)));
+  const canonical = yield* Effect.fromResult(canonicalizeAppUniqueKeyV1Result(input.key)).pipe(Effect.mapError(cause => invalid("invalidNextKey", cause)));
+  const expected = canonical.kind === "omitted" ? null : yield* hashClaimEffect(canonical, liveSha256);
+  return { identity, scope, expected, pendingCommitSeq: input.pendingCommitSeq };
+});
+
+type PreparedSlotRead = Effect.Success<ReturnType<typeof prepareSlotRead>>;
+type StoredSlot = Readonly<{ claim: typeof fxAppUniqueKeys.$inferSelect; ownerCommitSeq: CommitSeq | null;
+  tombstone: boolean | null; publishedThrough: CommitSeq | null; pendingFact: boolean }>;
+
+const authenticateSlotRead = Effect.fn("AppUniqueKeys.authenticateSlotRead")(function* (
+  prepared: PreparedSlotRead, stored: StoredSlot,
+) {
+  const { identity, scope, expected, pendingCommitSeq } = prepared;
+  if (expected === null) return yield* Effect.die(new Error("Omitted unique slot has no stored claim"));
     if (stored.ownerCommitSeq === null || stored.tombstone !== false || stored.publishedThrough === null)
       return yield* Effect.fail(corruption("slot owner is not a live revision"));
     const ownerCommitSeq = yield* Effect.fromResult(storedField(decodeSlotOwnerCommitSeq(stored.ownerCommitSeq)));
@@ -1466,19 +1459,114 @@ const readSlot = Effect.fn("AppUniqueKeys.readSlotState")(
     if (claim.scopeUuid !== scope.scopeUuid || claim.constraintId !== identity.constraintId) {
       return yield* Effect.fail(corruption("slot lookup returned a foreign identity"));
     }
-    if (ownerCommitSeq > stored.publishedThrough) {
-      const facts = yield* persistenceEffect(tx.select({ ordinal: fxSystemCommitAppRowChanges.changeOrdinal })
-        .from(fxSystemCommitAppRowChanges).where(and(
-          eq(fxSystemCommitAppRowChanges.scopeUuid, scope.scopeUuid),
-          eq(fxSystemCommitAppRowChanges.commitSeq, ownerCommitSeq),
-          eq(fxSystemCommitAppRowChanges.tableId, claim.tableId),
-          eq(fxSystemCommitAppRowChanges.rowId, appRowIdHexV1ToBytes(claim.rowId)),
-        )).limit(1));
-      if (facts.length !== 1) return yield* Effect.fail(corruption("pending slot owner has no publication fact"));
+
+  if (ownerCommitSeq > stored.publishedThrough && stored.pendingFact !== true)
+    return yield* Effect.fail(corruption("pending slot owner has no publication fact"));
+  return Object.freeze({ ...claim, ownerCommitSeq });
+});
+
+type SlotReadError = Effect.Error<ReturnType<typeof prepareSlotRead>> |
+  Effect.Error<ReturnType<typeof authenticateSlotRead>> | AppUniqueKeyPersistenceError;
+type SlotOwner = Effect.Success<ReturnType<typeof authenticateSlotRead>>;
+
+/** Exact slots across bounded ordinal demands. Repeated observations retain
+ * their consumer order; pending owners require this publication's finished fact. */
+export const withAppUniqueKeySlotsInTransactionEffect = Effect.fn("AppUniqueKeys.withSlots")(
+  function* <Value, Failure, Requirements>(tx: AppUniqueKeyTransaction, inputs: readonly SlotReadInput[],
+    error: (cause: SlotReadError) => Failure,
+    use: (capture: Readonly<{ baseOrdinal: number; identities: readonly Result.Result<Readonly<{ tableId: CatalogTableId; rowId: AppRowIdHexV1 }> | null, SlotReadError>[];
+      read: (ordinal: number) => Effect.Effect<Option.Option<SlotOwner>, Failure> }>) => Effect.Effect<Value, Failure, Requirements>,
+  ): Effect.fn.Return<readonly Value[], Failure, Requirements> {
+    const values: Value[] = [];
+    for (let offset = 0; offset < inputs.length;) {
+      const batch: PreparedSlotRead[] = [];
+      let failure: Effect.Error<ReturnType<typeof prepareSlotRead>> | undefined;
+      while (offset + batch.length < inputs.length && batch.length < 32) {
+        const input = inputs[offset + batch.length];
+        if (input === undefined) return yield* Effect.die(new Error("Unique slot batch lost a demand"));
+        const result = yield* Effect.result(prepareSlotRead(input));
+        if (Result.isFailure(result)) { failure = result.failure; break; }
+        batch.push(result.success);
+      }
+      const selected = batch.filter(prepared => prepared.expected !== null);
+      const rows = selected.length === 0 ? [] : yield* persistenceEffect(tx.select({ claim: fxAppUniqueKeys,
+        ownerCommitSeq: fxAppRowCurrent.commitSeq, tombstone: fxAppRowRevisions.isTombstone,
+        publishedThrough: fxSystemScopeClocks.lastCommitSeq,
+        pendingFact: sql<boolean>`exists (select 1 from ${fxSystemCommitAppRowChanges} as fact
+          where fact.scope_uuid = ${fxAppUniqueKeys.scopeUuid} and fact.commit_seq = ${fxAppRowCurrent.commitSeq}
+            and fact.table_id = ${fxAppUniqueKeys.tableId} and fact.row_id = ${fxAppUniqueKeys.rowId})`,
+      }).from(fxAppUniqueKeys).leftJoin(fxAppRowCurrent, and(
+        eq(fxAppRowCurrent.scopeUuid, fxAppUniqueKeys.scopeUuid), eq(fxAppRowCurrent.tableId, fxAppUniqueKeys.tableId),
+        eq(fxAppRowCurrent.rowId, fxAppUniqueKeys.rowId),
+      )).leftJoin(fxAppRowRevisions, and(
+        eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid), eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
+        eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId), eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
+      )).leftJoin(fxSystemScopeClocks, eq(fxSystemScopeClocks.scopeUuid, fxAppUniqueKeys.scopeUuid)).where(or(
+        ...selected.map(prepared => and(eq(fxAppUniqueKeys.scopeUuid, prepared.scope.scopeUuid),
+          eq(fxAppUniqueKeys.constraintId, prepared.identity.constraintId),
+          eq(fxAppUniqueKeys.localeKey, prepared.expected!.localeKey),
+          eq(fxAppUniqueKeys.canonicalKeySha256, prepared.expected!.canonicalKeySha256))),
+      ))).pipe(Effect.mapError(error));
+      for (const row of rows) yield* Effect.fromResult(storedField(decodeSlotCorrelationEnvelope(row)))
+        .pipe(Effect.mapError(error));
+      const identities = batch.map(prepared => {
+        const expected = prepared.expected;
+        if (expected === null) return Result.succeed(null);
+        const matches = rows.filter(row => row.claim.scopeUuid === prepared.scope.scopeUuid &&
+          row.claim.constraintId === prepared.identity.constraintId && row.claim.localeKey === expected.localeKey &&
+          bytesEqualFullScan(row.claim.canonicalKeySha256, expected.canonicalKeySha256));
+        if (matches.length > 1) return Result.fail(corruption("one unique-key slot has multiple owners"));
+        const stored = matches[0];
+        return stored === undefined ? Result.succeed(null) : Result.gen(function* () {
+          const tableId = yield* storedField(decodeTableIdResult(stored.claim.tableId));
+          const rowId = yield* storedField(appRowIdHexV1FromBytesResult(stored.claim.rowId));
+          return Object.freeze({ tableId, rowId });
+        });
+      });
+      let active = true;
+      const read = Effect.fn("AppUniqueKeys.readCapturedSlotOrdinal")(function* (ordinal: number) {
+        if (!active || !Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal >= batch.length)
+          return yield* Effect.fail(error(corruption("unique slot capture is closed or ordinal is invalid")));
+        const prepared = batch[ordinal];
+        if (prepared === undefined) return yield* Effect.die(new Error("Unique slot batch lost a prepared demand"));
+        const expected = prepared.expected;
+        const matches = expected === null ? [] : rows.filter(row => row.claim.scopeUuid === prepared.scope.scopeUuid &&
+          row.claim.constraintId === prepared.identity.constraintId && row.claim.localeKey === expected.localeKey &&
+          bytesEqualFullScan(row.claim.canonicalKeySha256, expected.canonicalKeySha256));
+        if (matches.length > 1) return yield* Effect.fail(error(corruption("one unique-key slot has multiple owners")));
+        const stored = matches[0];
+        const owner = stored === undefined ? Option.none<SlotOwner>() :
+          Option.some(yield* authenticateSlotRead(prepared, stored).pipe(Effect.mapError(error)));
+        return owner;
+      });
+      values.push(yield* use(Object.freeze({ baseOrdinal: offset, identities: Object.freeze(identities), read }))
+        .pipe(Effect.ensuring(Effect.sync(() => { active = false; }))));
+      offset += batch.length;
+      if (failure !== undefined) return yield* Effect.fail(error(failure));
     }
-    return Option.some(Object.freeze({ ...claim, ownerCommitSeq }));
-  },
-);
+    return Object.freeze(values);
+  });
+
+export const consumeAppUniqueKeySlotsInTransactionEffect = Effect.fn("AppUniqueKeys.consumeSlots")(
+  function* <Failure, Requirements>(tx: AppUniqueKeyTransaction, inputs: readonly SlotReadInput[],
+    error: (cause: SlotReadError) => Failure,
+    consume: (ordinal: number, owner: Option.Option<SlotOwner>) => Effect.Effect<void, Failure, Requirements>,
+  ): Effect.fn.Return<void, Failure, Requirements> {
+    yield* withAppUniqueKeySlotsInTransactionEffect(tx, inputs, error, capture => Effect.gen(function* () {
+      for (let ordinal = 0; ordinal < capture.identities.length; ordinal++)
+        yield* consume(capture.baseOrdinal + ordinal, yield* capture.read(ordinal));
+    }));
+  });
+
+const readSlot = Effect.fn("AppUniqueKeys.readSlotState")(function* (
+  tx: AppUniqueKeyTransaction, input: Omit<SlotReadInput, "pendingCommitSeq">, pendingCommitSeq?: CommitSeq,
+) {
+  let selected = Option.none<SlotOwner>();
+  yield* consumeAppUniqueKeySlotsInTransactionEffect(tx, [{ ...input,
+    ...(pendingCommitSeq === undefined ? {} : { pendingCommitSeq }) }], cause => cause,
+    (_ordinal, owner) => { selected = owner; return Effect.void; });
+  return selected;
+});
 
 /** Authenticate current ownership before a writer may omit an unchanged-key operation. */
 export const readAppUniqueKeyOwnersInTransactionEffect = Effect.fn(

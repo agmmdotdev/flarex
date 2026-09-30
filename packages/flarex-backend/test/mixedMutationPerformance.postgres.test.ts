@@ -16,7 +16,7 @@ import { prepareMixedMutationPerformanceSeries } from "./support/mixedMutationPr
 import { captureMixedMutationCpuProfile, MixedMutationCpuDiagnosticFailure } from
   "./support/mixedMutationCpuProfile";
 import { renderMixedMutationPerformanceReport, summarizeMixedMutationTrace,
-  type PerformanceInventory, type PerformanceRawReport, type PerformanceSample,
+  type PerformanceInventory, type PerformanceRawReport, type PerformanceSample, type PerformanceSettlementLedger,
   type PerformanceTemperature, type PerformanceWorkload } from "./support/mixedMutationPerformanceReport";
 
 const enabled = process.env.FLAREX_MIXED_PERF === "1" &&
@@ -181,15 +181,25 @@ const measuredSourcePaths = [
   "packages/medusa-adapter/src/product-attempt.ts",
   "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts",
   "packages/executor/src/pointMutationJournal.ts",
+  "packages/executor/src/storedAttemptAuthentication.ts",
+  "packages/executor/src/storedAttemptAuthentication/authenticationOperations.ts",
+  "packages/executor/src/storedAttemptAuthentication/commitAuthorityModel.ts",
+  "packages/executor/src/storedAttemptAuthentication/planningOperations.ts",
+  "packages/executor/src/storedAttemptAuthentication/pointCommitRuntimeModel.ts",
   "packages/executor/src/storedAttemptAuthentication/exactPointMutationExecutionOperations.ts",
   "packages/persistence-postgres/drizzle/0119_protected_metadata_epoch.sql",
   "packages/persistence-postgres/drizzle/0120_immutable_target_metadata_protection.sql",
   "packages/persistence-postgres/src/appRows.ts",
+  "packages/persistence-postgres/src/appIndexEntries.ts",
+  "packages/persistence-postgres/src/appDeveloperIndexCommitV1.ts",
+  "packages/persistence-postgres/src/appUniqueKeys.ts",
+  "packages/persistence-postgres/src/appSchemaCandidateValidation.ts",
   "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts",
   "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
   "packages/persistence-postgres/src/applicationActivation.ts",
   "packages/persistence-postgres/src/applicationBindingProjection.ts",
   "packages/persistence-postgres/src/applicationDocumentMaterialization/materialization.ts",
+  "packages/persistence-postgres/src/applicationDocumentMaterialization/model.ts",
   "packages/persistence-postgres/src/applicationReadiness.ts",
   "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
   "packages/persistence-postgres/src/boundedRequestLifetime.ts",
@@ -197,17 +207,27 @@ const measuredSourcePaths = [
   "packages/persistence-postgres/src/commerceTransaction/borrowedWorkflowAttempt.ts",
   "packages/persistence-postgres/src/cmsTransaction/borrowedLogicalAttempt.ts",
   "packages/persistence-postgres/src/commitPublication/publication.ts",
+  "packages/persistence-postgres/src/commitPublication/strongReferenceAdmission.ts",
+  "packages/persistence-postgres/src/commitPublication/strongReferenceValidation.ts",
   "packages/persistence-postgres/src/drizzleSchema.ts",
   "packages/persistence-postgres/src/frameworkSchema/binding/logicalSchema.ts",
   "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
   "packages/persistence-postgres/src/indexBuildStates.ts",
+  "packages/persistence-postgres/src/intrinsicCreationTimeIndexBuildV1.ts",
+  "packages/persistence-postgres/src/locatedReadCommittedEffect.ts",
   "packages/persistence-postgres/src/logicalDocuments/detachChanges.ts",
+  "packages/persistence-postgres/src/logicalDocuments/commitEvidence.ts",
+  "packages/persistence-postgres/src/logicalDocuments/journalEvidence.ts",
+  "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+  "packages/persistence-postgres/src/logicalDocuments/materialization.ts",
   "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
   "packages/persistence-postgres/src/logicalDocuments/model.ts",
   "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
   "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
   "packages/persistence-postgres/src/logicalDocuments/rootEvaluator.ts",
   "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+  "packages/persistence-postgres/src/logicalDocuments/searchEntries.ts",
+  "packages/persistence-postgres/src/logicalDocuments/searchReads.ts",
   "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
   "packages/persistence-postgres/src/logicalSearchBuild.ts",
   "packages/persistence-postgres/src/logicalStorageReadiness.ts",
@@ -219,6 +239,8 @@ const measuredSourcePaths = [
   "packages/persistence-postgres/src/scopeClock.ts",
   "packages/persistence-postgres/src/schema.ts",
   "packages/persistence-postgres/src/sessionJournalStore.ts",
+  "packages/persistence-postgres/src/storedAttemptEvidence.ts",
+  "packages/persistence-postgres/src/storedCommitAuthority/model.ts",
   "packages/persistence-postgres/src/storedCommitAuthority/materialization.ts",
   "packages/persistence-postgres/src/storedCommitAuthority/postgresLoader.ts",
   "packages/persistence-postgres/src/transactionSessionActivation.ts",
@@ -428,6 +450,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
           let wallMs: number | null = null;
           let requestWorkerConstructionMs: number | null = null;
           let sealedJournalBytes: number | null = null;
+          let settlementLedger: PerformanceSettlementLedger | null = null;
           let recorded: TraceInvocationRecord | null = null;
           let failureName: string | null = null;
           let failureStage: string | null = null;
@@ -454,6 +477,9 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
                 workingDiffSha256: raw.workingDiffSha256, sourceHashes: measuredSourceHashes },
               invoke, elapsed => { wallMs = elapsed; }) : await invoke();
               if (!cpuDiagnostic) wallMs = now() - started;
+              // Inspect detached confirmed owner evidence after the request
+              // timer, so demand accounting adds no timed SQL or copy work.
+              settlementLedger = await outcome.fixture.readSettlementLedger();
               requestWorkerConstructionMs = outcome.workerConstructionMilliseconds;
               sealedJournalBytes = outcome.sealedJournalBytes;
               stage = "verifyPublication";
@@ -518,7 +544,7 @@ describe.skipIf(!enabled)("private mixed mutation PostgreSQL performance baselin
             status: failureName === null ? "ok" : "error", failureName, failureStage,
             failureCode, failureReason, failureDiagnosticTokens, wallMs,
             ...(cpuDiagnostic ? { cpuDiagnosticSecondaryFailures } : {}),
-            requestWorkerConstructionMs, sealedJournalBytes,
+            requestWorkerConstructionMs, sealedJournalBytes, settlementLedger,
             instrumentationFinalizationMs: wallMs === null || recorded === null ? null :
               Math.max(0, wallMs - recorded.durationMs),
             construction: construction({ setupTotalMs: index === 0 ? setupTotalMs : null,
