@@ -36,7 +36,7 @@ import {
   type JsonObject,
 } from "flarex-protocol/json";
 import {
-  decodeCatalogSchemaVersionId,
+  CatalogSchemaVersionIdSchema,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
 import {
@@ -278,6 +278,27 @@ type TransactionSessionInsert =
   typeof fxSystemTransactionSessions.$inferInsert;
 type TransactionSessionRow =
   typeof fxSystemTransactionSessions.$inferSelect;
+const checkedTransactionSessionSelection = {
+  sessionId: fxSystemTransactionSessions.sessionId,
+  attemptFence: fxSystemTransactionSessions.attemptFence,
+  storageGeneration: fxSystemTransactionSessions.storageGeneration,
+  storageGenerationFence: fxSystemTransactionSessions.storageGenerationFence,
+  authorizationRevocationEpoch:
+    fxSystemTransactionSessions.authorizationRevocationEpoch,
+  authorizationGrantExpiresAt:
+    fxSystemTransactionSessions.authorizationGrantExpiresAt,
+  hardExpiresAt: fxSystemTransactionSessions.hardExpiresAt,
+  createdAt: fxSystemTransactionSessions.createdAt,
+  updatedAt: fxSystemTransactionSessions.updatedAt,
+  protocolVersion: fxSystemTransactionSessions.protocolVersion,
+  lifecycle: fxSystemTransactionSessions.lifecycle,
+  schemaVersionId: fxSystemTransactionSessions.schemaVersionId,
+  requestKey: fxSystemTransactionSessions.requestKey,
+};
+type CheckedTransactionSessionRow = Pick<
+  TransactionSessionRow,
+  keyof typeof checkedTransactionSessionSelection
+>;
 type SnapshotLeaseRow = typeof fxSystemSnapshotLeases.$inferSelect;
 
 export type PreparedPointMutationSessionEvidenceV1 = Readonly<
@@ -2545,12 +2566,13 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
     return Effect.uninterruptible(
       Effect.tryPromise({
         try: () => db.transaction(async (tx): Promise<Result> => {
-          const context = await loadExactRunningAttemptForKernelInTransaction(
+          const locked = await lockExactRunningAttemptInTransaction(
             tx,
             input,
             afterLoadLock,
             clockProtection,
           );
+          const context = projectTransactionSessionActivationResult(runningAttemptKernelContextResult(locked));
           openProtectedMetadataFinalGuardScope(tx);
           try {
             const exit = await Effect.runPromise(Effect.exit(
@@ -2816,10 +2838,14 @@ async function replayExistingSession(
     clock,
     session,
   );
-  if (loaded.anchor.executionProfile !== prepared.executionProfile) {
+  await observePointMutationSessionAttemptFacet(
+    tx, loaded.clock, loaded.session, loaded.locked, loaded.journalRoot,
+  );
+  const context = projectTransactionSessionActivationResult(runningAttemptKernelContextResult(loaded));
+  if (context.anchor.executionProfile !== prepared.executionProfile) {
     return Promise.reject(activationError({ reason: "requestKeyConflict" }));
   }
-  return activationResult("busy", loaded.anchor);
+  return activationResult("busy", context.anchor);
 }
 
 async function loadAttemptInTransaction(
@@ -2829,16 +2855,19 @@ async function loadAttemptInTransaction(
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
 ): Promise<PointMutationSessionAttemptLoadResultV1> {
-  const loaded = await loadExactRunningAttemptForKernelInTransaction(
+  const loaded = await lockExactRunningAttemptInTransaction(
     tx,
     input,
     afterLoadLock,
     "attempt",
   );
-  return attemptLoadResult(loaded);
+  const attemptFacet = await observePointMutationSessionAttemptFacet(
+    tx, loaded.clock, loaded.session, loaded.locked, loaded.journalRoot,
+  );
+  return attemptLoadResult(projectTransactionSessionActivationResult(runningAttemptKernelContextResult(loaded)), attemptFacet);
 }
 
-async function loadExactRunningAttemptForKernelInTransaction(
+async function lockExactRunningAttemptInTransaction(
   tx: AppRowTransaction,
   input:
     | ExactRunningAttemptKernelInputV1
@@ -2847,7 +2876,7 @@ async function loadExactRunningAttemptForKernelInTransaction(
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
   clockProtection: "share" | "attempt",
-): Promise<ExactRunningAttemptKernelContextV1> {
+): Promise<LockedRunningPointMutationSessionAttemptV1> {
   const selector = input.selector;
   const clock = clockProtection === "share"
     ? await lockPointMutationSessionClockForShare(tx, selector.scopeId)
@@ -2911,9 +2940,9 @@ async function lockExactPointMutationSession(
     | ((step: PointMutationSessionAttemptLoadLockStepV1) =>
         void | Promise<void>)
     | undefined,
-): Promise<TransactionSessionRow> {
+): Promise<CheckedTransactionSessionRow> {
   const sessions = await tx
-    .select()
+    .select(checkedTransactionSessionSelection)
     .from(fxSystemTransactionSessions)
     .where(and(
       eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
@@ -2956,12 +2985,28 @@ interface LockedPointMutationSessionAttemptLoadV1<Failure extends Error> {
   readonly executionClaim?: ExactRunningAttemptKernelInputV1["executionClaim"];
 }
 
+interface LockedRunningPointMutationSessionAttemptV1 {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly scopeId: ReplacementScopeIdV1;
+  readonly clock: LockedPointMutationSessionClockV1;
+  readonly session: CheckedTransactionSessionRow;
+  readonly locked: Extract<
+    LockedPointMutationSessionAttemptStructureV1,
+    { readonly leaseState: "present" }
+  >;
+  readonly journalRoot: typeof fxSystemTransactionJournals.$inferSelect;
+  readonly executionClaim: TransactionExecutionClaimObservationV1;
+  readonly authorizationGrantExpiresAtMilliseconds: number;
+  readonly hardExpiresAtMilliseconds: number;
+  readonly databaseNow: Date;
+}
+
 async function loadLockedRunningAttempt<Failure extends Error>(
   tx: AppRowTransaction,
   input: LockedPointMutationSessionAttemptLoadV1<Failure>,
   clock: LockedPointMutationSessionClockV1,
-  session: TransactionSessionRow,
-): Promise<ExactRunningAttemptKernelContextV1> {
+  session: CheckedTransactionSessionRow,
+): Promise<LockedRunningPointMutationSessionAttemptV1> {
   const locked = await lockPointMutationSessionAttemptStructure(
     tx,
     input,
@@ -3032,54 +3077,62 @@ async function loadLockedRunningAttempt<Failure extends Error>(
       databaseNowMilliseconds,
     ),
   );
-  const attemptFacet = await observePointMutationSessionAttemptFacet(
-    tx,
+  return {
+    deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     clock,
     session,
     locked,
     journalRoot,
-  );
-
-  let schemaVersionId: CatalogSchemaVersionId;
-  try {
-    schemaVersionId = decodeCatalogSchemaVersionId(session.schemaVersionId);
-  } catch (cause) {
-    throw corruptionError(input.scopeId, "sessionRecordInvalid", cause);
-  }
-
-  return Object.freeze({
-    scopeUuid: clock.scopeUuid,
-    scopeClock: Object.freeze({
-      ...clock.record,
-      updatedAt: new Date(clock.record.updatedAt.getTime()),
-    }),
-    anchor: Object.freeze({
-      deploymentId: input.deploymentId,
-      scopeId: input.scopeId,
-      sessionId: locked.sessionId,
-      requestKey: session.requestKey,
-      executionProfile: journalRoot.executionProfile,
-      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-      storageGenerationFence: locked.storageGenerationFence,
-      attemptFence: locked.attemptFence,
-      snapshotToken: SnapshotTokenSchema.make({
-        scopeId: input.scopeId,
-        epoch: locked.snapshotEpoch,
-        commitSeq: locked.snapshotCommitSeq,
-      }),
-      hardExpiresAt: session.hardExpiresAt.toISOString(),
-      leaseExpiresAt: locked.lease.leaseExpiresAt.toISOString(),
-      createdAt: session.createdAt.toISOString(),
-      updatedAt: session.updatedAt.toISOString(),
-    } satisfies PointMutationSessionAnchorV1),
-    executionPin: Object.freeze({ schemaVersionId }),
+    executionClaim,
     authorizationGrantExpiresAtMilliseconds,
     hardExpiresAtMilliseconds,
     databaseNow,
-    journalRoot: Object.freeze({ ...journalRoot }),
-    attemptFacet,
-    executionClaim,
-  } satisfies ExactRunningAttemptKernelContextV1);
+  };
+}
+
+const decodeCheckedSchemaVersionIdResult = Schema.decodeUnknownResult(CatalogSchemaVersionIdSchema);
+
+function runningAttemptKernelContextResult(
+  loaded: LockedRunningPointMutationSessionAttemptV1,
+): Result.Result<ExactRunningAttemptKernelContextV1, PointMutationSessionAuthorityCorruptionV1Error> {
+  const { clock, session, locked, journalRoot } = loaded;
+  return decodeCheckedSchemaVersionIdResult(session.schemaVersionId).pipe(
+    Result.mapError(cause => corruptionError(loaded.scopeId, "sessionRecordInvalid", cause)),
+    Result.map(schemaVersionId => Object.freeze({
+      scopeUuid: clock.scopeUuid,
+      scopeClock: Object.freeze({
+        ...clock.record,
+        updatedAt: new Date(clock.record.updatedAt.getTime()),
+      }),
+      anchor: Object.freeze({
+        deploymentId: loaded.deploymentId,
+        scopeId: loaded.scopeId,
+        sessionId: locked.sessionId,
+        requestKey: session.requestKey,
+        executionProfile: journalRoot.executionProfile,
+        storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+        storageGenerationFence: locked.storageGenerationFence,
+        attemptFence: locked.attemptFence,
+        snapshotToken: SnapshotTokenSchema.make({
+          scopeId: loaded.scopeId,
+          epoch: locked.snapshotEpoch,
+          commitSeq: locked.snapshotCommitSeq,
+        }),
+        hardExpiresAt: session.hardExpiresAt.toISOString(),
+        leaseExpiresAt: locked.lease.leaseExpiresAt.toISOString(),
+        createdAt: session.createdAt.toISOString(),
+        updatedAt: session.updatedAt.toISOString(),
+      } satisfies PointMutationSessionAnchorV1),
+      executionPin: Object.freeze({ schemaVersionId }),
+      authorizationGrantExpiresAtMilliseconds:
+        loaded.authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds: loaded.hardExpiresAtMilliseconds,
+      databaseNow: loaded.databaseNow,
+      journalRoot: Object.freeze({ ...journalRoot }),
+      executionClaim: loaded.executionClaim,
+      } satisfies ExactRunningAttemptKernelContextV1)),
+  );
 }
 
 function validateLockedRunningAttemptExecutionClaimResult<
@@ -3158,7 +3211,7 @@ async function requireExactPointMutationSessionJournalRoot(
 async function observePointMutationSessionAttemptFacet(
   tx: FlarexMetadataDatabase,
   clock: LockedPointMutationSessionClockV1,
-  session: TransactionSessionRow,
+  session: CheckedTransactionSessionRow,
   locked: Extract<
     LockedPointMutationSessionAttemptStructureV1,
     { readonly leaseState: "present" }
@@ -3304,7 +3357,7 @@ async function lockPointMutationSessionAttemptStructure(
       | undefined;
   },
   clock: LockedPointMutationSessionClockV1,
-  session: TransactionSessionRow,
+  session: CheckedTransactionSessionRow,
   snapshotRetentionFloorPolicy:
     | "requireRetainedSnapshot"
     | "allowExpiredTerminalization",
@@ -5000,6 +5053,7 @@ function activationResult(
 
 function attemptLoadResult(
   loaded: ExactRunningAttemptKernelContextV1,
+  attemptFacet: PointMutationSessionAttemptFacetObservationV1,
 ): PointMutationSessionAttemptLoadResultV1 {
   return Object.freeze({
     status: "loaded",
@@ -5007,7 +5061,7 @@ function attemptLoadResult(
     executionPin: Object.freeze({
       schemaVersionId: loaded.executionPin.schemaVersionId,
     }),
-    attemptFacet: Object.freeze({ kind: loaded.attemptFacet.kind }),
+    attemptFacet: Object.freeze({ kind: attemptFacet.kind }),
   });
 }
 

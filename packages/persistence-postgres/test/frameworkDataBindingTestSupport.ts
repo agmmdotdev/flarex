@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect";
+import { Effect, Option, Result } from "effect";
 import { and, eq, sql } from "drizzle-orm";
 import { expect } from "vitest";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
@@ -8,6 +8,7 @@ import {
   type DataBindingHostInput,
 } from "../src/frameworkSchema/binding/host";
 import { bindingError } from "../src/frameworkSchema/binding/errors";
+import { readBindingSelectedEvidence } from "../src/frameworkSchema/binding/repository";
 import {
   readAdmittedDataBinding,
   claimAdmittedDataBindingInTransaction,
@@ -279,6 +280,33 @@ export async function exerciseBindingLifecycle<
     .where(eq(fxSystemDataBindingCandidates.sha256, next.sha256));
   const row = rows[0];
   if (row === undefined) throw new Error("Binding corruption fixture missing");
+  const readSelected = () => fixture.target.drizzle.transaction(tx =>
+    runEffect(readBindingSelectedEvidence(tx, reference)));
+  const readSelectedFailure = () => fixture.target.drizzle.transaction(tx =>
+    runEffectFailure(readBindingSelectedEvidence(tx, reference)));
+  const selected = await readSelected();
+  expect(Option.isSome(selected)).toBe(true);
+  if (Option.isNone(selected)) throw new Error("Missing selected binding evidence");
+  expect(selected.value.candidate.frame).toEqual(nextFrame);
+  expect(selected.value.head.frame.sequence).toBe("2");
+  const activationRows = await fixture.target.drizzle.select()
+    .from(fxSystemDataBindingActivations)
+    .where(and(eq(fxSystemDataBindingActivations.scopeId, reference.scopeId),
+      eq(fxSystemDataBindingActivations.sequence, 2n)));
+  const activation = activationRows[0];
+  if (activation === undefined) throw new Error("Missing selected activation fixture");
+  const corruptActivation = new Uint8Array(activation.canonicalBytes);
+  corruptActivation[0] = 32;
+  const activationCondition = and(eq(fxSystemDataBindingActivations.scopeId, reference.scopeId),
+    eq(fxSystemDataBindingActivations.sequence, 2n));
+  await fixture.target.drizzle.update(fxSystemDataBindingActivations)
+    .set({ canonicalBytes: corruptActivation }).where(activationCondition);
+  try {
+    expect(await readSelectedFailure()).toMatchObject({ reason: "storedCorruption" });
+  } finally {
+    await fixture.target.drizzle.update(fxSystemDataBindingActivations)
+      .set({ canonicalBytes: activation.canonicalBytes }).where(activationCondition);
+  }
   const corrupt = new Uint8Array(row.canonicalBytes);
   corrupt[0] = 32;
   const condition = and(
@@ -292,6 +320,7 @@ export async function exerciseBindingLifecycle<
   expect(
     await runEffectFailure(host.withCurrent(readAdmittedDataBinding)),
   ).toMatchObject({ reason: "storedCorruption" });
+  expect(await readSelectedFailure()).toMatchObject({ reason: "storedCorruption" });
   await fixture.target.drizzle
     .update(fxSystemDataBindingCandidates)
     .set({ canonicalBytes: row.canonicalBytes })

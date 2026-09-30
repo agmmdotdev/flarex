@@ -83,15 +83,26 @@ show warm outer p50/p95 of 857.9/884.6, 1,000.2/1,053.2,
 The mixed latency proposals remain unmet. Standalone median passes its
 regression gate; its p95 rises about 5.4% and its 698.6 ms warm maximum is
 retained with zero exclusions. Fresh checks at actual database boundaries
-remain a measured cost owner. Broader structural protection, compact session
-guards and cheaper epoch attestation remain separately gated.
+remain a measured cost owner. Broader structural protection, cross-boundary
+metadata reuse and cheaper epoch attestation remain separately gated.
 
 The [compact checked-access preflight](./12-compact-checked-access-preflight.md)
-proposes one connected correction: narrow unused checked-session transport,
-remove unused callback facet observation while retaining reload/acquisition/
-recovery eligibility, and consolidate full fresh source/Application/readiness
-reads through their owners. Its private callback contract decision and runtime
-implementation remain pending. It expands neither metadata protection nor
+is delivered for the existing connected private graphs: thirteen consumed
+checked-session scalars, six rather than seven ordinary kernel SELECTs,
+and a full selected binding prefix reduced from four SELECTs to two. Reload,
+acquisition and recovery retain hidden-child eligibility checks; candidate
+and complete lane reads also combine for their current standalone consumers.
+Application, index, unique and search readers retain concrete ordered lock,
+post-wait snapshot/time and refusal-order obligations recorded in the preflight.
+The [retained compact-access measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/compact-checked-access/README.md)
+show **990 / 1,274 / 1,997 / 354** SQL dispatches, with transactions unchanged
+at **41 / 52 / 78 / 6**. Full warm p50/p95 is **867.8/993.0,
+1,067.8/1,212.1, 1,954.1/2,677.3 and 303.8/388.9 ms**. Medians rise
+**1.2% / 6.8% / 9.6% / 6.0%** against the prior series: this delivers fewer
+dispatches, with no endpoint latency improvement. Mixed goals remain unmet;
+standalone passes its below-400-ms median and less-than-10% regression gate.
+All outliers remain, including the mixed workflow 3,801.1 ms warm maximum.
+The cutover expands neither metadata protection nor
 connection attestation; mutable readiness, physical checks and the full epoch
 guard stay fresh. The preflight also distinguishes the scalar checked kernel
 from separately owned argument/grant body authentication and records its

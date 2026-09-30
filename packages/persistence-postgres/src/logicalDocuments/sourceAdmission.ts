@@ -13,7 +13,7 @@ import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibil
 import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import { locateAppIndexDefinitionByIdEffect, type LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
-import { readBindingCandidate, readBindingHead } from "../frameworkSchema/binding/repository";
+import { readBindingSelectedEvidence } from "../frameworkSchema/binding/repository";
 import { verifyLogicalSchemaBindingInTransaction } from "../frameworkSchema/binding/logicalSchema";
 import type { DataBindingHeadToken, DataBindingSetFrame } from "../frameworkSchema/binding/model";
 import { loadPublishedPhysicalRequirementSnapshotV1, publishedPhysicalDefinitionMatchesLocated } from "../indexBuildReconciliation";
@@ -160,21 +160,20 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
       checked.manifestSha256 === readiness.reference.manifestSha256);
     if (shared !== undefined) return yield* work(Object.freeze({ tx, authority, clock,
       schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head }));
-    const current = yield* readBindingHead(tx, authority, "share");
-    if (Option.isNone(current)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
-    const candidate = yield* readBindingCandidate(tx, authority, current.value.frame.candidateSha256);
-    if (Option.isNone(candidate)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
+    const selected = yield* readBindingSelectedEvidence(tx, authority);
+    if (Option.isNone(selected)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
+    const { head: current, candidate } = selected.value;
     yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, applicationEvidence =>
-      verifyLogicalSchemaBindingInTransaction(readiness, candidate.value.frame, applicationEvidence,
+      verifyLogicalSchemaBindingInTransaction(readiness, candidate.frame, applicationEvidence,
         tx, authority, clock, applicationEvidence.checkedActive));
-    const head = Object.freeze({ sequence: current.value.frame.sequence, sha256: current.value.sha256 });
+    const head = Object.freeze({ sequence: current.frame.sequence, sha256: current.sha256 });
     checkedBindings.get(tx)?.push(Object.freeze({ application, controlDb: capturedPorts.controlDb,
       authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,
       scopeId: captured.scopeId, authority, clock,
       schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
-      frame: candidate.value.frame, head }));
+      frame: candidate.frame, head }));
     return yield* work(Object.freeze({ tx, authority, clock, schemaVersionId: captured.schemaVersionId, source,
-      frame: candidate.value.frame, head }));
+      frame: candidate.frame, head }));
   });
   return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding });
 });

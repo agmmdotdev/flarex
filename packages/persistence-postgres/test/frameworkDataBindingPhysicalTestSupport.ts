@@ -1,6 +1,6 @@
 import type { DataBindingHost } from "../src/frameworkSchema/binding/host";
-import { Effect, Result } from "effect";
-import { eq } from "drizzle-orm";
+import { Effect, Option, Result } from "effect";
+import { and, eq } from "drizzle-orm";
 import { fxSystemDataBindingPhysicalLanes } from "../src/frameworkSchema/binding/schema";
 import { expect } from "vitest";
 import { captureRelationalSchemaArtifact } from "../src/relationalSchema/artifact";
@@ -50,6 +50,7 @@ import {
 } from "../src/frameworkSchema/binding/canonical";
 import { isStoredInstallationIdentity } from "../src/frameworkSchema/installation/storedValidation";
 import { bindingError } from "../src/frameworkSchema/binding/errors";
+import { readBindingSelectedEvidence } from "../src/frameworkSchema/binding/repository";
 import { compareBindingCoverage, isCommerceBinding, type BindingCoverage } from "../src/frameworkSchema/binding/commerceBindingSchema";
 
 export async function installBindingFixture<
@@ -389,12 +390,21 @@ export async function exercisePhysicalBindings<
     .from(fxSystemDataBindingPhysicalLanes)
     .where(laneCondition);
   expect(laneRows).toHaveLength(1);
+  const readSelected = () => fixture.target.drizzle.transaction(tx =>
+    runEffect(readBindingSelectedEvidence(tx, frame.application)));
+  const readSelectedFailure = () => fixture.target.drizzle.transaction(tx =>
+    runEffectFailure(readBindingSelectedEvidence(tx, frame.application)));
+  const selected = await readSelected();
+  expect(Option.isSome(selected)).toBe(true);
+  if (Option.isNone(selected)) throw new Error("Missing physical selected binding");
+  expect(selected.value.candidate.frame).toEqual(nextFrame);
   await fixture.target.drizzle
     .delete(fxSystemDataBindingPhysicalLanes)
     .where(laneCondition);
   expect(await runEffectFailure(host.prepare(nextFrame))).toMatchObject({
     reason: "storedCorruption",
   });
+  expect(await readSelectedFailure()).toMatchObject({ reason: "storedCorruption" });
   expect(
     await fixture.target.drizzle
       .select()
@@ -404,6 +414,18 @@ export async function exercisePhysicalBindings<
   await fixture.target.drizzle
     .insert(fxSystemDataBindingPhysicalLanes)
     .values(laneRows);
+  const lane = laneRows[0];
+  if (lane === undefined) throw new Error("Missing physical sidecar fixture");
+  // An extra valid physical endpoint is still not a member of this candidate.
+  await fixture.target.drizzle.insert(fxSystemDataBindingPhysicalLanes)
+    .values({ ...lane, slot: "payloadLifecycle" });
+  try {
+    expect(await readSelectedFailure()).toMatchObject({ reason: "storedCorruption" });
+  } finally {
+    await fixture.target.drizzle.delete(fxSystemDataBindingPhysicalLanes)
+      .where(and(laneCondition, eq(fxSystemDataBindingPhysicalLanes.slot, "payloadLifecycle")));
+  }
+  expect(Option.isSome(await readSelected())).toBe(true);
 
   return {
     input,

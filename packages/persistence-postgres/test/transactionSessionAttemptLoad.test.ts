@@ -1,4 +1,7 @@
 import { captureSessionStorage, expectSessionPayloadScrubbed } from "./terminalSessionStorageScenario";
+import { PGlite } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
+import { btree_gin } from "@electric-sql/pglite/contrib/btree_gin";
 import { eq } from "drizzle-orm";
 import {
   ReplacementScopeIdV1Schema,
@@ -11,7 +14,7 @@ import {
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
 import { Effect, Exit, Fiber } from "effect";
-import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
@@ -105,12 +108,18 @@ interface AttemptRowState extends Record<string, unknown> {
 }
 
 describe("O03-B exact point-mutation attempt authority", () => {
+  let driver: PGlite;
   let persistence: PGliteFlarexPersistence;
   let uuidCounter = 1;
 
   beforeAll(async () => {
-    persistence = await createPGlitePersistence();
+    driver = new PGlite({ extensions: { pg_trgm, btree_gin } });
+    persistence = await createPGlitePersistence({ db: driver });
     await persistence.migrate();
+  });
+
+  afterAll(async () => {
+    await driver.close();
   });
 
   function nextUuid(): string {
@@ -306,6 +315,93 @@ describe("O03-B exact point-mutation attempt authority", () => {
     expect(root.rows).toEqual([{ read_documents: 0 }]);
   });
 
+  it("transports only checked session scalars and observes pristine children only on exact reload", async () => {
+    const context = await provisionContext("checked_projection");
+    const activated = await activate(context);
+    if (activated.status !== "created") {
+      throw new Error("Expected a newly created checked-projection attempt.");
+    }
+    const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
+      persistence,
+      sharedLocator,
+    );
+    const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+      context.deploymentId,
+      {
+        scopeMetadata: persistence,
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => {
+            throw new Error("Shared checked admission must not read receipts.");
+          },
+        },
+        scopeClockTargets: { resolve: async () => target },
+      },
+    ));
+    if (!isLocatedExactRunningAttemptReadSyscallKernelV1(located.target)) {
+      throw new Error("Expected the private read-syscall admission facet.");
+    }
+    const queryFields: string[][] = [];
+    const runTransaction = driver.transaction.bind(driver);
+    const observeTransaction: typeof driver.transaction = (work) =>
+      runTransaction(async (tx) => {
+        const queryObserver = vi.spyOn(tx, "query");
+        try {
+          return await work(tx);
+        } finally {
+          const results = await Promise.all(queryObserver.mock.results
+            .filter((result) => result.type === "return")
+            .map((result) => result.value));
+          queryFields.push(...results.map((result) =>
+            result.fields.map((field) => field.name)));
+          queryObserver.mockRestore();
+        }
+      });
+    const transactionObserver = vi.spyOn(driver, "transaction")
+      .mockImplementation(observeTransaction);
+    try {
+      await runEffect(located.target[
+        RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+      ]({
+        selector: selectorFromAnchor(activated.anchor),
+        executionClaim: activated.executionClaim,
+        preliminaryAuthority: located.authority,
+      }, (_tx, checked) => {
+        expect(checked).not.toHaveProperty("attemptFacet");
+        return Effect.succeed(undefined);
+      }));
+      const checkedFields = queryFields.splice(0);
+      expect(checkedFields).toHaveLength(6);
+      expect(checkedFields.find((fields) => fields.includes("protocol_version")))
+        .toEqual([
+          "session_id", "attempt_fence", "storage_generation",
+          "storage_generation_fence", "authorization_revocation_epoch",
+          "authorization_grant_expires_at", "hard_expires_at", "created_at",
+          "updated_at", "protocol_version", "lifecycle", "schema_version_id",
+          "request_key",
+        ]);
+      expect(checkedFields.some((fields) =>
+        fields.length === 5 && fields.every((field) => field === "exists")))
+        .toBe(false);
+
+      const loaded = await loadPointMutationSessionAttempt(
+        createPointMutationSessionAttemptLoadPersistenceV1(
+          resolutionPorts(persistence),
+        ),
+        selectorFromAnchor(activated.anchor),
+      );
+      expect(loaded.attemptFacet).toEqual({ kind: "pristineOpen" });
+      const reloadFields = queryFields.splice(0);
+      expect(reloadFields.filter((fields) =>
+        fields.length === 5 && fields.every((field) => field === "exists")))
+        .toHaveLength(1);
+      expect(reloadFields.filter((fields) =>
+        fields.includes("protocol_version")))
+        .toEqual([checkedFields.find((fields) => fields.includes("protocol_version"))]);
+    } finally {
+      transactionObserver.mockRestore();
+    }
+  });
+
   it("defers read-syscall interruption until its bounded transaction settles", async () => {
     const context = await provisionContext("read_syscall_interruption");
     const activated = await activate(context);
@@ -472,11 +568,11 @@ describe("O03-B exact point-mutation attempt authority", () => {
           session.attempt_fence,
           1,
           'get',
-          1,
+          2,
           decode('00', 'hex'),
           decode(repeat('00', 32), 'hex'),
           'missing',
-          1,
+          2,
           decode('00', 'hex'),
           decode(repeat('00', 32), 'hex'),
           session.created_at,

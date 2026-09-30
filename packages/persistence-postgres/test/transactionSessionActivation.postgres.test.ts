@@ -785,6 +785,74 @@ describePostgres("real Postgres O03-B session authority", () => {
     });
   });
 
+  it("omits callback facet evidence while reload and acquisition still reject hidden children", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(
+        persistence, "checked_hidden_child", sharedLocator("checked-hidden-child"), ids,
+      );
+      const activated = await activatePointMutationSession(
+        createActivationPersistence(persistence, ids),
+        pointMutationSessionActivationFixture(context.deploymentId, context.scopeId),
+      );
+      if (activated.status !== "created") {
+        throw new Error("Expected a newly created hidden-child attempt.");
+      }
+      await persistence.query(`
+        insert into fx_system_tx_journal_receipt (
+          scope_uuid, session_id, attempt_fence, last_syscall_sequence,
+          operation_kind, request_codec_version, request_bytes, request_sha256,
+          outcome_kind, outcome_codec_version, outcome_bytes, outcome_sha256,
+          created_at, updated_at
+        )
+        select scope_uuid, session_id, attempt_fence, 1,
+          'get', 2, decode('00', 'hex'), decode(repeat('00', 32), 'hex'),
+          'missing', 2, decode('00', 'hex'), decode(repeat('00', 32), 'hex'),
+          created_at, updated_at
+        from fx_system_tx_session where session_id = $1
+      `, [activated.anchor.sessionId]);
+      const target = createPostgresLocatedPointMutationSessionActivationTargetV1(
+        persistence, context.physicalLocator,
+      );
+      const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+        context.deploymentId,
+        {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error("Shared checked admission must not read receipts.");
+            },
+          },
+          scopeClockTargets: { resolve: async () => target },
+        },
+      ));
+      if (!isLocatedExactRunningAttemptReadSyscallKernelV1(located.target)) {
+        throw new Error("Expected the private read-syscall admission facet.");
+      }
+      await runEffect(located.target[
+        RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1
+      ]({
+        selector: selectorFromAnchor(activated.anchor),
+        executionClaim: activated.executionClaim,
+        preliminaryAuthority: located.authority,
+      }, (_tx, checked) => {
+        expect(checked).not.toHaveProperty("attemptFacet");
+        return Effect.succeed(undefined);
+      }));
+      const loaded = await loadPointMutationSessionAttempt(
+        createPointMutationSessionAttemptLoadPersistenceV1(resolutionPorts(persistence)),
+        selectorFromAnchor(activated.anchor),
+      );
+      expect(loaded.attemptFacet).toEqual({ kind: "nonPristine" });
+      await expireExecutionClaim(persistence, activated.anchor.sessionId);
+      await expect(runEffect(createExecutionClaimAcquisition(
+        persistence, ids(),
+      ).acquireEffect(selectorFromAnchor(activated.anchor)))).resolves.toMatchObject({
+        kind: "acquired", mode: "abortOnly", reason: "dirtyOpen",
+      });
+    });
+  });
+
   it("allows an independent scope to activate while another scope transaction is paused", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();

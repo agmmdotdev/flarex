@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { Deferred, Effect, Result } from "effect";
+import { Deferred, Effect, Option, Result } from "effect";
 import { eq, sql } from "drizzle-orm";
 import {
   ScopeIdSchema,
@@ -33,6 +33,7 @@ import {
 import { makeDataBindingTestProfiles } from "../src/frameworkSchema/binding/profiles";
 import { testBindingProfiles } from "./frameworkDataBindingPhysicalTestSupport";
 import { readAdmittedDataBinding } from "../src/frameworkSchema/binding/selection";
+import { readBindingSelectedEvidence } from "../src/frameworkSchema/binding/repository";
 import type { DataBindingSetFrame } from "../src/frameworkSchema/binding/model";
 import { fxSystemScopeClocks } from "../src/schema";
 import {
@@ -40,6 +41,7 @@ import {
   type exercisePhysicalBindings,
 } from "./frameworkDataBindingPhysicalTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { withPostgresExecutionObservation } from "./postgresExecutionObservation";
 
 /** Actual owner factories over already persisted data; no fixture bootstrap or copied issuer state. */
 export async function reopenBindingHost(
@@ -252,6 +254,49 @@ export async function exerciseBindingNativeRaces(
     _tag: "Failure",
     failure: { reason: "concurrentHead" },
   });
+
+  const selectedRead = await withPostgresExecutionObservation(fixture.target.pool, () =>
+    fixture.target.drizzle.transaction(tx => runEffect(readBindingSelectedEvidence(tx, frame.application))));
+  expect(Option.isSome(selectedRead.value)).toBe(true);
+  // Native pg dispatches include the real transaction boundary. The selected
+  // graph requires a locked head read and one full selected-evidence read.
+  expect(selectedRead.observation.commands).toEqual({ begin: 1, select: 2, commit: 1 });
+  expect(selectedRead.observation.queryCalls).toBe(4);
+  expect(selectedRead.observation.checkouts).toBe(1);
+  expect(selectedRead.observation.releases).toBe(1);
+
+  // Begin the selected-evidence statement only after the locked head has
+  // supplied the writer's new committed selection. A join that acquired the
+  // head lock inside this statement would retain the earlier MVCC snapshot.
+  const writerEntered = await runEffect(Deferred.make<void>());
+  const releaseWriter = await runEffect(Deferred.make<void>());
+  const heldActivationHost = await reopenBindingHost(
+    fixture.control, fixture.target, frame, {},
+    () => Effect.gen(function* () {
+      yield* Deferred.succeed(writerEntered, undefined);
+      yield* Deferred.await(releaseWriter);
+    }),
+  );
+  const beforeHeldActivation = await runEffect(host.withCurrent(readAdmittedDataBinding));
+  const heldActivation = runEffect(heldActivationHost.activate({
+    ...request, requestId: "selected-evidence-post-wait",
+    expectedHead: beforeHeldActivation.head,
+  }));
+  await runEffect(Deferred.await(writerEntered));
+  const selectedAfterWait = fixture.target.drizzle.transaction(tx =>
+    runEffect(readBindingSelectedEvidence(tx, frame.application)));
+  try {
+    await waitForBlockedStatement(fixture.target, "fx_system_data_binding_head");
+  } finally {
+    await runEffect(Deferred.succeed(releaseWriter, undefined));
+  }
+  const written = await heldActivation;
+  const selectedEvidence = await selectedAfterWait;
+  expect(Option.isSome(selectedEvidence)).toBe(true);
+  if (Option.isNone(selectedEvidence)) throw new Error("Missing post-wait selected binding evidence");
+  expect(selectedEvidence.value.head.frame.sequence)
+    .toBe(Result.getOrThrow(written.current).head.sequence);
+  expect(selectedEvidence.value.candidate.frame).toEqual(frame);
 
   let armed = false;
   const uncertain = await reopenBindingHost(

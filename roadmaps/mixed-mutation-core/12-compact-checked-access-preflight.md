@@ -1,9 +1,11 @@
 # Compact checked database access
 
-Status: **proposed; private callback contract decision and implementation
-approval pending.** This preflight proposes one connected persistence-owner
-correction for the existing private graphs. No runtime, schema or protection
-cutover is delivered by this document. The
+Status: **delivered bounded private implementation; mixed latency goals
+unmet.** The checked kernel narrows session transport and omits unused callback
+facet evidence; the binding owner consolidates full selected evidence for the
+existing connected private graphs. Application and readiness joins retain
+their ordered reads where equivalence could not be established. No schema or
+metadata-protection cutover is included. The
 [accepted prepared-execution rule](../../design-notes/flarex-db-accepted-design.md#prepared-execution-integrity)
 and [11 checked-boundary contract](./11-attempt-admission-preflight.md) remain
 current. “Compact” here means narrower transport and fewer dispatches for the
@@ -11,12 +13,13 @@ same fresh proof, not a prepared immutable session or a cached DB admission.
 
 ## Connected outcome and limits
 
-Reduce the work of each actual finite-root database access and aggregate seal
-by narrowing the checked session projection, separating the unused callback
-facet observation from execution-eligibility consumers, and consolidating
-full selected source/Application/readiness reads through their existing owners.
-Deliver those changes together with the real Product, selected Payload and
-finite workflow consumers, cleanup and a comparable measurement series.
+The connected cutover reduces dispatches at actual finite-root database access
+and aggregate seal by narrowing checked session transport, separating unused
+callback facet observation from execution-eligibility consumers, and combining
+full selected binding evidence through its existing owner. The real Product,
+selected Payload and finite workflow consumers use that path. Investigated
+Application and readiness combinations remain separate for the concrete
+lock, snapshot and refusal-order barriers inventoried below.
 Retain ordered authority locks, post-lock database time, exact source selection,
 current mutable readiness, live physical facts and the full protected-epoch
 tail guard. Publication, reload, acquisition and recovery retain their own
@@ -40,19 +43,31 @@ Product plus Payload, mixed workflow and standalone workflow. The mixed
 SQL owners; they do not attribute CPU, hash/decode cost or lock wait, or
 predict the gain from a proposed query shape.
 
-A pristine checked kernel normally performs seven SELECTs; removing its unused
-facet observation saves one of those. That count excludes BEGIN/COMMIT,
+Before this cutover, a pristine checked kernel normally performed seven
+SELECTs; removing its unused facet observation saves one of those. That count excludes BEGIN/COMMIT,
 source/readiness, document work and final epoch attestation. The full phase
 counts above include the actual graph work. Do not equate them with kernel-only
 cost or promise one statement per interval. This is the next connected
 reduction, not a guarantee of reaching the mixed latency proposals.
 
+The [retained compact-access series](../../packages/flarex-backend/benchmarks/mixed-mutation-core/compact-checked-access/README.md)
+shows warm SQL counts **990 / 1,274 / 1,997 / 354**, down by
+**73 / 104 / 176 / 7**, with transaction counts unchanged at
+**41 / 52 / 78 / 6**. Full warm p50/p95 is **867.8/993.0,
+1,067.8/1,212.1, 1,954.1/2,677.3 and 303.8/388.9 ms**.
+Medians rise **1.2% / 6.8% / 9.6% / 6.0%** against the prior series;
+fewer dispatches do not establish an endpoint improvement. All outliers are
+retained, including the mixed workflow **3,801.1 ms** warm maximum. Mixed
+latency goals remain unmet. Standalone passes its median gate: below 400 ms
+and strictly less than 10% regression. Wider protection and cheaper attestation
+remain deferred contract changes, not unfinished phases of this cutover.
+
 ## Checked kernel contract and correction
 
 [transactionSessionActivation](../../packages/persistence-postgres/src/transactionSessionActivation.ts)
 owns `loadLockedRunningAttempt`: scope clock, session, snapshot lease,
-journal root, execution claim, then database time after locking. It observes
-the attempt facet conditionally after those checks. Preserve that acquisition
+journal root, execution claim, then database time after locking. Its exact
+reload and replay callers observe the facet after those checks. Preserve that acquisition
 order, lock strengths and refusal order; an all-owner locking CTE or parallel
 transaction statements are not a shortcut.
 
@@ -92,7 +107,7 @@ change a current scalar authorization verdict. Keep facet observation for
 crash redispatch and execution-claim acquisition, where hidden receipt,
 point, range, relation-dependency or write-event children must still cause
 `nonPristine` refusal. Reuse one structural validator; do not create a fallback
-kernel. Approval must explicitly accept this callback contract change.
+kernel. The owner accepted this private callback contract change.
 
 ## Full selected evidence and query candidates
 
@@ -121,6 +136,67 @@ corruption or resource failure into ordinary absence. A combined statement's
 snapshot differs from successive READ COMMITTED statements, so prove the
 intended observation and coverage-race behavior. Do not move shared validation
 into adapters, introduce a universal admission registry or add a second codec.
+
+### Implemented cutover and retained ordered readers
+
+The feasible cutover narrows the checked session to the thirteen consumed
+scalars and removes the unused callback facet observation. One shared ordered
+validator supplies both callbacks and exact reload. Reload and replay observe
+the facet before schema-pin decoding; acquisition and recovery retain hidden
+child refusal. Full stored-session replay and commit authentication keep their
+existing body checks.
+
+The binding owner retains a separate authenticated `FOR SHARE` head read.
+After that read finishes, one bounded statement selects the chosen activation,
+candidate and complete physical-lane set. Existing activation/reference,
+candidate and lane decoders retain their order and exact membership checks.
+Canonical activation and candidate bodies travel once each, even with multiple
+lanes; a streamable window without sorting or aggregation keeps the existing
+ten-row transport ceiling. The generic candidate reader uses the same full
+candidate/lane decoder. Source admission now consumes the selected reader.
+Standalone binding host lifecycle readers still need independent head,
+activation and candidate reads; those are current owned consumers.
+
+This preserves decoder order, not every former cross-statement resource-failure
+precedence. PostgreSQL plans the joined relations together: an unavailable or
+permission-revoked lane relation can raise `resourceFailure` before activation
+or candidate corruption is decoded, or before a missing candidate produces
+ordinary absence. Query errors remain typed resource failures, never absence
+or readiness refusal. Search retains its split because the corresponding
+planning change can replace its normal missing-physical `not_ready` verdict.
+
+Counts below are selected-owner SELECT dispatches, excluding transaction
+boundaries, control preparation, unrelated document work and the final protected
+catalog tail. Conditional and batched reads are stated separately; they are not
+whole-interval totals.
+
+| Investigated owner | Before → after | Decision and preserved obligation |
+| --- | --- | --- |
+| Ordinary checked kernel | 7 → 6 | Clock, narrow session, lease, root, claim and post-lock database time remain ordered. Exact reload retains its seventh facet observation. |
+| Generic binding candidate | 2 → 1 | Full candidate plus all bounded sidecars share one observation; exact empty/missing/extra lane checks remain. |
+| Selected binding prefix in source admission | 4 → 2 | Locked and decoded head first; selected activation/candidate/lanes second. Starting the second statement after a blocked head read sees a writer's newly committed activation. |
+| Application active head plus selected activation | 2 → 2 | Head then activation both retain `FOR SHARE`. A single statement waiting on an updated head can retain a snapshot taken before the writer inserted its new activation; a join also cannot guarantee the same lock order. |
+| Application selected revision-schema binding | 1 → 1 | Full selected schema binding stays after the locked activation read. Existing nominal checked-active evidence already shares it within its accepting transaction. Standalone Application/index coverage consumers retain the full ordered reader. |
+| Index selected build states and post-row clock | 2 → 2 | Ordered `KEY SHARE` build rows allow ordinary publication coverage progress. The subsequent clock observes progress after the row read or lock wait; joining it would use an earlier statement snapshot. Conditional frontier batches remain separately fresh. |
+| Unique selected build states and concurrent-progress clock | 2 → 2 for a nonempty selected set | Ordered build locks precede the fresh clock used to decode observed coverage. The admitted snapshot remains unchanged. Fixed-progress consumers retain their existing one-row-set read and supplied clock. |
+| Search selected states, live physical probe and table frontiers | Unchanged: one state read per 64 definitions, one physical probe, then one frontier read per 64 distinct tables when required | A combined probe/frontier statement validates frontier relations and privileges during SQL planning even when missing physical readiness should refuse before frontier access. `CASE` cannot preserve that resource-failure order. Keep the split and typed statement failures, selected-definition order and three-observation refresh bound. |
+| Physical definition lifecycle and protected epoch | Unchanged | Full mutable lifecycle decoding and final live catalog/epoch authentication keep their existing owners and required consumers. No cheaper attestation or protection change is part of this cutover. |
+
+Application and readiness candidates above are retained for these concrete
+lock, snapshot and refusal-order obligations. They are not displaced paths or
+temporary compatibility readers. No universal cache, optional admission flag,
+second codec or additional transaction owner is introduced.
+
+The connected recovery fixtures now explicitly request the existing
+`finiteRoot` profile when opening direct handles. Omitting it requested the
+unchanged `durableOperations` default and correctly failed the journal-profile
+check before the intended duplicate or foreign-capability assertion. Repeated
+exact finite opens share the canonical local handle; a held callback retains
+an open zero-sequence durable root with no receipt, point, range, relation or
+write-event children before seal. Local busy refusal still prevents a second
+native invocation, and foreign-scope capability refusal precedes callbacks.
+This aligns the witnesses with the prior finite-root contract; it does not
+change core profile, persistence or capability semantics.
 
 ## Metadata field and writer boundary
 
@@ -229,7 +305,7 @@ Completion requires one connected implementation and its owner/consumer proofs:
   both standing reviewers on the stable owned diff, required review reruns,
   final staged lint, cleanup and one scoped commit after successful validation.
 
-Before runtime work, agree the bounded full-check consolidation and the private
-callback facet decision. If query feasibility changes authority, locking,
+The bounded full-check consolidation and private callback facet decision are
+approved. If query feasibility changes authority, locking,
 refusal order or publication/body verification materially, return to that
 specific contract decision rather than broadening this optimizer package.

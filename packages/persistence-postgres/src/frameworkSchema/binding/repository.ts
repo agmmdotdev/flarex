@@ -56,6 +56,11 @@ export function bindingStatement<Value>(
 function boundedBytes(column: SQLWrapper) {
   return sql<Uint8Array | null>`case when octet_length(${column}) between 1 and ${sql.raw(String(MAX_BINDING_BYTES))} then ${column} else null end`;
 }
+function singleCanonicalBytes(column: SQLWrapper) {
+  // ROW_NUMBER without ordering is streamable; LIMIT still bounds the rows
+  // fetched even if corrupt sidecars exceed the complete-set ceiling.
+  return sql<Uint8Array | null>`case when row_number() over () = 1 then ${boundedBytes(column)} else null end`;
+}
 const decode = Effect.fn("DataBindingRepository.decode")(function* <
   Frame extends JsonObject,
 >(
@@ -91,10 +96,20 @@ export const readBindingCandidate = Effect.fn(
   const rows = yield* bindingStatement(
     tx
       .select({
-        ...getTableColumns(candidates),
-        canonicalBytes: boundedBytes(candidates.canonicalBytes),
+        candidate: {
+          ...getTableColumns(candidates),
+          // The bounded one-to-many read transports the full frame once,
+          // rather than repeating up to MAX_BINDING_BYTES for every lane.
+          canonicalBytes: singleCanonicalBytes(candidates.canonicalBytes),
+        },
+        lane: getTableColumns(lanes),
       })
       .from(candidates)
+      .leftJoin(lanes, and(
+        eq(lanes.scopeId, candidates.scopeId),
+        eq(lanes.storageGeneration, candidates.storageGeneration),
+        eq(lanes.candidateSha256, candidates.sha256),
+      ))
       .where(
         and(
           eq(candidates.scopeId, location.scopeId),
@@ -102,10 +117,23 @@ export const readBindingCandidate = Effect.fn(
           eq(candidates.sha256, digest),
         ),
       )
-      .limit(1),
+      // At most nine expected lanes; the extra row preserves excess detection.
+      .limit(MAX_COMMERCE_BINDINGS + 2),
   );
-  const row = rows[0];
+  const row = (rows.find((value) => value.candidate.canonicalBytes !== null) ?? rows[0])
+    ?.candidate;
   if (row === undefined) return Option.none();
+  const storedLanes = rows.flatMap((value) => value.lane === null ? [] : [value.lane]);
+  return Option.some(yield* decodeCandidateWithLanes(row, storedLanes, location));
+});
+const decodeCandidateWithLanes = Effect.fn("DataBindingRepository.decodeCandidateWithLanes")(
+function* (
+  row: Omit<typeof candidates.$inferSelect, "canonicalBytes"> & {
+    readonly canonicalBytes: Uint8Array | null;
+  },
+  storedLanes: ReadonlyArray<typeof lanes.$inferSelect>,
+  location: BindingLocation,
+) {
   const restored = yield* decode(
     row,
     "flarex.data-binding-set",
@@ -117,19 +145,6 @@ export const readBindingCandidate = Effect.fn(
   ) {
     return yield* Effect.fail(bindingError("storedCorruption"));
   }
-  const storedLanes = yield* bindingStatement(
-    tx
-      .select()
-      .from(lanes)
-      .where(
-        and(
-          eq(lanes.scopeId, location.scopeId),
-          eq(lanes.storageGeneration, location.storageGeneration),
-          eq(lanes.candidateSha256, digest),
-        ),
-      )
-      .limit(MAX_COMMERCE_BINDINGS + 2),
-  );
   const expected = physicalBindings(restored.frame);
   if (storedLanes.length !== expected.length)
     return yield* Effect.fail(bindingError("storedCorruption"));
@@ -152,7 +167,7 @@ export const readBindingCandidate = Effect.fn(
       return yield* Effect.fail(bindingError("storedCorruption"));
     }
   }
-  return Option.some(restored);
+  return restored;
 });
 export const storeBindingCandidate = Effect.fn(
   "DataBindingRepository.storeCandidate",
@@ -269,7 +284,7 @@ const decodeActivationRow = Effect.fn("DataBindingRepository.decodeActivation")(
     return restored;
   },
 );
-export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
+const readBindingHeadRecord = Effect.fn("DataBindingRepository.readHeadRecord")(
   function* (
     tx: FlarexMetadataTransaction,
     location: BindingLocation,
@@ -304,8 +319,61 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
       head.frame.activationSha256 !== row.activationSha256
     )
       return yield* Effect.fail(bindingError("storedCorruption"));
-    yield* readBindingActiveReferenceProjection(tx, location, head);
     return Option.some(head);
+  },
+);
+export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation,
+    lock: "none" | "share" | "update") {
+    const head = yield* readBindingHeadRecord(tx, location, lock);
+    if (Option.isNone(head)) return head;
+    yield* readBindingActiveReferenceProjection(tx, location, head.value);
+    return head;
+  },
+);
+
+/** Lock and authenticate the head before selecting its full current evidence.
+ * The second statement begins after any head-lock wait, so READ COMMITTED sees
+ * the activation inserted by the writer that supplied the newly locked head. */
+export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.readSelectedEvidence")(
+  function* (tx: FlarexMetadataTransaction, location: BindingLocation) {
+    const selectedHead = yield* readBindingHeadRecord(tx, location, "share");
+    if (Option.isNone(selectedHead)) return Option.none();
+    const head = selectedHead.value;
+    const rows = yield* bindingStatement(tx.select({
+      activation: {
+        ...getTableColumns(activations),
+        canonicalBytes: singleCanonicalBytes(activations.canonicalBytes),
+      },
+      candidate: {
+        ...getTableColumns(candidates),
+        canonicalBytes: singleCanonicalBytes(candidates.canonicalBytes),
+      },
+      lane: getTableColumns(lanes),
+    }).from(activations).leftJoin(candidates, and(
+      eq(candidates.scopeId, activations.scopeId),
+      eq(candidates.storageGeneration, activations.storageGeneration),
+      eq(candidates.sha256, head.frame.candidateSha256),
+    )).leftJoin(lanes, and(
+      eq(lanes.scopeId, candidates.scopeId),
+      eq(lanes.storageGeneration, candidates.storageGeneration),
+      eq(lanes.candidateSha256, candidates.sha256),
+    )).where(and(
+      eq(activations.scopeId, location.scopeId),
+      eq(activations.storageGeneration, location.storageGeneration),
+      eq(activations.sequence, BigInt(head.frame.sequence)),
+    )).limit(MAX_COMMERCE_BINDINGS + 2));
+    const record = (rows.find(value => value.activation.canonicalBytes !== null) ?? rows[0])
+      ?.activation;
+    if (record === undefined) return yield* Effect.fail(bindingError("storedCorruption"));
+    const activation = yield* decodeActivationRow(record);
+    yield* decodeActiveReferenceProjection(activation, head);
+    const candidate = (rows.find(value => value.candidate !== null && value.candidate.canonicalBytes !== null) ?? rows[0])
+      ?.candidate;
+    if (candidate === undefined || candidate === null) return Option.none();
+    const storedLanes = rows.flatMap(value => value.lane === null ? [] : [value.lane]);
+    const restored = yield* decodeCandidateWithLanes(candidate, storedLanes, location);
+    return Option.some(Object.freeze({ head, candidate: restored }));
   },
 );
 
@@ -336,6 +404,12 @@ export const readBindingActiveReferenceProjection = Effect.fn("DataBindingReposi
     if (record === undefined)
       return yield* Effect.fail(bindingError("storedCorruption"));
     const activation = yield* decodeActivationRow(record);
+    return yield* decodeActiveReferenceProjection(activation, head);
+  },
+);
+const decodeActiveReferenceProjection = Effect.fn("DataBindingRepository.decodeActiveReferences")(
+  function* (activation: Effect.Success<ReturnType<typeof decodeActivationRow>>,
+    head: StoredBindingValue<DataBindingHeadFrame>) {
     if (
       activation.sha256 !== head.frame.activationSha256 ||
       activation.frame.request.candidateSha256 !== head.frame.candidateSha256

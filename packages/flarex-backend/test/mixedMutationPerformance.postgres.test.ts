@@ -197,6 +197,7 @@ const measuredSourcePaths = [
   "packages/persistence-postgres/src/cmsTransaction/borrowedLogicalAttempt.ts",
   "packages/persistence-postgres/src/drizzleSchema.ts",
   "packages/persistence-postgres/src/frameworkSchema/binding/logicalSchema.ts",
+  "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
   "packages/persistence-postgres/src/indexBuildStates.ts",
   "packages/persistence-postgres/src/logicalDocuments/detachChanges.ts",
   "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
@@ -217,6 +218,7 @@ const measuredSourcePaths = [
   "packages/persistence-postgres/src/storedCommitAuthority/postgresLoader.ts",
   "packages/persistence-postgres/src/transactionSessionActivation.ts",
   "packages/persistence-postgres/src/transactionSessionAttemptFacet.ts",
+  "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
   "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts",
 ] as const;
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, getTableName, sql } from "drizzle-orm";
 import { Deferred, Effect, Exit, Fiber, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -26,6 +26,10 @@ import {
   fxSystemTransactionExecutionClaims,
   fxSystemSnapshotLeases,
   fxSystemTransactionJournalReceipts,
+  fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournalIndexRanges,
+  fxSystemTransactionJournalRelationIncomingDependencies,
+  fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
 } from "../../persistence-postgres/src/schema";
 import { createMixedMutationProductFixture } from
@@ -110,7 +114,7 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
     }
   });
 
-  it("refuses a live duplicate marker from another exact handle without invoking Product twice", async () => {
+  it("refuses a concurrent finite-root duplicate through the canonical exact handle without invoking Product twice", async () => {
     const entered = await Effect.runPromise(Deferred.make<void>());
     const release = await Effect.runPromise(Deferred.make<void>());
     const fixture = await createMixedMutationProductFixture({
@@ -132,7 +136,16 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         snapshotToken: fixture.activation.anchor.snapshotToken,
         schemaVersionId: fixture.schemaVersionId,
         executionClaim: fixture.activation.executionClaim,
+        executionProfile: "finiteRoot",
       }));
+      const canonicalHandle = await Effect.runPromise(fixture.store.openAttemptEffect({
+        selector: selectorFromRelationAnchor(fixture.activation.anchor),
+        snapshotToken: fixture.activation.anchor.snapshotToken,
+        schemaVersionId: fixture.schemaVersionId,
+        executionClaim: fixture.activation.executionClaim,
+        executionProfile: "finiteRoot",
+      }));
+      expect(canonicalHandle).toBe(secondHandle);
       const secondAdmission = await Effect.runPromise(
         fixture.store.admitLogicalParticipantsEffect(secondHandle, {
           participant: "medusa.product",
@@ -155,9 +168,26 @@ describe.each(drivers)("native mixed mutation recovery on %s", driver => {
         .from(fxSystemTransactionJournals)
         .where(eq(fxSystemTransactionJournals.sessionId,
           fixture.activation.anchor.sessionId));
-      expect(roots[0]?.state).toBe("operation_invoking");
+      expect(roots).toHaveLength(1);
+      expect(roots[0]).toMatchObject({ state: "open", executionProfile: "finiteRoot",
+        lastSyscallSequence: 0n,
+        scopeUuid: projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid,
+        attemptFence: fixture.activation.anchor.attemptFence });
+      // The held callback is tentative local work. None of the five durable
+      // child families may be published before the aggregate seal.
+      for (const child of [fxSystemTransactionJournalReceipts, fxSystemTransactionJournalPoints,
+        fxSystemTransactionJournalIndexRanges, fxSystemTransactionJournalRelationIncomingDependencies,
+        fxSystemTransactionJournalWriteEvents]) {
+        const children = await fixture.currency.persistence.drizzle.select({ sessionId: child.sessionId })
+          .from(child).where(and(
+            eq(child.scopeUuid, projectScopeIdUuidV1(fixture.activation.anchor.scopeId).scopeUuid),
+            eq(child.sessionId, fixture.activation.anchor.sessionId),
+            eq(child.attemptFence, fixture.activation.anchor.attemptFence),
+          )).limit(1);
+        expect(children, getTableName(child)).toEqual([]);
+      }
       expect(await classifyCurrentExecutionRoot(fixture)).toMatchObject({
-        kind: "notExecutable", reason: "notPristine",
+        kind: "loaded",
       });
       let duplicateInvocations = 0;
       const duplicate = await Effect.runPromise(fixture.store.runAdmittedOperationEffect(
@@ -692,12 +722,14 @@ it("refuses a Product capability from another scope on the same physical target"
       snapshotToken: first.activation.anchor.snapshotToken,
       schemaVersionId: first.schemaVersionId,
       executionClaim: first.activation.executionClaim,
+      executionProfile: "finiteRoot",
     }));
     const foreignHandle = await Effect.runPromise(second.store.openAttemptEffect({
       selector: selectorFromRelationAnchor(second.activation.anchor),
       snapshotToken: second.activation.anchor.snapshotToken,
       schemaVersionId: second.schemaVersionId,
       executionClaim: second.activation.executionClaim,
+      executionProfile: "finiteRoot",
     }));
     const foreignAdmission = await Effect.runPromise(
       second.store.admitLogicalParticipantsEffect(foreignHandle, {

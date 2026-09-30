@@ -20,7 +20,6 @@ import type { ScopeClockRecord } from "./scopeClock";
 import type { fxSystemTransactionJournals } from "./schema";
 import type {
   PointMutationSessionAnchorV1,
-  PointMutationSessionAttemptFacetObservationV1,
   PointMutationSessionAttemptExecutionPinV1,
   PointMutationSessionAttemptSelectorV1,
 } from "./transactionSessionActivation";
@@ -50,7 +49,6 @@ export interface ExactRunningAttemptKernelContextV1 {
   readonly hardExpiresAtMilliseconds: number;
   readonly databaseNow: Date;
   readonly journalRoot: Readonly<TransactionJournalRootRowV1>;
-  readonly attemptFacet: PointMutationSessionAttemptFacetObservationV1;
   readonly executionClaim: TransactionExecutionClaimObservationV1;
 }
 
