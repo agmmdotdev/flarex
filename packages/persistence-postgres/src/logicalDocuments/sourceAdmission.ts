@@ -181,6 +181,9 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>,
   ) {
     yield* requirePrepared;
+    // Authenticity and the actual issuer lease remain mandatory even when a
+    // positive source observation is reused in this accepting transaction.
+    const targetProtection = yield* Effect.fromResult(readApplicationBindingTargetProtection(application));
     const sourceKeys = readSourceKeys.get(tx) ?? [source.key];
     if (selection === "read" && !sourceKeys.includes(source.key))
       return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
@@ -199,10 +202,10 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "full"
       ? undefined : yield* (sourceKeys.length === 1 && sourceKeys[0] === source.key
         ? selectSingletonReadiness() : readiness.selectSources(sourceKeys));
-    const protection = readApplicationBindingTargetProtection(application);
+    const protection = targetProtection.protection;
     let targetPreparation = targetPreparations.get(application);
     if (protection !== undefined && targetPreparation === undefined) {
-      targetPreparation = prepareBindingSelectedStructure(authority, protection, chargePrepared);
+      targetPreparation = prepareBindingSelectedStructure(authority, protection, targetProtection.lifetime);
       targetPreparations.set(application, targetPreparation);
     }
     const selected = yield* readBindingSelectedEvidence(tx, authority, targetPreparation);

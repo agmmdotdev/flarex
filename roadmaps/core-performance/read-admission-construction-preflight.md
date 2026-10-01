@@ -1,10 +1,12 @@
 # Read admission and proof construction
 
-Status: **recommended next connected owner group; runtime contract, readiness-scope
-decision and implementation remain pending.** The bounded native retrieval ledger
-selects the owner direction. It does not approve a cheaper authority proof, change
-the protected metadata threat model, widen private retrieval admission or activate
-the proposed one-final settlement graph.
+Status: **implemented under the approved focused contract.** Standalone Application construction
+uses request-owned capture and detached immutable preparation at the existing owner.
+Full readiness, live acceptance and current protection remain mandatory. The
+approved standalone physical refusal-frontier amendment below changes diagnostic
+timing and precedence while preserving full proof before business execution. Demand
+narrowing, cross-request reuse, cheaper attestation and the proposed one-final
+settlement graph remain unapproved.
 
 The [performance roadmap](./README.md), [orchestration reassessment](./orchestration-simplification-preflight.md)
 and [proposed finite target](./orchestration-target-design.md) own the broader
@@ -15,172 +17,330 @@ owns numerical observations, source/build/runtime identities and limits. The
 [mixed design](../../design-notes/flarexdb-mixed-mutation-execution.md), slices
 [16](../mixed-mutation-core/16-batched-read-execution-preflight.md) and
 [19](../mixed-mutation-core/19-aggregate-entry-preflight.md), package boundaries and
-repository integration/Effect skills govern current semantics until amended.
+repository integration/Effect skills govern current semantics.
 
 ## Connected outcome and why now
 
-Construct immutable Application binding/readiness and logical-source evidence
-once within its real issued lifetime, then freshly accept the selected binding,
-snapshot and required read proof through the existing authoritative owner. Remove
-repeated immutable reconstruction around a real native read. Keep native services,
-hooks, user callbacks, getters and detached canonical verification outside SQL.
-Preserve standalone fresh per-request snapshots and the finite attempt's own
-snapshot, claim, fence, lifetime and tentative execution rules.
+Capture the current Application head and its bounded immutable rows once for each
+standalone request, authenticate canonical structures and configured control
+evidence after target SQL closes, then accept the prepared binding in the existing
+fresh business transaction. Generalize the existing immutable preparation owner
+rather than build a second activation or readiness engine. Finite admission uses
+the same owner under its actual retained preparation lifetime and original claim,
+fence and tentative execution contract.
 
-The nearest proof is the existing standalone scalar/collection Product retrieval
-against pinned native MikroORM, followed by the existing private ID-only Product
-retrieve and Product update/Application graph using the shared owners. Selected
-Payload Local API and finite workflow regressions establish that shared proof
-changes preserve their consumers. Broader private retrieval configuration requires
-its own named admission decision. No Product CRUD logic, public API, new framework
-capability, host lifecycle, terminal transition or durable format is added here.
+The nearest proof is existing standalone scalar/collection Product retrieval
+against pinned native MikroORM. The Product update/Application graph, actual
+selected Payload Local API and finite workflow regressions establish that shared
+construction changes preserve their consumers. This slice adds no Product CRUD
+logic, private retrieval configuration, framework capability, public API, host
+lifecycle, terminal transition, recovery contract or durable format.
 
 ## Measured demand and owner attribution
 
 The matched native scalar and collection cases each execute one autocommit query
 and return the same complete selected DTO and native missing-error behavior as
-protected standalone Flarex. Flarex executes 106/108 dispatches in six transactions.
-These are selected standalone request observations, not private finite checked-read
-counts or necessary correctness floors. Quiet, trace and server diagnostic runs
-are separate; do not subtract their intervals to manufacture a latency cause.
+protected standalone Flarex. The displaced Flarex baseline executes 106/108
+dispatches in six transactions. These are standalone request observations, not private finite checked-read counts
+or correctness floors. Quiet, trace and server diagnostic runs are separate;
+their intervals cannot be subtracted to establish a latency cause.
 
-| Observed owner region | Current work and design implication |
+| Observed owner region | Current work and selected disposition |
 | --- | --- |
-| First five standalone transactions | Binding selection invokes ordinary `ApplicationActivation.readActive` and readiness reservation/schema/physical/unique preparation and revalidation. Repeated candidate/analysis/publication bundles and readiness/function projections precede native Product execution. Reuse the real immutable preparation owner rather than move all activation callbacks into one SQL callback. |
-| Final standalone read transaction | Owns the fresh business snapshot, data-binding and protected Application revalidation, protected epoch authentication and full logical source build/coverage proof; then initializes the context and probes/hydrates the selected data. Fresh proof remains required; source-wide definition selection is a separate semantic scope decision. |
-| Native method and repository | Scalar native demand is one selected root row; collection adds the native relation join. Native selection/serialization and complete DTO behavior are bounded controls, not the primary source of the observed pre-method proof amplification. |
-| Private finite preparation | `prepareFiniteActiveApplication` and `captureFiniteApplicationReadinessInTransaction` already retain issuer-owned immutable construction under the host lease and accept live authority later. Finite retrieval does not repeat the first five standalone transactions. Reuse their owners and lifetime discipline without treating a finite token as standalone authority. |
+| First five standalone transactions | `prepareApplicationBindingSelection` falls back to ordinary `ApplicationActivation.readActive`, performing readiness reservation/schema/physical/unique preparation and revalidation. Replace healthy binding-only assembly with one bounded target capture and detached preparation. Count all configured control and unique/lifecycle SQL. |
+| Final standalone read transaction | Retain the fresh business snapshot, binding/Application acceptance, current protected attestation and full logical source build/coverage proof before selected data is probed/hydrated. This remains the existing accepting owner. |
+| Native method and repository | Retain scalar root selection, collection relation join, native normalization/serialization and complete selected DTO/error behavior. Native demand does not explain repeated pre-method preparation. |
+| Shared immutable preparation and finite profile | `makeActivePreparationReader`, `captureApplicationReadinessInTransaction` and `prepareCapturedApplicationReadiness` separate bounded capture from detached authentication. Standalone binds request-owned evidence; genuine finite profile tokens/methods retain their real lifetime and claims at the same preparation owner. |
 
-The scalar trace reaches its native callback only after 103 statements. Its source
-proof checks many ordered/unique/search definitions and table frontiers beyond the
-selected Product row. Exact statement positions, returned rows and JSON-byte
-counts belong in the artifact ledger. They identify a concrete construction and
-proof-selection owner; they do not demonstrate server CPU, lock causation, scaling
-or a safe removal for every definition. No runtime remedy or numerical ceiling is
-derived by simply subtracting the native query count.
+The current shared mechanic is `makeActivePreparationReader`, with
+`captureApplicationReadinessInTransaction` and `prepareCapturedApplicationReadiness`
+at the readiness owner. `PreparedApplicationBinding` is an inert request-owned
+legacy binding token. The distinct `PreparedFiniteActiveApplication` and its
+finite admission methods retain their actual executable-selection and lifetime
+obligations; those profile names do not imply a duplicate preparation engine.
 
-## Existing owners and recommended replacement
+The displaced scalar trace reaches its native callback only after 103 statements. Its source
+proof checks ordered/unique/search definitions and table frontiers beyond the
+selected Product row. Exact positions, returned rows and JSON-byte counts belong
+in the artifact ledger. Remove proved repeated immutable construction; do not
+infer that any definition or live check can be omitted, establish server CPU/lock
+causation or close scaling acceptance from these observations. The matched
+replacement lowers observed standalone work and quiet latency while preserving
+native demand; exact before/after observations remain in the artifact ledger.
 
-| Owner | Recommended responsibility |
+## Selected construction and acceptance contract
+
+1. Register the existing Application preparation owner for legacy binding-only
+   consumers. Each standalone `prepareApplicationBindingSelection` call captures
+   the current active head, readiness and bounded canonical rows in one short
+   target transaction. No head, live verdict or preparation is pinned across
+   requests. A later request must observe a later valid active head.
+2. Generalize the finite-named capture/preparation mechanics to plain unversioned
+   semantic names. Authenticate candidate, analysis, publication, function/task/
+   cold evidence, schema correlation and configured immutable control/physical/unique
+   closure after target SQL closes. Standalone detached construction follows the
+   canonical/function/task/schema/unique/durable order; live physical readiness
+   belongs solely to fresh business acceptance. Foreign getters and detached
+   canonical verification remain outside target SQL. Preserve the existing
+   admitted callback SQL lifetimes; capture does not execute native business work
+   or extend a transaction around untrusted work.
+3. Issue an inert legacy preparation token within `ApplicationBindingInput`,
+   authenticated by the actual readiness/activation issuer. It is not an executable
+   `ApplicationActiveSelection`, cannot authorize execution and cannot dispatch
+   relation preparation. Keep relation-only preparation/input APIs and their real
+   composite behavior unchanged. Token lookup distinguishes actual issued contracts.
+4. Fresh business acceptance uses the existing
+   `withValidatedApplicationBindingBasisInTransaction` owner and existing accepted-binding
+   composition. Preserve exact issuer/database/schema/scope/source/binding pins,
+   live clock/head/generation/revocation, full readiness, physical/build/coverage
+   checks and required protected tail in that transaction. Structural preparation
+   never constitutes a serving verdict.
+5. Derive target protection from the actual token's readiness issuer. Migrate
+   source admission and connected consumers so the new token retains current
+   epoch/attestation. A copied digest, source catalog or unique configuration
+   cannot supply protection. Keep the current 23-table final tail and full
+   per-guard installation/login/role/catalog attestation. The sole source-admission
+   caller receives the authentic optional issuer lifetime with that protection;
+   request-owned tokens have no retained issuer lease.
+6. Finite Application mutation admission retains its actual preparation lifetime,
+   executable selection requirements, fresh accepting transaction, original
+   snapshot/claim/fence and later access/final checks. Standalone tokens borrow
+   neither finite claims nor host allocations. Preserve mid-request head refusal
+   with no new retry; the next request captures afresh.
+
+Keep ordinary `readActive` for true executable Application and framework-binding
+callers. It must not remain a fallback healthy binding-only engine. Composite
+relation preparation remains its own contract; migrate any legacy branch needing
+binding-only preparation without changing relation dispatch or execution authority.
+
+### Capture lock order
+
+The shared capture owner must acquire the scope clock `KEY SHARE` lock before
+the active-head `SHARE` lock. Actual activation acquires the clock `FOR UPDATE`
+before the head `FOR UPDATE`; both paths must follow clock then head without
+weakening either lock. A head-first capture can hold head `SHARE` while waiting
+on activation's clock lock, as activation waits on that capture's head lock.
+That is a concrete lock cycle at the shared owner, affecting standalone and
+retained finite capture, rather than a driver or adapter issue.
+
+The reader obtains the clock through the existing
+`lockScopeClockForSnapshotReadInTransactionEffect`, then passes that exact
+transaction-local `ScopeClockRecord` to `captureApplicationReadinessInTransaction`.
+The readiness helper consumes it without a second clock query. Its protected
+before-epoch and `requireExactAuthority` placement remain after head capture;
+the fix changes lock acquisition and stored-clock parsing, not the authority
+owner or its lifecycle checks. Preserve exact target/scope/transaction correlation
+and full readiness/protection. The clock lock is real and cannot be replaced by
+an earlier autocommit or cross-transaction observation. Do not avoid the cycle
+through retries, timeouts, weaker locks, adapter coordination or another transaction.
+
+Missing or malformed stored clock now precedes a simultaneously missing active
+head: existing `ScopeClockNotFoundError` or `ScopeClockCorruptionError` propagates
+for both request-owned and retained capture, without readiness-operation remapping.
+A well-formed foreign-authority clock still reaches `requireExactAuthority` only
+after head capture; if its head is missing, `activeMissing` still wins. Record this
+narrow changed precedence rather than promise the displaced head-first diagnostic
+order. The transaction-local record is not a new public proof or cached verdict.
+
+### Standalone refusal frontier and resource ownership
+
+Bounded nullable capture defers authentication to the selected detached
+canonical/function/task/schema/unique/durable order. Standalone missing durable
+readiness remains `readReady`/`storedState`; missing revision, publication or task
+evidence and unavailable unique readiness remain activation `notReady`. Finite
+capture maps some states differently; reuse mechanics with explicit profile mapping.
+
+The owner approves moving live physical readiness solely to the first fresh
+business acceptance. This deliberately changes standalone diagnostic timing,
+classification and precedence:
+
+| Scenario | Displaced construction behavior | Selected behavior |
+| --- | --- | --- |
+| Healthy detached/durable evidence, physical state already invalid | Ordinary activation preparation refuses `notReady` before issuing selection | May issue an inert request token; existing fresh acceptance refuses readiness `authorityChanged` before any business work |
+| Physical state invalid together with missing/corrupt durable readiness | Earlier physical `notReady` can win | Detached durable failure wins before acceptance; missing/corrupt readiness is `readReady`/`storedState` |
+| Physical state becomes invalid between capture and acceptance | Requires current acceptance checks | The sole fresh accepting physical/build/coverage proof refuses with its existing `authorityChanged` outcome |
+
+No global promise to preserve the displaced standalone refusal order applies to
+this amendment. Ordinary executable `readActive`/`readReady`, retained finite and
+relation profiles keep their existing contracts. Missing/corrupt canonical,
+function/task/schema/unique/durable evidence retains the selected detached order
+without eager physical validation. Inventory exact downstream error classification
+and retry consumers before claiming cutover; no broad catch/remap, added retry,
+fallback or duplicate physical preparation proof is selected.
+
+An inert token permits no serving result, native business callback, hook, event or
+durable contribution before full fresh acceptance. Preserve the existing admitted
+callback SQL lifetimes. Expected failures, defects/interruption, sticky first Cause,
+rollback-only behavior and cancellation settlement retain their existing owners.
+
+Request tokens retain bounded request-owned evidence. They must not debit an
+ambient host preparation lifetime or accumulate allocations across requests.
+Finite retained active readiness must account for opaque unique/lifecycle evidence
+through the existing `chargePhysicalDefinitionPreparation` owner, in addition to
+visible canonical data. Token shape cannot measure opaque retained state. Close,
+oversize, clone, wrong issuer and wrong lifetime refusals remain mandatory.
+
+The selected connected correction replaces the source host's captured charge in
+`prepareBindingSelectedStructure` with the authentic optional lifetime from the
+Application evidence issuer. A retained structure is charged once to that issuer's
+lease. The source still charges its own retained singleton to its own lifetime.
+Disposable request entries remain weakly retained and bounded by canonical limits;
+they carry no lease and cannot accumulate host allocations. The binding repository
+checks issuer `checkOpen` on every use, including reuse and the path without a final
+guard. Separate issuer/source closure remains effective at its actual boundary.
+This adds no lease, cache or raised budget. Any further retained-state or lifetime
+question must be investigated at the owner rather than legitimized as host setup;
+a materially different authority/lifetime requires a focused amendment.
+
+An actual Payload Local API witness exposes a second retained-accounting defect
+at `applicationRelationReadinessFold.ts` `prepareActiveFold`: its visible charge
+passes the requirements snapshot's defensive `manifestSha256` accessor to the
+existing meter, which requires data-only values. Refusal occurs before the opaque
+physical charge; that later charge is not the cause. The selected normalization
+passes `requirements: { ...prepared.requirements }`, matching the existing active-
+readiness data projection. Keep the generic meter's accessor refusal unchanged;
+this adds no budget, adapter bypass, schema or authority contract. Preserve the
+actual Local API witness and remove temporary diagnostic spies in the same slice.
+
+## Alternatives and explicit decision boundaries
+
+| Alternative | Disposition and reason |
 | --- | --- |
-| `applicationActivation.ts`, including `prepareApplicationBindingSelection`, `readActive`, `prepareFiniteActiveApplication` and fresh selection validators | Keep preparation and accepting authority separate. Reuse issued structural evidence and exact active-head/binding correlation through a construction contract appropriate to the actual profile. Preserve head changes and lazy refusal order; do not call ordinary activation repeatedly to reconstruct the same immutable bundle inside one unchanged preparation lifetime. |
-| `applicationReadiness.ts`, including `captureFiniteApplicationReadinessInTransaction` and its canonical preparation/validation owners | Capture bounded evidence, authenticate canonical structures outside SQL, compile once in its issued lifetime, and expose a precise fresh acceptance operation. Preserve full required body/membership/hash/physical/unique checks and unprotected PGlite's canonical contract. A similarly shaped new validator is not a replacement proof. |
-| `preparedMetadataEpoch.ts`, `applicationBindingProjection.ts`, framework binding repository and `preparedHostRuntime.ts` | Retain exact issuer/database/scope/schema/incarnation/login and host charge/close ownership; apply the current 23-table final tail and attestation. Preparation does not cache a live binding, head, build, clock or authority verdict across transactions. |
-| `logicalDocuments/sourceAdmission.ts`, `logicalStorageReadiness.ts`, participant/relational admission | Reuse compiled immutable source topology and value/query definitions. Derive any narrowed read requirements at the existing trusted storage owner, with exact source/head and accepting-transaction membership. Full entry, mutation/final validation and real standalone obligations stay distinct. |
-| Commerce/CMS read and borrowed attempt construction, working-set frontier | Consumers supply their selected source/method/query and receive a bounded context. They do not reconstruct proof pipelines, hold raw SQL, or mint admission/finalizer authority. Existing query/pending/dependency mechanics remain their shared owners. |
-
-Recommended construction shape: trusted host configuration owns immutable
-preparation, resource charging and disposal; each standalone request obtains a
-fresh snapshot and binding/source acceptance; each finite root retains full entry
-and later exact-running access/final gates. Existing profile-specific methods
-bind those capabilities directly. Avoid a universal journal/transaction API,
-entity dispatcher, certificate cache or factory stack that conceals authority.
-
-Changing a finite-named construction token for broader internal reuse must define
-its actual issuer, inputs, lifetime and consumers. Do not hand standalone reads a
-finite claim or reinterpret finite entry facts as their serving verdict. A shared
-capture mechanic is valid only where its complete contract is equivalent.
-
-## Readiness-scope and protection decisions
-
-Two implementation choices must remain explicit:
-
-1. **Read-demand versus full source acceptance.** The finite recommendation is
-   demand readiness at the same actual DB access, retaining all exact-running
-   authority and full root entry/final proof. It changes the refusal contract:
-   an unused same-source index becoming unready after entry may no longer poison
-   a tentative scalar read. A used access path, pending-membership dependency,
-   relation/target or physical/build/coverage loss must still refuse. The standalone
-   profile currently owes full source readiness; this proposal does not silently
-   import the finite exception into it. Either retain that full proof while removing
-   duplicate preparation, or explicitly select and prove a standalone demand-serving
-   contract. No adapter or method-name allowlist chooses this policy.
-2. **Protected immutable reuse and attestation.** Reuse only the evidence covered
-   by the existing exact writer/invalidation and final-tail contract. The 23-table
-   epoch does not protect mutable heads, coverage/build progress, physical catalogs,
-   control/target joint state or privileged DDL. Keep full present per-guard
-   installation/login/role/catalog attestation. A cheaper connection/installation
-   proof requires its complete ordinary/privileged writer, security, reconnect/pool
-   binding and enforced quiescence contract before any check is removed.
-
-Immutable construction reuse can proceed independently of a readiness narrowing
-if the owner selects that focused contract. A preparation digest, unchanged epoch,
-host lease or process-local identity alone is not current serving authority.
-Persisted revocation/fence/claim/time/head discovery at actual finite storage
-access remains unchanged. Root freeze, durable seal versus one-final COMMIT and
-recovery semantics remain a separately pending group.
+| Generalize existing capture/detached preparation with request-owned standalone tokens | **Selected.** Removes repeated healthy assembly while retaining full acceptance and one readiness owner. |
+| Ordinary `readActive` for every binding-only request | **Replace.** Its executable activation contract creates repeated pre-business work; genuine executable callers retain it. |
+| Physical readiness in both detached request preparation and business acceptance | **Replace.** The approved standalone boundary authenticates detached evidence first and checks live physical state solely at fresh acceptance; retain that owner's existing refusal without duplicate proof or remapping. |
+| Cache standalone binding/head across requests or charge it as host setup | **Rejected.** Changes freshness/lifetime and hides request cost. No such reuse or allocation contract is selected. |
+| Narrow readiness to scalar/relation demand | **Deferred.** Changes unused-versus-used-definition refusal semantics and needs source/closure/pending/freshness witnesses. Full standalone and current finite source obligations remain. |
+| Cheaper attestation or omitted physical/control checks | **Deferred.** Requires writer, reconnect/pool binding and enforced quiescence decisions. Current protection cannot certify mutable heads/builds, physical DDL or joint control/target state. |
+| New validator/factory stack or adapter proof assembly | **Rejected.** Reuse the actual issuer, canonical preparation and accepting owners; consumers select business inputs and receive bounded contexts. |
+| Root freeze, one-final settlement, terminal/recovery redesign | **Deferred.** No attempt, journal, sealed outcome, publication or durable-data contract changes in this slice. |
 
 ## Caller, compatibility and removal inventory
 
-| Current contract/consumer | Proposed disposition and removal gate |
+| Current contract/consumer | Selected disposition and completion gate |
 | --- | --- |
-| Standalone `prepareApplicationBindingSelection` fallback to ordinary `readActive` and repeated readiness assembly | **Replace or extend at the owner** with issued preparation plus explicit fresh standalone acceptance. Migrate Commerce/CMS actual readers and any connected selection consumers; delete displaced repeated healthy assembly once equivalent full obligations are proved. Retain ordinary executable `readActive` where an actual caller still needs its current contract. |
-| Existing finite active/readiness preparation and host lease | **Reuse/extend**, preserving exact issuer, scope/schema/source, charge/disposal and real finite claims. Migrate changed signatures/callers together, without wrapper retention to avoid migration. |
-| Repeated canonical bundle/validator reconstruction within an unchanged issued lifetime | **Delete** when the replacement authenticates equivalent bounded evidence once and reaccepts all live obligations freshly. Retain accounting and oversize/first-failure behavior. |
-| Source-wide finite read route and all-source pending hydration | **Replace only if selected** by explicit demand semantics and relevant seed authentication. Delete the displaced finite route/tests while moving meaningful refusal witnesses to the new proof boundary. |
-| Standalone full source proof, ordinary Application/durable operations and final source/publication proof | **Retain** for their actual distinct contracts unless explicitly migrated. No accidental broadening or weakening through a shared helper. |
-| Protected epoch and physical/control evidence | **Retain** under present integrity rules. No trigger/grant policy relaxation or physical-check omission is included by inference. |
+| `applicationActivation.ts` binding-only legacy fallback and finite internals | **Replace/generalize.** One preparation owner with request/retained lifetimes explicit; remove displaced healthy binding-only `readActive` and finite-only shared-mechanic names after caller migration. Retain real finite profile methods and token identity. |
+| Shared capture head-before-clock lock order | **Correct at the owner.** Acquire scope clock `KEY SHARE` before active-head `SHARE`, matching activation's clock-before-head order without weakening locks. Remove the head-first order and false unlocked-clock description; preserve deterministic concurrent activation/capture coverage and inventory the changed double-fault precedence. |
+| `applicationReadiness.ts` captured rows and canonical/control preparation | **Extend/generalize.** Preserve complete authentication, profile-specific refusal mapping, fresh acceptance and opaque resource accounting. No copied validator or parallel engine. |
+| `applicationRelationReadinessFold.ts` `prepareActiveFold` visible retained requirements charge | **Correct the owner.** Normalize its defensive-accessor snapshot to data-only requirements before charging, retaining opaque physical accounting and the actual Payload Local API witness. The generic meter keeps refusing accessors; remove diagnostic spies and retain existing relation behavior. |
+| Standalone physical preparation refusal and downstream error/retry consumers | **Replace diagnostic/timing/precedence contract as selected above.** Inventory actual consumer classification and retry decisions, migrate affected expectations and prove no business work before refusal. Ordinary executable, retained finite and relation profiles remain distinct. |
+| `applicationMutationAdmission.ts` finite Application admission | **Migrate.** Retain executable selection, actual retained lifetime, exact admission/claim/fence and close/resource behavior. |
+| `commerceTransaction/host.ts` and `admission.ts` | **Migrate.** Request-owned legacy inputs accepted at existing owners; native Product results/errors and full logical readiness remain. |
+| `cmsTransaction/host.ts` and `admission.ts` logical CMS/Payload paths | **Migrate affected legacy inputs.** Preserve relation-only input dispatch, actual Local API, mutable request/loader and hook/validation/rollback-only behavior. |
+| `atomicCommerce/host.ts` and `admission.ts`, `crossDomainCommand/host.ts` | **Migrate.** Preserve full admission, constraints, one trusted outer settlement and original scope/source pins. |
+| `logicalDocuments/sourceAdmission.ts`, participant/relational admission and prepared-source construction | **Migrate protection/lifetime derivation and exact token acceptance.** Use the authentic issuer lease for retained binding structures, retain the source's own singleton charge and check issuer closure on every use. Request tokens have no lease; full source membership/build/coverage/physical obligations remain. |
+| Executable `readActive`, framework-binding executability, relation-only APIs and ordinary durable/recovery profiles | **Retain.** Real distinct contracts; no wrapper or dual binding-only engine kept to avoid migration. |
 
-Before changing shared constructors, enumerate exact call sites across activation,
-readiness, source admission, Commerce/CMS, finite executor and their fixtures.
-Show representative before/after callers: business configuration/input remains
-caller-owned; evidence stores, preparation lifetime, proof templates and serving
-acceptance belong to the trusted owner. Method/result/visibility/event and mutable
-Payload request/loader contracts remain framework-owned.
-
-This proposed group changes private construction/proof contracts, not persisted
-journal formats or authoritative rows. If implementation reveals a schema,
-protection installation or durable-data obligation, return to a focused amendment
-and inventory before dependent changes. Do not silently delete/reset data or retain
-dual healthy engines. Remove obsolete constructors, exports, copied validators,
-fixtures and assembly within the same connected slice; named still-used profiles
-keep their real owner and evidence.
+Inventory exact call sites, fixtures, internal exports and nominal token consumers
+before changing signatures. Private construction types may break; migrate consumers
+and remove obsolete constructors, exports, copied validators, fixtures and assembly
+in the same slice. Native method/result/visibility/event and framework lifecycle
+remain framework-owned. No stored row, journal/protocol format, public identity or
+named durable data changes. A newly found schema, protection installation or data
+obligation requires an explicit amendment. Silent deletion/reset and compatibility
+layers are not authorized.
 
 ## Correctness and cost gates
 
-Validate changed binding/readiness/storage claims in both fast PGlite and focused
-ordinary-role real PostgreSQL. PGlite proves its full canonical path, not protected
-login/trigger/catalog attestation. PostgreSQL uses distinct connections for late
-head/readiness/physical/build/coverage/revocation/generation changes, same/different
-scope/request contention, issuer/clone/closed token refusal, exact database/schema/
-scope/source/method pins and final protected tails. Retain lock strength/order and
-post-lock time; no live verdict crosses a transaction boundary.
+Validate changed owners in fast PGlite and focused ordinary-role PostgreSQL.
+PGlite proves full canonical reread/authentication, not protected login/trigger/
+catalog integrity. PostgreSQL uses distinct connections for late head/readiness/
+physical/build/coverage/revocation/generation changes and proves current final tail
+and attestation. Preserve lock strength/order and post-lock time; no live verdict
+crosses transactions.
 
-If demand semantics are selected, preserve the failing unused-versus-used definition
-witness explicitly. Test exact relevant pending seed snapshot/observation authentication
-before point/predicate/order/page/relation membership, used index/search/unique/target
-loss, negative membership/concurrent inserts and full entry/final refusal. Retain
-sticky first Cause, caught-error rollback-only, deadlines, cancellation settlement,
-resource/oversize bounds and original error order. No SQL spans native callbacks,
-Payload hooks/access/validation or workflow steps.
+Use a deterministic ordinary-role PostgreSQL witness against actual activation
+and the shared capture owner to prove clock-before-head overlap without the
+former lock cycle. Cover both standalone and genuine retained finite consumers,
+preserve lock strengths and prove changed/invalid authority/head still refuses
+before business use. Explicitly verify missing/corrupt-clock-plus-missing-head
+precedence and unchanged well-formed foreign-authority/missing-head precedence.
+PGlite cannot establish PostgreSQL lock compatibility or
+concurrency behavior.
 
-Use actual standalone scalar/collection native parity and errors, existing finite
-ID-only Product retrieve/update/listByHandle with Application interleaving, actual
-selected Payload create/update/findByID and same-request nested hook behavior, plus
-the finite workflow's connected regressions where shared owners change. Ordinary
-Application/durable-operation and independently settling framework writers keep
-their own coverage. A helper-only mock or `payload.db.*` call is insufficient.
+Witnesses cover missing/not-ready/corrupt readiness/canonical bodies, head mismatch,
+head refresh on a later request, mid-request refusal without retry, late invalidation,
+exact database/schema/scope/source/method pins, clone/wrong issuer/closed token
+rejection, bounded resources, retained opaque charges and no request allocation
+charged to or accumulated under a host lifetime. Prove the selected detached order
+and standalone physical refusal frontier, full
+Cause, rollback-only and cancellation cleanup. Prove capacity under request churn,
+separate issuer/source close, reused/no-final-guard close refusal, sticky overflow
+and exact token/pin rejection without a new budget, lifetime or cache.
 
-Before implementation, derive the replacement graph's cost gates from every
-required capture, fresh acceptance and native dependent phase. Establish whether
-preparation belongs to host setup or a request and count it in the full ledger;
-moving cost out of the timed operation is not its removal. Require elimination of
-proved repeated immutable reconstruction and bounded exact proof selection, not
-only fewer wrappers. Track all transactions/autocommits, driver and server work,
-rows/pages/JSON bytes, allocations/encoding, reprepare/failures and quiet latency.
-Declare a justified small additive overhead budget after selecting semantic cuts;
-no arbitrary numerical ceiling or promised latency reduction is selected here.
+Retain the actual Payload Local API witness for relation-fold requirements charge,
+including successful data-only normalization and unchanged generic accessor
+refusal. It proves the distinct connected relation consumer; native standalone
+scalar/collection benchmarking does not execute that branch merely because its
+source hash is inventoried.
 
-Repeat matched quiet, trace and server diagnostics separately against the bounded
-native control and relevant component baseline. Broaden to an integrated mixed
-milestone for any cross-component or lifecycle contract change. Scaling, setup SQL,
-CPU/lock attribution and whole mixed performance remain open evidence obligations;
-this bounded standalone control does not close them. Missing instrumentation is
-unavailable, not zero.
+Required standalone frontier witnesses include healthy detached/durable evidence
+with already-invalid physical state, physical-plus-missing/corrupt-durable double
+fault, between-capture invalidation, draining lifecycle, build/coverage loss and
+no native business callback/hook/event/durable contribution before accepting
+refusal. Verify exact owner error/classification and zero business work; retain
+the original executable `readActive`/`readReady`, finite and relation regression
+contracts. The replacement must not add a preparation physical check to recover
+old precedence or remap the accepting error through a broad catch.
 
-Complete affected types/builds/source and portability guards, core/diff/staged lint,
-both exact-checkpoint project reviews, substantive-fix review reruns and cleanup.
-Root coordinates and owns Git; workers own disjoint edits and reviewers remain
-read-only. The finished slice requires actual caller migration, behavioral proof,
-measured cost reconciliation and removal together. This preflight is a reviewable
-recommended next group, not an implementation receipt or runtime approval.
+Run real standalone scalar/collection native parity and errors, the existing
+Product/Application graph, actual selected Payload Local API and finite workflow
+regressions proportionally to changed owners. Ordinary Application and independent
+framework consumers retain affected coverage. Helper-only mocks or `payload.db.*`
+calls cannot prove native lifecycle behavior.
+
+The selected graph's cost gate is **one bounded target capture with configured
+control authentication per standalone request, then one fresh business acceptance**.
+Healthy assembly must not repeat ordinary `readActive`/`readReady` or reconstruct
+the same immutable bundle. Count every control/unique/lifecycle read and transaction;
+this is not an arbitrary two-transaction ceiling. Count all preparation in the
+request ledger, with genuine pre-existing host setup separate. Moving work before
+the native callback or timer does not remove it. Keep all dispatches/autocommits,
+driver/server work, rows/pages/JSON bytes, allocations/encoding, reprepare/failures
+and quiet request latency. No numeric ceiling or promised latency reduction is
+selected before measuring the replacement.
+
+Repeat matched quiet, trace and server diagnostics separately for real native
+standalone scalar/collection, including complete request preparation. Retain the
+finite component baseline. Full mixed measurements remain required at declared
+group milestones and for cross-component/lifecycle contract changes. Assess the
+explicit standalone diagnostic/timing/precedence amendment against those gates;
+component improvement does not establish integrated acceptance.
+Scaling, setup SQL/CPU/lock attribution and whole mixed performance remain open.
+Missing instrumentation is unavailable, not zero.
+
+Complete affected types/builds/source/portability guards, core/diff/staged lint,
+both exact-checkpoint reviews, substantive-fix review reruns and cleanup. Root
+coordinates and owns Git; workers own disjoint edits and reviewers remain read-only.
+Acceptance requires migrated real callers, owner/consumer proofs, resource
+disposition, measured cost reconciliation and displaced-path removal together.
+
+## Remaining measured owner and future gates
+
+Fresh business binding/Application acceptance is the largest remaining measured
+region by dispatches and returned JSON bytes. It reauthenticates candidate/
+publication/function/task/readiness bodies, including repeated readiness row
+reads, after detached preparation. The concrete next construction investigation
+belongs to `applicationActivation.ts` accepting composition and
+`applicationReadiness.ts` `validateStoredIssuedReadiness`, with the actual registered
+guard/full-proof contract traced before selecting any removal. Its measured region
+includes session setup and framework binding work; not every dispatch belongs to
+the canonical validator. No cheaper accepting proof is approved here.
+
+Full logical-source readiness is the largest metadata-row region, traversing
+ordered, unique and search definitions plus table frontiers before the selected
+Product read. Demand narrowing remains a distinct semantic decision with its own
+used/unused, closure, pending-state, freshness and final-acceptance witnesses.
+The artifact ledger owns exact region bounds, counts and bytes. These observations
+do not establish CPU/lock causation or a reason to omit full proof.
+
+The matched final-source comparison includes the corrected clock-before-head
+capture owner; earlier head-first measurements remain separate immutable evidence
+in the artifact ledger. It reports lower standalone assembly work and quiet latency
+with unchanged selected native business demand, while retaining all accepting proof.
+
+Retained finite semantics, complete mixed latency, scaling, populated relation
+growth, setup/server CPU attribution and hosted activation remain separate open
+gates. Bounded standalone improvement does not close the performance goal. Connected
+validation, both reviews and cleanup remain mandatory slice gates; this document
+records current contract and remaining ownership rather than chronological receipts.

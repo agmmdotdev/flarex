@@ -1,17 +1,19 @@
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { Effect, Option, Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 import { logicalCurrencyFixture } from "../../medusa-adapter/test/support/logical-currency-fixture";
-import { readApplicationBindingTargetProtection } from "../../persistence-postgres/src/applicationActivation";
+import { prepareApplicationBindingSelection, readApplicationBindingTargetProtection } from "../../persistence-postgres/src/applicationActivation";
+import { prepareLogicalSourceEvidence, withSharedLogicalSourceBindingChecks } from "../../persistence-postgres/src/logicalDocuments/sourceAdmission";
+import * as hostPreparation from "../../persistence-postgres/src/preparedHostRuntime";
 import { prepareApplicationActiveHeadStructure, readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
   readCheckedApplicationSchemaForHeadForShareInTransactionEffect, releaseCheckedApplicationActiveHead } from
   "../../persistence-postgres/src/applicationActiveHeadRead";
 import { applicationActivationFrame, applicationActiveHeadFrame } from "../../persistence-postgres/src/applicationActivationFrames";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../../persistence-postgres/src/applicationActivationSchema";
-import { fxSystemApplicationRevisionSchemasV1 } from "../../persistence-postgres/src/schema";
+import { fxSystemApplicationRevisionSchemasV1, fxSystemIndexBuildStates } from "../../persistence-postgres/src/schema";
 import { lockScopeClockForShareInTransactionEffect, type ScopeClockRecord } from "../../persistence-postgres/src/scopeClock";
 import { openProtectedMetadataFinalGuardScope, flushProtectedMetadataFinalGuards,
   closeProtectedMetadataFinalGuardScope } from "../../persistence-postgres/src/preparedMetadataEpoch";
@@ -33,13 +35,168 @@ const bytes = (frame: unknown) => {
 const digest = (value: Uint8Array) => Uint8Array.from(createHash("sha256").update(value).digest());
 
 native("protected target first-fill rollback integrity", () => {
+  it("charges binding structure to its real issuer and refuses clone, closed and overflowed uses on every lane", async () => {
+    const cleanup: Array<() => Promise<void>> = [];
+    try {
+      const fixture = await logicalCurrencyFixture("postgres", close => cleanup.push(close), { protectedRuntime: true });
+      const target = fixture.persistence.drizzle;
+      const scopeId = fixture.application.authority.scopeId;
+      const logical = fixture.hostInput.logicalStorage;
+      const currency = fixture.currencyDefinition;
+      const location = { scopeId, storageGeneration: "flarexdb_v1" };
+      const issuerStructures: unknown[] = [];
+      const sourceStructures: unknown[] = [];
+      const actualLifetime = hostPreparation.captureHostPreparationLifetime;
+      const actualCharge = hostPreparation.captureHostPreparationCharge;
+      const isStructure = (value: unknown) => typeof value === "object" && value !== null &&
+        "candidate" in value && "activation" in value;
+      const lifetimeSpy = vi.spyOn(hostPreparation, "captureHostPreparationLifetime").mockImplementation(() => actualLifetime().pipe(
+        Effect.map(lifetime => lifetime === undefined ? undefined : { ...lifetime, charge: value => {
+          if (isStructure(value)) issuerStructures.push(value);
+          return lifetime.charge(value);
+        } })));
+      const sourceChargeSpy = vi.spyOn(hostPreparation, "captureHostPreparationCharge").mockImplementation(() => actualCharge().pipe(
+        Effect.map(charge => charge === undefined ? undefined : value => {
+          if (isStructure(value)) sourceStructures.push(value);
+          return charge(value);
+        })));
+      try {
+        await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+          const runtime = yield* hostPreparation.makePreparedHostRuntime({ maximumHosts: 2, maximumPreparedBytes: 16_777_216 });
+          const sourceHost = yield* hostPreparation.retainPreparedHost(runtime, prepareLogicalSourceEvidence(
+            logical.ports, logical.unique, { deploymentId: fixture.deploymentId, scopeId, schemaVersionId: logical.schemaVersionId },
+            { sourceKey: "medusa.currency", writeProfile: "medusa.currency",
+              definition: { kind: "relational", schema: currency.schema }, evidence: currency.provenance },
+            "medusa", "relational", { kind: "standalone" }));
+          const source = yield* sourceHost.use(Effect.succeed);
+          const issuerHost = yield* hostPreparation.retainPreparedHost(runtime,
+            fixture.application.activation.readActive().pipe(Effect.map(active => Object.freeze({ active }))));
+          const issuer = yield* issuerHost.use(value => Effect.succeed(value.active));
+          const lineage = yield* Effect.fromResult(readApplicationBindingTargetProtection(issuer.selection));
+          if (lineage.protection === undefined || lineage.lifetime === undefined) return yield* Effect.die("Missing actual retained issuer");
+          const prepared = prepareBindingSelectedStructure(location, lineage.protection, lineage.lifetime);
+          const guarded = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) => Effect.tryPromise({
+            try: () => target.transaction(async tx => {
+              openProtectedMetadataFinalGuardScope(tx);
+              try {
+                const result = await Effect.runPromise(work(tx));
+                await Effect.runPromise(flushProtectedMetadataFinalGuards(tx));
+                return result;
+              } finally { closeProtectedMetadataFinalGuardScope(tx); }
+            }), catch: cause => cause,
+          });
+          const read = () => guarded(tx => Effect.gen(function* () {
+            const clock = yield* lockScopeClockForShareInTransactionEffect(tx, scopeId);
+            return yield* source.withBinding(issuer.selection, tx, issuer.basis.authority, clock, () => Effect.void);
+          }));
+          yield* read();
+          yield* read();
+          expect(issuerStructures).toHaveLength(1);
+          expect(sourceStructures).toHaveLength(0);
+          // Disposable request tokens have no issuer lease and spend no retained
+          // binding budget while source-owned descriptors retain their own owner.
+          for (let index = 0; index < 8; index++) {
+            const request = yield* prepareApplicationBindingSelection(fixture.application.activation);
+            expect(Result.getOrThrow(readApplicationBindingTargetProtection(request)).lifetime).toBeUndefined();
+            yield* guarded(tx => Effect.gen(function* () {
+              const clock = yield* lockScopeClockForShareInTransactionEffect(tx, scopeId);
+              yield* source.withBinding(request, tx, issuer.basis.authority, clock, () => Effect.void);
+            }));
+          }
+          expect(issuerStructures).toHaveLength(1);
+          expect(sourceStructures).toHaveLength(0);
+          yield* guarded(tx => readBindingSelectedEvidence(tx, location, prepared));
+          yield* guarded(tx => readBindingSelectedEvidence(tx, location, prepared));
+          expect(issuerStructures).toHaveLength(2); // One successful fill for each actual prepared handle.
+          const clone = structuredClone(prepared);
+          const unguarded = (handle = prepared) => Effect.tryPromise({
+            try: () => target.transaction(tx => Effect.runPromise(readBindingSelectedEvidence(tx, location, handle))), catch: cause => cause,
+          });
+          expect(yield* Effect.result(unguarded(clone))).toMatchObject({ _tag: "Failure", failure: { reason: "storedCorruption" } });
+          expect(Result.isFailure(lineage.lifetime.charge(new Uint8Array(16_777_216)))).toBe(true);
+          expect(yield* Effect.result(unguarded())).toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "capacityExceeded" } } });
+          expect(yield* Effect.result(read())).toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition", cause: { reason: "capacityExceeded" } } });
+          yield* issuerHost.close;
+          expect(yield* Effect.result(unguarded())).toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure", cause: { reason: "closed" } } });
+          const secondIssuer = yield* hostPreparation.retainPreparedHost(runtime,
+            fixture.application.activation.readActive().pipe(Effect.map(active => Object.freeze({ active }))));
+          const second = yield* secondIssuer.use(value => Effect.succeed(value.active));
+          let afterCloseEntered = false;
+          expect(yield* Effect.result(guarded(tx => Effect.gen(function* () {
+            const clock = yield* lockScopeClockForShareInTransactionEffect(tx, scopeId);
+            yield* withSharedLogicalSourceBindingChecks(tx, () => source.withBinding(second.selection, tx, second.basis.authority, clock,
+              () => secondIssuer.close.pipe(Effect.andThen(source.withBinding(second.selection, tx, second.basis.authority, clock,
+                () => Effect.sync(() => { afterCloseEntered = true; }))))));
+          })))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition", cause: { reason: "closed" } } });
+          expect(afterCloseEntered).toBe(false);
+          const openIssuer = yield* hostPreparation.retainPreparedHost(runtime,
+            fixture.application.activation.readActive().pipe(Effect.map(active => Object.freeze({ active }))));
+          const openSelection = yield* openIssuer.use(value => Effect.succeed(value.active.selection));
+          yield* sourceHost.close;
+          expect(yield* Effect.result(sourceHost.use(() => Effect.void))).toMatchObject({
+            _tag: "Failure", failure: { reason: "closed" },
+          });
+          expect(Result.isSuccess(readApplicationBindingTargetProtection(openSelection))).toBe(true);
+        })));
+      } finally { lifetimeSpy.mockRestore(); sourceChargeSpy.mockRestore(); }
+    } finally { for (const close of cleanup.reverse()) await close(); }
+  }, 180_000);
+
+  it("defers protected standalone physical refusal to fresh acceptance before business work", async () => {
+    const cleanup: Array<() => Promise<void>> = [];
+    try {
+      const fixture = await logicalCurrencyFixture("postgres", close => cleanup.push(close), { protectedRuntime: true });
+      const target = fixture.persistence.drizzle;
+      const selected = await Effect.runPromise(fixture.application.activation.readActive());
+      const scopeId = fixture.application.authority.scopeId;
+      const logical = fixture.hostInput.logicalStorage;
+      const currency = fixture.currencyDefinition;
+      const source = await Effect.runPromise(prepareLogicalSourceEvidence(logical.ports, logical.unique,
+        { deploymentId: fixture.deploymentId, scopeId, schemaVersionId: logical.schemaVersionId },
+        { sourceKey: "medusa.currency", writeProfile: "medusa.currency",
+          definition: { kind: "relational", schema: currency.schema }, evidence: currency.provenance },
+        "medusa", "relational", { kind: "standalone" }));
+      const definition = selected.basis.physicalRequirements.definitions[0];
+      if (definition === undefined) throw new Error("Expected actual Application physical requirements");
+      const subject = and(eq(fxSystemIndexBuildStates.scopeId, scopeId),
+        eq(fxSystemIndexBuildStates.indexDefinitionId, definition.indexDefinitionId));
+      const original = (await target.select().from(fxSystemIndexBuildStates).where(subject).limit(1))[0];
+      if (original === undefined) throw new Error("Expected enabled Application build evidence");
+      let entered = 0;
+      for (const timing of ["before-capture", "after-capture"] as const) {
+        const early = timing === "after-capture"
+          ? await Effect.runPromise(prepareApplicationBindingSelection(fixture.application.activation)) : undefined;
+        try {
+          await target.update(fxSystemIndexBuildStates).set({ lifecycle: "validating",
+            maintenanceActivationSequence: null, maintenanceBytes: null, maintenanceSha256: null }).where(subject);
+          const request = early ?? await Effect.runPromise(prepareApplicationBindingSelection(fixture.application.activation));
+          const lineage = Result.getOrThrow(readApplicationBindingTargetProtection(request));
+          expect(lineage.protection).toBeDefined();
+          expect(lineage.lifetime).toBeUndefined();
+          await expect(Effect.runPromise(fixture.application.activation.readActive())).rejects.toMatchObject({ reason: "notReady" });
+          await expect(target.transaction(async tx => {
+            const clock = await Effect.runPromise(lockScopeClockForShareInTransactionEffect(tx, scopeId));
+            openProtectedMetadataFinalGuardScope(tx);
+            try {
+              const value = await Effect.runPromise(source.withBinding(request, tx, selected.basis.authority, clock,
+                () => Effect.sync(() => { entered++; })));
+              await Effect.runPromise(flushProtectedMetadataFinalGuards(tx));
+              return value;
+            } finally { closeProtectedMetadataFinalGuardScope(tx); }
+          })).rejects.toMatchObject({ _tag: "ApplicationReadinessError", operation: "settle", reason: "authorityChanged" });
+          expect(entered).toBe(0);
+        } finally { await target.update(fxSystemIndexBuildStates).set(original).where(subject); }
+      }
+    } finally { for (const close of cleanup.reverse()) await close(); }
+  }, 180_000);
+
   it("refuses uncommitted activation, schema and binding bodies before retention", async () => {
     const cleanup: Array<() => Promise<void>> = [];
     try {
       const fixture = await logicalCurrencyFixture("postgres", close => cleanup.push(close), { protectedRuntime: true });
       const target = fixture.persistence.drizzle;
       const selected = await Effect.runPromise(fixture.application.activation.readActive());
-      const protection = readApplicationBindingTargetProtection(selected.selection);
+      const { protection } = Result.getOrThrow(readApplicationBindingTargetProtection(selected.selection));
       if (protection === undefined) throw new Error("Expected an actual protected readiness issuer");
       const scopeId = fixture.application.authority.scopeId;
       const guarded = <Value>(work: (tx: FlarexMetadataTransaction, clock: ScopeClockRecord) => Promise<Value>) =>
@@ -170,11 +327,11 @@ native("protected target first-fill rollback integrity", () => {
       await target.update(fxSystemDataBindingHeads).set(originalHeadRow)
         .where(eq(fxSystemDataBindingHeads.scopeId, scopeId));
       const reselection = await Effect.runPromise(fixture.application.activation.readActive());
-      const currentProtection = readApplicationBindingTargetProtection(reselection.selection);
+      const { protection: currentProtection } = Result.getOrThrow(readApplicationBindingTargetProtection(reselection.selection));
       if (currentProtection === undefined) throw new Error("Missing renewed readiness anchor");
       let charges = 0;
       const headOnlyPreparation = prepareBindingSelectedStructure(location, currentProtection,
-        () => { charges++; return Result.succeed(undefined); });
+        { charge: () => { charges++; return Result.succeed(undefined); }, checkOpen: () => Result.succeed(undefined) });
       await expect(guarded(async tx => {
         await tx.update(fxSystemDataBindingHeads).set(secondHeadRow)
           .where(eq(fxSystemDataBindingHeads.scopeId, scopeId));

@@ -1,0 +1,837 @@
+{
+  "baselineCheckpoint": "e6bd105ea",
+  "finalCheckpoint": "read-admission-construction-final-working-tree@e6bd105ea",
+  "baselineOriginalSourceEvidenceSha256": "58024526264fd85307226054bf0083400bb64548fc37f61d743b66252f766a7c",
+  "finalSourceEvidenceSha256": "2771e3a1d08a9deb436ec4690c8dc019dd9c67ada49d9fc577ddf2aab54ea44d",
+  "sourceInventoryDisposition": "Final includes eleven originally omitted owner/fixture entries, supplemented with exact baseline Git bytes; original baseline and intermediate reports unchanged",
+  "intermediateSourceEvidenceSha256": "bc91dde4b7489a0dd3b3ef7aa77d829e878e1e061424eb5ef116397141f9697c",
+  "intermediateDisposition": "Immutable construction-after measurement of pre-lock-correction source, not final acceptance evidence",
+  "selectedRuntimeContract": "Shared capture acquires scope clock KEY SHARE before active-head SHARE, using one exact transaction-local clock observation; activation retains clock then head FOR UPDATE",
+  "quiet": {
+    "scalar/native": {
+      "baseline": {
+        "n": 30,
+        "medianMs": 1.4614500000006956,
+        "p95Ms": 1.9140000000006694,
+        "minMs": 0.8991000000023632,
+        "maxMs": 2.0833999999995285
+      },
+      "final": {
+        "n": 30,
+        "failures": 0,
+        "medianMs": 1.345049999996263,
+        "p95Ms": 1.8496000000013737,
+        "minMs": 0.7611000000033528,
+        "maxMs": 2.0041999999957625
+      },
+      "medianChangePercent": -7.964692600114754,
+      "p95ChangePercent": -3.364681295677807
+    },
+    "scalar/flarex": {
+      "baseline": {
+        "n": 30,
+        "medianMs": 77.74790000000212,
+        "p95Ms": 89.36169999999765,
+        "minMs": 71.9439999999995,
+        "maxMs": 92.93449999999939
+      },
+      "final": {
+        "n": 30,
+        "failures": 0,
+        "medianMs": 54.5753999999979,
+        "p95Ms": 65.86190000000352,
+        "minMs": 49.521899999992456,
+        "maxMs": 71.9369000000006
+      },
+      "medianChangePercent": -29.804663534325158,
+      "p95ChangePercent": -26.297395864217844
+    },
+    "collection/native": {
+      "baseline": {
+        "n": 30,
+        "medianMs": 1.9399499999999534,
+        "p95Ms": 2.4582999999984168,
+        "minMs": 1.1637999999984459,
+        "maxMs": 2.981100000000879
+      },
+      "final": {
+        "n": 30,
+        "failures": 0,
+        "medianMs": 1.6912000000011176,
+        "p95Ms": 2.2005999999964843,
+        "minMs": 0.9743999999918742,
+        "maxMs": 2.4663000000000466
+      },
+      "medianChangePercent": -12.822495425080128,
+      "p95ChangePercent": -10.482854004885422
+    },
+    "collection/flarex": {
+      "baseline": {
+        "n": 30,
+        "medianMs": 80.10995000000003,
+        "p95Ms": 108.83799999999974,
+        "minMs": 70.84370000000126,
+        "maxMs": 125.10459999999875
+      },
+      "final": {
+        "n": 30,
+        "failures": 0,
+        "medianMs": 54.29189999999653,
+        "p95Ms": 59.060799999992014,
+        "minMs": 52.03580000001239,
+        "maxMs": 59.56319999998959
+      },
+      "medianChangePercent": -32.22826877310931,
+      "p95ChangePercent": -45.73512927470905
+    }
+  },
+  "trace": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "baseline": {
+        "demand": "scalar",
+        "lane": "native",
+        "dispatches": 1,
+        "transactions": 0,
+        "rows": 1,
+        "jsonBytes": 146
+      },
+      "final": {
+        "demand": "scalar",
+        "lane": "native",
+        "dispatches": 1,
+        "transactions": 0,
+        "rows": 1,
+        "jsonBytes": 146,
+        "beforeProductDispatches": 0,
+        "beforeProductRows": 0,
+        "beforeProductJsonBytes": 0,
+        "insideProductDispatches": 1,
+        "afterProductDispatches": 0
+      }
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "baseline": {
+        "demand": "scalar",
+        "lane": "flarex",
+        "dispatches": 106,
+        "transactions": 6,
+        "rows": 222,
+        "jsonBytes": 248243
+      },
+      "final": {
+        "demand": "scalar",
+        "lane": "flarex",
+        "dispatches": 70,
+        "transactions": 3,
+        "rows": 192,
+        "jsonBytes": 160802,
+        "beforeProductDispatches": 67,
+        "beforeProductRows": 190,
+        "beforeProductJsonBytes": 157552,
+        "insideProductDispatches": 2,
+        "afterProductDispatches": 1
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "baseline": {
+        "demand": "collection",
+        "lane": "native",
+        "dispatches": 1,
+        "transactions": 0,
+        "rows": 1,
+        "jsonBytes": 186
+      },
+      "final": {
+        "demand": "collection",
+        "lane": "native",
+        "dispatches": 1,
+        "transactions": 0,
+        "rows": 1,
+        "jsonBytes": 186,
+        "beforeProductDispatches": 0,
+        "beforeProductRows": 0,
+        "beforeProductJsonBytes": 0,
+        "insideProductDispatches": 1,
+        "afterProductDispatches": 0
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "baseline": {
+        "demand": "collection",
+        "lane": "flarex",
+        "dispatches": 108,
+        "transactions": 6,
+        "rows": 224,
+        "jsonBytes": 250350
+      },
+      "final": {
+        "demand": "collection",
+        "lane": "flarex",
+        "dispatches": 72,
+        "transactions": 3,
+        "rows": 194,
+        "jsonBytes": 162924,
+        "beforeProductDispatches": 67,
+        "beforeProductRows": 190,
+        "beforeProductJsonBytes": 157552,
+        "insideProductDispatches": 4,
+        "afterProductDispatches": 1
+      }
+    }
+  ],
+  "server": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "baseline": {
+        "demand": "scalar",
+        "lane": "native",
+        "topLevelCalls": 1,
+        "topLevelPlanningMs": 0.10159999999999997,
+        "topLevelExecutionMs": 0.017499999999999998,
+        "nestedEntries": 0,
+        "sharedBlockReads": 0
+      },
+      "final": {
+        "demand": "scalar",
+        "lane": "native",
+        "topLevelCalls": 1,
+        "topLevelPlanningMs": 0.09800000000000009,
+        "topLevelExecutionMs": 0.01730000000000001,
+        "nestedEntries": 0,
+        "sharedBlockReads": 0
+      }
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "baseline": {
+        "demand": "scalar",
+        "lane": "flarex",
+        "topLevelCalls": 106,
+        "topLevelPlanningMs": 10.060899999999998,
+        "topLevelExecutionMs": 2.7809999999999935,
+        "nestedEntries": 0,
+        "sharedBlockReads": 0
+      },
+      "final": {
+        "demand": "scalar",
+        "lane": "flarex",
+        "topLevelCalls": 70,
+        "topLevelPlanningMs": 8.954299999999993,
+        "topLevelExecutionMs": 2.349499999999994,
+        "nestedEntries": 0,
+        "sharedBlockReads": 0
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "baseline": {
+        "demand": "collection",
+        "lane": "native",
+        "topLevelCalls": 1,
+        "topLevelPlanningMs": 0.18009999999999998,
+        "topLevelExecutionMs": 0.0298,
+        "nestedEntries": 0,
+        "sharedBlockReads": 0
+      },
+      "final": {
+        "demand": "collection",
+        "lane": "native",
+        "topLevelCalls": 1,
+        "topLevelPlanningMs": 0.19690000000000007,
+        "topLevelExecutionMs": 0.034900000000000014,
+        "nestedEntries": 0,
+        "sharedBlockReads": 0
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "baseline": {
+        "demand": "collection",
+        "lane": "flarex",
+        "topLevelCalls": 108,
+        "topLevelPlanningMs": 10.14940000000001,
+        "topLevelExecutionMs": 2.5681999999999996,
+        "nestedEntries": 0,
+        "sharedBlockReads": 0
+      },
+      "final": {
+        "demand": "collection",
+        "lane": "flarex",
+        "topLevelCalls": 72,
+        "topLevelPlanningMs": 8.914600000000009,
+        "topLevelExecutionMs": 2.257299999999998,
+        "nestedEntries": 0,
+        "sharedBlockReads": 0
+      }
+    }
+  ],
+  "sourceComparison": [
+    {
+      "path": "third_party/medusa/SOURCE.json",
+      "baselineSha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1",
+      "changed": false
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "baselineSha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/package.json",
+      "baselineSha256": "606c5ca8c062b44a71edf8a2653ccf2b897bc63f1e24bff9f83e77b78eebb516",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "606c5ca8c062b44a71edf8a2653ccf2b897bc63f1e24bff9f83e77b78eebb516",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/pnpm-lock.yaml",
+      "baselineSha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-product/src/services/product-module-service.ts",
+      "baselineSha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+      "baselineSha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+      "baselineSha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+      "baselineSha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/src/product-commands/reads.ts",
+      "baselineSha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/src/product-module.ts",
+      "baselineSha256": "e89a73224a54a1617f38eba6f6d71737fe0654afb991297c862c7337c8545afc",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "e89a73224a54a1617f38eba6f6d71737fe0654afb991297c862c7337c8545afc",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+      "baselineSha256": "be6215397eb77fc61b060ab350290b4c6ad406b8e40ee315341dce7375405f27",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "be6215397eb77fc61b060ab350290b4c6ad406b8e40ee315341dce7375405f27",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+      "baselineSha256": "f42778c5abeeb12647db920369f16d11286a292dd0b94e5c39ff1dfe57343011",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "6181d0a17eb44c7187ed5b72e09daa48b478e28dc698ddbc2547c3558746a5c0",
+      "changed": true
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+      "baselineSha256": "dde6d78caf30687b894cdc1b38c8a6fae791b695a7b4aa735e99f5d787327aad",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "550c886c9e71a7185203721a8b26cdfbb915d882d78d4fee7d509ed6852a1d3a",
+      "changed": true
+    },
+    {
+      "path": "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+      "baselineSha256": "fe11658d3ad5c18258731795aafd093289bf970f3296f22098e2d7c7e20369d8",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "fe11658d3ad5c18258731795aafd093289bf970f3296f22098e2d7c7e20369d8",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
+      "baselineSha256": "4f1a92f6c74d366629ec13ee513be5290af4b7daf3d6923e8767d9902cb01c8c",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "4f1a92f6c74d366629ec13ee513be5290af4b7daf3d6923e8767d9902cb01c8c",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
+      "baselineSha256": "a39a7e61069c1477d3e7e9bb158a8677bbb5dcae82c253d6b310e3d9bae9a39a",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "a39a7e61069c1477d3e7e9bb158a8677bbb5dcae82c253d6b310e3d9bae9a39a",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
+      "baselineSha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+      "baselineSha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+      "baselineSha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+      "baselineSha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+      "baselineSha256": "6e1c8bb58ca066733316daff749bbf03aec4fe334812bd3de5a536400de52db1",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "6e1c8bb58ca066733316daff749bbf03aec4fe334812bd3de5a536400de52db1",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+      "baselineSha256": "40c6fe7385b325e157bb543ee63d1611a4dbd629d24615ec28719b9a88e9a6f4",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "40c6fe7385b325e157bb543ee63d1611a4dbd629d24615ec28719b9a88e9a6f4",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+      "baselineSha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+      "baselineSha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+      "baselineSha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-product/dist/services/product-module-service.js",
+      "baselineSha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
+      "baselineSha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+      "baselineSha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-utils/package.json",
+      "baselineSha256": "5cc5ade0fcf9275642f4cb81a8ae25cbd5f7ef129d2734420c570e6aed9c6180",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "5cc5ade0fcf9275642f4cb81a8ae25cbd5f7ef129d2734420c570e6aed9c6180",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-utils/tsconfig.json",
+      "baselineSha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-product/package.json",
+      "baselineSha256": "72f5f7005ef0ddafa2eade1ccf812daf852cf5e02c8b591d3f076839d7461af3",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "72f5f7005ef0ddafa2eade1ccf812daf852cf5e02c8b591d3f076839d7461af3",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-product/tsconfig.json",
+      "baselineSha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b",
+      "changed": false
+    },
+    {
+      "path": "tools/medusa/tsconfig.fork.json",
+      "baselineSha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
+      "baselineSha256": "84df36bfcbbdfdbea006f78f150e70655d4801a402dc56a8e466806fe018e585",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "84df36bfcbbdfdbea006f78f150e70655d4801a402dc56a8e466806fe018e585",
+      "changed": false
+    },
+    {
+      "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
+      "baselineSha256": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+      "baselineSha256": "6e28fab0436728864e115788e8671d9b74ee5817d146dbd05c69676cc3683625",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "6e28fab0436728864e115788e8671d9b74ee5817d146dbd05c69676cc3683625",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+      "baselineSha256": "06619934ee043446926819905fa71b93d948ee1ba89c85d2ceae2c5c65904f1c",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "06619934ee043446926819905fa71b93d948ee1ba89c85d2ceae2c5c65904f1c",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+      "baselineSha256": "1dce90c3fd5ddaa1f466a8894d6cdb0acbf2a71605ba9f17be4d2fdd745e5fcf",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "8c51d0cf8e7c39c5f31ef7797d2b7aace285b54b9d205e8ca605548af6ee875f",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+      "baselineSha256": "7ca6a353ce4ec1944b64527cd21f29f3e38483914ca507e7beb815abc2b22573",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "7ca6a353ce4ec1944b64527cd21f29f3e38483914ca507e7beb815abc2b22573",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
+      "baselineSha256": "03ad76f6132899e7eff5adb4dd84b1fa3e67d646fb364cc9cda9160a4b3054a4",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "03ad76f6132899e7eff5adb4dd84b1fa3e67d646fb364cc9cda9160a4b3054a4",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+      "baselineSha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+      "baselineSha256": "b0378f42e9dddf9387ac3eeb6dac875f7dd81b6d37ea02a9a0dee71bdf61a92c",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "b0378f42e9dddf9387ac3eeb6dac875f7dd81b6d37ea02a9a0dee71bdf61a92c",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationActivation.ts",
+      "baselineSha256": "93d72b06df1e6011aa52fa1d4bc1094f56da98fdc7a3f998274972b8901c4b97",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "e5e2b5b308b370852d95454b728a870119ab2214cdd5430076255e0153af2cb5",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationReadiness.ts",
+      "baselineSha256": "def1e35955257fdf8ea1f5c2f011621608865c2fe1550a112eb811e794b49646",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "418bf0c44eee3afc3e2e6979745ff0b13fa51a9d7431478eb0f783a1e4828ce1",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+      "baselineSha256": "c9e3c34a1d7eb4de52d47c04480c0bd290530cbd4c1ea17bb83ccd61709ce06f",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "a3a52328260c38e2afc23835357ee47996b7af3b391842e10cf9f589b8e55a5d",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
+      "baselineSha256": "6ae20222a735c1b9a70e3a7f108796a68b88b86706d0ceb93ab23b0bb4f3ed79",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "6ae20222a735c1b9a70e3a7f108796a68b88b86706d0ceb93ab23b0bb4f3ed79",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationBindingProjection.ts",
+      "baselineSha256": "c77127551841e0e1ab2b3ffe3f6f279c0119b163d3a0da333a309c2c4e5abe95",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "c77127551841e0e1ab2b3ffe3f6f279c0119b163d3a0da333a309c2c4e5abe95",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts",
+      "baselineSha256": "bd6a1b5543d271437062779514c663a463a00893bc006d65c36dfd86475fa2d2",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "bd6a1b5543d271437062779514c663a463a00893bc006d65c36dfd86475fa2d2",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/preparedHostRuntime.ts",
+      "baselineSha256": "0faf9ff27d80631d082d8c6bb88f26399d617b7c9adaffd7c45f319ef8d2872b",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "0faf9ff27d80631d082d8c6bb88f26399d617b7c9adaffd7c45f319ef8d2872b",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+      "baselineSha256": "5b95615efae1eecbde114c4af01a6ba0ab9c2367f20013638760af31472683cc",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "5b95615efae1eecbde114c4af01a6ba0ab9c2367f20013638760af31472683cc",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/commerceTransaction/admission.ts",
+      "baselineSha256": "8f35fcfc2b141d491d308d569d21c9120eb134256f1e70383a7fb4a5ce7b6e62",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "8f35fcfc2b141d491d308d569d21c9120eb134256f1e70383a7fb4a5ce7b6e62",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+      "baselineSha256": "22e2028f9dc5ae75aa21cb7fe359619b921e05658f1d45c3b19187ae441de0bd",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "4839b1b6cafe8a59a0482b9cffdcc1297155b19a3616cbf8a4357016b00b1865",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts",
+      "baselineSha256": "c1773529246df7c859cb64cc6542da5487e790c9715b1710d1fde5c4b88fa72f",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "c1773529246df7c859cb64cc6542da5487e790c9715b1710d1fde5c4b88fa72f",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/commerceTransaction/host.ts",
+      "baselineSha256": "c5662613fcf5e4d871c7cb8401c9af450a07e8d73bb8610b1778202c19f4e0ad",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "c5662613fcf5e4d871c7cb8401c9af450a07e8d73bb8610b1778202c19f4e0ad",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+      "baselineSha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/src/query/read.ts",
+      "baselineSha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a",
+      "changed": false
+    },
+    {
+      "path": "packages/medusa-adapter/src/commerce-relations.ts",
+      "baselineSha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/appRows.ts",
+      "baselineSha256": "a13b09122311ae7d7d8e56ca124b35a9cdcc66db9e56b219a0ddd18c83899a61",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "a13b09122311ae7d7d8e56ca124b35a9cdcc66db9e56b219a0ddd18c83899a61",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/postgres.ts",
+      "baselineSha256": "ef60f726bdb0569d5773d6fc22dbe2bb344494939931b250322873ddcc2941f0",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "ef60f726bdb0569d5773d6fc22dbe2bb344494939931b250322873ddcc2941f0",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+      "baselineSha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad",
+      "changed": false
+    },
+    {
+      "path": "packages/persistence-postgres/drizzle/meta/_journal.json",
+      "baselineSha256": "a0c7e9b94d0889d4accc4b9df7cf11e6fe0530d59ea3c01ea24092641228800b",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "a0c7e9b94d0889d4accc4b9df7cf11e6fe0530d59ea3c01ea24092641228800b",
+      "changed": false
+    }
+  ],
+  "sourceDifferences": [
+    {
+      "path": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+      "baselineSha256": "f42778c5abeeb12647db920369f16d11286a292dd0b94e5c39ff1dfe57343011",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "6181d0a17eb44c7187ed5b72e09daa48b478e28dc698ddbc2547c3558746a5c0",
+      "changed": true
+    },
+    {
+      "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+      "baselineSha256": "dde6d78caf30687b894cdc1b38c8a6fae791b695a7b4aa735e99f5d787327aad",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "550c886c9e71a7185203721a8b26cdfbb915d882d78d4fee7d509ed6852a1d3a",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+      "baselineSha256": "1dce90c3fd5ddaa1f466a8894d6cdb0acbf2a71605ba9f17be4d2fdd745e5fcf",
+      "baselineEvidence": "original harness capture",
+      "finalSha256": "8c51d0cf8e7c39c5f31ef7797d2b7aace285b54b9d205e8ca605548af6ee875f",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationActivation.ts",
+      "baselineSha256": "93d72b06df1e6011aa52fa1d4bc1094f56da98fdc7a3f998274972b8901c4b97",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "e5e2b5b308b370852d95454b728a870119ab2214cdd5430076255e0153af2cb5",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationReadiness.ts",
+      "baselineSha256": "def1e35955257fdf8ea1f5c2f011621608865c2fe1550a112eb811e794b49646",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "418bf0c44eee3afc3e2e6979745ff0b13fa51a9d7431478eb0f783a1e4828ce1",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+      "baselineSha256": "c9e3c34a1d7eb4de52d47c04480c0bd290530cbd4c1ea17bb83ccd61709ce06f",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "a3a52328260c38e2afc23835357ee47996b7af3b391842e10cf9f589b8e55a5d",
+      "changed": true
+    },
+    {
+      "path": "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+      "baselineSha256": "22e2028f9dc5ae75aa21cb7fe359619b921e05658f1d45c3b19187ae441de0bd",
+      "baselineEvidence": "explicit baseline Git-byte supplement",
+      "finalSha256": "4839b1b6cafe8a59a0482b9cffdcc1297155b19a3616cbf8a4357016b00b1865",
+      "changed": true
+    }
+  ],
+  "executingDriversUnchanged": true,
+  "selectedMethodBodiesUnchanged": true,
+  "baselineCapturedFileCount": 50,
+  "finalCapturedFileCount": 61,
+  "scalarOwnerAttribution": [
+    {
+      "owner": "scope/placement resolution",
+      "firstSqlOrdinal": 1,
+      "lastSqlOrdinal": 6,
+      "dispatches": 6,
+      "rows": 6,
+      "jsonBytes": 1674
+    },
+    {
+      "owner": "bounded Application target capture",
+      "firstSqlOrdinal": 7,
+      "lastSqlOrdinal": 21,
+      "dispatches": 15,
+      "rows": 17,
+      "jsonBytes": 45875
+    },
+    {
+      "owner": "detached schema/unique/lifecycle/control authentication",
+      "firstSqlOrdinal": 22,
+      "lastSqlOrdinal": 37,
+      "dispatches": 16,
+      "rows": 11,
+      "jsonBytes": 9849
+    },
+    {
+      "owner": "fresh business binding/Application acceptance",
+      "firstSqlOrdinal": 38,
+      "lastSqlOrdinal": 59,
+      "dispatches": 22,
+      "rows": 24,
+      "jsonBytes": 71383
+    },
+    {
+      "owner": "full logical-source readiness",
+      "firstSqlOrdinal": 60,
+      "lastSqlOrdinal": 66,
+      "dispatches": 7,
+      "rows": 131,
+      "jsonBytes": 28489
+    },
+    {
+      "owner": "source initialization admission",
+      "firstSqlOrdinal": 67,
+      "lastSqlOrdinal": 67,
+      "dispatches": 1,
+      "rows": 1,
+      "jsonBytes": 282
+    },
+    {
+      "owner": "native scalar storage demand",
+      "firstSqlOrdinal": 68,
+      "lastSqlOrdinal": 69,
+      "dispatches": 2,
+      "rows": 2,
+      "jsonBytes": 3248
+    },
+    {
+      "owner": "business COMMIT",
+      "firstSqlOrdinal": 70,
+      "lastSqlOrdinal": 70,
+      "dispatches": 1,
+      "rows": 0,
+      "jsonBytes": 2
+    }
+  ],
+  "remainingGates": [
+    "Final-source local standalone scalar/collection observations, not whole-goal performance acceptance.",
+    "Independent quiet/trace/server intervals do not establish exact causal CPU/latency attribution.",
+    "All raw samples/outliers retained; absent independent nested entries does not establish absent function/trigger work.",
+    "Retained finite, full mixed, scaling, relation growth and hosted/production gates remain separate.",
+    "Construction-after reports and comparison remain immutable intermediate pre-lock-correction evidence."
+  ]
+}

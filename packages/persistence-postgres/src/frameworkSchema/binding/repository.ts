@@ -8,7 +8,7 @@ import { databaseTimestampFromUnknown } from "../../databaseTimestamp";
 import { hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
   authenticateProtectedTargetMetadataSnapshot,
   type ProtectedTargetMetadataEvidence } from "../../preparedMetadataEpoch";
-import type { PreparedHostPreparationCharge } from "../../preparedHostRuntime";
+import type { captureHostPreparationLifetime } from "../../preparedHostRuntime";
 import type { PrivateCanonicalValueSnapshot } from "../privateCanonicalValue";
 import type { RestoredFrameworkSchemaAvailabilityHead } from "../installation/storedMetadataRestoration";
 import {
@@ -51,7 +51,7 @@ export interface PreparedBindingSelectedStructure { readonly [preparedSelectedSt
 interface PreparedSelectedStructureState {
   readonly location: BindingLocation;
   readonly protection: ProtectedTargetMetadataEvidence;
-  readonly charge: PreparedHostPreparationCharge | undefined;
+  readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
   structure?: Readonly<{ candidate: StoredBindingValue<DataBindingSetFrame>;
     activation: Effect.Success<ReturnType<typeof decodeActivationRow>> }>;
 }
@@ -60,10 +60,10 @@ const preparedSelectedStructures = new WeakMap<object, PreparedSelectedStructure
 /** Issued by connected source preparation, with nominal Application lineage.
  * The first read still authenticates activation, candidate and complete lanes. */
 export function prepareBindingSelectedStructure(location: BindingLocation,
-  protection: ProtectedTargetMetadataEvidence, charge: PreparedSelectedStructureState["charge"]): PreparedBindingSelectedStructure {
+  protection: ProtectedTargetMetadataEvidence, lifetime: PreparedSelectedStructureState["lifetime"]): PreparedBindingSelectedStructure {
   // SAFETY: only the private registry recognizes the inert issued handle.
   const token = Object.freeze({}) as PreparedBindingSelectedStructure;
-  preparedSelectedStructures.set(token, { location: Object.freeze({ ...location }), protection, charge });
+  preparedSelectedStructures.set(token, { location: Object.freeze({ ...location }), protection, lifetime });
   return token;
 }
 export type VerifiedBindingLane = Readonly<{
@@ -362,11 +362,13 @@ export const readBindingHead = Effect.fn("DataBindingRepository.readHead")(
  * the activation inserted by the writer that supplied the newly locked head. */
 export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.readSelectedEvidence")(
   function* (tx: FlarexMetadataTransaction, location: BindingLocation, prepared?: PreparedBindingSelectedStructure) {
-    const preparation = prepared === undefined || !hasProtectedMetadataFinalGuardScope(tx) ? undefined : preparedSelectedStructures.get(prepared);
-    if (prepared !== undefined && hasProtectedMetadataFinalGuardScope(tx) &&
-      (preparation === undefined || preparation.location.scopeId !== location.scopeId ||
-        preparation.location.storageGeneration !== location.storageGeneration))
+    const issuedPreparation = prepared === undefined ? undefined : preparedSelectedStructures.get(prepared);
+    if (prepared !== undefined && (issuedPreparation === undefined || issuedPreparation.location.scopeId !== location.scopeId ||
+        issuedPreparation.location.storageGeneration !== location.storageGeneration))
       return yield* Effect.fail(bindingError("storedCorruption"));
+    if (issuedPreparation !== undefined) yield* Effect.fromResult((issuedPreparation.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+      Result.mapError(cause => bindingError("resourceFailure", cause))));
+    const preparation = hasProtectedMetadataFinalGuardScope(tx) ? issuedPreparation : undefined;
     if (preparation !== undefined) yield* registerProtectedMetadataFinalGuard(tx,
       preparation.protection.token, preparation.protection.database, preparation.protection.epoch).pipe(
       Effect.mapError(cause => bindingError("resourceFailure", cause)));
@@ -420,7 +422,7 @@ export const readBindingSelectedEvidence = Effect.fn("DataBindingRepository.read
       yield* Effect.suspend(() => {
         if (preparation.structure !== undefined) return Effect.void;
         const structure = structuredClone({ candidate: restored, activation });
-        return Effect.fromResult((preparation.charge?.(structure) ?? Result.succeed(undefined)).pipe(
+        return Effect.fromResult((preparation.lifetime?.charge(structure) ?? Result.succeed(undefined)).pipe(
           Result.mapError(cause => bindingError("resourceFailure", cause)),
           Result.map(() => { preparation.structure = structure; })));
       });

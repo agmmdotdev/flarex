@@ -48,7 +48,8 @@ import {
 } from "flarex-protocol/transaction-session";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import type { PoolClient } from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as scopeClock from "../src/scopeClock";
 import { exactRelationCommitRowId, publishExactRelationSourceCommit } from "./applicationRelationSourceCommitFixture";
 
 import {
@@ -78,6 +79,7 @@ import {
   claimApplicationRelationActiveSelection,
   makeApplicationActivationRepository,
   prepareApplicationBindingSelection,
+  validateApplicationBindingBasisInTransaction,
   type ApplicationRelationActivationContext,
 } from "../src/applicationActivation";
 import {
@@ -1118,6 +1120,62 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       } finally {
         await client.query("rollback");
         client.release();
+      }
+    });
+  }, 180_000);
+
+  it("orders standalone capture before the head while actual activation owns the clock", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const role = await target.query<{ rolsuper: boolean }>("select rolsuper from pg_roles where rolname=current_user");
+      expect(role.rows[0]?.rolsuper).toBe(false);
+      const ready = await preparePostgresRelationActivationFixture(await fixtureFor(control, target), 35_010);
+      const first = await preparePostgresLegacyReplacement(ready);
+      const next = await preparePostgresLegacyReplacement({ ...ready, ordinal: ready.ordinal + 500 });
+      const activation = makeApplicationActivationRepository({ deploymentId: ready.fixture.deploymentId,
+        scopeId: ready.fixture.scopeId, readiness: ready.legacyReadiness, authority: ready.fixture.authority });
+      const active = await runEffect(activation.activate({ revisionId: first.readiness.revisionId, expectedActiveHead: null }));
+      const old = await runEffect(prepareApplicationBindingSelection(activation));
+      const accept = (token: typeof old) => target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+        const clock = yield* scopeClock.lockScopeClockForShareInTransactionEffect(tx, ready.fixture.scopeId);
+        return yield* validateApplicationBindingBasisInTransaction(token, tx, clock);
+      })));
+      await expect(accept(old)).resolves.toMatchObject({ basis: { revisionId: first.readiness.revisionId } });
+      const locked = deferredValue<number>();
+      const release = deferredSignal();
+      const actualLock = scopeClock.lockScopeClockForUpdateInTransactionEffect;
+      let strongLocks = 0;
+      const spy = vi.spyOn(scopeClock, "lockScopeClockForUpdateInTransactionEffect").mockImplementation((tx, scopeId) =>
+        actualLock(tx, scopeId).pipe(Effect.tap(() => Effect.promise(async () => {
+          // The legacy activate entry point first replays readiness under its
+          // own strong clock lock; the next lock belongs to final activation.
+          if (++strongLocks !== 2) return;
+          const rows = await tx.select({ pid: sql<number>`pg_backend_pid()::int` }).from(fxSystemScopeClocks).limit(1);
+          const pid = rows[0]?.pid;
+          if (pid === undefined) throw new Error("Expected actual activation backend PID");
+          locked.resolve(pid);
+          await release.promise;
+        }))));
+      const activating = runEffect(Effect.result(activation.activate({ revisionId: next.readiness.revisionId,
+        expectedActiveHead: active.expectedActiveHead }).pipe(Effect.timeout("15 seconds"))));
+      const startCapture = () => runEffect(Effect.result(prepareApplicationBindingSelection(activation).pipe(Effect.timeout("15 seconds"))));
+      let capture: ReturnType<typeof startCapture> | undefined;
+      try {
+        const pid = await locked.promise;
+        capture = startCapture();
+        await waitForBlockedScopeClockOperations(target, pid, 1);
+        release.resolve();
+        const [activated, captured] = await Promise.all([activating, capture]);
+        expect(activated).toMatchObject({ _tag: "Success" });
+        expect(captured).toMatchObject({ _tag: "Success" });
+        if (Result.isFailure(activated)) throw activated.failure;
+        if (Result.isFailure(captured)) throw captured.failure;
+        expect(activated.success).toMatchObject({ status: "activated", activationSequence: 2n });
+        await expect(accept(captured.success)).resolves.toMatchObject({ basis: { revisionId: next.readiness.revisionId } });
+        await expect(accept(old)).rejects.toMatchObject({ reason: "concurrentHead" });
+      } finally {
+        release.resolve();
+        spy.mockRestore();
+        await Promise.allSettled(capture === undefined ? [activating] : [activating, capture]);
       }
     });
   }, 180_000);

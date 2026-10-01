@@ -104,6 +104,7 @@ import type { ReadSchemaVersionArtifactError } from "./schemaVersionArtifacts";
 import {
   hasPhysicalDefinitionLifecycleComposition,
   preparePhysicalDefinitionLifecycleReadinessEffect,
+  chargePhysicalDefinitionPreparation,
   validatePhysicalDefinitionLifecycleReadinessInTransactionEffect,
   type PhysicalDefinitionLifecyclePort,
   type PreparedPhysicalDefinitionLifecycleReadiness,
@@ -437,34 +438,36 @@ const issuedReadinessStates = new WeakMap<
   IssuedApplicationReadinessState
 >();
 
-interface CapturedFiniteReadinessRows {
+interface CapturedReadinessRows {
   readonly authority: ApplicationReadinessAuthority;
   readonly deploymentId: string;
-  readonly revision: typeof fxSystemApplicationRevisionsV2.$inferSelect;
-  readonly selected: CapturedBundleSelection;
+  readonly revision: typeof fxSystemApplicationRevisionsV2.$inferSelect | undefined;
+  readonly revisionId: string;
+  readonly selected: CapturedBundleSelection | undefined;
   readonly functions: ReadonlyArray<typeof fxSystemApplicationFunctionsV1.$inferSelect>;
-  readonly task: CapturedApplicationTaskCatalogRows | null;
-  readonly readiness: typeof fxSystemApplicationReadinessV1.$inferSelect;
+  readonly task: Result.Result<CapturedApplicationTaskCatalogRows | null, ApplicationTaskCatalogSnapshotError>;
+  readonly readiness: typeof fxSystemApplicationReadinessV1.$inferSelect | undefined;
   readonly cold: ReadonlyArray<typeof fxSystemApplicationReadinessFunctionsV1.$inferSelect>;
   readonly protection?: NonNullable<ApplicationReadinessContext<unknown, unknown>["protectedMetadata"]> & {
     readonly epoch: ProtectedMetadataEpochIdentity;
   };
 }
 
-declare const finiteReadinessCaptureBrand: unique symbol;
-export interface CapturedFiniteApplicationReadiness {
-  readonly [finiteReadinessCaptureBrand]: true;
+declare const readinessCaptureBrand: unique symbol;
+export interface CapturedApplicationReadiness {
+  readonly [readinessCaptureBrand]: true;
 }
-const finiteReadinessCaptures = new WeakMap<CapturedFiniteApplicationReadiness, {
+const readinessCaptures = new WeakMap<CapturedApplicationReadiness, {
   readonly issuer: ApplicationReadinessRepositoryIssuerV1;
-  readonly rows: CapturedFiniteReadinessRows;
+  readonly profile: "request" | "retained";
+  readonly rows: CapturedReadinessRows;
 }>();
 
-/** Private finite entry capture. No canonical hashing or control access runs in this transaction. */
-export const captureFiniteApplicationReadinessInTransaction = Effect.fn(
-  "ApplicationReadiness.captureFiniteEntry",
+/** Bounded target capture. Canonical authentication and control access run after SQL closes. */
+export const captureApplicationReadinessInTransaction = Effect.fn(
+  "ApplicationReadiness.captureRows",
 )(function* (repository: ApplicationReadinessRepository<unknown, unknown>, authority: TrustedScopeAuthority, revisionId: string,
-  target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction) {
+  target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction, clock: ScopeClockRecord, profile: "request" | "retained") {
   const state = readinessRepositoryStates.get(repository);
   const protection = state?.context.protectedMetadata;
   if (state === undefined || authority.storageGeneration !== "flarexdb_v1" ||
@@ -474,14 +477,13 @@ export const captureFiniteApplicationReadinessInTransaction = Effect.fn(
     storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1") });
   const before = protection === undefined ? undefined : yield* captureProtectedMetadataEpoch(protection.token, protection.database, tx).pipe(
     Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
-  const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, authority.scopeId);
   yield* requireExactAuthority(exactAuthority, clock);
   const revisions = yield* query(tx.select().from(fxSystemApplicationRevisionsV2).where(and(
     eq(fxSystemApplicationRevisionsV2.scopeId, authority.scopeId),
     eq(fxSystemApplicationRevisionsV2.revisionId, revisionId),
   )).limit(1).for("share"));
   const revision = revisions[0];
-  if (revision === undefined) return yield* readinessFailure("storedState");
+  if (revision === undefined && profile === "retained") return yield* readinessFailure("storedState");
   const selectedRows = yield* query(tx.select({ candidate: fxSystemApplicationCandidatesV1,
     analysis: { ...getTableColumns(fxSystemApplicationAnalysesV1),
       manifestBytes: sql<Uint8Array | null>`case when octet_length(${fxSystemApplicationAnalysesV1.manifestBytes}) between 1 and ${APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1}
@@ -504,9 +506,9 @@ export const captureFiniteApplicationReadinessInTransaction = Effect.fn(
     .where(and(eq(fxSystemApplicationRevisionsV2.scopeId, authority.scopeId),
       eq(fxSystemApplicationRevisionsV2.revisionId, revisionId))).limit(1));
   const selected = selectedRows[0];
-  if (selected === undefined || selected.analysis?.manifestBytes === null ||
+  if (profile === "retained" && (selected === undefined || selected.analysis?.manifestBytes === null ||
     selected.analysis?.manifestBytes === undefined || selected.analysis.manifestBytes.byteLength > APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1)
-    return yield* readinessFailure("storedState");
+  ) return yield* readinessFailure("storedState");
   // Every canonical function entry is an element of the same bounded catalog.
   // Admit the aggregate stored bytes before transferring any entry body.
   const functionBytesAdmitted = sql<boolean>`(select coalesce(sum(octet_length(${fxSystemApplicationFunctionsV1.entryBytes})), 0)
@@ -519,10 +521,15 @@ export const captureFiniteApplicationReadinessInTransaction = Effect.fn(
     eq(fxSystemApplicationFunctionsV1.scopeId, authority.scopeId),
     eq(fxSystemApplicationFunctionsV1.revisionId, revisionId),
   )).limit(MAX_FUNCTIONS + 1));
-  if (functions.length > MAX_FUNCTIONS || functions.some(row => row.entryBytes.byteLength < 1 ||
-    row.entryBytes.byteLength > APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1))
-    return yield* readinessFailure("storedState");
-  const task = yield* captureApplicationTaskCatalogRowsInTransaction(state.context.taskCatalog, tx, exactAuthority, revisionId);
+  const invalidFunctions = functions.length > MAX_FUNCTIONS || functions.some(row => row.entryBytes.byteLength < 1 ||
+    row.entryBytes.byteLength > APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1);
+  if (invalidFunctions && profile === "retained") return yield* readinessFailure("storedState");
+  // Expected task failures are resolved at their original position after bundle/function
+  // authentication. Defects and interruption still escape the capture immediately.
+  const task = profile === "retained"
+    ? Result.succeed(yield* captureApplicationTaskCatalogRowsInTransaction(state.context.taskCatalog, tx, exactAuthority, revisionId))
+    : invalidFunctions ? Result.succeed(null) : yield* Effect.result(
+      captureApplicationTaskCatalogRowsInTransaction(state.context.taskCatalog, tx, exactAuthority, revisionId));
   const readyRows = yield* query(tx.select({ ...getTableColumns(fxSystemApplicationReadinessV1),
     readinessBytes: sql<Uint8Array>`case when octet_length(${fxSystemApplicationReadinessV1.readinessBytes}) between 1 and ${MAX_READINESS_BYTES}
       then ${fxSystemApplicationReadinessV1.readinessBytes} else ''::bytea end` }).from(fxSystemApplicationReadinessV1).where(and(
@@ -530,7 +537,7 @@ export const captureFiniteApplicationReadinessInTransaction = Effect.fn(
     eq(fxSystemApplicationReadinessV1.revisionId, revisionId),
   )).limit(1).for("share"));
   const readiness = readyRows[0];
-  if (readiness === undefined || readiness.readinessBytes.byteLength > MAX_READINESS_BYTES)
+  if (profile === "retained" && (readiness === undefined || readiness.readinessBytes.byteLength > MAX_READINESS_BYTES))
     return yield* readinessFailure("storedState");
   const coldBytesAdmitted = sql<boolean>`(select coalesce(sum(octet_length(${fxSystemApplicationReadinessFunctionsV1.coldReceiptBytes})), 0)
     <= ${MAX_FUNCTIONS * MAX_APPLICATION_RUNTIME_COLD_RECEIPT_BYTES_V1} and count(*) <= ${MAX_FUNCTIONS}
@@ -543,36 +550,38 @@ export const captureFiniteApplicationReadinessInTransaction = Effect.fn(
     eq(fxSystemApplicationReadinessFunctionsV1.scopeId, authority.scopeId),
     eq(fxSystemApplicationReadinessFunctionsV1.revisionId, revisionId),
   )).limit(MAX_FUNCTIONS + 1).for("share"));
-  if (cold.length > MAX_FUNCTIONS || cold.some(row => row.coldReceiptBytes.byteLength < 1 ||
-    row.coldReceiptBytes.byteLength > MAX_APPLICATION_RUNTIME_COLD_RECEIPT_BYTES_V1))
+  if (profile === "retained" && (cold.length > MAX_FUNCTIONS || cold.some(row => row.coldReceiptBytes.byteLength < 1 ||
+    row.coldReceiptBytes.byteLength > MAX_APPLICATION_RUNTIME_COLD_RECEIPT_BYTES_V1)))
     return yield* readinessFailure("storedState");
   if (protection !== undefined && before !== undefined) yield* authenticateProtectedTargetMetadataSnapshot(
     { ...protection, epoch: before }, tx).pipe(
       Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
   const rows = structuredClone({ authority: exactAuthority, deploymentId: authority.deploymentId,
-    revision, selected, functions, task, readiness, cold });
+    revisionId, revision, selected, functions, readiness, cold });
   // SAFETY: the inert token is authenticated solely by the issuing repository's private map.
-  const capture = Object.freeze({}) as CapturedFiniteApplicationReadiness;
-  finiteReadinessCaptures.set(capture, { issuer: state.issuer, rows: Object.freeze({ ...rows,
+  const capture = Object.freeze({}) as CapturedApplicationReadiness;
+  readinessCaptures.set(capture, { issuer: state.issuer, profile, rows: Object.freeze({ ...rows, task,
     ...(protection === undefined || before === undefined ? {} : {
       protection: Object.freeze({ ...protection, epoch: before }) }) }) });
   return capture;
 });
 
 /** Complete immutable authentication and configured control preparation after target SQL closes. */
-export const prepareCapturedFiniteApplicationReadiness = Effect.fn(
-  "ApplicationReadiness.prepareCapturedFiniteEntry",
-)(function* (repository: ApplicationReadinessRepository<unknown, unknown>, capture: CapturedFiniteApplicationReadiness) {
+export const prepareCapturedApplicationReadiness = Effect.fn(
+  "ApplicationReadiness.prepareCapturedRows",
+)(function* (repository: ApplicationReadinessRepository<unknown, unknown>, capture: CapturedApplicationReadiness) {
   const state = readinessRepositoryStates.get(repository);
-  const captured = finiteReadinessCaptures.get(capture);
+  const captured = readinessCaptures.get(capture);
   if (state === undefined || captured === undefined || captured.issuer !== state.issuer)
     return yield* readinessFailure("invalidComposition");
   const rows = captured.rows;
+  if (rows.revision === undefined) return notReady(rows.revisionId, "revisionMissing");
   const bundle = yield* authenticateStoredBundle(rows.authority,
     { deploymentId: rows.deploymentId, revisionId: rows.revision.revisionId }, rows.revision, rows.selected,
     () => Effect.succeed(rows.functions),
-    () => rows.task === null ? Effect.succeed(null) : authenticateCapturedApplicationTaskCatalogRows(rows.task));
-  if ("status" in bundle) return yield* readinessFailure("storedState");
+    () => Effect.fromResult(rows.task).pipe(Effect.flatMap(task => task === null
+      ? Effect.succeed(null) : authenticateCapturedApplicationTaskCatalogRows(task))));
+  if ("status" in bundle) return captured.profile === "request" ? bundle : yield* readinessFailure("storedState");
   const schema = yield* state.context.schema.readPublished({ deploymentId: rows.deploymentId, manifest: bundle.manifest });
   yield* requireSchemaCorrelation(bundle, schema.schemaVersion, schema);
   const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(state.context.controlDb,
@@ -582,21 +591,28 @@ export const prepareCapturedFiniteApplicationReadiness = Effect.fn(
   const unique = yield* loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(state.context.pointCommit,
     { deploymentId: rows.deploymentId, scopeId: rows.authority.scopeId, schemaVersionId: schema.schemaVersionId },
     state.context.controlDb, state.context.authority);
-  if (unique.status === "not_ready") return yield* readinessFailure("authorityChanged");
+  if (unique.status === "not_ready") return captured.profile === "request"
+    ? notReady(rows.revisionId, uniqueNotReadyReason(unique.reason), unique.lifecycle)
+    : yield* readinessFailure("authorityChanged");
   const physicalDefinitionLifecycle = yield* preparePhysicalDefinitionLifecycleReadinessEffect(
     state.context.physicalDefinitionLifecycle, rows.authority.scopeId, requirements);
   const schemaBindingSha256 = yield* runTransaction(state.context.controlDb,
     tx => readSchemaBinding(tx, bundle, schema.schemaVersion, schema));
+  if (rows.readiness === undefined) return yield* readinessFailure("storedState");
   const cold = yield* authenticateStoredColdEvidence(bundle, state.context.cold, rows.readiness, rows.cold);
   const stored = yield* authenticateStoredReadinessAuthority(bundle, schema.schemaVersion, schema,
     schemaBindingSha256, requirements, physicalDefinitionLifecycle, rows.readiness.physicalReadinessSha256,
     rows.readiness, cold);
-  yield* chargeHostPreparation({ bundle: { ...bundle,
+  if (captured.profile === "retained") {
+    yield* chargePhysicalDefinitionPreparation(physicalDefinitionLifecycle).pipe(
+      Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+    yield* chargeHostPreparation({ bundle: { ...bundle,
     revision: { ...bundle.revision, registeredAt: bundle.revision.registeredAt.getTime() },
     publication: { ...bundle.publication, publishedAt: bundle.publication.publishedAt.getTime() } },
     schema, requirements: { ...requirements }, cold, schemaBindingSha256,
     readinessBytes: stored.readinessBytes }).pipe(
       Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  }
   const issued = storedReadyProjection(Object.freeze({ ...stored,
     ...(rows.protection === undefined ? {} : { protectedMetadata: rows.protection }) }), state.issuer);
   if (issued.status !== "ready") return yield* readinessFailure("storedState");

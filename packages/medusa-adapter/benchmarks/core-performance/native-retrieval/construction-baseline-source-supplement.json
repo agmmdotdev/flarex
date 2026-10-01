@@ -1,0 +1,64 @@
+{
+  "checkpoint": "e6bd105ea",
+  "disposition": "Supplement to unchanged original construction-baseline reports. These entries were absent from the running sourceEvidence list. Exact committed bytes from the baseline Git tree, not a claim that the original harness captured them.",
+  "gitPathPrefix": "",
+  "files": [
+    {
+      "path": "packages/persistence-postgres/src/applicationActivation.ts",
+      "bytes": 107035,
+      "sha256": "93d72b06df1e6011aa52fa1d4bc1094f56da98fdc7a3f998274972b8901c4b97"
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationReadiness.ts",
+      "bytes": 130215,
+      "sha256": "def1e35955257fdf8ea1f5c2f011621608865c2fe1550a112eb811e794b49646"
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationActiveHeadRead.ts",
+      "bytes": 31887,
+      "sha256": "6ae20222a735c1b9a70e3a7f108796a68b88b86706d0ceb93ab23b0bb4f3ed79"
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationBindingProjection.ts",
+      "bytes": 6898,
+      "sha256": "c77127551841e0e1ab2b3ffe3f6f279c0119b163d3a0da333a309c2c4e5abe95"
+    },
+    {
+      "path": "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts",
+      "bytes": 68058,
+      "sha256": "bd6a1b5543d271437062779514c663a463a00893bc006d65c36dfd86475fa2d2"
+    },
+    {
+      "path": "packages/persistence-postgres/src/preparedHostRuntime.ts",
+      "bytes": 10316,
+      "sha256": "0faf9ff27d80631d082d8c6bb88f26399d617b7c9adaffd7c45f319ef8d2872b"
+    },
+    {
+      "path": "packages/persistence-postgres/src/commerceTransaction/admission.ts",
+      "bytes": 11234,
+      "sha256": "8f35fcfc2b141d491d308d569d21c9120eb134256f1e70383a7fb4a5ce7b6e62"
+    },
+    {
+      "path": "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+      "bytes": 24700,
+      "sha256": "22e2028f9dc5ae75aa21cb7fe359619b921e05658f1d45c3b19187ae441de0bd"
+    },
+    {
+      "path": "packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts",
+      "bytes": 8172,
+      "sha256": "c1773529246df7c859cb64cc6542da5487e790c9715b1710d1fde5c4b88fa72f"
+    },
+    {
+      "path": "packages/persistence-postgres/src/applicationRelationReadinessFold.ts",
+      "bytes": 116295,
+      "sha256": "c9e3c34a1d7eb4de52d47c04480c0bd290530cbd4c1ea17bb83ccd61709ce06f",
+      "scope": "Connected changed relation-fold owner exercised by actual Payload Local API witness; not executed by selected native standalone scalar/collection benchmark"
+    },
+    {
+      "path": "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+      "bytes": 21463,
+      "sha256": "f42778c5abeeb12647db920369f16d11286a292dd0b94e5c39ff1dfe57343011",
+      "scope": "Connected fixture data owner; absent from every original baseline source inventory, supplemental exact committed bytes only"
+    }
+  ]
+}

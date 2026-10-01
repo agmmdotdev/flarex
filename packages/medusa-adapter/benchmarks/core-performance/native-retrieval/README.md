@@ -229,7 +229,268 @@ This is bounded local PostgreSQL evidence for the selected retrieval demands.
 It does not close all native Product parity or the performance goal, prove
 Cloudflare/deployment behavior, or justify weakening protected execution.
 
-## Validation receipts
+## Read construction comparison
+
+The focused read-admission slice retains a fresh baseline at `e6bd105ea` in
+`quiet-construction-baseline.json`, `trace-construction-baseline.json` and
+`server-construction-baseline.json.gz`. All three modes passed complete selected
+DTO and missing-error parity, stable captured sources/runtime settings and zero
+sample failures. Their common original source-evidence hash remains
+`58024526264fd85307226054bf0083400bb64548fc37f61d743b66252f766a7c`.
+`construction-baseline-summary.json` derives only these fresh baseline samples;
+the prior final-result summary above remains a distinct retained measurement.
+The matched final `construction-final` quiet, trace and server reports passed with
+stable captured sources/runtime and zero sample failures. Their exact working-tree
+checkpoint label is `read-admission-construction-final-working-tree@e6bd105ea`, with
+source-evidence SHA-256
+`2771e3a1d08a9deb436ec4690c8dc019dd9c67ada49d9fc577ddf2aab54ea44d` shared by all
+three modes. Source/harness changes were frozen throughout. Final slice review,
+validation and cleanup acceptance remains pending; whole-goal latency/scaling is open.
+
+The `construction-after` reports and derived comparison/manifest remain immutable
+intermediate measurements of the pre-correction capture lock order. The shared
+capture held head `SHARE` before clock `KEY SHARE`, opposite to actual activation's
+clock-then-head `FOR UPDATE`, permitting a concrete concurrent lock cycle. Corrected
+capture uses clock before head with the original lock strengths and one exact
+transaction-local clock observation. Final-source measurements use the new
+`construction-final` label after that owner correction. The earlier source-evidence
+hash is `bc91dde4b7489a0dd3b3ef7aa77d829e878e1e061424eb5ef116397141f9697c`, with
+checkpoint `read-admission-construction-working-tree@e6bd105ea`. Its sequential
+intermediate samples do not prove lock compatibility or final-source acceptance.
+
+| Demand | Native baseline median/P95 ms | Native final median/P95 ms | Flarex baseline median/P95 ms | Flarex final median/P95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Scalar | 1.46145 / 1.91400 | 1.34505 / 1.84960 | 77.74790 / 89.36170 | 54.57540 / 65.86190 |
+| Collection | 1.93995 / 2.45830 | 1.69120 / 2.20060 | 80.10995 / 108.83800 | 54.29190 / 59.06080 |
+
+Both selected quiet runs used five warmups and thirty samples per case/lane, serial
+alternating pairs. Flarex medians decreased 29.80%/32.23%; native controls moved
+7.96%/12.82% lower. Final native maxima were 2.0042/2.4663 ms; every outlier remains
+retained. These are matched local before/after observations, not exact causal
+CPU/latency attribution. Complete request preparation is inside each operation
+interval; genuine fixture/host setup remains separate in the raw reports/summaries.
+
+| Demand/lane | SQL baseline → final | Transactions baseline → final | Driver rows baseline → final | JSON bytes baseline → final |
+| --- | ---: | ---: | ---: | ---: |
+| Scalar native | 1 → 1 | Autocommit → autocommit | 1 → 1 | 146 → 146 |
+| Collection native | 1 → 1 | Autocommit → autocommit | 1 → 1 | 186 → 186 |
+| Scalar Flarex | 106 → 70 | 6 → 3 | 222 → 192 | 248,243 → 160,802 |
+| Collection Flarex | 108 → 72 | 6 → 3 | 224 → 194 | 250,350 → 162,924 |
+
+Statements before the actual Product method decreased from 103 to 67 in both
+Flarex cases. Final-run scalar/collection native business storage demand remains
+two/four dispatches, followed by one COMMIT; the native control remains one query
+per demand. Before-method work returns 190 rows/157,552 JSON bytes in each final
+case. All configured control, unique/lifecycle and accepting work is counted;
+the three actual transactions are target capture, configured control schema binding
+and fresh business acceptance, not a claimed universal two-transaction ceiling.
+
+The separate final server run reproduced 70/72 Flarex top-level calls, versus
+106/108 before. Flarex scalar planning/execution was 8.9543/2.3495 ms final versus
+10.0609/2.7810 before; collection was 8.9146/2.2573 final versus 10.1494/2.5682
+before. Native final planning/execution was 0.0980/0.0173 ms scalar and
+0.1969/0.0349 ms collection. No independent nested entries or shared block reads
+were observed in either selected set of intervals; this does not prove absent
+function/trigger work. Server timings include instrumentation and cannot be added
+to quiet/trace intervals to explain the quiet improvement.
+
+The following disjoint final-run scalar regions reconcile all 70 dispatches:
+
+| Region | One-based SQL positions | Dispatches | Driver rows | JSON bytes |
+| --- | --- | ---: | ---: | ---: |
+| Scope/placement resolution | 1–6 | 6 | 6 | 1,674 |
+| Bounded Application target capture | 7–21 | 15 | 17 | 45,875 |
+| Detached schema/unique/lifecycle/control authentication | 22–37 | 16 | 11 | 9,849 |
+| Fresh business binding/Application acceptance, including session setup | 38–59 | 22 | 24 | 71,383 |
+| Full logical-source readiness | 60–66 | 7 | 131 | 28,489 |
+| Source initialization admission | 67 | 1 | 1 | 282 |
+| Native scalar storage demand | 68–69 | 2 | 2 | 3,248 |
+| Business COMMIT | 70 | 1 | 0 | 2 |
+
+The largest remaining region by dispatches/bytes is fresh binding/Application
+acceptance. Its repeated candidate/publication/function/task/readiness bodies and
+two readiness row reads belong to the existing accepting composition and
+`validateStoredIssuedReadiness` owner; session setup and framework binding are
+also included in that region. Any next optimization must trace the registered
+guard/full-proof contract and select a correct owner cut, not infer a removable
+check from counts alone. Full logical-source readiness is the largest metadata-row
+region: 79 ordered-build, 26 unique-build and eight search-build rows, with 15 table
+frontier rows, additional clock observations and physical search proof. Demand
+narrowing remains an explicit future semantic decision, distinct from preparation
+reuse. Retained finite, full mixed latency, relation growth, scaling and hosted
+acceptance remain open; this standalone comparison cannot close those gates.
+
+Final capture SQL position 9 obtains scope clock `KEY SHARE` before position 10
+obtains active-head `SHARE`. The protected before/after observations remain at
+positions 11/20, and the business accepting transaction remains fresh. This trace
+confirms the observed order, while concurrency proof belongs to the owner tests.
+
+Final quiet setup remains outside retrieval intervals: native schema preparation
+389.1236 ms, overlapping schema/module construction 1,289.7881 ms and public seeding
+30.9173 ms; Flarex fixture/host construction 12,331.3714 ms and public seeding
+242.9195 ms. These local setup spans are not additive or production admission costs.
+
+`construction-final-summary.json` retains mode-specific derived results;
+`construction-final-comparison-summary.json` records every common/supplemented baseline
+source hash, the seven changed captured files, exact quiet/trace/server comparisons
+and owner regions. `construction-final-manifest.json` hashes the final raw reports
+and derived artifacts, including compressed and decompressed content. Baseline
+raw reports and their original source inventory remain unchanged. The intermediate
+`construction-after-summary.json`, `construction-comparison-summary.json` and
+`construction-after-manifest.json` remain immutable; their comparison records
+58.48545/56.60825 ms Flarex medians and 70/72 SQL dispatches at its earlier source.
+
+The original harness source list omitted the Application construction/acceptance
+and preparation-lifetime owners. `construction-baseline-source-supplement.json`
+records exact bytes and SHA-256 from the `e6bd105ea` Git tree for ten omitted
+owners and the connected `logical-currency-fixture.ts`. This is supplemental
+committed-source provenance, not evidence that the
+original harness observed those files. Original reports remain unchanged. The
+subsequent source list includes activation, readiness, active-head read, binding
+projection, physical lifecycle, host preparation, Commerce admission, framework
+binding repository and installation runtime. Thus before/after aggregate source
+hashes will differ; compare actual file hashes and the explicit supplement rather
+than claiming identical source inventories.
+
+The connected `applicationRelationReadinessFold.ts` owner is also inventoried for
+its retained requirements-charge normalization. The actual Payload Local API
+witness exercises that distinct relation branch; this native standalone benchmark
+does not execute it. Its supplemental committed-byte hash does not imply original
+harness capture or measured execution coverage.
+
+The actual fixture now exposes its already compiled, exactly typed
+`currencyDefinition` to the connected backend resource witness. The backend
+consumes fixture evidence through the existing owner; this adds no source-boundary
+exemption or production API. Its source is included in subsequent reports. None
+of the three original baseline source inventories captured that fixture; its old
+Git hash is explicit supplemental evidence and the original reports remain intact.
+
+These measurements use the root-owned PostgreSQL 18.3 cluster at
+`work/validation/read-construction-postgres/data`, port 55444, with log
+`work/validation/read-construction-postgres/server.log`. Native and logical
+databases/ordinary roles are `flarex_read_native_20261001` and
+`flarex_read_logical_20261001`; the separate core-correctness database is
+`flarex_read_core_20261001` and is excluded from the benchmark observer. The
+observer connects to `postgres` and covers every executing role in the two
+measured databases. Native role/database search path is `native_retrieval,public`;
+the actual native connection selects `native_retrieval`.
+
+From the workspace root, use fresh unique base labels and fresh processes:
+
+```powershell
+$env:NATIVE_RETRIEVAL_DATABASE = 'flarex_read_native_20261001'
+$env:DB_HOST = '127.0.0.1'
+$env:DB_PORT = '55444'
+$env:DB_USERNAME = 'flarex_read_native_20261001'
+$env:DB_PASSWORD = ''
+$env:FLAREX_POSTGRES_DATABASE_URL = 'postgres://flarex_read_logical_20261001@127.0.0.1:55444/flarex_read_logical_20261001'
+$env:FLAREX_POSTGRES_PROVISIONING_DATABASE_URL = 'postgres://postgres@127.0.0.1:55444/flarex_read_logical_20261001'
+$env:NATIVE_RETRIEVAL_DIAGNOSTIC_URL = 'postgres://postgres@127.0.0.1:55444/postgres'
+$env:NATIVE_RETRIEVAL_CHECKPOINT = '<exact base; raw hashes identify executing edits>'
+$env:NATIVE_RETRIEVAL_RUN_LABEL = '<unique base label without a mode prefix>'
+$env:NATIVE_RETRIEVAL_MODE = 'quiet'
+$env:NATIVE_RETRIEVAL_WARMUPS = '5'
+$env:NATIVE_RETRIEVAL_SAMPLES = '30'
+Set-Location packages/medusa-adapter
+node ../../node_modules/vitest/vitest.mjs run --config vitest.native-retrieval.config.ts
+```
+
+For trace, keep quiet database settings and run a new process with mode `trace`,
+zero warmups and one sample. For server, set both measured databases to
+`pg_stat_statements.track=all`, `pg_stat_statements.track_planning=on` and
+`auto_explain.log_min_duration=0` before the fresh process. The selected diagnostic
+configuration also sets `auto_explain.log_nested_statements=on`, `log_analyze=on`,
+`log_timing=off`, `log_buffers=on`, `log_triggers=on`, `log_format=json` and
+`log_parameter_max_length=0`. Preloaded libraries are
+`pg_stat_statements,auto_explain`; `log_line_prefix` is `%m [%p] %d %u %a `.
+Run server with zero warmups and one sample. Capture the log start byte before
+bootstrap, then its exact end after completion. Retain that byte segment with
+bootstrap/seed/parity/sample scope explicit. Do not reset statistics or run other
+work in either measured database.
+
+Apply the server switch from either working directory, then invoke the benchmark
+in the adapter directory in a fresh process:
+
+```powershell
+$taskPsql = 'C:/Program Files/PostgreSQL/18/bin/psql.exe'
+foreach ($taskDatabase in @('flarex_read_native_20261001', 'flarex_read_logical_20261001')) {
+  foreach ($taskSetting in @(
+    "pg_stat_statements.track = 'all'", "pg_stat_statements.track_planning = 'on'",
+    "auto_explain.log_min_duration = '0'", "auto_explain.log_nested_statements = 'on'",
+    "auto_explain.log_analyze = 'on'", "auto_explain.log_timing = 'off'",
+    "auto_explain.log_buffers = 'on'", "auto_explain.log_triggers = 'on'",
+    "auto_explain.log_format = 'json'", "auto_explain.log_parameter_max_length = '0'"
+  )) {
+    & $taskPsql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55444 -U postgres -d postgres -c ('ALTER DATABASE "{0}" SET {1}' -f $taskDatabase, $taskSetting)
+    if ($LASTEXITCODE -ne 0) { throw 'Failed diagnostic configuration' }
+  }
+}
+$env:NATIVE_RETRIEVAL_MODE = 'server'
+$env:NATIVE_RETRIEVAL_WARMUPS = '0'
+$env:NATIVE_RETRIEVAL_SAMPLES = '1'
+$taskLog = 'C:/Users/Admin/Documents/github/convex-backend/custom/cloudflare-executor/work/validation/read-construction-postgres/server.log'
+$env:NATIVE_RETRIEVAL_LOG_START = (Get-Item -LiteralPath $taskLog).Length.ToString()
+```
+
+After server completion, capture its exact end. From the adapter directory, this
+archives fresh JSON and log segments exclusively, verifies decompression and
+reports compressed/content hashes. The original JSON remains available:
+
+```powershell
+$env:NATIVE_RETRIEVAL_LOG_END = (Get-Item -LiteralPath $taskLog).Length.ToString()
+node -e 'const fs=require("node:fs"),z=require("node:zlib"),c=require("node:crypto");const p="benchmarks/core-performance/native-retrieval/",label=process.env.NATIVE_RETRIEVAL_RUN_LABEL;if(!/^[a-zA-Z0-9_.-]+$/.test(label))throw Error("Invalid label");const log="../../work/validation/read-construction-postgres/server.log",start=Number(process.env.NATIVE_RETRIEVAL_LOG_START),end=Number(process.env.NATIVE_RETRIEVAL_LOG_END);if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||end<start)throw Error("Invalid log bounds");const fd=fs.openSync(log,"r"),content=Buffer.alloc(end-start);let n=0;while(n<content.length){const read=fs.readSync(fd,content,n,content.length-n,start+n);if(!read)throw Error("Incomplete log segment");n+=read}fs.closeSync(fd);const hash=b=>c.createHash("sha256").update(b).digest("hex");for(const [name,bytes] of [["server-"+label+".json",fs.readFileSync(p+"server-"+label+".json")],["server-plans-"+label+".log",content]]){const compressed=z.gzipSync(bytes);if(!z.gunzipSync(compressed).equals(bytes))throw Error("Compression mismatch");fs.writeFileSync(p+name+".gz",compressed,{flag:"wx"});console.log(JSON.stringify({name:name+".gz",bytes:compressed.length,sha256:hash(compressed),contentBytes:bytes.length,contentSha256:hash(bytes)}))}console.log(JSON.stringify({startByte:start,endByteExclusive:end}))'
+```
+
+Restore quiet configuration for both measured databases before quiet/trace:
+`pg_stat_statements.track=none`, `pg_stat_statements.track_planning=off` and
+`auto_explain.log_min_duration=-1`. Disabled logging makes the retained diagnostic
+detail settings inert. Observe effective settings through actual connections;
+SQL configuration intent alone does not establish equality.
+
+```powershell
+foreach ($taskDatabase in @('flarex_read_native_20261001', 'flarex_read_logical_20261001')) {
+  foreach ($taskSetting in @("pg_stat_statements.track = 'none'", "pg_stat_statements.track_planning = 'off'", "auto_explain.log_min_duration = '-1'")) {
+    & $taskPsql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55444 -U postgres -d postgres -c ('ALTER DATABASE "{0}" SET {1}' -f $taskDatabase, $taskSetting)
+    if ($LASTEXITCODE -ne 0) { throw 'Failed quiet configuration' }
+  }
+}
+```
+
+The server baseline JSON is losslessly compressed. Its original length is
+15,850,966 bytes and SHA-256 is
+`a817671f3a23c0bb1a3369b3ff87a3aebd93bd8771b8f463bca304a52a97f03b`.
+`server-plans-construction-baseline.log.gz` starts at byte 688 of the owned log
+and includes bootstrap, seed, parity and diagnostic activity, ending at exclusive
+byte 63,528,824. Archive hashes and precise retained content bounds are in
+`construction-baseline-manifest.json`. Compressed
+logs may include inclusive parent/nested plans; do not sum them as independent
+work or treat server diagnostic elapsed time as quiet latency.
+
+After-run server JSON was losslessly compressed to
+`server-construction-after.json.gz`; its original length is 19,645,489 bytes and
+SHA-256 is `7b40948c9aedb0a87287d33338108426233da142f9ea4eca2ad2bddb39132ffa`.
+`server-plans-construction-after.log.gz` contains the exact owned log range
+[63,532,069, 125,696,443), retaining 62,164,374 original bytes and 2,648,728
+compressed bytes. It includes bootstrap, seed, parity and server diagnostics,
+not a quiet interval. Root restored track `none`, planning `off` and log minimum
+`-1` afterward. Exact compressed/content hashes remain in the after manifest.
+
+Final server JSON is retained losslessly as `server-construction-final.json.gz`:
+23,411,218 original bytes, SHA-256
+`8d06803d9e584a447de080356e10b8070543893e8486e4960844406f5ab910ac`;
+2,483,778 compressed bytes, SHA-256
+`0d321ee5eb9de62cd59879ee188e0d5ebbb80083a3bc92fb874700603dc32f9d`.
+`server-plans-construction-final.log.gz` retains the exact owned range
+[125,700,978, 187,811,863): 62,110,885 original bytes, SHA-256
+`b3c3967e46bfd9a158a7179b3360eb70ce93968fc233fc4bd5d6d7b5c510097d`;
+2,637,210 compressed bytes, SHA-256
+`c3acfbfda572691c6a3fdd4820e458640404c11ac70252e304889203cf1e1145`.
+This archive includes bootstrap, seed, parity and diagnostics. Root verified both
+decompressed archives, removed the redundant raw server JSON and restored track
+`none`, planning `off` and log minimum `-1`. The final manifest also hashes the
+immutable baseline and intermediate manifests; no original reports were rewritten.
+
+## Prior native measurement validation receipts
 
 The focused optional benchmark typecheck and dedicated Vitest collection passed.
 Root validation also passed the adapter's five typecheck projects, `lint:core`,
@@ -249,8 +510,8 @@ approved changes are in `1b16d05936201367e5346d21c0a034c7a1fbb667`, and
 `test/support/logical-currency-fixture.ts`
 (`f42778c5abeeb12647db920369f16d11286a292dd0b94e5c39ff1dfe57343011`), whose
 protected preparation change is in `f11e907f6294cd218473c21df463df4c1f7993a3`.
-Their current bytes matched committed baseline bytes; no consumer source was
-edited. Existing generated build hashes already matched. Guard rules, pinned
+At that prior measurement checkpoint their bytes matched committed baseline bytes;
+no consumer source was edited. Existing generated build hashes already matched. Guard rules, pinned
 sources and transformation classifications were unchanged by hash reconciliation.
 
 The source-boundary owner now admits only the scenario's three exact native

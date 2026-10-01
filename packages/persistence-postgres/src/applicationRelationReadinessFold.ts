@@ -1016,7 +1016,7 @@ const prepareActiveFold = Effect.fn("ApplicationRelationReadinessFold.preparePla
       uniquePreparation: unique.preparation, ...definitions });
     yield* Effect.gen(function* () {
       yield* chargeHostPreparation({ bundle: prepared.bundle, schema: prepared.schema,
-        requirements: prepared.requirements, coldReceiptSetSha256: prepared.coldReceiptSetSha256 });
+        requirements: { ...prepared.requirements }, coldReceiptSetSha256: prepared.coldReceiptSetSha256 });
       yield* chargeUniqueConstraintPreparation(prepared.uniquePreparation);
       yield* chargePhysicalDefinitionPreparation(prepared.physicalLifecycle);
       yield* chargeRelationReadinessPreparation(prepared.relations);

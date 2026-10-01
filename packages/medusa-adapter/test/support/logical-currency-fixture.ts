@@ -97,6 +97,7 @@ export interface LogicalCurrencyFixture {
   readonly host: CommerceHost;
   readonly service: ReturnType<typeof makeCurrencyService>;
   readonly initialization: Effect.Success<ReturnType<typeof currencyInitialization>>;
+  readonly currencyDefinition: Effect.Success<ReturnType<typeof compileCurrencyDefinition>>;
   readonly productDefinition: Effect.Success<ReturnType<typeof compileProductDefinition>> | undefined;
   readonly pricingDefinition: Effect.Success<ReturnType<typeof compilePricingDefinition>> | undefined;
   readonly variantPricingLinkDefinition: Effect.Success<ReturnType<typeof compileVariantPricingLinkDefinition>> | undefined;
@@ -265,6 +266,7 @@ export async function logicalCurrencyFixture(
     yield* host.initialize(initialization.rows);
     return { resource: pair, application, control, persistence: target, deploymentId: application.deploymentId, bindingTarget, session,
       hostInput, host, service: makeCurrencyService(host), initialization, schemaVersionId, applicationSource,
+      currencyDefinition: definition,
       productDefinition, pricingDefinition, variantPricingLinkDefinition, salesChannelDefinition, productLinksDefinition,
       shippingProfileDefinition, physicalTablesBeforeCandidate,
       ...(pair.kind === "pglite" ? { observeSql: pair.observeSql } : {}) };

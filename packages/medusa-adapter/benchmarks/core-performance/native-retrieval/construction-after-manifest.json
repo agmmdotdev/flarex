@@ -1,0 +1,49 @@
+{
+  "checkpoint": "read-admission-construction-working-tree@e6bd105ea",
+  "sourceEvidenceSha256": "bc91dde4b7489a0dd3b3ef7aa77d829e878e1e061424eb5ef116397141f9697c",
+  "compression": "gzip; exact compressed/content bytes and hashes",
+  "logSegment": {
+    "source": "work/validation/read-construction-postgres/server.log",
+    "startByte": 63532069,
+    "endByteExclusive": 125696443,
+    "scope": "bootstrap, seed, parity and server diagnostic samples; not a quiet interval"
+  },
+  "baselineManifest": "construction-baseline-manifest.json",
+  "files": [
+    {
+      "name": "quiet-construction-after.json",
+      "bytes": 103930,
+      "sha256": "7e569844f83812a1e3b0ef7f43c18d1797d41b72e4a6fe2e9017b016159d116f"
+    },
+    {
+      "name": "trace-construction-after.json",
+      "bytes": 215161,
+      "sha256": "8585ddf3296a5107e16189faf81d12970aa4ead30c950da00a595a58d3355ddd"
+    },
+    {
+      "name": "server-construction-after.json.gz",
+      "bytes": 2083389,
+      "sha256": "1d59a8618cae10242ab37609ce7126e65ca8a10ef39f2ea64ebc79129d7836ea",
+      "contentBytes": 19645489,
+      "contentSha256": "7b40948c9aedb0a87287d33338108426233da142f9ea4eca2ad2bddb39132ffa"
+    },
+    {
+      "name": "server-plans-construction-after.log.gz",
+      "bytes": 2648728,
+      "sha256": "66cabdf01d4a1c2abfdfd138d9335cf0a38b5f95d044bb17a91b11f0a2acd06c",
+      "contentBytes": 62164374,
+      "contentSha256": "c21236d25cbb1218b535a09a531bb34edf9d043364e5aa063ed9e1f350917278"
+    },
+    {
+      "name": "construction-after-summary.json",
+      "bytes": 6851,
+      "sha256": "ac676065ece0e7118b107ca752d5a239d04881b216d32593743da8811614aa30"
+    },
+    {
+      "name": "construction-comparison-summary.json",
+      "bytes": 34305,
+      "sha256": "8ef0554588d541adba88f6618498444bfb3781108ee816a1a4ba921604759458"
+    }
+  ],
+  "baselineManifestSha256": "d1f5340a3f2c5ff8421d9cd13278e22a2ff2feed34e183a08d3d581c159dde35"
+}

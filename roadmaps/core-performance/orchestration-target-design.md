@@ -72,13 +72,13 @@ variant-image support, mutation costs or whole-request performance. Private
 `product-attempt.ts` currently admits retrieve ID only; widening its configuration
 requires a named private admission decision and source/projection proof.
 
-The measured standalone path spends its first five transactions on binding
+The displaced measured standalone baseline spends its first five transactions on binding
 selection and ordinary Application activation/readiness construction and acceptance.
 Its sixth transaction owns the fresh business snapshot, binding/Application and
 protected revalidation, full logical source readiness and actual data selection.
 Repeated immutable bundle/readiness reconstruction and broad source proof are
 the next owner targets. The finite path already retains immutable preparation via
-`prepareFiniteActiveApplication` and `captureFiniteApplicationReadinessInTransaction`
+`prepareFiniteActiveApplication` and the generalized `captureApplicationReadinessInTransaction`
 under its host lifetime; it does not repeat those five standalone transactions per
 retrieve. Do not equate standalone request counts with finite checked-read counts.
 Native CRUD batching cannot remove this pre-method construction. Quiet, trace and

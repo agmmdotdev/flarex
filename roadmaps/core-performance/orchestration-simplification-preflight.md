@@ -1,7 +1,9 @@
 # Orchestration simplification: architectural reassessment
 
 Status: **active research and design gate; bounded native retrieval ledger available,
-read-admission construction recommended, runtime choices and ceilings pending.** The
+focused request-owned read-admission construction implemented under the approved
+focused contract;
+broader runtime choices and ceilings pending.** The
 checked-read slice delivers structural transport composition, with latency acceptance open.
 Before publication or another minor performance iteration, compare the whole
 orchestration with native demand and select a coherent replacement graph. This
@@ -12,11 +14,22 @@ graph, the readiness-scope and terminal-durability decisions, data disposition
 and connected delivery groups. The [paired native retrieval measurement
 preflight](./native-retrieval-measurement-preflight.md) has a genuine pinned
 MikroORM versus protected standalone Flarex scalar/collection control, with full
-DTO and missing-error parity. The [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#final-measured-result)
-owns timings, complete work and measurement limits. It directs the next proposed
-group to [read-admission construction](./read-admission-construction-preflight.md)
-across binding, readiness, protected preparation and source demand. These proposals
-authorize no runtime cutover or private retrieval admission extension.
+DTO and missing-error parity. The [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#read-construction-comparison)
+owns timings, complete work and measurement limits. The approved focused
+[read-admission construction](./read-admission-construction-preflight.md) slice
+selects request-owned standalone Application capture and generalizes the existing
+immutable preparation owner with full readiness, fresh acceptance and current
+protection. Its approved standalone physical amendment moves that live proof solely
+to fresh business acceptance, changing diagnostic timing/classification/precedence
+before business work while retaining full serving proof. Executable Application,
+retained finite and relation profiles keep their physical-refusal contracts.
+Shared request/retained capture acquires clock before head with original lock
+strengths, matching activation. Missing/corrupt clock now precedes missing head;
+well-formed foreign authority remains checked after the head. The focused preflight
+owns the correction and diagnostic inventory. Demand narrowing,
+cross-request reuse, cheaper attestation and
+terminal/recovery changes remain deferred. The broader proposals authorize no
+runtime cutover or private retrieval admission extension.
 
 The [accepted DB design](../../design-notes/flarex-db-accepted-design.md),
 [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md),
@@ -197,8 +210,8 @@ unavailable server instrumentation as unavailable, never zero.
 ## Native attribution and remaining runtime decision gate
 
 The selected native scalar and collection cases each issue one autocommit query.
-Protected standalone Flarex retains six transactions and extensive proof
-construction before its native method. Owner tracing places the first five
+The displaced protected standalone baseline retains six transactions and extensive
+proof construction before its native method. Owner tracing places its first five
 transactions in binding selection and ordinary Application activation/readiness
 construction and acceptance; the final transaction obtains the fresh business
 snapshot, revalidates binding/Application and protection, accepts logical source
@@ -207,14 +220,20 @@ and readiness projections are reconstructed repeatedly. The artifact ledger owns
 the exact dispatch/row/byte and quiet/trace/server observations. Those independent
 measurement modes do not provide additive CPU/latency causation.
 
-The private finite path already uses `prepareFiniteActiveApplication` and
-`captureFiniteApplicationReadinessInTransaction` with issuer-owned preparation
+The current private finite path uses `prepareFiniteActiveApplication` and the
+generalized `captureApplicationReadinessInTransaction` with issuer-owned preparation
 under the host lifetime and fresh accepting transactions. It does not repeat
 the standalone first-five-transaction sequence on every finite retrieval. The
 standalone ledger therefore selects the next owner group; it does not replace
 the finite checked-read baseline or justify importing standalone costs into it.
-The proposed improvement is coherent read admission and proof construction,
-not Product CRUD microbatching.
+The implemented focused slice removes repeated standalone healthy construction
+through request-owned capture and detached preparation; native Product data demand
+remains unchanged. Matched final-source quiet/trace/server evidence reports bounded improvement.
+Fresh binding/Application acceptance is the largest remaining region by dispatches
+and JSON bytes, with `validateStoredIssuedReadiness` repeating canonical evidence
+after preparation. Full logical-source readiness is the largest metadata-row region.
+These concrete owners require attribution/proof selection before further runtime
+changes; exact region counts remain in the artifact ledger.
 
 - The native MikroORM control, deterministic native seed/config and complete
   scalar/collection DTO plus missing-error parity are established for the bounded
@@ -226,7 +245,7 @@ not Product CRUD microbatching.
 - Client query/row/JSON-byte and separate server-statistics ledgers exist for those
   cases. Function/trigger coverage is not proven absent by missing nested rows.
   Scaling, full setup SQL/CPU and complete mixed-profile attribution remain open.
-- The inspected current scalar Product trace selects 73 ordered-build rows and
+- The retained earlier scalar Product trace selects 73 ordered-build rows and
   repeats physical/live metadata checks. Attribute each to actual query, pending,
   constraint or authentication requirements; do not mark it necessary merely
   because current source-wide admission performs it. Stable identity/progress
@@ -236,10 +255,15 @@ not Product CRUD microbatching.
   Its structural transport composition is delivered. Miss medians are higher; no causal latency gain
   or architectural acceptance is established, and the initial outlier's cause
   remains unknown.
-- The measured graph recommends reusing issued immutable preparation with fresh
-  authoritative acceptance at existing owners. Demand-versus-full readiness,
-  reuse/protection lifetime and terminal recovery semantics still require explicit
-  selection before runtime changes, timing amendments or numeric ceilings.
+- The approved focused [read-admission slice](./read-admission-construction-preflight.md)
+  reuses the existing immutable preparation owner with request-owned standalone
+  capture, the actual retained finite lifetime and fresh authoritative acceptance.
+  The selected construction is implemented under the approved focused contract;
+  whole-goal performance acceptance remains open. Connected validation, reviews
+  and cleanup remain mandatory slice gates.
+  It retains full readiness and current protection. Demand narrowing, cross-request
+  reuse, cheaper attestation and terminal recovery semantics remain deferred;
+  broader runtime changes, timing amendments and numeric ceilings require selection.
 
 ## Breaks, data disposition, cutover and removal
 
@@ -265,4 +289,5 @@ ordinary-role PostgreSQL, full mixed integration measurement for this
 cross-component/lifecycle change, proportionate concurrency/failure/recovery
 proofs, both project reviews and cleanup. Root owns orchestration and Git;
 workers edit disjoint owners and reviewers remain read-only. This document
-authorizes no evidence-pending runtime cutover.
+authorizes no broader evidence-pending runtime cutover. The focused read-admission
+contract is selected by its linked approved preflight.

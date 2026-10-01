@@ -4,8 +4,10 @@
 
 Status: **active; the first checked-read iteration and the second structural
 transport composition iteration are delivered. Latency acceptance remains open;
-group 1 remains active and orchestration reassessment is active research.** The owner authorized this component-first performance program after the delivered mixed
-entry stage. The prior prepared order was checked reads, publication, initial
+group 1 remains active; request-owned read-admission construction is implemented
+under the approved focused contract within the orchestration reassessment.** The owner authorized this
+component-first performance program after the delivered mixed entry stage. The
+prior prepared order was checked reads, publication, initial
 request admission, seal verification, then conditional host investigation.
 That later order is provisional and subject to the mandatory reassessment below.
 Groups 2–4 remain prepared and inactive; their documents do not select or approve
@@ -18,19 +20,40 @@ minor performance iteration. Its [proposed finite target](./orchestration-target
 records the candidate graph, semantic decisions and connected delivery groups.
 The [paired native retrieval measurement](./native-retrieval-measurement-preflight.md)
 establishes bounded scalar/collection DTO and missing-error parity against the
-genuine pinned native control. Its [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#final-measured-result)
+genuine pinned native control. Its [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#read-construction-comparison)
 attributes substantial protected standalone request work to read admission and
-proof construction before the native method. The recommended next connected
-group is [read-admission construction](./read-admission-construction-preflight.md),
-covering Application binding selection, readiness acceptance, protected preparation
-and logical source demand. Standalone and private finite profiles remain distinct.
-Runtime choices, timing amendments and numeric overhead ceilings remain pending;
+proof construction before the native method. The implemented connected slice is
+[read-admission construction](./read-admission-construction-preflight.md): request-owned
+standalone Application capture and detached preparation, generalizing the existing
+immutable owner while retaining full readiness, fresh acceptance and current
+protection. The approved standalone amendment checks live physical readiness solely
+at fresh business acceptance, with its existing `authorityChanged` refusal;
+detached durable evidence can now fail first. This changes diagnostic timing and
+precedence while allowing no business work before complete acceptance. Executable
+Application, retained finite and relation physical-refusal contracts keep their
+existing behavior. Shared request/retained capture now locks the scope clock before
+the active head, matching activation without weakening locks. Missing/corrupt clock
+can therefore precede missing head; well-formed foreign authority still checks
+after the head. The focused preflight inventories this diagnostic consequence.
+Standalone and private finite profiles retain their actual lifetimes.
+Demand narrowing, cross-request reuse, cheaper attestation, terminal/recovery and
+host changes remain deferred. Broader runtime choices, timing amendments and
+numeric overhead ceilings remain pending;
 scaling, full setup SQL/CPU attribution and whole mixed acceptance remain open.
 High counts require actual native/business demand or demonstrated necessary
 correctness work. Avoidable platform amplification is a redesign failure.
 Native demand, all server work, latency and scaling must determine the next
 coherent owner graph; a small dispatch reduction cannot close that gate.
 Accepted authority and transaction contracts still govern.
+
+Matched final-source bounded standalone measurement reports lower work and quiet latency with
+the same native scalar/collection demand; exact observations and source inventories
+remain in the artifact ledger. Fresh business binding/Application acceptance is
+the largest remaining measured region by dispatches/bytes; its accepting owner is
+the next concrete construction investigation. Full logical-source definition
+breadth is the largest metadata-row region and retains a separate readiness-scope
+decision gate. Neither residual selects a cheaper proof or closes finite, mixed,
+scaling or whole-goal latency acceptance.
 
 This roadmap owns bounded performance iterations in existing trusted core
 owners. It does not own developer APIs, framework capability expansion, hosted
@@ -149,7 +172,7 @@ proceed; those groups remain inactive and provisional.
 | Group | Status | Focused preflight |
 | --- | --- | --- |
 | 1. Checked reads | Active; immutable singleton projection and structural kernel/search frontier composition delivered; latency acceptance and orchestration work remain | [01](./01-checked-reads-preflight.md) |
-| Orchestration reassessment | Active research; bounded native control measured, read-admission construction recommended; target semantic decisions and runtime cutover pending | [Orchestration](./orchestration-simplification-preflight.md), [target](./orchestration-target-design.md), [measurement](./native-retrieval-measurement-preflight.md), [next group](./read-admission-construction-preflight.md) |
+| Orchestration reassessment | Active; request-owned read-admission construction implemented under the approved focused contract with bounded standalone improvement; accepting Application readiness remains the next measured construction owner, broader target decisions pending | [Orchestration](./orchestration-simplification-preflight.md), [target](./orchestration-target-design.md), [measurement](./native-retrieval-measurement-preflight.md), [selected slice](./read-admission-construction-preflight.md) |
 | 2. Publication | Prepared, inactive; provisional after reassessment | [02](./02-publication-preflight.md) |
 | 3. Initial request admission | Prepared, inactive; provisional after reassessment | [03](./03-request-admission-preflight.md) |
 | 4. Seal verification | Prepared, inactive; provisional after reassessment | [04](./04-seal-verification-preflight.md) |

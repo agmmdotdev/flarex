@@ -71,8 +71,9 @@ import {
   hasApplicationReadinessPlanningComposition,
   validateApplicationReadinessForActivationInTransaction,
   validateStoredApplicationReadinessForActivationInTransaction,
-  captureFiniteApplicationReadinessInTransaction,
-  prepareCapturedFiniteApplicationReadiness,
+  captureApplicationReadinessInTransaction,
+  prepareCapturedApplicationReadiness,
+  ApplicationReadinessError,
   type ApplicationReadinessActivationBasis,
   type ApplicationReadinessRepository,
   type ApplicationReadinessResult,
@@ -290,6 +291,7 @@ interface LegacySelectionState {
   readonly basis: ApplicationActiveSelectionBasis;
   readonly readinessRepository: unknown;
   readonly readiness: ApplicationReadinessResult;
+  readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
 }
 
 interface RelationSelectionState {
@@ -311,8 +313,15 @@ const bindingHeadPreparations = new WeakMap<object, PreparedApplicationActiveHea
  * issuer, never from copied digests or unique-build configuration. */
 export function readApplicationBindingTargetProtection(input: ApplicationBindingInput) {
   // SAFETY: nominal registry membership, not this lookup assertion, authenticates the selection.
-  const state = selectionStates.get(input as ApplicationActiveSelection);
-  return state?.kind === "legacy" ? readApplicationReadinessTargetProtection(state.readinessRepository, state.readiness) : undefined;
+  const state = legacyBindingPreparations.get(input) ?? selectionStates.get(input as ApplicationActiveSelection);
+  if (state === undefined) return bindingPreparations.has(input)
+    ? Result.succeed(Object.freeze({ protection: undefined, lifetime: undefined }))
+    : Result.fail(activationError("validateSelection", "invalidComposition"));
+  if (state.kind !== "legacy") return Result.succeed(Object.freeze({ protection: undefined, lifetime: undefined }));
+  const protection = readApplicationReadinessTargetProtection(state.readinessRepository, state.readiness);
+  return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+    Result.mapError(cause => activationError("validateSelection", "invalidComposition", state.basis.revisionId, false, cause)),
+    Result.map(() => Object.freeze({ protection, lifetime: state.lifetime })));
 }
 interface ApplicationActivationRepositoryState {
   readonly readinessKind: "legacy" | "composite";
@@ -337,7 +346,7 @@ interface FiniteActivePreparationState {
   readonly schema: AwaitedFiniteSchema;
   readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
 }
-type AwaitedFiniteSchema = Effect.Success<ReturnType<typeof prepareCapturedFiniteApplicationReadiness>>["schema"];
+type AwaitedFiniteSchema = Extract<Effect.Success<ReturnType<typeof prepareCapturedApplicationReadiness>>, { readonly schema: unknown }>["schema"];
 const finiteActivePreparations = new WeakMap<PreparedFiniteActiveApplication, FiniteActivePreparationState>();
 const finiteActivePreparationReaders = new WeakMap<object, () => Effect.Effect<PreparedFiniteActiveApplication,
   ReadApplicationReadinessError | ApplicationActivationError | LocatedReadCommittedTransactionFailureV1 |
@@ -374,7 +383,11 @@ export const validatePreparedFiniteActiveApplicationInTransaction = Effect.fn(
 
 const bindingPreparationBrand: unique symbol = Symbol("ApplicationBindingPreparation");
 export interface ApplicationBindingPreparation { readonly [bindingPreparationBrand]: true }
-export type ApplicationBindingInput = ApplicationActiveSelection | ApplicationBindingPreparation;
+declare const legacyBindingPreparationBrand: unique symbol;
+/** Request-owned construction evidence; it grants no executable Application selection. */
+export interface PreparedApplicationBinding { readonly [legacyBindingPreparationBrand]: true }
+export type ApplicationBindingInput = ApplicationActiveSelection | ApplicationBindingPreparation | PreparedApplicationBinding;
+const legacyBindingPreparations = new WeakMap<object, LegacySelectionState>();
 type BindingPreparationError = ApplicationActivationError | ReadApplicationReadinessError |
   ReadApplicationRelationReadinessFoldError | TrustedScopeAuthorityError | LockScopeClockForUpdateError;
 const bindingPreparations = new WeakMap<object, Readonly<{
@@ -386,12 +399,12 @@ export function isApplicationBindingPreparation(input: ApplicationBindingInput):
   return bindingPreparations.has(input);
 }
 
-/** Existing standalone readers remain unchanged; registered composite repositories
- * can prepare inputs whose only acceptance happens in the business transaction. */
+/** Binding-only consumers construct request evidence; acceptance remains with the business transaction. */
 export const prepareApplicationBindingSelection = Effect.fn("ApplicationActivation.prepareBindingSelection")(
   function* <Failure>(repository: ApplicationBindingSelectionReader<Failure>) {
     const prepare = bindingPreparationReaders.get(repository);
-    return prepare === undefined ? (yield* repository.readActive()).selection : yield* prepare();
+    if (prepare === undefined) return yield* activationFailure("read", "invalidComposition");
+    return yield* prepare();
   },
 );
 
@@ -769,7 +782,7 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
           readiness,
         ),
       );
-      const active = issueLegacyActiveSelection(state, captured.readiness, readiness);
+      const active = issueLegacyActiveSelection(state, captured.readiness, readiness, yield* captureHostPreparationLifetime());
       const protection = readApplicationReadinessTargetProtection(captured.readiness, readiness);
       if (protection !== undefined) bindingHeadPreparations.set(active.selection,
         prepareApplicationActiveHeadStructure(protection, yield* captureHostPreparationCharge(), state.basis));
@@ -783,20 +796,38 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
     readiness: captured.readiness,
     authority: captured.authority,
   }));
-  finiteActivePreparationReaders.set(repository, makeFiniteActivePreparationReader(repository, captured));
+  const prepare = makeActivePreparationReader(captured);
+  finiteActivePreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareFiniteActiveOwned")(function* () {
+    const prepared = yield* prepare("retained", false);
+    if (prepared.kind !== "legacy") return yield* activationFailure("read", "activeMissing");
+    const active = issueLegacyActiveSelection({ expectedActiveHead: {
+      activationSequence: prepared.basis.activationSequence, headSha256: encodeBytesToLowercaseHex(prepared.basis.headSha256),
+    }, basis: prepared.basis }, captured.readiness, prepared.readiness, prepared.lifetime);
+    installBindingHeadPreparation(active.selection, prepared);
+    // SAFETY: registry identity binds the exact repository and host construction lifetime.
+    const result = Object.freeze({}) as PreparedFiniteActiveApplication;
+    finiteActivePreparations.set(result, Object.freeze({ repository, selection: active.selection,
+      schema: prepared.schema, lifetime: prepared.lifetime }));
+    return result;
+  }));
+  bindingPreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareLegacyBinding")(function* () {
+    const prepared = yield* prepare("request", false);
+    if (prepared.kind !== "legacy") return yield* activationFailure("read", "activeMissing");
+    return issueLegacyBindingPreparation(prepared);
+  }));
   return repository;
 }
 
-function makeFiniteActivePreparationReader<SchemaFailure, ColdFailure>(repository: ApplicationActivationRepository<SchemaFailure, ColdFailure>,
-  captured: ApplicationActivationContext<SchemaFailure, ColdFailure>) {
-  return Effect.fn("ApplicationActivation.captureFiniteActive")(function* () {
+function makeActivePreparationReader<SchemaFailure, ColdFailure>(captured: ApplicationActivationContext<SchemaFailure, ColdFailure>) {
+  return Effect.fn("ApplicationActivation.captureActive")(function* (profile: "request" | "retained", allowRelation: boolean) {
     if (!validIdentity(captured.deploymentId) || !hasApplicationReadinessComposition(
       captured.readiness, captured.authority)) return yield* activationFailure("read", "invalidComposition");
-    const lifetime = yield* captureHostPreparationLifetime();
+    const lifetime = profile === "retained" ? yield* captureHostPreparationLifetime() : undefined;
     const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(captured, captured.authority);
     const raw = yield* runLocatedTransaction(located.target, "read", undefined, tx => Effect.gen(function* () {
-      // The head hint retains SHARE. The following snapshot clock read acquires no row lock.
-      // Final activation keeps the existing clock-first strong lock order.
+      // Match activation's clock-before-head order. KEY SHARE retains lifecycle
+      // protection while ordinary sequence publication remains compatible.
+      const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, located.authority.scopeId);
       const heads = yield* query(tx.select({ ...getTableColumns(fxSystemApplicationActiveHeads),
         headBytes: sql<Uint8Array>`case when octet_length(${fxSystemApplicationActiveHeads.headBytes}) between 1 and ${MAX_FRAME_BYTES}
           then ${fxSystemApplicationActiveHeads.headBytes} else ''::bytea end`,
@@ -804,34 +835,54 @@ function makeFiniteActivePreparationReader<SchemaFailure, ColdFailure>(repositor
         fxSystemApplicationActiveHeads.scopeId, located.authority.scopeId,
       )).limit(1).for("share"), "read");
       const head = heads[0];
-      if (head === undefined || head.readinessContractVersion !== 1 || !validIdentity(head.revisionId))
+      if (head === undefined || (!allowRelation && head.readinessContractVersion !== 1) || !validIdentity(head.revisionId))
         return yield* activationFailure("read", "activeMissing");
       if (head.headBytes.byteLength > MAX_FRAME_BYTES) return yield* activationFailure("read", "storedState");
-      const readiness = yield* captureFiniteApplicationReadinessInTransaction(captured.readiness,
-        located.authority, head.revisionId, located.target, tx);
+      const readiness = head.readinessContractVersion === 1 ? yield* captureApplicationReadinessInTransaction(captured.readiness,
+        located.authority, head.revisionId, located.target, tx, clock, profile).pipe(
+          Effect.mapError(error => mapPreparationReadinessError(profile, error))) : undefined;
       return Object.freeze({ head: structuredClone(head), readiness });
     }));
     const head = yield* decodeHead(raw.head, "read");
-    const prepared = yield* prepareCapturedFiniteApplicationReadiness(captured.readiness, raw.readiness);
-    if (head.readinessKind !== "legacy" || !headMatchesValidatedReadiness(head,
+    if (head.readinessKind !== "legacy") return Object.freeze({ kind: "relation" as const,
+      authority: located.authority, revisionId: head.revisionId });
+    if (raw.readiness === undefined) return yield* activationFailure("read", "invalidComposition");
+    const prepared = yield* prepareCapturedApplicationReadiness(captured.readiness, raw.readiness).pipe(
+      Effect.mapError(error => mapPreparationReadinessError(profile, error)));
+    if ("status" in prepared) return yield* activationFailure("read", "notReady", head.revisionId);
+    if (!headMatchesValidatedReadiness(head,
       { kind: "legacy", basis: prepared.basis })) return yield* activationFailure("read", "concurrentHead");
-    const active = issueLegacyActiveSelection({ expectedActiveHead: {
-      activationSequence: head.activationSequence, headSha256: encodeBytesToLowercaseHex(head.headSha256),
-    }, basis: { ...prepared.basis, activationSequence: head.activationSequence,
-      activationSha256: copyBytes(head.activationSha256), headSha256: copyBytes(head.headSha256) } },
-    captured.readiness, prepared.readiness);
-    const protection = readApplicationReadinessTargetProtection(captured.readiness, prepared.readiness);
-    if (protection !== undefined) bindingHeadPreparations.set(active.selection, prepareApplicationActiveHeadStructure(
-      protection, lifetime?.charge, active.basis));
-    yield* chargeHostPreparation({ basis: { ...active.basis,
-      physicalRequirements: { ...active.basis.physicalRequirements } }, schema: prepared.schema }).pipe(
+    const basis = copySelectionBasis({ ...prepared.basis, activationSequence: head.activationSequence,
+      activationSha256: copyBytes(head.activationSha256), headSha256: copyBytes(head.headSha256) });
+    if (profile === "retained") yield* chargeHostPreparation({ basis: { ...basis,
+      physicalRequirements: { ...basis.physicalRequirements } }, schema: prepared.schema }).pipe(
       Effect.mapError(cause => activationError("read", "resourceFailure", head.revisionId, false, cause)));
-    // SAFETY: registry identity binds the exact repository and host construction lifetime.
-    const result = Object.freeze({}) as PreparedFiniteActiveApplication;
-    finiteActivePreparations.set(result, Object.freeze({ repository, selection: active.selection,
-      schema: prepared.schema, lifetime }));
-    return result;
+    return Object.freeze({ kind: "legacy" as const, basis, readinessRepository: captured.readiness,
+      readiness: prepared.readiness, schema: prepared.schema, lifetime });
   });
+}
+
+type ActivePreparation = Extract<Effect.Success<ReturnType<ReturnType<typeof makeActivePreparationReader>>>, { readonly kind: "legacy" }>;
+
+function mapPreparationReadinessError<E>(profile: "request" | "retained", error: E): E | ApplicationReadinessError {
+  return profile === "request" && error instanceof ApplicationReadinessError
+    ? new ApplicationReadinessError({ operation: "readReady", reason: error.reason, retryable: error.retryable,
+      ...("cause" in error ? { cause: error.cause } : {}) }) : error;
+}
+
+function installBindingHeadPreparation(token: ApplicationActiveSelection | PreparedApplicationBinding, prepared: ActivePreparation): void {
+  const protection = readApplicationReadinessTargetProtection(prepared.readinessRepository, prepared.readiness);
+  if (protection !== undefined) bindingHeadPreparations.set(token, prepareApplicationActiveHeadStructure(
+    protection, prepared.lifetime?.charge, prepared.basis));
+}
+
+function issueLegacyBindingPreparation(prepared: ActivePreparation): PreparedApplicationBinding {
+  // SAFETY: the inert handle is recognized only by its issuer-owned registry.
+  const token = Object.freeze({}) as PreparedApplicationBinding;
+  legacyBindingPreparations.set(token, Object.freeze({ kind: "legacy", basis: copySelectionBasis(prepared.basis),
+    readinessRepository: prepared.readinessRepository, readiness: prepared.readiness, lifetime: undefined }));
+  installBindingHeadPreparation(token, prepared);
+  return token;
 }
 
 function makeCompositeApplicationActivationRepository<
@@ -995,7 +1046,7 @@ function makeCompositeApplicationActivationRepository<
             readiness,
           ),
         );
-        return issueLegacyActiveSelection(state, captured.readiness, readiness);
+        return issueLegacyActiveSelection(state, captured.readiness, readiness, yield* captureHostPreparationLifetime());
       }
       const readiness = yield* loadRelationReadyForActiveRead(
         captured.relationReadiness,
@@ -1028,20 +1079,19 @@ function makeCompositeApplicationActivationRepository<
     readiness: captured,
     authority: captured.authority,
   }));
+  const prepareActive = makeActivePreparationReader(captured);
   bindingPreparationReaders.set(repository, Effect.fn("ApplicationActivation.prepareCompositeBinding")(
     function* () {
       if (!validIdentity(captured.deploymentId) || !compositionIsExact()) return yield* activationFailure("read", "invalidComposition");
-      const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(captured, captured.authority);
-      const hint = yield* runLocatedTransaction(located.target, "read", undefined,
-        tx => loadActiveRevisionHint(tx, located.authority.scopeId));
-      if (hint.readinessKind === "legacy") return (yield* readActive()).selection;
+      const prepared = yield* prepareActive("request", true);
+      if (prepared.kind === "legacy") return issueLegacyBindingPreparation(prepared);
       const readiness = yield* prepareApplicationRelationActiveRead(captured.relationReadiness,
-        { deploymentId: captured.deploymentId, scopeId: captured.scopeId, revisionId: hint.revisionId });
-      yield* chargeHostPreparation({ authority: located.authority, revisionId: hint.revisionId }).pipe(
-        Effect.mapError(cause => activationError("read", "resourceFailure", hint.revisionId, false, cause)),
+        { deploymentId: captured.deploymentId, scopeId: captured.scopeId, revisionId: prepared.revisionId });
+      yield* chargeHostPreparation({ authority: prepared.authority, revisionId: prepared.revisionId }).pipe(
+        Effect.mapError(cause => activationError("read", "resourceFailure", prepared.revisionId, false, cause)),
       );
       const token: ApplicationBindingPreparation = Object.freeze({ [bindingPreparationBrand]: true as const });
-      bindingPreparations.set(token, Object.freeze({ authority: located.authority, revisionId: hint.revisionId, readiness }));
+      bindingPreparations.set(token, Object.freeze({ authority: prepared.authority, revisionId: prepared.revisionId, readiness }));
       return token;
     },
   ));
@@ -1096,7 +1146,8 @@ const loadRelationReadyForActiveRead = Effect.fn(
 function issueLegacyActiveSelection(state: Readonly<{
   readonly expectedActiveHead: ApplicationActiveCasToken;
   readonly basis: ApplicationActiveSelectionBasis;
-}>, readinessRepository: unknown, readiness: ApplicationReadinessResult): CoherentActiveApplication {
+}>, readinessRepository: unknown, readiness: ApplicationReadinessResult,
+  lifetime: LegacySelectionState["lifetime"]): CoherentActiveApplication {
   // SAFETY: the selection is an inert identity token; all authority remains
   // in the module-local WeakMap keyed by this object identity.
   const selection = Object.freeze({}) as ApplicationActiveSelection;
@@ -1105,6 +1156,7 @@ function issueLegacyActiveSelection(state: Readonly<{
     basis: copySelectionBasis(state.basis),
     readinessRepository,
     readiness,
+    lifetime,
   }));
   return Object.freeze({
     selection,
@@ -1184,7 +1236,7 @@ const validateApplicationBindingBasisOwned = Effect.fn(
   }
   // SAFETY: this assertion only permits lookup by object identity. The selection registry authenticates the remaining member; a forged
   // preparation is not promoted to an active selection by this lookup.
-  const state = selectionStates.get(selection as ApplicationActiveSelection);
+  const state = legacyBindingPreparations.get(selection) ?? selectionStates.get(selection as ApplicationActiveSelection);
   if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
     if (state.kind === "relation") {
       // Binding admission locks the Application head before restoring its readiness dependencies.
@@ -1196,6 +1248,8 @@ const validateApplicationBindingBasisOwned = Effect.fn(
       const basis = yield* validateCheckedRelationSelection(state, tx, currentClock);
     return Object.freeze({ kind: "relation" as const, basis });
   }
+  yield* Effect.fromResult((state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+    Result.mapError(cause => activationError("validateSelection", "invalidComposition", state.basis.revisionId, false, cause))));
   if (!clockMatches(state.basis.authority, currentClock)) {
     return yield* activationFailure("validateSelection", "scopeAuthority", state.basis.revisionId);
   }
