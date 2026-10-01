@@ -12,6 +12,17 @@ one prepared source graph and exact-transaction coverage reuse, including comple
 initial authentication and renewal. New attestation/maintenance and host
 contracts remain gated.
 
+The active successor is [core component performance](../core-performance/README.md).
+The latest owner direction selects a component-first loop: checked reads,
+publication, initial admission and seal verification, then conditional host
+investigation. It replaces automatic full end-to-end measurement after every
+local performance iteration with real component baselines, attribution and
+focused validation; full mixed integration measurements remain milestone gates.
+The first checked-read iteration delivers immutable singleton projection reuse
+and a real component baseline with unchanged SQL; no causal latency improvement
+is established. Group 1 remains active at the ordered kernel/source-readiness
+dispatch investigation, with later groups inactive and host changes conditional.
+
 ## Outcome and current evidence
 
 Deliver efficient execution of the existing admitted graphs while preserving
@@ -224,9 +235,19 @@ gate and slice 17's terminal contract are delivered.
 The final latency targets govern whole-successor acceptance.
 
 Functional delivery and whole-goal performance acceptance are separate: green
-correctness checks and lower SQL counts do not satisfy the latency goal. After each cutover,
-compare quiet traced structure and matched untraced distributions on unchanged
-graphs, inputs, workload effects, deadlines, recovery and exclusion policy.
+correctness checks and lower SQL counts do not satisfy the latency goal.
+For the active [component program](../core-performance/README.md), each iteration
+compares real component structure under its declared construction and demand
+policy, with pre-existing setup separately reported and complete authentication/
+fresh checks preserved. The first checked-read iteration compares first and
+successive selection demands within an already prepared attempt; it makes no
+cold/warm host or amortization-equivalence claim. Full mixed traced/untraced
+comparisons occur at declared group milestones, cross-component/lifecycle
+contract changes and whole-goal acceptance.
+An owner improvement with unchanged SQL does not itself require the full graph
+benchmark; bounded connected consumer correctness remains required each iteration.
+Integration comparisons retain unchanged graphs,
+inputs, workload effects, deadlines, recovery and exclusion policy.
 If a target is blocked by attributable host cost, record that separately and
 decide whether 18 is warranted; do not claim the goal complete. If a slice is
 functionally delivered but performance remains short, retain that truthful status

@@ -88,6 +88,22 @@ Use the finite remaining-work plan linked from the owning roadmap; measurements
 must answer a concrete implementation or acceptance question. Keep transaction
 cutovers coherent rather than increasing scope to meet an arbitrary file count.
 
+For the owner-authorized performance program, follow
+[core component performance](roadmaps/core-performance/README.md): iterate on one
+real core component with a focused baseline, owner attribution, selected core
+optimization, affected correctness proofs, component measurements, both reviews,
+cleanup and a scoped commit. Report pre-existing setup separately while retaining
+complete authentication, liveness and every actual fresh check. This
+component-first loop supersedes an automatic full mixed end-to-end measurement
+after every local performance iteration. Full integration measurements remain
+required at declared group milestones, cross-component or lifecycle contract
+changes and whole-goal acceptance, not after each owner improvement.
+PGlite/ordinary-role PostgreSQL obligations and connected
+consumer regressions still apply proportionally. Checked reads are first;
+publication, initial admission and seal groups are prepared but inactive, and
+host lifecycle changes remain conditional and unapproved. Root orchestration,
+disjoint worker edits, read-only reviews and Git ownership remain unchanged.
+
 The owner also grants standing approval for the successor
 [shared-storage completion goal](roadmaps/shared-logical-storage/03-completion-plan.md).
 This covers generic-storage cutover of existing Medusa/Payload/Application

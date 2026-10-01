@@ -29,6 +29,7 @@ import { readSchemaVersionArtifactByIdEffect } from "../src/schemaVersionArtifac
 import { bindPreparedLogicalRelationalRows, hasPreparedLogicalRelationalTableMechanics } from "../src/logicalDocuments/relationalRows";
 import { prepareLogicalRelationalValueValidation } from "../src/logicalDocuments/relationalValues";
 import type { ApplicationNativeMutationFixture, ApplicationNativeMutationPersistence } from "./fixtures/applicationNativeMutationTestFixture";
+import { logicalSourceReadSelectionScenario } from "./logicalSourceReadSelectionScenario";
 
 /** Native-source admission and scalar lifecycle in the real pending working set.
  * Publication and initialization are intentionally not claimed. */
@@ -131,6 +132,7 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
   }));
   const resolved = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authorityPorts);
   const active = yield* fixture.activation.readActive();
+  yield* logicalSourceReadSelectionScenario(fixture, schemaVersionId, source);
   const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(control.drizzle, { deploymentId, schemaVersionId });
   if (snapshot === null) throw new Error("Missing logical definitions");
   const query = <Value>(statement: PromiseLike<Value>) => runDrizzleStatementEffect(statement, cause => new Error("Admission fixture statement", { cause }));

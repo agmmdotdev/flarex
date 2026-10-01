@@ -19,7 +19,17 @@ structural stage cost gates passed. Delivered
 passes its stage gates, including atomic creation-plus-entry and complete initial
 authentication. It precedes reserved
 [host lifecycle](./18-host-lifecycle-preflight.md), which remains conditional on
-attributable evidence. Slice 15 extends immutable target protection under existing full
+attributable evidence. The active successor is
+[core component performance](../core-performance/README.md): checked reads first,
+then publication, initial admission and seal verification, with host investigation
+last and conditional. Component iterations use genuine operation baselines and
+focused correctness/measurements; full mixed measurements are integration
+milestone gates rather than a requirement after every local iteration.
+The first checked-read iteration delivers immutable singleton projection reuse
+and a real component baseline, with unchanged SQL and no established causal
+latency improvement. Checked-read group 1 remains active; its next investigation
+owns ordered attempt-kernel and source/readiness dispatch composition.
+Slice 15 extends immutable target protection under existing full
 attestation and privileged quiescence. Slice 16 accepts tentative finite native
 construction after full root entry and fresh live checks at actual storage
 frontiers. Later slices and new authority contracts remain gated. The implemented
@@ -288,6 +298,18 @@ serializing dependent changes and preserving unrelated work. Spawn every
 subagent, including workers, explorers and both standing reviewers, with model
 `gpt-6.1-sol` and `reasoning_effort: high`. Reviewers remain read-only.
 The relevant numbered preflights own their implemented private scopes.
+
+The owner-authorized [component-first program](../core-performance/README.md)
+supersedes automatic full end-to-end measurement after every performance
+iteration. Each iteration still delivers an evidenced real owner change with
+affected consumer correctness, proportional PGlite/ordinary-role PostgreSQL,
+both reviews, cleanup and commit. Setup/authentication costs remain reported and
+every actual fresh check remains included. Declared group milestones,
+cross-component/lifecycle contract changes and whole-goal acceptance retain full
+mixed performance integration measurements; an owner improvement does not
+automatically trigger the full graph benchmark. Bounded connected correctness
+remains required each iteration. Component groups are serial; inactive documents and
+conditional host work do not approve a fixed runtime remedy.
 
 The design note owns architecture; this README owns domain status, package order
 and remaining cross-package gates. Create `NN-topic-preflight.md` when a

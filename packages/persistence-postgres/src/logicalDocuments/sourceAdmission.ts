@@ -1,4 +1,4 @@
-import { Data, Effect, Option, Schema } from "effect";
+import { Data, Effect, Option, Result, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
 import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES,
@@ -159,6 +159,21 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   const chargePrepared = yield* captureHostPreparationCharge();
   const targetPreparations = new WeakMap<object, PreparedBindingSelectedStructure>();
   const requirePrepared = requirePreparedLogicalStorageCatalog(readiness, capturedPorts, unique, captured).pipe(Effect.asVoid);
+  const singletonSourceKeys = Object.freeze([source.key]);
+  let singletonReadiness: SelectedLogicalStorageReadiness | undefined;
+  const selectSingletonReadiness = Effect.fn("LogicalSourceAdmission.selectSingletonReadiness")(function* () {
+    if (singletonReadiness !== undefined) return singletonReadiness;
+    const selected = yield* readiness.selectSources(singletonSourceKeys);
+    // Concurrent first readers may transiently compile the same immutable
+    // closure. Recheck, charge and install synchronously, without waiting while
+    // a storage transaction is open. Only successful retention is remembered.
+    return yield* Effect.suspend(() => {
+      if (singletonReadiness !== undefined) return Effect.succeed(singletonReadiness);
+      return Effect.fromResult((chargePrepared?.({ sourceKeys: selected.sourceKeys,
+        tableIds: selected.tableIds, reference: selected.reference }) ?? Result.succeed(undefined)).pipe(
+        Result.map(() => { singletonReadiness = selected; return selected; })));
+    });
+  });
 
   const checkBinding = Effect.fn("LogicalSourceAdmission.checkBinding")(function* <Value, Failure, Requirements>(
     selection: "full" | "read",
@@ -182,7 +197,8 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     if (shared !== undefined) return yield* work(Object.freeze({ tx, authority, clock,
       schemaVersionId: captured.schemaVersionId, source, frame: shared.frame, head: shared.head }));
     const selectedReadiness: SelectedLogicalStorageReadiness | undefined = selection === "full"
-      ? undefined : yield* readiness.selectSources(sourceKeys);
+      ? undefined : yield* (sourceKeys.length === 1 && sourceKeys[0] === source.key
+        ? selectSingletonReadiness() : readiness.selectSources(sourceKeys));
     const protection = readApplicationBindingTargetProtection(application);
     let targetPreparation = targetPreparations.get(application);
     if (protection !== undefined && targetPreparation === undefined) {

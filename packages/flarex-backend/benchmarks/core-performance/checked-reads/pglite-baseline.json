@@ -1,0 +1,374 @@
+{
+  "format": "flarex.checked-read-component-performance",
+  "stage": "baseline",
+  "sourceBase": "6a5391110",
+  "driver": "pglite",
+  "sourceHashes": {
+    "packages/persistence-postgres/src/transactionSessionActivation.ts": "1a1f8edf3b3c2f7555ace16618aec4ba9a8cf40c9d36866a9bd0be935e3e6e29",
+    "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad",
+    "packages/persistence-postgres/src/sessionJournalStore.ts": "432736ce56d2dee6bb05a69e767696c95b9476bd13dfcdbad25dcade7d6b442c",
+    "packages/persistence-postgres/src/locatedReadCommittedEffect.ts": "1470f8835d1570502590b1759223bf9d067935993ad9f4aa619f87210214501c",
+    "packages/persistence-postgres/src/postgresLocatedReadCommitted.ts": "9d5225322da3941cc1f159026eabcd8a726f37e0e1c4b008d2b36fc510108f2c",
+    "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts": "6e28fab0436728864e115788e8671d9b74ee5817d146dbd05c69676cc3683625",
+    "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts": "06619934ee043446926819905fa71b93d948ee1ba89c85d2ceae2c5c65904f1c",
+    "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts": "077a5436e327ccc410e307f56e808a2f3bae69ebcca3ff1182dc5f8c8fb762ef",
+    "packages/persistence-postgres/src/logicalDocuments/workingSet.ts": "7ca6a353ce4ec1944b64527cd21f29f3e38483914ca507e7beb815abc2b22573",
+    "packages/persistence-postgres/src/logicalDocuments/relationalRows.ts": "78d674f07d7c569180204a956e479dd677fbbf8485682354e31dd385f5285415",
+    "packages/persistence-postgres/src/logicalStorageReadiness.ts": "3ee07b0a71486be5ab6cbae03844aae2d99966d91971c3f33992228153d856b3",
+    "packages/persistence-postgres/src/applicationActivation.ts": "93d72b06df1e6011aa52fa1d4bc1094f56da98fdc7a3f998274972b8901c4b97",
+    "packages/persistence-postgres/src/applicationReadiness.ts": "def1e35955257fdf8ea1f5c2f011621608865c2fe1550a112eb811e794b49646",
+    "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23",
+    "packages/persistence-postgres/test/mixedMutationPerformanceTrace.ts": "a633ba98dfcc3c0b786a0b95e269510bc2ca2f54903c1e3812ba89445f522476",
+    "packages/flarex-backend/test/support/mixedMutationProductFixture.ts": "cd8d67f1e73d44c5541c442c856ffe8d81b757ab4f47cb03f4b7962b43b5692d",
+    "packages/flarex-backend/test/checkedReadPerformanceScenario.ts": "c8935dde76c7db31596cbf7a24b9155f8d346d8da3bec1a67ca055bb953b6eb7",
+    "packages/flarex-backend/test/checkedReadPerformance.test.ts": "ecef67d010725b3ee34eebff2ebcf6b79ac1010c3268e732e50e88bfc14b1107",
+    "packages/flarex-backend/test/checkedReadPerformance.postgres.test.ts": "4d79e5adb3231e1b809bd43c50349f32a9bfae5b998d0f6e28486ef4b573a00c"
+  },
+  "lanes": [
+    {
+      "observation": "correctness",
+      "requestedObservation": "untraced",
+      "poolTraceObserved": false,
+      "planned": {
+        "firstDemand": 1,
+        "successiveDistinctDemands": 5,
+        "positiveSelections": 1,
+        "pendingFirstAndRepeatedDemands": 6
+      },
+      "constructionAndSeedingMs": 18732.314100000003,
+      "initialAdmissionMs": 169.7645999999986,
+      "initialAdmissionTrace": null,
+      "environment": {
+        "driver": "pglite"
+      },
+      "samples": [
+        {
+          "case": "product-id-hit",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 39.474700000002485,
+          "returnedRows": 1,
+          "returnedJsonBytes": 609,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "product-id-miss",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 33.123999999999796,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "product-id-miss",
+          "index": 1,
+          "demand": "successive",
+          "wallMs": 32.12329999999929,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "product-id-miss",
+          "index": 2,
+          "demand": "successive",
+          "wallMs": 37.449000000000524,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "product-id-miss",
+          "index": 3,
+          "demand": "successive",
+          "wallMs": 33.26880000000165,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "product-id-miss",
+          "index": 4,
+          "demand": "successive",
+          "wallMs": 32.607200000002194,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "product-id-miss",
+          "index": 5,
+          "demand": "successive",
+          "wallMs": 40.08020000000033,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-hit",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 34.82840000000215,
+          "returnedRows": 1,
+          "returnedJsonBytes": 609,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-miss",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 32.508200000000215,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-miss",
+          "index": 1,
+          "demand": "successive",
+          "wallMs": 31.868399999999383,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-miss",
+          "index": 2,
+          "demand": "successive",
+          "wallMs": 36.85399999999936,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-miss",
+          "index": 3,
+          "demand": "successive",
+          "wallMs": 32.89810000000216,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-miss",
+          "index": 4,
+          "demand": "successive",
+          "wallMs": 33.209100000000035,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-miss",
+          "index": 5,
+          "demand": "successive",
+          "wallMs": 34.26360000000204,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "pending-product-id-hit",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 3.7914999999993597,
+          "returnedRows": 1,
+          "returnedJsonBytes": 621,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "pending-product-id-hit",
+          "index": 1,
+          "demand": "successive",
+          "wallMs": 0.7213000000010652,
+          "returnedRows": 1,
+          "returnedJsonBytes": 621,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "pending-product-id-hit",
+          "index": 2,
+          "demand": "successive",
+          "wallMs": 0.5946000000003551,
+          "returnedRows": 1,
+          "returnedJsonBytes": 621,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "pending-product-id-hit",
+          "index": 3,
+          "demand": "successive",
+          "wallMs": 0.5658999999977823,
+          "returnedRows": 1,
+          "returnedJsonBytes": 621,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "pending-product-id-hit",
+          "index": 4,
+          "demand": "successive",
+          "wallMs": 0.5332999999991443,
+          "returnedRows": 1,
+          "returnedJsonBytes": 621,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "pending-product-id-hit",
+          "index": 5,
+          "demand": "successive",
+          "wallMs": 0.5256000000008498,
+          "returnedRows": 1,
+          "returnedJsonBytes": 621,
+          "trace": null,
+          "effectSpans": null
+        }
+      ],
+      "ownerMappings": [],
+      "builtInSqlObserver": true
+    },
+    {
+      "observation": "correctness",
+      "requestedObservation": "traced",
+      "poolTraceObserved": false,
+      "planned": {
+        "firstDemand": 1,
+        "successiveDistinctDemands": 1,
+        "positiveSelections": 1,
+        "pendingFirstAndRepeatedDemands": 2
+      },
+      "constructionAndSeedingMs": 15296.994000000002,
+      "initialAdmissionMs": 129.37409999999363,
+      "initialAdmissionTrace": null,
+      "environment": {
+        "driver": "pglite"
+      },
+      "samples": [
+        {
+          "case": "product-id-hit",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 33.62630000000354,
+          "returnedRows": 1,
+          "returnedJsonBytes": 601,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "product-id-miss",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 35.44080000000395,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "product-id-miss",
+          "index": 1,
+          "demand": "successive",
+          "wallMs": 32.468800000002375,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-hit",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 32.42439999999624,
+          "returnedRows": 1,
+          "returnedJsonBytes": 601,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-miss",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 37.9094000000041,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "handle-index-miss",
+          "index": 1,
+          "demand": "successive",
+          "wallMs": 34.29179999999906,
+          "returnedRows": 0,
+          "returnedJsonBytes": 2,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "pending-product-id-hit",
+          "index": 0,
+          "demand": "first",
+          "wallMs": 0.7065000000002328,
+          "returnedRows": 1,
+          "returnedJsonBytes": 613,
+          "trace": null,
+          "effectSpans": null
+        },
+        {
+          "case": "pending-product-id-hit",
+          "index": 1,
+          "demand": "successive",
+          "wallMs": 0.5866000000023632,
+          "returnedRows": 1,
+          "returnedJsonBytes": 613,
+          "trace": null,
+          "effectSpans": null
+        }
+      ],
+      "ownerMappings": [],
+      "builtInSqlObserver": true
+    }
+  ],
+  "interpretation": [
+    "Construction, seeding and initial full authentication/renewal are outside the component operation samples.",
+    "Each lane uses one genuine finite attempt and source admission through the original native Product borrow.",
+    "Distinct missing id/handle predicates force uncached selection demands in the same attempt; no cache is cleared.",
+    "One positive id selection precedes one new handle-index demand whose row is already observed.",
+    "Pending control runs after the genuine native update through the next genuine retrieve borrow.",
+    "Untraced means no additional pool trace; the fixture's existing target SQL observer remains where present.",
+    "Small reconnaissance trace samples include stack/observer overhead and do not establish steady latency.",
+    "First/successive labels denote selection demands in one already prepared attempt, not cold/warm host construction.",
+    "Positive selections have one observation each and provide no hit latency distribution.",
+    "Named Effect spans are directly observed inclusive durations, not isolated CPU or additive phase times.",
+    "SQL awaited intervals and whole transactions are client observations, not pure server or lock-hold times.",
+    "PGlite is a correctness lane and provides no pool trace or PostgreSQL performance proof."
+  ],
+  "unavailable": [
+    "server execution time",
+    "pure lock hold time",
+    "driver wire bytes",
+    "SQL parameter bytes",
+    "isolated validation/decode CPU",
+    "initial admission Effect span counts",
+    "construction/seeding SQL counts"
+  ]
+}

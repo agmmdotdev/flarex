@@ -154,6 +154,9 @@ import {
 } from "../../src/artifactRuntime/ApplicationErrorExactRuntimeWorkerSource";
 
 export interface MixedMutationProductFixtureHooks {
+  /** Test observer installed after host/seeding construction, before genuine
+   * Application preparation, aggregate entry and initial authentication. */
+  readonly onPreparedContext?: (currency: CurrencyFixture) => Promise<MixedMutationPerformanceTrace | undefined>;
   readonly onFiniteEntryPrepared?: (preparation: Effect.Success<ReturnType<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>>) => void;
   readonly transformFiniteEntrySources?: (participants: Parameters<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>[0]) =>
     Parameters<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>[0];
@@ -542,7 +545,11 @@ export async function createMixedMutationProductFixture(
   try {
     const seedGraph = preparedContext.initialSeed;
     if (seedGraph === undefined) throw new Error("Missing prepared Product graph");
-    return await createMixedMutationAttemptFixture(input, preparedContext, seedGraph, true);
+    const trace = await input.hooks?.onPreparedContext?.(preparedContext.currency);
+    const initialize = () => createMixedMutationAttemptFixture(input, preparedContext, seedGraph, true);
+    return await (trace === undefined ? initialize() : trace.withInvocation({
+      id: "initial admission", mode: "recon",
+    }, initialize));
   } catch (cause) {
     return closeMixedMutationResourcesAfterFailure(preparedContext.cleanup.reverse(), cause);
   }

@@ -1,0 +1,237 @@
+{
+  "format": "flarex.checked-read-dispatch-owner-correlation",
+  "sample": "product-id-hit/0",
+  "mapping": [
+    {
+      "ordinal": 1,
+      "pool": "target",
+      "fingerprint": "e6f07d43b5c21db0fbb9a31feac2dc599787763393dd5acbfad80e247eb02ad5",
+      "template": "begin",
+      "group": "transaction",
+      "sourceCorrelatedFunction": "Drizzle/pg transaction BEGIN",
+      "sourcePath": "packages/persistence-postgres/src/postgres.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 2,
+      "pool": "target",
+      "fingerprint": "bccfdfec36ffb103168367b0ce1ed59941857581798ed1375defc39411bc1596",
+      "template": "select \"scope_id\" , \"scope_uuid\" , \"storage_generation\" , \"storage_generation_fence\" , \"last_commit_seq\" , \"oldest_available_commit_seq\" , \"authorization_revocation_epoch\" , \"epoch\" , \"epoch_uuid\" , \"updated_at\" from \"fx_system_scope_clock\" where \"fx_system_scope_clock\" . \"scope_id\" = $? limit $? for no key update",
+      "group": "kernel",
+      "sourceCorrelatedFunction": "lockPointMutationSessionClock (NO KEY UPDATE)",
+      "sourcePath": "packages/persistence-postgres/src/transactionSessionActivation.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 3,
+      "pool": "target",
+      "fingerprint": "949fcd50e53602fed423f16cf88da08dae847fbcdd696b5f866c30950ec9466f",
+      "template": "select \"session_id\" , \"attempt_fence\" , \"storage_generation\" , \"storage_generation_fence\" , \"authorization_revocation_epoch\" , \"authorization_grant_expires_at\" , \"hard_expires_at\" , \"created_at\" , \"updated_at\" , \"protocol_version\" , \"lifecycle\" , \"schema_version_id\" , \"identity_access_policy_sha256\" , \"request_key\" from \"fx_system_tx_session\" where ( \"fx_system_tx_session\" . \"scope_uuid\" = $? and \"fx_system_tx_session\" . \"session_id\" = $? ) limit $? for update",
+      "group": "kernel",
+      "sourceCorrelatedFunction": "lockExactPointMutationSession",
+      "sourcePath": "packages/persistence-postgres/src/transactionSessionActivation.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 4,
+      "pool": "target",
+      "fingerprint": "5c5edd803b965b6966aef960b6c6c56b1f6d0b03e228930808844ff8bfff77da",
+      "template": "select \"scope_uuid\" , \"session_id\" , \"attempt_fence\" , \"snapshot_epoch_uuid\" , \"snapshot_commit_seq\" , \"lease_expires_at\" from \"fx_system_snapshot_lease\" where ( \"fx_system_snapshot_lease\" . \"scope_uuid\" = $? and \"fx_system_snapshot_lease\" . \"session_id\" = $? ) limit $? for update",
+      "group": "kernel",
+      "sourceCorrelatedFunction": "lockPointMutationSessionAttemptStructure",
+      "sourcePath": "packages/persistence-postgres/src/transactionSessionActivation.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 5,
+      "pool": "target",
+      "fingerprint": "7ef3f44a37f92a1430fed551f186f03025e50a97bc5fafe9e662a337a07be1ef",
+      "template": "select \"scope_uuid\" , \"session_id\" , \"attempt_fence\" , \"journal_format\" , \"execution_profile\" , \"state\" , \"last_syscall_sequence\" , \"receipt_evidence_bytes\" , \"participant_work_bytes\" , \"participant_work_calls\" , \"creation_time_seed\" , \"next_creation_time\" , \"read_documents\" , \"read_semantic_bytes\" , \"point_dependency_count\" , \"indexed_query_syscalls\" , \"index_range_dependency_count\" , \"index_range_dependency_evidence_bytes\" , \"relation_read_syscalls\" , \"relation_dependency_count\" , \"relation_base_occurrences\" , \"write_operations\" , \"write_semantic_bytes\" , \"material_write_event_evidence_bytes\" , \"failure_dimension\" , \"sealed_journal_bytes\" , \"sealed_journal_sha256\" , \"sealed_result_value_codec_version\" , \"sealed_result_semantic_bytes\" , \"sealed_result_bytes\" , \"sealed_result_sha256\" , \"sealed_at\" , \"created_at\" , \"updated_at\" from \"fx_system_tx_journal\" where ( \"fx_system_tx_journal\" . \"scope_uuid\" = $? and \"fx_system_tx_journal\" . \"session_id\" = $? and \"fx_system_tx_journal\" . \"attempt_fence\" = $? ) limit $? for update",
+      "group": "kernel",
+      "sourceCorrelatedFunction": "requireExactPointMutationSessionJournalRoot",
+      "sourcePath": "packages/persistence-postgres/src/transactionSessionActivation.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 6,
+      "pool": "target",
+      "fingerprint": "58959d6da37833f33af95ed6afcf56ecb95e0cd652e0d04b1e323e5a9d3e2051",
+      "template": "select \"scope_uuid\" , \"session_id\" , \"attempt_fence\" , \"claim_fence\" , \"claim_owner\" , \"claimed_at\" , \"claim_expires_at\" from \"fx_system_tx_execution_claim\" where ( \"fx_system_tx_execution_claim\" . \"scope_uuid\" = $? and \"fx_system_tx_execution_claim\" . \"session_id\" = $? and \"fx_system_tx_execution_claim\" . \"attempt_fence\" = $? ) limit $? for update",
+      "group": "kernel",
+      "sourceCorrelatedFunction": "lockExactTransactionExecutionClaimV1Result",
+      "sourcePath": "packages/persistence-postgres/src/transactionExecutionClaimPersistence.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 7,
+      "pool": "target",
+      "fingerprint": "470af2e7c064badf8760014d957a279600ad27e02bdb282257da025619be19ee",
+      "template": "select floor ( extract ( epoch from clock_timestamp ( ) ) * ? ) : : bigint : : text from \"fx_system_scope_clock\" where \"fx_system_scope_clock\" . \"scope_id\" = $? limit $?",
+      "group": "kernel",
+      "sourceCorrelatedFunction": "readDatabaseNow (after claim lock)",
+      "sourcePath": "packages/persistence-postgres/src/transactionSessionActivation.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 8,
+      "pool": "target",
+      "fingerprint": "463f2eaa3998eb4d7ab2c4a1dddbc2072208ce0396712aafbe127a1cd88dfd99",
+      "template": "select \"scope_id\" , \"storage_generation\" , \"sha256\" , case when octet_length ( \"canonical_bytes\" ) between ? and ? then \"canonical_bytes\" else null end , \"canonical_byte_length\" , \"sequence\" , \"activation_sha256\" , \"candidate_sha256\" from \"fx_system_data_binding_head\" where ( \"fx_system_data_binding_head\" . \"scope_id\" = $? and \"fx_system_data_binding_head\" . \"storage_generation\" = $? ) limit $? for share",
+      "group": "source",
+      "sourceCorrelatedFunction": "readBindingSelectedEvidence",
+      "sourcePath": "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 9,
+      "pool": "target",
+      "fingerprint": "2ba209045b4f742981492c369d96095aab2ad88a09de3066cec5369b40f89b2f",
+      "template": "select \"scope_id\" , \"activation_sequence\" , \"revision_id\" , \"readiness_contract_version\" , \"readiness_sha256\" , \"relation_set_readiness_sha256\" , \"relation_count\" , \"write_policy_set_sha256\" , \"write_ownership_sha256\" , \"activation_sha256\" , \"head_sha256\" , \"head_bytes\" , \"created_at\" , \"updated_at\" from \"fx_system_application_active_head\" where \"fx_system_application_active_head\" . \"scope_id\" = $? limit $? for share",
+      "group": "source",
+      "sourceCorrelatedFunction": "validateApplicationActiveSelectionInTransaction",
+      "sourcePath": "packages/persistence-postgres/src/applicationActivation.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 10,
+      "pool": "target",
+      "fingerprint": "1640ee04592543d0907c11dd6744a188ebb68b0552ff212d925b146da49f7758",
+      "template": "select \"fx_system_index_build_state\" . \"scope_id\" , \"fx_system_index_build_state\" . \"index_definition_id\" , \"fx_system_index_build_state\" . \"storage_generation\" , \"fx_system_index_build_state\" . \"storage_generation_fence\" , \"fx_system_index_build_state\" . \"epoch\" , \"fx_system_index_build_state\" . \"start_commit_seq\" , \"fx_system_index_build_state\" . \"covered_through_commit_seq\" , \"fx_system_index_build_state\" . \"first_readable_commit_seq\" , \"fx_system_index_build_state\" . \"maintenance_activation_sequence\" , \"fx_system_index_build_state\" . \"maintenance_bytes\" , \"fx_system_index_build_state\" . \"maintenance_sha256\" , \"fx_system_index_build_state\" . \"lifecycle\" , \"fx_system_index_build_state\" . \"cursor_codec_version\" , \"fx_system_index_build_state\" . \"backfill_cursor_row_id\" , \"fx_system_index_build_state\" . \"attempt_fence\" , \"fx_system_index_build_state\" . \"created_at\" , \"fx_system_index_build_state\" . \"updated_at\" , \"fx_system_scope_clock\" . \"scope_id\" , \"fx_system_scope_clock\" . \"scope_uuid\" , \"fx_system_scope_clock\" . \"storage_generation\" , \"fx_system_scope_clock\" . \"storage_generation_fence\" , \"fx_system_scope_clock\" . \"last_commit_seq\" , \"fx_system_scope_clock\" . \"oldest_available_commit_seq\" , \"fx_system_scope_clock\" . \"authorization_revocation_epoch\" , \"fx_system_scope_clock\" . \"epoch\" , \"fx_system_scope_clock\" . \"epoch_uuid\" , \"fx_system_scope_clock\" . \"updated_at\" from \"fx_system_index_build_state\" inner join \"fx_system_scope_clock\" on \"fx_system_scope_clock\" . \"scope_id\" = \"fx_system_index_build_state\" . \"scope_id\" where ( \"fx_system_index_build_state\" . \"scope_id\" = $? and \"fx_system_index_build_state\" . \"index_definition_id\" in ( $? ) )",
+      "group": "source",
+      "sourceCorrelatedFunction": "loadPhysicalBuildRows",
+      "sourcePath": "packages/persistence-postgres/src/applicationReadiness.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 11,
+      "pool": "target",
+      "fingerprint": "ab446de573c360c55ad1ddfbfcae2ab6f487a2e1b155e942ee126b7c9b0d4466",
+      "template": "select \"scope_id\" , \"deployment_id\" , \"definition_kind\" , \"definition_id\" , \"lifecycle\" , \"transition_fence\" , \"physical_spec_sha256\" , \"request_codec_version\" , \"request_sha256\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"created_at\" , \"updated_at\" from \"fx_system_physical_definition_lifecycle\" where ( \"fx_system_physical_definition_lifecycle\" . \"scope_id\" = $? and \"fx_system_physical_definition_lifecycle\" . \"definition_kind\" = $? and \"fx_system_physical_definition_lifecycle\" . \"definition_id\" in ( $? ) ) for share",
+      "group": "source",
+      "sourceCorrelatedFunction": "validatePhysicalDefinitionLifecycleReadinessInTransactionEffect",
+      "sourcePath": "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 12,
+      "pool": "target",
+      "fingerprint": "501d7c0c14554a8a983f7802e4febb6c109206d2f9cf6eb98e12a19b15b7fdcf",
+      "template": "select \"scope_id\" , \"index_definition_id\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"start_commit_seq\" , \"covered_through_commit_seq\" , \"first_readable_commit_seq\" , \"maintenance_activation_sequence\" , \"maintenance_bytes\" , \"maintenance_sha256\" , \"lifecycle\" , \"cursor_codec_version\" , \"backfill_cursor_row_id\" , \"attempt_fence\" , \"created_at\" , \"updated_at\" from \"fx_system_index_build_state\" where ( \"fx_system_index_build_state\" . \"scope_id\" = $? and \"fx_system_index_build_state\" . \"index_definition_id\" in ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) ) order by \"fx_system_index_build_state\" . \"index_definition_id\" asc for key share",
+      "group": "source",
+      "sourceCorrelatedFunction": "readRequiredEnabledIndexBuildsInTransactionEffect",
+      "sourcePath": "packages/persistence-postgres/src/indexBuildStates.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 13,
+      "pool": "target",
+      "fingerprint": "b0d9d2a85cc1bc46d2b1df2bc522f4a22f09e68f4892afafb4e35f9d049178d8",
+      "template": "with requested ( ordinal , table_id ) as ( values ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) ) select requested . ordinal as \"ordinal\" , latest . commit_seq : : text as \"commitSeqText\" from requested left join lateral ( select current_row . commit_seq from fx_app_row_current as current_row where current_row . scope_uuid = $? and current_row . table_id = requested . table_id order by current_row . commit_seq desc limit ? ) as latest on true order by requested . ordinal",
+      "group": "source",
+      "sourceCorrelatedFunction": "readPreparedIndexCoverageTableFrontiers (ordered-index tables)",
+      "sourcePath": "packages/persistence-postgres/src/indexBuildStates.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 14,
+      "pool": "target",
+      "fingerprint": "f866e89306489d86008bf5831891b716054c270deb4bbfd87354f4118e34193e",
+      "template": "select \"scope_id\" , \"unique_constraint_definition_id\" , \"storage_generation\" , \"storage_generation_fence\" , \"epoch\" , \"start_commit_seq\" , \"lifecycle\" , \"covered_through_commit_seq\" , \"maintenance_activation_sequence\" , \"maintenance_bytes\" , \"maintenance_sha256\" , \"cursor_row_id\" , \"attempt_fence\" , \"created_at\" , \"updated_at\" from \"fx_system_unique_constraint_build\" where ( \"fx_system_unique_constraint_build\" . \"scope_id\" = $? and \"fx_system_unique_constraint_build\" . \"unique_constraint_definition_id\" in ( $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ) ) order by \"fx_system_unique_constraint_build\" . \"unique_constraint_definition_id\" limit $? for key share",
+      "group": "source",
+      "sourceCorrelatedFunction": "inspectSelectedPreparedCatalog / inspectBuildReadinessWithLockedClock",
+      "sourcePath": "packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 15,
+      "pool": "target",
+      "fingerprint": "03a7d63c7b07612a7e973b680663f82dd129bb169e49613d6292763933cc25ae",
+      "template": "select \"table_id\" , \"logical_index_id\" , \"source_sha256\" , \"lifecycle\" , \"covered_through_commit_seq\" from \"fx_system_search_build_state\" where ( \"fx_system_search_build_state\" . \"scope_uuid\" = $? and ( ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) or ( \"fx_system_search_build_state\" . \"table_id\" = $? and \"fx_system_search_build_state\" . \"logical_index_id\" = $? ) ) )",
+      "group": "source",
+      "sourceCorrelatedFunction": "LogicalSearchBuild.inspectDefinitions (search build rows)",
+      "sourcePath": "packages/persistence-postgres/src/logicalSearchBuild.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 16,
+      "pool": "target",
+      "fingerprint": "46a8191727cc5d3eb2a06740293165000188d5b73ed96e745e79dd5393112e7a",
+      "template": "select true , exists ( select ? from pg_catalog . pg_index physical_index where physical_index . indexrelid = pg_catalog . to_regclass ( pg_catalog . quote_ident ( current_schema ( ) ) | | ? | | pg_catalog . quote_ident ( $? ) ) and physical_index . indrelid = pg_catalog . to_regclass ( pg_catalog . quote_ident ( current_schema ( ) ) | | ? | | pg_catalog . quote_ident ( $? ) ) and physical_index . indisvalid and physical_index . indisready and physical_index . indpred is null and physical_index . indnatts = ? and physical_index . indnkeyatts = ? and ( select access_method . amname from pg_catalog . pg_class index_class join pg_catalog . pg_am access_method on access_method . oid = index_class . relam where index_class . oid = physical_index . indexrelid ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = ? and ( select attribute . attname from pg_catalog . pg_attribute attribute where attribute . attrelid = physical_index . indrelid and attribute . attnum = physical_index . indkey [ ? ] ) = $? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = ? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = ? and ( select opclass . opcname from pg_catalog . pg_opclass opclass where opclass . oid = physical_index . indclass [ ? ] ) = $? ) from ( select ? ) as search_index_probe",
+      "group": "source",
+      "sourceCorrelatedFunction": "LogicalSearchBuild.inspectDefinitions (physical GIN proof)",
+      "sourcePath": "packages/persistence-postgres/src/logicalSearchBuild.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 17,
+      "pool": "target",
+      "fingerprint": "fea27384148e86304070a70ff56d9b3091f37f3ba52bf39704f9cd37044018e7",
+      "template": "with requested ( ordinal , table_id ) as ( values ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) , ( $? : : integer , $? : : integer ) ) select requested . ordinal as \"ordinal\" , latest . commit_seq : : text as \"commitSeqText\" from requested left join lateral ( select current_row . commit_seq from fx_app_row_current as current_row where current_row . scope_uuid = $? and current_row . table_id = requested . table_id order by current_row . commit_seq desc limit ? ) as latest on true order by requested . ordinal",
+      "group": "source",
+      "sourceCorrelatedFunction": "readPreparedIndexCoverageTableFrontiers (search tables)",
+      "sourcePath": "packages/persistence-postgres/src/indexBuildStates.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 18,
+      "pool": "target",
+      "fingerprint": "30769bbd2072761e6a4751d262b3fad7947a08d4571f1586f9779799ab67283f",
+      "template": "with latest as ( select distinct on ( revision . encoded_key , revision . row_id ) revision . table_id , revision . key_codec_version , revision . physical_spec_sha256 , revision . encoded_key , revision . key_sha256 , revision . row_id , revision . commit_seq , revision . is_tombstone from fx_app_index_entry_rev as revision where revision . scope_uuid = $? and revision . index_definition_id = $? and revision . commit_seq < = $? and revision . encoded_key > = $? and revision . encoded_key < $? order by revision . encoded_key asc , revision . row_id asc , revision . commit_seq desc ) select latest . table_id : : text as \"tableIdText\" , latest . key_codec_version : : text as \"keyCodecVersionText\" , latest . physical_spec_sha256 as \"physicalSpecSha256\" , latest . encoded_key as \"encodedKeyBytes\" , latest . key_sha256 as \"keySha256\" , latest . row_id as \"rowIdBytes\" , latest . commit_seq : : text as \"commitSeqText\" , latest . is_tombstone as \"isTombstone\" from latest where not latest . is_tombstone order by latest . encoded_key asc , latest . row_id asc limit $?",
+      "group": "data",
+      "sourceCorrelatedFunction": "readLogicalIndexRange",
+      "sourcePath": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 19,
+      "pool": "target",
+      "fingerprint": "3ca2171cba1aee443f5bae9c32430653d3116265845563d683a14c121ecfd93a",
+      "template": "select \"scope_uuid\" , \"table_id\" , \"row_id\" , \"commit_seq\" , \"prev_commit_seq\" , \"write_epoch_uuid\" , \"schema_version_id\" , \"creation_time\" , \"value_codec_version\" , \"is_tombstone\" , \"value_bytes\" , \"value_sha256\" from \"fx_app_row_rev\" where ( \"fx_app_row_rev\" . \"scope_uuid\" = $? and \"fx_app_row_rev\" . \"table_id\" = $? and \"fx_app_row_rev\" . \"row_id\" = $? and \"fx_app_row_rev\" . \"commit_seq\" < = $? ) order by \"fx_app_row_rev\" . \"commit_seq\" desc limit $?",
+      "group": "data",
+      "sourceCorrelatedFunction": "readAppRowAtSnapshotInTransactionEffect",
+      "sourcePath": "packages/persistence-postgres/src/appRows.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 20,
+      "pool": "target",
+      "fingerprint": "5b0159d9ac46c9cfa8b8f26dc7f312fbcb1ae69c8fa18634ae122faa5c94e012",
+      "template": "select epoch . database_name , epoch . namespace_oid : : text , epoch . incarnation : : text , epoch . generation : : text , session_user , current_database ( ) , ( select oid : : text from pg_catalog . pg_namespace where nspname = current_schema ( ) ) , current_user = session_user , ( current_user = session_user and pg_catalog . current_setting ( ? ) = ? and exists ( select ? from pg_catalog . pg_roles r where r . rolname = session_user and r . rolcanlogin and not ( r . rolsuper or r . rolcreatedb or r . rolcreaterole or r . rolreplication or r . rolbypassrls ) and not exists ( select ? from pg_catalog . pg_auth_members m where m . member = r . oid ) and not pg_catalog . has_parameter_privilege ( r . oid , ? , ? ) and not pg_catalog . has_database_privilege ( r . oid , current_database ( ) , ? ) and not pg_catalog . has_schema_privilege ( r . oid , current_schema ( ) , ? ) and not exists ( select ? from pg_catalog . pg_database d where d . datname = current_database ( ) and d . datdba = r . oid ) and not exists ( select ? from pg_catalog . pg_namespace n where n . nspname = current_schema ( ) and n . nspowner = r . oid ) ) and exists ( select ? from pg_catalog . pg_class e where e . relnamespace = pg_catalog . current_schema ( ) : : pg_catalog . regnamespace and e . relname = ? and e . relkind = ? and not e . relispartition and e . relowner < > ( select oid from pg_catalog . pg_roles where rolname = session_user ) and not pg_catalog . has_table_privilege ( session_user , e . oid , ? ) and not pg_catalog . has_table_privilege ( session_user , e . oid , ? ) and not pg_catalog . has_any_column_privilege ( session_user , e . oid , ? ) and not pg_catalog . has_any_column_privilege ( session_user , e . oid , ? ) and not pg_catalog . has_table_privilege ( session_user , e . oid , ? ) and not pg_catalog . has_table_privilege ( session_user , e . oid , ? ) and not pg_catalog . has_table_privilege ( session_user , e . oid , ? ) ) and exists ( select ? from pg_catalog . pg_proc p join pg_catalog . pg_language l on l . oid = p . prolang join pg_catalog . pg_class e on e . relnamespace = p . pronamespace and e . relname = ? where p . pronamespace = pg_catalog . current_schema ( ) : : pg_catalog . regnamespace and p . proname = ? and p . pronargs = ? and p . prorettype = ? : : pg_catalog . regtype and l . lanname = ? and p . provolatile = ? and p . prosecdef and p . proconfig = array [ ? ] and p . proowner = e . relowner and p . proowner < > ( select oid from pg_catalog . pg_roles where rolname = session_user ) and not pg_catalog . has_function_privilege ( session_user , p . oid , ? ) and pg_catalog . encode ( pg_catalog . sha256 ( pg_catalog . convert_to ( pg_catalog . replace ( p . prosrc , e ? , e ? ) , ? ) ) , ? ) = ? ) and exists ( select ? from pg_catalog . pg_proc p join pg_catalog . pg_language l on l . oid = p . prolang join pg_catalog . pg_class e on e . relnamespace = p . pronamespace and e . relname = ? where p . pronamespace = pg_catalog . current_schema ( ) : : pg_catalog . regnamespace and p . proname = ? and p . pronargs = ? and l . lanname = ? and p . prorettype = ? : : pg_catalog . regtype and p . proallargtypes = array [ ? , ? , ? , ? ] : : oid [ ] and p . proargmodes : : text = ? and p . proargnames = array [ ? , ? , ? , ? ] : : text [ ] and p . prosecdef and p . provolatile = ? and p . proconfig = array [ ? ] and p . proowner = e . relowner and p . proowner < > ( select oid from pg_catalog . pg_roles where rolname = session_user ) and pg_catalog . has_function_privilege ( session_user , p . oid , ? ) and p . prosrc = pg_catalog . format ( e ? , current_schema ( ) ) ) and ( select count ( * ) = $? and bool_and ( c . relkind = ? and not c . relispartition and not c . relhasrules and not c . relrowsecurity and c . relowner < > ( select oid from pg_catalog . pg_roles where rolname = session_user ) and not pg_catalog . has_table_privilege ( session_user , c . oid , ? ) and not pg_catalog . has_table_privilege ( session_user , c . oid , ? ) and exists ( select ? from pg_catalog . pg_trigger t join pg_catalog . pg_proc p on p . oid = t . tgfoid where t . tgrelid = c . oid and t . tgname = ? and not t . tgisinternal and t . tgenabled = ? and t . tgtype = ? and t . tgconstraint = ? and t . tgqual is null and t . tgoldtable is null and t . tgnewtable is null and t . tgnargs = ? and p . pronamespace = c . relnamespace and p . proname = ? ) ) from pg_catalog . pg_class c where c . relnamespace = pg_catalog . current_schema ( ) : : pg_catalog . regnamespace and c . relname = any ( array [ $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? , $? ] : : text [ ] ) ) ) from fx_lock_prepared_metadata_epoch ( ) as epoch limit $?",
+      "group": "tail",
+      "sourceCorrelatedFunction": "flushProtectedMetadataFinalGuards / readIdentity",
+      "sourcePath": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    },
+    {
+      "ordinal": 21,
+      "pool": "target",
+      "fingerprint": "9505cacb7c710ed17125fcc6cb3669e8ddca6c8cd8af6a31f6b3cd64604c3098",
+      "template": "commit",
+      "group": "transaction",
+      "sourceCorrelatedFunction": "Drizzle/pg transaction COMMIT",
+      "sourcePath": "packages/persistence-postgres/src/postgres.ts",
+      "attribution": "source-correlated SQL template and current call graph; not observed stack attribution",
+      "observedOwner": null
+    }
+  ]
+}
