@@ -11,7 +11,7 @@ settlement graph remain unapproved.
 The [performance roadmap](./README.md), [orchestration reassessment](./orchestration-simplification-preflight.md)
 and [proposed finite target](./orchestration-target-design.md) own the broader
 direction. The [native measurement preflight](./native-retrieval-measurement-preflight.md)
-defines the exact control. Its [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#final-measured-result)
+defines the exact control. Its [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#read-construction-comparison)
 owns numerical observations, source/build/runtime identities and limits. The
 [accepted DB design](../../design-notes/flarex-db-accepted-design.md),
 [mixed design](../../design-notes/flarexdb-mixed-mutation-execution.md), slices
@@ -325,7 +325,11 @@ belongs to `applicationActivation.ts` accepting composition and
 `applicationReadiness.ts` `validateStoredIssuedReadiness`, with the actual registered
 guard/full-proof contract traced before selecting any removal. Its measured region
 includes session setup and framework binding work; not every dispatch belongs to
-the canonical validator. No cheaper accepting proof is approved here.
+the canonical validator. The proposed
+[fresh Application acceptance preflight](./fresh-application-acceptance-preflight.md)
+records the complete statement/owner graph, actual protected guard eligibility,
+alternatives and connected caller gates. Its runtime mechanism remains pending;
+no cheaper accepting proof is approved here.
 
 Full logical-source readiness is the largest metadata-row region, traversing
 ordered, unique and search definitions plus table frontiers before the selected

@@ -232,8 +232,11 @@ remains unchanged. Matched final-source quiet/trace/server evidence reports boun
 Fresh binding/Application acceptance is the largest remaining region by dispatches
 and JSON bytes, with `validateStoredIssuedReadiness` repeating canonical evidence
 after preparation. Full logical-source readiness is the largest metadata-row region.
-These concrete owners require attribution/proof selection before further runtime
-changes; exact region counts remain in the artifact ledger.
+The proposed [fresh Application acceptance preflight](./fresh-application-acceptance-preflight.md)
+traces these accepting owners, their actual guard lifetimes, full live and
+protected alternatives, callback frontiers and connected caller gates. Its
+runtime mechanism requires the coordinator's decision before implementation;
+exact region counts remain in the artifact ledger.
 
 - The native MikroORM control, deterministic native seed/config and complete
   scalar/collection DTO plus missing-error parity are established for the bounded

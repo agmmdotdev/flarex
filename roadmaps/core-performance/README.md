@@ -49,8 +49,11 @@ Accepted authority and transaction contracts still govern.
 Matched final-source bounded standalone measurement reports lower work and quiet latency with
 the same native scalar/collection demand; exact observations and source inventories
 remain in the artifact ledger. Fresh business binding/Application acceptance is
-the largest remaining measured region by dispatches/bytes; its accepting owner is
-the next concrete construction investigation. Full logical-source definition
+the largest remaining measured region by dispatches/bytes; the proposed
+[fresh Application acceptance preflight](./fresh-application-acceptance-preflight.md)
+traces its accepting owners, full live and protected alternatives, callback
+frontiers and connected caller gates. Its runtime mechanism remains a coordinator
+decision before implementation. Full logical-source definition
 breadth is the largest metadata-row region and retains a separate readiness-scope
 decision gate. Neither residual selects a cheaper proof or closes finite, mixed,
 scaling or whole-goal latency acceptance.
