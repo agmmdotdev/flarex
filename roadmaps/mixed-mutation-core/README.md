@@ -14,9 +14,12 @@ connected latency work and its remaining goal: [admission/protection](./15-admis
 delivered with its measured stage cost gate passed; [batched reads](./16-batched-read-execution-preflight.md)
 is delivered with its measured stage cost gate passed;
 [settlement](./17-batched-settlement-preflight.md) is delivered with its measured
-structural stage cost gates passed;
-[host lifecycle](./18-host-lifecycle-preflight.md) is conditional on attributable
-evidence. Slice 15 extends immutable target protection under existing full
+structural stage cost gates passed. Proposed
+[aggregate entry and prepared source graph](./19-aggregate-entry-preflight.md)
+is the next recommended core package; runtime and atomic creation-plus-entry
+remain unapproved. It precedes reserved
+[host lifecycle](./18-host-lifecycle-preflight.md), which remains conditional on
+attributable evidence. Slice 15 extends immutable target protection under existing full
 attestation and privileged quiescence. Slice 16 accepts tentative finite native
 construction after full root entry and fresh live checks at actual storage
 frontiers. Later slices and new authority contracts remain gated. The implemented
@@ -208,8 +211,19 @@ mixed latency goal remains unmet.
 The separate Node diagnostic names readiness/index-build decoding, private JSON
 capture and library/query work on actual calltrees. Idle/generated frames and
 profiler overhead remain explicit. Existing metadata/admission/preparation work
-warrants investigation before selecting a host change; no further runtime slice
-is approved. Host slice 18 remains conditional and unapproved, and the whole
+supports proposed [aggregate entry and prepared source graph](./19-aggregate-entry-preflight.md)
+before a host change. It connects existing private finiteRoot core entry and
+genuine consumers with one bounded authenticated construction and
+exact-transaction coverage reuse. The new
+atomic creation-plus-full-entry boundary, guard lifecycle and confirmed facts
+require owner approval; no further runtime slice is approved. Proposed admission
+transactions are 9 to 3, with ceiling 126 from `122 - D + A`; whole proposed
+ceilings 540 / 563 / 853 / 309 SQL and 19 / 20 / 33 / 6 transactions depend on
+actual construction and coverage proof. Root point bootstrap remains outside
+those savings. Standard Application retains its distinct durableOperations
+selection/activation/evidence/load/open contract and regression obligations; no
+default profile or hosted cutover is proposed. Host slice 18 remains conditional
+and unapproved, and the whole
 latency goal remains unfinished.
 
 The finite root has an immutable journal marker. Standalone selection and final
@@ -268,7 +282,7 @@ The relevant numbered preflights own their implemented private scopes.
 The design note owns architecture; this README owns domain status, package order
 and remaining cross-package gates. Create `NN-topic-preflight.md` when a
 slice is ready for focused scope agreement. The user-requested successor drafts
-15–18 are a specific exception: retain their explicit dependency/readiness gates
+15–19 are a specific exception: retain their explicit dependency/readiness gates
 and unresolved decisions, without treating their existence as runtime approval
 or making them simultaneously active. That numbered file owns the slice's
 decisions, current status and remaining gates; update it in place as truth

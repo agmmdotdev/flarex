@@ -7,7 +7,10 @@ redesign sequence. Delivered 15 owns target protection under existing full
 attestation and privileged quiescence; delivered 16 owns aggregate full entry,
 tentative local construction and bounded storage frontiers; delivered 17 owns
 authenticated aggregate seal capture, separate finishing and batched settlement.
-New attestation/maintenance and host contracts remain gated.
+Proposed [19](./19-aggregate-entry-preflight.md) is the next recommended core
+package: aggregate request entry, one prepared source graph and exact-transaction
+coverage reuse. Its runtime scope and atomic creation-plus-entry contract remain
+unapproved. New attestation/maintenance and host contracts remain gated.
 
 ## Outcome and current evidence
 
@@ -59,7 +62,9 @@ with mixed snapshot, journal, recovery and publication obligations identified.
 ## Ordered connected slices
 
 **15–17 are delivered and their stage cost gates passed.** Slice 17 retains the
-delivered read contract. Draft 18 remains conditional and unapproved.
+delivered read contract. Proposed [19](./19-aggregate-entry-preflight.md) is
+recommended next, before reserved host 18. Neither runtime 19 nor the new atomic
+creation-plus-entry contract is approved. Draft 18 remains conditional and unapproved.
 Revisit ordering if the dependency graph shows that a safe
 cutover must combine or rearrange owners; explain that change before runtime.
 
@@ -68,6 +73,7 @@ cutover must combine or rearrange owners; explain that change before runtime.
 | [15: admission and protection](./15-admission-protection-preflight.md), delivered; stage passed | Protect current immutable target metadata and remove repeated structure/clock reads across existing consumers | 23-table coverage, full existing attestation/quiescence, exact accepting-transaction clock provenance; measured SQL 862 / 1,068 / 1,663 meets ceilings 871 / 1,081 / 1,688 with unchanged 41 / 52 / 78 transactions |
 | [16: batched read execution](./16-batched-read-execution-preflight.md), delivered; stage passed | Aggregate finite full entry, local method/construction and actual bounded storage frontiers; retain source-wide readiness and exact ordered data dependencies | Accepted tentative callback/live-check timing; measured 643 / 670 / 1,034 driver dispatches and 29 / 30 / 43 explicit transactions pass 798 / 924 / 1,439 and 33 / 34 / 50 ceilings; standalone 354 / 6 passes median gates |
 | [17: batched settlement](./17-batched-settlement-preflight.md), delivered; stage passed | Separate aggregate seal and fresh finishing, remove the separate candidate planning-head preparation transaction, and batch remaining validation reads through existing owners | Detached authenticated seal body/authority/planning head after COMMIT; executor verification and candidate-guard compilation outside SQL; publication retains its existing fresh head recheck/full OCC; durable formats and recovery retained |
+| [19: aggregate entry and prepared source graph](./19-aggregate-entry-preflight.md), proposed; runtime unapproved | Connect existing private finiteRoot core entry and genuine consumers, bounded control/catalog construction and exact-transaction coverage reuse | Decide atomic creation plus full source entry, confirmed facts after COMMIT and guard lifecycle; proposed admission 9 to 3 transactions, SQL formula 122 - D + A with ceiling 126; proposed whole ceilings 540 / 563 / 853 / 309 and 19 / 20 / 33 / 6 transactions require exact construction/coverage proof |
 | [18: host lifecycle](./18-host-lifecycle-preflight.md), conditional draft | Remove attributable startup/serialization overhead if a separately accepted host contract permits it | Include or skip from evidence; isolation, capability lifetime, cleanup and host-specific parity |
 
 These are medium-to-large coherent capabilities. A helper, test matrix, profile
@@ -108,7 +114,9 @@ capture ancestry, with Effect/Drizzle/driver work also present. Idle, generated
 frames and profiler overhead are explicit and unassigned. These observations
 support investigating existing metadata/admission/preparation owners before
 choosing a host change; they neither quantify the entire remaining gap nor
-approve another runtime slice. Slice 18 needs its own attributable host evidence
+approve another runtime slice. Proposed 19 records the connected core direction
+and its required owner decisions; it predicts no additive latency saving. Slice
+18 needs its own attributable host evidence
 and contract decision. The whole latency goal remains unfinished.
 
 ## Owners and invariants
@@ -150,8 +158,9 @@ slice, complete the actual bounded operation/dependency graph for all four
 workloads and agree numeric transaction, sequential round-trip and server SQL
 limits, plus batch-size/byte formulas and retry/saturation limits. Slice 16's
 approved source-derived preflight fixes conservative dispatch/transaction stage
-ceilings. Slice 17 records approved terminal and whole-request limits; slice 18 limits remain conditional. A call containing 100
-server statements still accounts for all 100 statements.
+ceilings. Slice 17 records approved terminal and whole-request limits. Slice 19
+records proposed entry/construction/coverage limits pending owner approval and
+exact proof; slice 18 limits remain conditional. A call containing 100 server statements still accounts for all 100 statements.
 
 | Cost category | Required graph-derived budget and attribution |
 | --- | --- |
