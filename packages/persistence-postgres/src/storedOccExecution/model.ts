@@ -131,6 +131,7 @@ export class StoredOccExecutionEvidencePersistenceV1Error extends Data.TaggedErr
 export interface StoredOccExecutionEvidenceLoaderV1 {
   readonly loadEffect: (
     authority: StoredOccExecutionEvidenceAuthorityV1,
+    initialCapture?: import("../sessionJournalStore").ConfirmedFiniteRootEntryCapture,
   ) => Effect.Effect<
     StoredOccExecutionEvidenceLoadResultV1,
     StoredOccExecutionEvidencePersistenceV1Error

@@ -23,8 +23,12 @@ export function policyFixture(fields: ApplicationWritePolicies["configuration"][
   } satisfies ApplicationWritePolicies;
 }
 
-export async function policyManifestFixture(rootSha256 = "1".repeat(64), indexed = false, fields?: ApplicationWritePolicies["configuration"]["tables"][number]["fields"]) {
-  const writePolicies = policyFixture(fields);
+export async function policyManifestFixture(rootSha256 = "1".repeat(64), indexed = false,
+  fields?: ApplicationWritePolicies["configuration"]["tables"][number]["fields"],
+  configuration?: ApplicationWritePolicies["configuration"]) {
+  const initial = policyFixture(fields);
+  const writePolicies = configuration === undefined ? initial : { ...initial, configuration,
+    tables: initial.tables.map(table => table.owner === "payload" ? { ...table, configSha256: hashPolicyFixture(configuration) } : table) };
   const canonical = await Effect.runPromise(verifyApplicationManifestV3({
     format: "flarex.application-manifest", version: 3,
     sourceArtifact: {
@@ -39,7 +43,8 @@ export async function policyManifestFixture(rootSha256 = "1".repeat(64), indexed
       tables: ["audit", "posts"].map((name, index) => ({ tableId: index + 1, name,
         validator: { type: "object", value: Object.fromEntries((name === "posts" && fields !== undefined ? fields : [{ name: "title", kind: "text" }]).map(field => [field.name, { fieldType: { type: field.kind === "number" ? "number" : field.kind === "boolean" ? "boolean" : "string" }, optional: false }])) },
         placement: { kind: "global" } })),
-      indexes: indexed ? [{ indexId: 1, tableId: 2, name: "by_title", fields: ["title"] }] : [],
+      indexes: configuration === undefined ? indexed ? [{ indexId: 1, tableId: 2, name: "by_title", fields: ["title"] }] : []
+        : configuration.tables.flatMap(table => table.indexes ?? []).map((index, position) => ({ ...index, indexId: position + 1, tableId: 2 })),
       relations: [], writePolicies, writePolicySetSha256: hashPolicyFixture(writePolicies),
     },
     functions: [{ path: "functions:write", moduleName: "functions", exportName: "write", kind: "mutation", visibility: "public",

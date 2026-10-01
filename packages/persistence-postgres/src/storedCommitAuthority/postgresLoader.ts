@@ -164,6 +164,11 @@ interface ApplicationGraphSelector {
   readonly functionPath: string;
   readonly applicationSchemaSha256: Uint8Array;
 }
+export type ApplicationGraphSessionSelector = Pick<SessionSizeRow,
+  "executionAuthorityGeneration" | "applicationExecutionAuthorityFormat" |
+  "applicationExecutionAuthorityVersionText" | "applicationExecutionAuthorityActivationSequence" |
+  "applicationExecutionAuthorityRevisionId" | "applicationExecutionAuthorityFunctionPath" |
+  "applicationExecutionAuthoritySchemaSha256">;
 
 export interface PreparedTerminalControl {
   readonly schemaSizeRows: ReadonlyArray<SchemaSizeRow>;
@@ -178,7 +183,7 @@ export interface PreparedTerminalControl {
 export const prepareTerminalControlEffect = Effect.fn("StoredCommitAuthority.prepareTerminalControl")(function* (
   ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   authority: StoredCommitAuthorityCaptureAuthorityV1,
-  session: SessionSizeRow | undefined,
+  session: ApplicationGraphSessionSelector | undefined,
 ): Effect.fn.Return<PreparedTerminalControl | undefined, StoredCommitAuthorityEvidencePersistenceV1Error> {
   const selector = captureApplicationGraphSelector(session);
   if (session?.executionAuthorityGeneration !== "application_v1") return undefined;
@@ -219,7 +224,7 @@ const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/;
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
 
 function captureApplicationGraphSelector(
-  session: SessionSizeRow | undefined,
+  session: ApplicationGraphSessionSelector | undefined,
 ): ApplicationGraphSelector | undefined {
   if (session?.executionAuthorityGeneration !== "application_v1" ||
     session.applicationExecutionAuthorityFormat !==

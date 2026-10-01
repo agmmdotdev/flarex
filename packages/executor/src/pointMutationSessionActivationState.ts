@@ -16,6 +16,8 @@ import type {
 import type {
   PointMutationExecutionClaimV1,
 } from "./pointMutationExecutionClaim";
+import type { ConfirmedFiniteRootEntryCapture, PreparedFiniteSessionJournalEntry } from "@flarex/persistence-postgres/session-journal-store";
+import type { PointMutationJournalV1 } from "./pointMutationJournal";
 
 export interface ActivatedApplicationMutationSessionPreparationV1 {
   readonly executionAuthorityGeneration: "application_v1";
@@ -41,10 +43,16 @@ export interface ActivatedPointMutationSessionStateV1 {
   readonly inspection: PointMutationSessionActivationResultV1;
   readonly prepared: ActivatedPointMutationSessionPreparationV1;
   readonly executionClaim?: PointMutationExecutionClaimV1;
+  readonly finiteEntry?: Readonly<{
+    capture: ConfirmedFiniteRootEntryCapture;
+    preparation: PreparedFiniteSessionJournalEntry;
+    journal: PointMutationJournalV1;
+    executionClaim: PointMutationExecutionClaimV1;
+  }>;
 }
 
 const activatedSessionStateByHandle = new WeakMap<
-  ActivatedPointMutationSessionV1,
+  object,
   ActivatedPointMutationSessionStateV1
 >();
 
@@ -56,7 +64,7 @@ export function registerActivatedPointMutationSessionStateV1(
 }
 
 export function getActivatedPointMutationSessionStateV1(
-  value: ActivatedPointMutationSessionV1,
+  value: unknown,
 ): ActivatedPointMutationSessionStateV1 | undefined {
-  return activatedSessionStateByHandle.get(value);
+  return typeof value === "object" && value !== null ? activatedSessionStateByHandle.get(value) : undefined;
 }

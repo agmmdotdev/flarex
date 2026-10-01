@@ -35,7 +35,7 @@ export const logicalRelationalPublicationScenario = Effect.fn("LogicalRelational
 ) {
   const { deploymentId, authority, authorityPorts, control, target } = fixture;
   const prepared = yield* prepareLogicalRelationalAdmission({ controlDb: control.drizzle, authority: authorityPorts },
-    fixture.uniqueConstraintEligibility, { deploymentId, scopeId: authority.scopeId, schemaVersionId }, source);
+    fixture.uniqueConstraintEligibility, { deploymentId, scopeId: authority.scopeId, schemaVersionId }, source, { kind: "standalone" });
   const resolved = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authorityPorts);
   const active = yield* fixture.activation.readActive();
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(authority.scopeId));

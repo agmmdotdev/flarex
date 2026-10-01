@@ -9,6 +9,7 @@ import {
 import {
   inspectLoadedPointMutationSessionAttemptV1,
 } from "../pointMutationSessionActivation";
+import { getActivatedPointMutationSessionStateV1 } from "../pointMutationSessionActivationState";
 import type {
   PointMutationExecutionClaimVaultV1,
   PointMutationExecutionScopeV1,
@@ -169,14 +170,22 @@ export function makeStoredAttemptAuthenticationOperationsV1(
   const deriveAuthority: StoredAttemptAuthenticationV1["deriveAuthority"] =
     Effect.fn("StoredAttemptAuthentication.deriveAuthority")(
       function* (attempt, executionClaim) {
-        const inspection = yield* Effect.try({
+        const activated = typeof attempt === "object" && attempt !== null ? getActivatedPointMutationSessionStateV1(attempt) : undefined;
+        const finite = activated?.finiteEntry;
+        if (activated !== undefined && (finite === undefined || finite.executionClaim !== activated.executionClaim ||
+          finite.journal.inspectConfirmedFiniteEntry === undefined)) return yield* Effect.fail(new InvalidStoredAttemptAuthorityV1Error({ reason: "invalidLoadedAttempt" }));
+        const inspection = finite !== undefined && finite.journal.inspectConfirmedFiniteEntry !== undefined
+          ? yield* Effect.fromResult(finite.journal.inspectConfirmedFiniteEntry(finite.capture, finite.preparation)).pipe(
+            Effect.mapError(() => new InvalidStoredAttemptAuthorityV1Error({ reason: "invalidLoadedAttempt" })))
+          : yield* Effect.try({
           try: () => inspectLoadedPointMutationSessionAttemptV1(attempt),
           catch: () => new InvalidStoredAttemptAuthorityV1Error({
             reason: "invalidLoadedAttempt",
           }),
         });
         const claim = yield* Effect.fromResult(
-          executionClaims.admission.inspectStoredAttempt(executionClaim).pipe(
+          (finite === undefined ? executionClaims.admission.inspectStoredAttempt(executionClaim)
+            : executionClaims.admission.inspectOriginalStoredAttempt(executionClaim, finite.executionClaim)).pipe(
             Result.mapError(() => new InvalidStoredAttemptAuthorityV1Error({
               reason: "invalidExecutionClaim",
             })),

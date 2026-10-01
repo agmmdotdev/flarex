@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { eq } from "drizzle-orm";
 import { Effect, Exit, Fiber, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -100,7 +101,9 @@ describePostgres("mixed Product commit recovery on real PostgreSQL", () => {
         expect(standaloneSettled).toBe(false);
         releaseClock();
         expect(Exit.isSuccess(await Effect.runPromise(Fiber.await(publishing)))).toBe(true);
-        expect(await standalone).toMatchObject({ kind: "failed", error: { reason: "writeConflict" } });
+        const standaloneOutcome = await standalone;
+        expect(standaloneOutcome, inspect(standaloneOutcome, { depth: 10 }))
+          .toMatchObject({ kind: "failed", error: { reason: "writeConflict" } });
         expect(await committedMixedFacts(fixture)).toEqual({ commits: before.commits + 1,
           productEvents: before.productEvents + 1 });
         expect(await fixture.readCurrentProduct()).toMatchObject({ id: fixture.seed.productId,

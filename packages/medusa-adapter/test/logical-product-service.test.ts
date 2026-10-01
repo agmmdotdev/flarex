@@ -105,7 +105,7 @@ describe("native internal Product service on shared logical storage", () => {
       expect(advanced).toBeDefined();
       if (advanced === undefined) throw new Error("Missing advanced Product search coverage");
       const build = await Effect.runPromise(prepareLogicalSearchBuild(
-        fixture.control.drizzle, fixture.deploymentId, fixture.schemaVersionId));
+        fixture.control.drizzle, fixture.deploymentId, fixture.schemaVersionId, { kind: "fresh" }));
       expect(build.definitionCount).toBeGreaterThan(0);
       const inspect = () => Effect.runPromise(runEffectTransaction(
         work => fixture.persistence.drizzle.transaction(work), "Inspect Product search coverage after commit",

@@ -1,16 +1,16 @@
 # Aggregate request entry and prepared source graph
 
-Status: **proposed; runtime scope and the new atomic entry contract are unapproved.**
-Investigation and this preflight are authorized. This is the next recommended
-connected core package after delivered [15](./15-admission-protection-preflight.md),
+Status: **delivered; stage cost gates passed; whole mixed latency goals remain unmet.**
+The connected runtime implements the approved atomic entry contract after
+delivered [15](./15-admission-protection-preflight.md),
 [16](./16-batched-read-execution-preflight.md) and
 [17](./17-batched-settlement-preflight.md), before conditional
 [18](./18-host-lifecycle-preflight.md). The
-[accepted design](../../design-notes/flarex-db-accepted-design.md) remains unchanged.
+[accepted design](../../design-notes/flarex-db-accepted-design.md) records the bounded private entry contract.
 
 ## Outcome and decision
 
-Connect real private finite request entry, one bounded authenticated source-graph
+The slice connects real private finite request entry, one bounded authenticated source-graph
 construction and exact-transaction coverage reuse. Persistence owns admission,
 creation and confirmed facts; executor consumes those facts and owns local
 execution; framework adapters retain native business semantics. Migrate existing
@@ -19,12 +19,12 @@ consumer composition together. Change the responsible core functions, not
 benchmark-local orchestration or copied runtime logic. A fixture-only shortcut
 or a helper-only proof is not delivery.
 
-Recommend preparatory target capture, detached canonical/control/crypto
-preparation, then one fresh final target transaction at the existing session
+Preparatory target capture and detached canonical/control/crypto
+preparation precede one fresh final target transaction at the existing session
 activation owner. **Atomic session creation plus full source entry replaces the
-current committed activation followed by a separately fallible entry.** Guard
-lifecycle and private fact issuance also change. The owner must decide this
-internal transaction contract before runtime implementation.
+former committed activation followed by a separately fallible entry.** Guard
+lifecycle and private fact issuance also change under this approved
+internal transaction contract.
 
 The separate control database remains separate authority. No SQL transaction
 spans control preparation, argument capture, signature work, foreign callbacks,
@@ -34,14 +34,16 @@ authority, weaker attestation, new settlement authority or host optimization is
 proposed. Existing six-step exact-running kernels remain at later real frontiers;
 their server relocation is excluded.
 
-## Current graph and responsible owners
+## Prior graph audit and retained owners
 
 The [retained settlement evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/batched-settlement/README.md)
 has initial admission **138 dispatches: 109 target and 29 control**, with eight
 target transactions and one control transaction, common to the three mixed
 private fixture graphs. These counts cover that measured profile only. The trace
 groups fingerprints and spans; it does not provide exact
-ordered per-transaction statement attribution. Current source supplies this graph:
+ordered per-transaction statement attribution. The following was the audited
+pre-cutover graph; its source locations identify the prior seams rather than the
+current aggregate entry implementation:
 
 | Boundary | Existing owner and responsibility |
 | --- | --- |
@@ -76,19 +78,20 @@ uses the real grant issuer (`:835`), resolves retained outcomes (`:856`) and
 activates (`:862`). Initial execution authenticates stored OCC evidence at
 `initialPointMutationExecutionOperations.ts:158` before the load/open cut at
 `exactPointMutationExecutionOperations.ts:338`. The private test issuer fixes
-revocation epoch zero and omits these obligations. Do not drop authentication,
+revocation epoch zero. The former measured fixture omitted complete initial
+authentication; the connected executor now retains that proof. Do not drop authentication,
 renewal or authority work to make the measured private ceiling appear universal.
 
 `ApplicationMutationSystem.makeSelectionInvoke` constructs store, journal,
 initial executor and claim vault in one trusted invocation, entering initial
 execution directly after activation. This demonstrates a legitimate private
-fact lifetime, not a finite consumer or hosted cutover. Proposed finite facts
+fact lifetime, not a finite consumer or hosted cutover. Confirmed finite facts
 stay in their trusted parent executor; never serialize them in the later
 Worker `runner.runTransaction` request or journal RPC. Cross-process or
 service-binding fact transfer is unapproved and retains durable readers. No
 hosted `ApplicationMutationSystem` caller is established by this audit.
 
-## Proposed entry topology
+## Approved entry topology
 
 1. At Application activation/readiness, capture the selected head and bounded
    immutable bundle in one preparatory target transaction. Retain full canonical
@@ -128,8 +131,44 @@ creation; document and prove this changed durable failure disposition. Do not
 join head-first hint locking to clock-first activation without an explicit lock
 and first-failure proof.
 
+Detached immutable canonical publication, schema, task, argument and grant
+authentication runs after preparatory target SQL closes. The accepting transaction
+retains the existing bounded fresh-observation hashes for physical readiness,
+active head, source readiness and publication materialization. Those hashes
+authenticate observations that must be fresh under the accepting locks; this
+slice neither removes them nor substitutes a new synchronous crypto primitive.
+The unprotected PGlite profile additionally retains the existing full canonical
+final reread and authentication. Protected reuse requires the real PostgreSQL
+installation and epoch attestation; PGlite cannot issue that proof.
+
+Application's retained fresh digest is `application-physical-readiness`, over
+the existing bounded build and lifecycle observations (at most 16,384 physical
+definitions). The active head uses its existing canonical frame and 1 MiB
+limit. Existing source/index/materialization owners retain fresh physical and
+publication comparisons at their bounded serving/publication frontier. The
+Application capture bounds function and cold membership to 4,096, head/body
+projections to their owner byte limits, and task rows to the stored task
+count plus one. Scalar aggregate gates admit at most 1 MiB of function-entry
+bodies (the existing publication catalog limit) and 32 MiB of task evidence
+including its header. Analysis/publication frames retain their existing 1 MiB
+limits; cold receipts retain their protocol's 16 KiB per row and the 4,096-row
+membership limit. Conditional SQL projections refuse oversized bodies before
+the driver returns them; retained-host charging still accounts the resulting
+prepared graph. These limits and fresh hashes are correctness work,
+not preparation cost that can be silently removed.
+
+Preparation and final acceptance functions are internal contracts consumed by
+trusted core construction. Inert nominal handles and detached input getters do
+not expose a transaction, source work callback, finalizer or commit authority to
+application author handles, Worker RPC or SDK exports. Ordinary `readActive`,
+function selection and `durableOperations` consumers retain their existing
+read and activation obligations.
+
 The final atomic entry retains activation's strong scope-clock lock through full
-source validation. Fewer crossings may lengthen same-scope exclusion; do not
+source validation. Preparation reserves issuer-local capacity before writes;
+its acquisition/use/release lifetime must abandon cancelled handoffs and release
+the reservation without making database work uninterruptible. Fewer crossings
+may lengthen same-scope exclusion; do not
 silently upgrade SHARE locks or weaken write protection. Measure transaction
 and observed lock-wait envelopes with distinct connections for same/different
 scopes and request keys, including invalid sources and replay. These envelopes
@@ -140,14 +179,13 @@ access checks.
 
 ## One prepared source graph and fresh observations
 
-`logicalStorageReadiness.ts:40,51,55` and
-`logicalDocuments/sourceAdmission.ts:117,119,147,152,160` separately construct
-artifact, physical/search/reference and source projections.
-`indexBuildReconciliation.ts:460` rereads the artifact in its logical branch;
-relational value preparation repeats requirements. Use one already-authenticated
-catalog construction inside the same existing configured construction/control-read
-lifetime. Compile immutable source/table/reference topology and table mechanics
-once; preserve lazy invalid-source refusal and original error/charge order.
+`logicalStorageReadiness.ts` constructs one already-authenticated catalog inside
+the existing configured construction/control-read lifetime.
+`indexBuildReconciliation.ts` passes its authenticated logical artifact to the
+requirements owner; source admission, search and relational value preparation
+consume that same issued topology. Immutable source/table/reference projections
+and table mechanics are compiled once. Lazy invalid-source refusal and original
+error/charge order remain intact.
 Publication definitions (`applicationDocumentMaterialization/materialization.ts:236,283,354`)
 retain fresh publication reads.
 
@@ -158,13 +196,13 @@ adapter bypass. Its host preparation lifetime is distinct from per-attempt
 allowed methods, source head/hash and table IDs (`participantAdmission.ts:76,124`,
 `relationalAdmission.ts:155`). A host lease is not attempt authority.
 
-Add private prepared-source descriptor identity to existing attempt state. Bind
-an admitted workflow/atomic member to the identical descriptor and factory issuer,
-not source-key/hash equality. `medusa-adapter/src/product-launch-workflow.ts:160,175`
-closes over `compiled.composition.participants`, while
-`atomicCommerce/participants.ts:152` prepares admission separately; migrate that
-handoff and the recapture at `commerceTransaction/borrowedWorkflowAttempt.ts:73`.
-Reuse only table mechanics at `logicalDocuments/relationalQuery.ts:85` and
+Private prepared-source descriptor identity is retained in existing attempt
+state. The native workflow's trusted preparation callback passes the exact
+compiled members to `atomicCommerce/participants.ts`; its issued descriptors
+are reused by `medusa-adapter/src/product-launch-workflow.ts` and
+`commerceTransaction/borrowedWorkflowAttempt.ts`. Factory and descriptor identity
+bind borrowing to the original source preparation. Reuse covers only table
+mechanics at `logicalDocuments/relationalQuery.ts:85` and
 `relationalRows.ts:55`; retain per-request query envelopes, filters, page rows
 and error order. Getter-free `capturePrivateJsonData` remains mandatory at
 unknown input boundaries.
@@ -175,8 +213,8 @@ map precedent. Decode each fresh build observation using an already compiled
 Schema (`logicalStorageReadiness.ts:91`, `indexBuildStates.ts:243`); do not cache
 decoded mutable rows or relabel library/idle CPU as application work.
 
-Search currently repeats table-frontier coverage at `logicalSearchBuild.ts:137`
-after index coverage preparation (`logicalStorageReadiness.ts:114`). Reuse
+Search consumes prepared table-frontier coverage after index coverage preparation.
+`logicalSearchBuild.ts` reuses
 `readPreparedIndexCoverageTableFrontiers` (`indexBuildStates.ts:665`) only when
 the issuer proves the **same transaction, clock and exact requested table
 membership**. Keep fresh search/build state, physical GIN proof and clock checks;
@@ -185,43 +223,102 @@ checks. When no eligible proof contains the needed table, the search owner
 legitimately performs that read. This is not a fallback engine or broader
 readiness certificate.
 
-## Proposed cost gates and attribution
+## Delivered cost gates and attribution
 
-These are proposed structural gates, not achieved results or latency forecasts.
-Inventory actual construction and statements before runtime approval.
+The [aggregate-entry evidence](../../packages/flarex-backend/benchmarks/mixed-mutation-core/aggregate-entry/README.md)
+retains full traced and untraced distributions with every sample and outlier.
+All stage SQL/transaction gates passed. This is a private-profile stage pass,
+not whole-goal latency acceptance or a hosted performance claim.
 
-Admission topology is **9 → 3** explicit transactions: target **8 → 2**, control
-**1 → 1**. Current target wrappers are eight BEGIN, eight COMMIT and six SET
+The retained measured fixture previously drove a pending journal directly and
+did not execute the complete initial stored-OCC/grant verification path. The
+connected slice uses the executor's authenticated finite initial-entry owner,
+including original claim admission, initial renewal and liveness across the
+manual Worker/body/seal lifetime. The three-transaction entry consists of two
+target transactions and one control transaction. A complete authenticated
+request additionally requires the existing fresh initial-renewal target
+transaction; committed structural entry facts cannot replace that observation.
+The original three-transaction complete-request forecast is superseded. Count
+the added authentication and renewal proof in every actual statement and
+transaction receipt; the earlier baseline grants no credit for omitted proof.
+The actual construction and statement ledger includes those added obligations.
+
+Structural entry topology is **9 → 3** explicit transactions: target **8 → 2**,
+control **1 → 1**. This comparison excludes the added complete initial
+authentication and renewal obligation. Prior target wrappers are eight BEGIN, eight COMMIT and six SET
 statements: 22. Two READ COMMITTED target transactions use six wrappers, giving
 **16 supported wrapper removals**. The source-derived formula is:
 
 `new admission SQL = 138 - 16 - D + A = 122 - D + A`
 
 `D` is actual displaced owner statements; `A` is added capture/correlation/guard/
-fact work. Proposed admission ceiling **126** requires **A - D <= 4**. It does
-not promise four added statements or credit twelve removed kernel reads without
-accounting for their replacement proof. No row-write savings are inferred.
+fact work. The original structural admission ceiling **126** requires **A - D <= 4**.
+The complete authenticated profile has **four** admission transactions: three
+target and one control. Its wrapper reduction is **13**, because the fresh
+renewal transaction retains its own three wrappers. The complete comparison is:
 
-Conditional search reuse credits **10 / 10 / 23** statements only after exact
-table membership is demonstrated for the actual frontiers. Payload has no
-additional search saving. Product phase SQL is **210**; Product + Payload has
+`complete admission SQL = 138 - 13 - D + A = 125 - D + A`
+
+The observed normalized SQL fingerprint multiset accounts **51** displaced and
+**23** added non-wrapper dispatches, giving **97** admission dispatches: **71**
+target and **26** control. These differences include changed projections and
+added authentication; they are not semantic owner removal credits or eliminated
+row work. Isolated renewal SQL `Qrenew` remains unavailable without owner-level
+trace attribution. One lease update, one claim update and the extra target
+transaction are observed; shared reads must not be allocated by inference.
+The original **126** admission ceiling remains the complete-profile gate.
+Preserve every replacement proof and count all server statements.
+
+The original forecast conditionally credited **10 / 10 / 23** search statements
+only after exact table membership was demonstrated for the actual frontiers.
+Payload had no additional forecast search saving. Prior Product phase SQL is
+**210**; Product + Payload has
 Product **210** plus Payload **18**; workflow has Product **209**, workflow **265**
 and Payload **19**. Protected first fills differ across these source contexts;
 these observations are not identical per-frontier costs or additive CPU budgets.
 
-| Graph | Current SQL / transactions | Proposed ceiling SQL / transactions |
-| --- | ---: | ---: |
-| Product | 562 / 25 | 540 / 19 |
-| Product + Payload | 585 / 26 | 563 / 20 |
-| Mixed finite workflow | 888 / 39 | 853 / 33 |
-| Standalone finite workflow | 309 / 6 | 309 / 6 |
+| Graph | Prior measured SQL / transactions | Original structural forecast SQL / transactions | Complete-profile ceiling SQL / transactions | Current warm SQL / transactions |
+| --- | ---: | ---: | ---: | ---: |
+| Product | 562 / 25 | 540 / 19 | 540 / 20 | 519 / 20 |
+| Product + Payload | 585 / 26 | 563 / 20 | 563 / 21 | 542 / 21 |
+| Mixed finite workflow | 888 / 39 | 853 / 33 | 853 / 34 | 845 / 34 |
+| Standalone finite workflow | 309 / 6 | 309 / 6 | 309 / 6 | 309 / 6 |
 
-The SQL ceilings subtract twelve admission statements and conditional search
-savings. Transaction ceilings subtract six initial cuts; retain later **10 / 11 /
+The original transaction forecasts are superseded for the complete authenticated
+profile because the earlier fixture omitted initial proof and renewal. The
+original SQL ceilings remain the all-sample gates: cold/warmup maxima are
+**523 / 548 / 849 / 309**, with no exception or exclusion. The complete profile
+retains every initial proof. Whole-request latency goals remain unchanged. Report the
+structural entry gate separately from complete-request SQL and transaction totals.
+
+Warm terminal SQL is **173 / 178 / 216**, below **228 / 236 / 321**, with three
+terminal transactions. The matched terminal fingerprint difference is four
+displaced and two added non-wrapper dispatches, net minus two. It establishes
+neither a semantic owner removal credit nor a latency cause.
+
+| Graph | Warm p50 / p95 (ms) | Retained maximum (ms) |
+| --- | ---: | ---: |
+| Product | 752.955 / 888.010 | 7,701.252 |
+| Product + Payload | 678.637 / 695.351 | 701.987 |
+| Mixed finite workflow | 1,196.599 / 1,289.494 | 1,292.959 |
+| Standalone finite workflow | 314.581 / 336.328 | 356.409 |
+
+Standalone remains below 400 ms median and its **9.586912%** median increase
+passes the strict below-10% gate. The prior mixed baseline omitted complete
+initial authentication and renewal; these distributions are not equivalent
+execution profiles. Retain their changes and outliers without attributing a
+causal regression to the cutover. All mixed p50/p95 goals remain unmet.
+
+The original SQL forecast subtracted twelve admission statements and conditional
+search savings. Actual Worker and publication statement counts provide no
+**10 / 10 / 23** search-saving credit; phase changes alone do not identify a
+source cause. The complete profile retains one renewal transaction beyond the
+structural entry. Retain later **10 / 11 /
 24** native data frontiers, two Application point transactions, one root point
 bootstrap and three healthy terminal transactions. If construction or coverage
-proof cannot meet these ceilings, revise the proposal before implementation;
-do not claim a universal frontier floor or silently credit another optimization.
+proof cannot meet these ceilings, reconcile the measured complete profile before
+claiming the cost gate; do not claim a universal frontier floor or silently
+credit another optimization.
 Server statements, allocations/bytes, preparation/reprepare and retry work must
 be counted where observed; driver await is not server CPU or lock time.
 
@@ -238,7 +335,7 @@ contract. No bootstrap removal is included in the ceilings.
 
 ## Breaking contracts, cleanup and retained obligations
 
-| Contract/owner | Proposed replacement and required disposition |
+| Contract/owner | Delivered replacement and retained disposition |
 | --- | --- |
 | Private finite Application mutation selection/preparation | Owner-issued bounded construction followed by final exact acceptance; replace repeated healthy finite readActive/readiness/function composition; retain standard durableOperations selection |
 | Finite session activation result | Confirmed finite entry facts and explicit atomic creation-plus-source-entry semantics; migrate finite executor claim/activation consumers, retain standard durableOperations activation |
@@ -247,25 +344,26 @@ contract. No bootstrap removal is included in the ceilings.
 | Prepared source/readiness APIs | Share one authenticated catalog construction and compiled source/table mechanics in their existing lifetime; migrate all connected source consumers |
 | Search coverage input | Issued exact-transaction coverage with explicit table membership and ordered errors; retain legitimate owner reads when proof does not apply |
 
-No schema, codec, durable format, reset or deletion is inherently required.
-Revise the preflight if implementation evidence requires one. Drain live finite
-owners or use existing exact fenced abort; do not transfer local maps. Retain
+No schema, codec or durable format changed; no reset or durable deletion was
+introduced. Local maps cannot transfer between live finite owners; disposal
+retains the existing exact fenced abort. Retain
 sealed-running/finishing/committed/relation-conflicted recovery and independent
 ordinary Application, standalone Medusa/Payload and durable-operation profiles,
 including their broader protected preparation obligations.
-Remove displaced healthy finite APIs, exports, duplicate validators/construction,
-fixtures and stale documentation in the same slice. Named standard Application/
+The connected private finite consumers use owner-issued preparation and atomic
+entry; repeated healthy selection/activation/load/open composition and duplicate
+source construction are displaced. Named standard Application/
 durableOperations, standalone and recovery consumers retain their distinct
 profile obligations without an arbitrary removal gate. Temporary displaced-path
 retention still needs a named consumer and gate; no compatibility wrappers or
 dual engines.
 
-## Validation, alternatives and completion
+## Validation scope, alternatives and remaining gates
 
-Validate changed private finite core owners and genuine Product, selected Payload,
-finite workflow and Worker consumers with PGlite and distinct-connection
-ordinary-role PostgreSQL. Preserve ordinary Application, standalone and durable
-regressions. Required witnesses cover:
+The validation scope covers changed private finite core owners and genuine
+Product, selected Payload, finite workflow and Worker consumers with PGlite and
+distinct-connection ordinary-role PostgreSQL, alongside ordinary Application,
+standalone and durable regressions. The retained witnesses cover:
 
 - immutable unchanged-digest corruption and sidecar membership; invalid-later
   source/error order; late revocation/head/readiness/generation changes;
@@ -277,7 +375,8 @@ regressions. Required witnesses cover:
 - initial/late trigger inflation and actual final-row correlation with bounded
   scalar output; source refusal rollback and no confirmed facts/local capture;
 - replay, unknown COMMIT, cancellation, renewal, freeze/late runner and recovery
-  without duplicate callbacks/events; SQL closed during callbacks and crypto;
+  without duplicate callbacks/events; SQL closed during callbacks and detached
+  immutable/signature preparation, with the listed retained fresh hashes;
 - same/different scope and request-key contention, invalid-source/replay ordering,
   preserved lock strength/order and observed wait/transaction envelopes.
 
@@ -286,9 +385,9 @@ existing measured sources and artifacts remain unchanged during this preflight.
 Run affected type/build/Worker/source guards and lint, both final project reviews,
 substantive-fix reruns and cleanup. Compare quiet traced structure and matched
 untraced distributions on unchanged graphs, preserving all outliers and the
-current measurement artifacts. A new stage pass is separate from whole-goal
+current measurement artifacts. The delivered stage pass is separate from whole-goal
 acceptance: current mixed p50/p95 targets **100/200, 200/400 and 500/1,000 ms**
-remain unmet, Product + Payload's p95 regression remains retained, and standalone
+remain unmet; prior distribution regressions and current outliers remain retained. Standalone
 must stay below 400 ms median with regression strictly below 10%.
 
 Cheaper attestation/certificates require a new integrity/maintenance contract.

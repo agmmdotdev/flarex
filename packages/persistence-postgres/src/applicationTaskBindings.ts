@@ -2,7 +2,11 @@ import {
   bytesEqualFullScan,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
-import { and, eq, sql } from "drizzle-orm";
+import { MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1, MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1 }
+  from "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import { MAX_TASK_DEFINITION_CANONICAL_BYTES_V1 }
+  from "@flarex/standard-application-definition/internal/task-definition-v1";
+import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { AppRowTransaction } from "./appRows";
@@ -21,6 +25,7 @@ import {
   type RegisterApplicationTaskBindingsInput,
 } from "./applicationTaskBindingModel";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
+import { detachDriverRows } from "./detachDriverRows";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { runEffectTransaction } from "./effectTransaction";
 import {
@@ -63,6 +68,74 @@ export interface ApplicationTaskCatalogSnapshotPort {
 
 const taskCatalogSnapshotPorts = new WeakSet<ApplicationTaskCatalogSnapshotPort>();
 
+/** Detached rows, never a current task admission verdict. */
+export interface CapturedApplicationTaskCatalogRows {
+  readonly catalog: typeof fxSystemApplicationTaskCatalogsV1.$inferSelect;
+  readonly definitions: ReadonlyArray<typeof fxSystemApplicationTaskDefinitionsV1.$inferSelect>;
+}
+
+export const captureApplicationTaskCatalogRowsInTransaction = Effect.fn(
+  "ApplicationTaskCatalogSnapshot.captureRows",
+)(function* (port: ApplicationTaskCatalogSnapshotPort, tx: AppRowTransaction,
+  authority: ApplicationAnalysisAuthority, revisionId: string) {
+  if (!isApplicationTaskCatalogSnapshotPort(port) || revisionId.trim().length === 0 || revisionId.includes("\0"))
+    return yield* taskSnapshotFailure("invalidInput", false);
+  const clockRows = yield* taskSnapshotQuery(tx.select().from(fxSystemScopeClocks).where(eq(
+    fxSystemScopeClocks.scopeId, authority.scopeId,
+  )).limit(1));
+  const clock = clockRows[0];
+  if (clock === undefined || clock.storageGeneration !== authority.storageGeneration ||
+    clock.storageGenerationFence !== authority.storageGenerationFence || clock.epoch !== authority.epoch)
+    return yield* taskSnapshotFailure("authorityChanged", false);
+  const catalogRows = yield* taskSnapshotQuery(tx.select({ ...getTableColumns(fxSystemApplicationTaskCatalogsV1),
+    bindingBytes: sql<Uint8Array>`case when octet_length(${fxSystemApplicationTaskCatalogsV1.bindingBytes}) between 1 and ${MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1}
+      then ${fxSystemApplicationTaskCatalogsV1.bindingBytes} else ''::bytea end`,
+  }).from(fxSystemApplicationTaskCatalogsV1).where(and(
+    eq(fxSystemApplicationTaskCatalogsV1.scopeId, authority.scopeId),
+    eq(fxSystemApplicationTaskCatalogsV1.revisionId, revisionId),
+  )).limit(1).for("share"));
+  const catalog = catalogRows[0];
+  if (catalog === undefined) return null;
+  if (!Number.isSafeInteger(catalog.taskCount) || catalog.taskCount < 0 || catalog.taskCount > 4_096 ||
+    catalog.bindingBytes.byteLength < 1 || catalog.bindingBytes.byteLength > MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1)
+    return yield* taskSnapshotFailure("storedState", false);
+  const definitionBytesAdmitted = sql<boolean>`(select coalesce(sum(
+    octet_length(${fxSystemApplicationTaskDefinitionsV1.bindingBytes}) +
+    octet_length(${fxSystemApplicationTaskDefinitionsV1.manifestBytes})), 0)
+      + ${catalog.bindingBytes.byteLength} <= ${MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1}
+      and count(*) <= ${catalog.taskCount}
+    from ${fxSystemApplicationTaskDefinitionsV1}
+    where ${fxSystemApplicationTaskDefinitionsV1.scopeId} = ${authority.scopeId}
+      and ${fxSystemApplicationTaskDefinitionsV1.revisionId} = ${revisionId})`;
+  const definitions = yield* taskSnapshotQuery(tx.select({ ...getTableColumns(fxSystemApplicationTaskDefinitionsV1),
+    bindingBytes: sql<Uint8Array>`case when ${definitionBytesAdmitted} and octet_length(${fxSystemApplicationTaskDefinitionsV1.bindingBytes}) between 1 and ${MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1}
+      then ${fxSystemApplicationTaskDefinitionsV1.bindingBytes} else ''::bytea end`,
+    manifestBytes: sql<Uint8Array>`case when ${definitionBytesAdmitted} and octet_length(${fxSystemApplicationTaskDefinitionsV1.manifestBytes}) between 1 and ${MAX_TASK_DEFINITION_CANONICAL_BYTES_V1}
+      then ${fxSystemApplicationTaskDefinitionsV1.manifestBytes} else ''::bytea end`,
+  }).from(fxSystemApplicationTaskDefinitionsV1).where(and(
+    eq(fxSystemApplicationTaskDefinitionsV1.scopeId, authority.scopeId),
+    eq(fxSystemApplicationTaskDefinitionsV1.revisionId, revisionId),
+  )).limit(catalog.taskCount + 1).for("share"));
+  let totalBytes = catalog.bindingBytes.byteLength;
+  for (const definition of definitions) {
+    if (definition.bindingBytes.byteLength < 1 || definition.bindingBytes.byteLength > MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1 ||
+      definition.manifestBytes.byteLength < 1 || definition.manifestBytes.byteLength > MAX_TASK_DEFINITION_CANONICAL_BYTES_V1)
+      return yield* taskSnapshotFailure("storedState", false);
+    totalBytes += definition.bindingBytes.byteLength + definition.manifestBytes.byteLength;
+    if (totalBytes > MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1)
+      return yield* taskSnapshotFailure("storedState", false);
+  }
+  const ownedCatalog = detachDriverRows([catalog])[0];
+  if (ownedCatalog === undefined) return yield* taskSnapshotFailure("storedState", false);
+  return Object.freeze({ catalog: ownedCatalog, definitions: detachDriverRows(definitions) });
+});
+
+export const authenticateCapturedApplicationTaskCatalogRows = Effect.fn(
+  "ApplicationTaskCatalogSnapshot.authenticateCapturedRows",
+)((rows: CapturedApplicationTaskCatalogRows) => reconstructApplicationTaskCatalogSnapshotEffect(
+  rows.catalog, rows.definitions,
+));
+
 export function createApplicationTaskCatalogSnapshotPort():
 ApplicationTaskCatalogSnapshotPort {
   const loadInTransaction = Effect.fn(
@@ -75,40 +148,8 @@ ApplicationTaskCatalogSnapshotPort {
     ApplicationTaskCatalogSnapshot | null,
     ApplicationTaskCatalogSnapshotError
   > {
-    if (revisionId.trim().length === 0 || revisionId.includes("\0")) {
-      return yield* taskSnapshotFailure("invalidInput", false);
-    }
-    const clockRows = yield* taskSnapshotQuery(
-      tx.select().from(fxSystemScopeClocks).where(eq(
-        fxSystemScopeClocks.scopeId,
-        authority.scopeId,
-      )).limit(1),
-    );
-    const clock = clockRows[0];
-    if (clock === undefined ||
-      clock.storageGeneration !== authority.storageGeneration ||
-      clock.storageGenerationFence !== authority.storageGenerationFence ||
-      clock.epoch !== authority.epoch) {
-      return yield* taskSnapshotFailure("authorityChanged", false);
-    }
-    const catalogRows = yield* taskSnapshotQuery(
-      tx.select().from(fxSystemApplicationTaskCatalogsV1).where(and(
-        eq(fxSystemApplicationTaskCatalogsV1.scopeId, authority.scopeId),
-        eq(fxSystemApplicationTaskCatalogsV1.revisionId, revisionId),
-      )).limit(1).for("share"),
-    );
-    const catalog = catalogRows[0];
-    if (catalog === undefined) return null;
-    const definitions = yield* taskSnapshotQuery(
-      tx.select().from(fxSystemApplicationTaskDefinitionsV1).where(and(
-        eq(fxSystemApplicationTaskDefinitionsV1.scopeId, authority.scopeId),
-        eq(fxSystemApplicationTaskDefinitionsV1.revisionId, revisionId),
-      )).limit(catalog.taskCount + 1).for("share"),
-    );
-    return yield* reconstructApplicationTaskCatalogSnapshotEffect(
-      catalog,
-      definitions,
-    );
+    const captured = yield* captureApplicationTaskCatalogRowsInTransaction(port, tx, authority, revisionId);
+    return captured === null ? null : yield* authenticateCapturedApplicationTaskCatalogRows(captured);
   });
   const port = Object.freeze({ loadInTransaction });
   taskCatalogSnapshotPorts.add(port);

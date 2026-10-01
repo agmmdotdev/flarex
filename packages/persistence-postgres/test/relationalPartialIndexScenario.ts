@@ -60,7 +60,7 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
   } };
   const resolved = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, ports.authority);
   const search = (yield* transact(tx => ensureLogicalStorageDefinitions(tx, deploymentId, schemaVersionId))).search;
-  const searchBuild = yield* prepareLogicalSearchBuild(db, deploymentId, schemaVersionId);
+  const searchBuild = yield* prepareLogicalSearchBuild(db, deploymentId, schemaVersionId, { kind: "fresh" });
   expect(yield* transact(tx => searchBuild.advanceEmpty(tx, resolved.authority))).toMatchObject({ status: "ready" });
   const rowIds: AppRowIdHexV1[] = [];
   const writeNative = Effect.fn("RelationalPartialIndex.writeFixtureRevision")(function* (
@@ -190,7 +190,7 @@ export const relationalPartialIndexScenario = Effect.fn("RelationalPartialIndex.
   const located = yield* locateAppIndexDefinitionByIdEffect(db, scopeId, definition.indexDefinitionId);
   if (located === null) throw new Error("Missing located native definition");
   const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
-  const values = yield* prepareLogicalRelationalValueValidation(db, deploymentId, schemaVersionId);
+  const values = yield* prepareLogicalRelationalValueValidation(db, deploymentId, schemaVersionId, { kind: "fresh" });
   expect(yield* Effect.result(prepareLogicalStorageReadiness({ ...uniquePorts, authority: { ...uniquePorts.authority } }, uniqueEligibility,
     { deploymentId, scopeId, schemaVersionId }))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
   expect(yield* Effect.result(prepareLogicalStorageReadiness(uniquePorts, { ...uniqueEligibility },

@@ -115,6 +115,14 @@ archive, not as current design authority.
 
 ### Next Work
 
+The private mixed-mutation graph delivered
+[aggregate request entry and prepared source construction](./roadmaps/mixed-mutation-core/19-aggregate-entry-preflight.md).
+Its atomic creation/source-entry and confirmed-fact contract is bounded to the
+existing private finite profile. Its stage cost gates passed with complete
+initial authentication and renewal; whole mixed latency goals remain unmet.
+Standard Application durable execution retains its existing obligations, and
+host lifecycle work remains conditional and unapproved.
+
 Do not infer the next implementation gate from this overview. Research and
 preflight the next unchecked gate in
 [the FlarexDB foundation roadmap](./roadmaps/flarexdb-foundation/README.md), then

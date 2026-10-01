@@ -30,10 +30,11 @@ import {
 } from "../src/applicationAnalysisRegistration";
 import { makeApplicationPublicationRepository } from
   "../src/applicationPublication";
-import { makeApplicationTaskBindingRepository } from
+import { makeApplicationTaskBindingRepository, createApplicationTaskCatalogSnapshotPort } from
   "../src/applicationTaskBindings";
 import { createPGlitePersistence } from "../src/pglite";
 import { runEffect } from "./effectTestRuntime";
+import { newTestPGlite } from "./pgliteSearchExtensions";
 import {
   insertSessionTestScope,
   SESSION_TEST_EPOCH_UUID,
@@ -176,6 +177,43 @@ describe("Application task-binding persistence", () => {
     if (Result.isFailure(conflict)) {
       expect(conflict.failure.reason).toBe("conflictingReplay");
     }
+  });
+
+  it("refuses aggregate stored task evidence before transferring definition bodies", async () => {
+    const db = newTestPGlite();
+    let watching = false;
+    let largestDriverBytes = 0;
+    const observe = (value: unknown): void => {
+      if (value instanceof Uint8Array) largestDriverBytes = Math.max(largestDriverBytes, value.byteLength);
+      else if (Array.isArray(value)) value.forEach(observe);
+      else if (typeof value === "object" && value !== null) Object.values(value).forEach(observe);
+    };
+    const persistence = await createPGlitePersistence({ db: {
+      exec: db.exec.bind(db), query: db.query.bind(db),
+      transaction: run => db.transaction(tx => run({ exec: tx.exec.bind(tx), query: new Proxy(tx.query, {
+        apply(targetQuery, _receiver, args: unknown[]) {
+          return Promise.resolve(Reflect.apply(targetQuery, tx, args)).then(result => {
+            if (watching) observe(result);
+            return result;
+          });
+        },
+      }) })),
+    } });
+    const fixture = await taskBindingFixture(false, persistence);
+    try {
+      await runEffect(fixture.repository.register(fixture.input));
+      // Each frame fits its persisted16MiB limit, but their sum plus the real
+      // catalog header exceeds the existing32MiB evidence budget.
+      await fixture.persistence.query(`update fx_system_application_task_definition_v1
+        set binding_bytes = decode(repeat('00', 16777216), 'hex'),
+            manifest_bytes = decode(repeat('00', 16777216), 'hex') where scope_id = $1`, [AUTHORITY.scopeId]);
+      watching = true;
+      const port = createApplicationTaskCatalogSnapshotPort();
+      await expect(persistence.drizzle.transaction(tx => runEffect(port.loadInTransaction(tx,
+        AUTHORITY, fixture.publication.revisionId)))).rejects.toMatchObject({ reason: "storedState" });
+      expect(largestDriverBytes).toBeGreaterThan(0);
+      expect(largestDriverBytes).toBeLessThan(16_384);
+    } finally { await db.close(); }
   });
 
   it("rejects replay after stored child evidence is corrupted", async () => {
@@ -588,8 +626,8 @@ async function taskBindingCounts(
   return Object.freeze({ ...row });
 }
 
-async function taskBindingFixture(empty = false) {
-  const persistence = await createPGlitePersistence();
+async function taskBindingFixture(empty = false, suppliedPersistence?: Awaited<ReturnType<typeof createPGlitePersistence>>) {
+  const persistence = suppliedPersistence ?? await createPGlitePersistence();
   await persistence.migrate();
   await insertSessionTestScope(persistence);
   const identities = [

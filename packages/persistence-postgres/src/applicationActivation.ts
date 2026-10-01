@@ -8,14 +8,14 @@ import {
 import { canonicalizeApplicationManifest } from
   "@flarex/analysis/application-analysis";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Encoding, Exit, Result } from "effect";
 import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import { AppRowReadPersistenceError, type AppRowTransaction } from "./appRows";
 import { readApplicationReadinessTargetProtection } from "./applicationReadiness";
 import { prepareApplicationActiveHeadStructure, type PreparedApplicationActiveHeadStructure } from "./applicationActiveHeadRead";
-import { captureHostPreparationCharge } from "./preparedHostRuntime";
+import { captureHostPreparationCharge, captureHostPreparationLifetime } from "./preparedHostRuntime";
 import { replaceActiveIndexMaintenanceInTransactionEffect } from "./indexMaintenance";
 import { replaceActiveUniqueMaintenanceInTransactionEffect, AppUniqueConstraintSetBuildIntegrationV1Error, type ReadUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
@@ -71,6 +71,8 @@ import {
   hasApplicationReadinessPlanningComposition,
   validateApplicationReadinessForActivationInTransaction,
   validateStoredApplicationReadinessForActivationInTransaction,
+  captureFiniteApplicationReadinessInTransaction,
+  prepareCapturedFiniteApplicationReadiness,
   type ApplicationReadinessActivationBasis,
   type ApplicationReadinessRepository,
   type ApplicationReadinessResult,
@@ -324,6 +326,51 @@ const activationRepositoryStates = new WeakMap<
   object,
   ApplicationActivationRepositoryState
 >();
+
+declare const finiteActivePreparationBrand: unique symbol;
+export interface PreparedFiniteActiveApplication {
+  readonly [finiteActivePreparationBrand]: true;
+}
+interface FiniteActivePreparationState {
+  readonly repository: object;
+  readonly selection: ApplicationActiveSelection;
+  readonly schema: AwaitedFiniteSchema;
+  readonly lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
+}
+type AwaitedFiniteSchema = Effect.Success<ReturnType<typeof prepareCapturedFiniteApplicationReadiness>>["schema"];
+const finiteActivePreparations = new WeakMap<PreparedFiniteActiveApplication, FiniteActivePreparationState>();
+const finiteActivePreparationReaders = new WeakMap<object, () => Effect.Effect<PreparedFiniteActiveApplication,
+  ReadApplicationReadinessError | ApplicationActivationError | LocatedReadCommittedTransactionFailureV1 |
+  TrustedScopeAuthorityError | LockScopeClockForShareError>>();
+
+export const prepareFiniteActiveApplication = Effect.fn("ApplicationActivation.prepareFiniteActive")(
+function* (repository: ApplicationActivationRepository<unknown, unknown>) {
+  const prepare = finiteActivePreparationReaders.get(repository);
+  if (prepare === undefined) return yield* activationFailure("read", "invalidComposition");
+  return yield* prepare();
+});
+
+/** Structural construction inputs only; every accepting transaction reauthenticates the selection. */
+export function readPreparedFiniteActiveApplication(prepared: PreparedFiniteActiveApplication) {
+  const state = finiteActivePreparations.get(prepared);
+  if (state === undefined) return Result.fail(activationError("read", "invalidComposition"));
+  return (state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+    Result.mapError(cause => activationError("read", "invalidComposition", undefined, false, cause)),
+    Result.flatMap(() => claimApplicationExecutableActiveSelection(state.selection)),
+    Result.map(claimed => Object.freeze({ claimed: structuredClone(claimed), schema: structuredClone(state.schema) })),
+  );
+}
+
+export const validatePreparedFiniteActiveApplicationInTransaction = Effect.fn(
+  "ApplicationActivation.validatePreparedFiniteActive",
+)(function* (prepared: PreparedFiniteActiveApplication, tx: AppRowTransaction, clock: ScopeClockRecord) {
+  const state = finiteActivePreparations.get(prepared);
+  if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+  yield* Effect.fromResult(readPreparedFiniteActiveApplication(prepared));
+  const validated = yield* validateApplicationBindingBasisInTransaction(state.selection, tx, clock);
+  if (validated.kind !== "legacy") return yield* activationFailure("validateSelection", "invalidComposition");
+  return Object.freeze({ selection: state.selection, basis: validated.basis, schema: structuredClone(state.schema) });
+});
 
 const bindingPreparationBrand: unique symbol = Symbol("ApplicationBindingPreparation");
 export interface ApplicationBindingPreparation { readonly [bindingPreparationBrand]: true }
@@ -736,7 +783,55 @@ function makeLegacyApplicationActivationRepository<SchemaFailure, ColdFailure>(
     readiness: captured.readiness,
     authority: captured.authority,
   }));
+  finiteActivePreparationReaders.set(repository, makeFiniteActivePreparationReader(repository, captured));
   return repository;
+}
+
+function makeFiniteActivePreparationReader<SchemaFailure, ColdFailure>(repository: ApplicationActivationRepository<SchemaFailure, ColdFailure>,
+  captured: ApplicationActivationContext<SchemaFailure, ColdFailure>) {
+  return Effect.fn("ApplicationActivation.captureFiniteActive")(function* () {
+    if (!validIdentity(captured.deploymentId) || !hasApplicationReadinessComposition(
+      captured.readiness, captured.authority)) return yield* activationFailure("read", "invalidComposition");
+    const lifetime = yield* captureHostPreparationLifetime();
+    const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect(captured, captured.authority);
+    const raw = yield* runLocatedTransaction(located.target, "read", undefined, tx => Effect.gen(function* () {
+      // The head hint retains SHARE. The following snapshot clock read acquires no row lock.
+      // Final activation keeps the existing clock-first strong lock order.
+      const heads = yield* query(tx.select({ ...getTableColumns(fxSystemApplicationActiveHeads),
+        headBytes: sql<Uint8Array>`case when octet_length(${fxSystemApplicationActiveHeads.headBytes}) between 1 and ${MAX_FRAME_BYTES}
+          then ${fxSystemApplicationActiveHeads.headBytes} else ''::bytea end`,
+      }).from(fxSystemApplicationActiveHeads).where(eq(
+        fxSystemApplicationActiveHeads.scopeId, located.authority.scopeId,
+      )).limit(1).for("share"), "read");
+      const head = heads[0];
+      if (head === undefined || head.readinessContractVersion !== 1 || !validIdentity(head.revisionId))
+        return yield* activationFailure("read", "activeMissing");
+      if (head.headBytes.byteLength > MAX_FRAME_BYTES) return yield* activationFailure("read", "storedState");
+      const readiness = yield* captureFiniteApplicationReadinessInTransaction(captured.readiness,
+        located.authority, head.revisionId, located.target, tx);
+      return Object.freeze({ head: structuredClone(head), readiness });
+    }));
+    const head = yield* decodeHead(raw.head, "read");
+    const prepared = yield* prepareCapturedFiniteApplicationReadiness(captured.readiness, raw.readiness);
+    if (head.readinessKind !== "legacy" || !headMatchesValidatedReadiness(head,
+      { kind: "legacy", basis: prepared.basis })) return yield* activationFailure("read", "concurrentHead");
+    const active = issueLegacyActiveSelection({ expectedActiveHead: {
+      activationSequence: head.activationSequence, headSha256: encodeBytesToLowercaseHex(head.headSha256),
+    }, basis: { ...prepared.basis, activationSequence: head.activationSequence,
+      activationSha256: copyBytes(head.activationSha256), headSha256: copyBytes(head.headSha256) } },
+    captured.readiness, prepared.readiness);
+    const protection = readApplicationReadinessTargetProtection(captured.readiness, prepared.readiness);
+    if (protection !== undefined) bindingHeadPreparations.set(active.selection, prepareApplicationActiveHeadStructure(
+      protection, lifetime?.charge, active.basis));
+    yield* chargeHostPreparation({ basis: { ...active.basis,
+      physicalRequirements: { ...active.basis.physicalRequirements } }, schema: prepared.schema }).pipe(
+      Effect.mapError(cause => activationError("read", "resourceFailure", head.revisionId, false, cause)));
+    // SAFETY: registry identity binds the exact repository and host construction lifetime.
+    const result = Object.freeze({}) as PreparedFiniteActiveApplication;
+    finiteActivePreparations.set(result, Object.freeze({ repository, selection: active.selection,
+      schema: prepared.schema, lifetime }));
+    return result;
+  });
 }
 
 function makeCompositeApplicationActivationRepository<

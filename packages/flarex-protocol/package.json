@@ -96,7 +96,8 @@
     "./internal/relational-schema": "./src/relational-schema/index.ts",
     "./internal/schema-source": "./src/schema-source.ts",
     "./internal/logical-schema-candidate": "./src/logical-schema-candidate.ts",
-    "./internal/logical-storage-requirements": "./src/logical-storage-requirements.ts"
+    "./internal/logical-storage-requirements": "./src/logical-storage-requirements.ts",
+    "./internal/decoded-protocol-snapshot": "./src/decoded-protocol-snapshot.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

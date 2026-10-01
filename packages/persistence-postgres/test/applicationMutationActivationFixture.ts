@@ -30,6 +30,19 @@ export async function applicationMutationActivationFixture(input: Readonly<{
 }>): Promise<PreparedApplicationMutationSessionActivationV1 & Readonly<{
   verificationKey: ApplicationMutationGrantVerificationKeyV1;
 }>> {
+  return Object.freeze({ ...(await applicationMutationActivationEvidenceFixture(input)), activeSelection: input.selection });
+}
+
+/** Same test grant issuer for private preparation; no provisional live selection. */
+export async function applicationMutationActivationEvidenceFixture(input: Readonly<{
+  deploymentId: string;
+  executionAuthority: CanonicalApplicationMutationExecutionAuthorityV1;
+  requestKey: string;
+  grantId: string;
+  validatedArgsJson?: Readonly<{ body: string }>;
+}>): Promise<Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection"> & Readonly<{
+  verificationKey: ApplicationMutationGrantVerificationKeyV1;
+}>> {
   const now = Date.now();
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(input.deploymentId);
   const policyVersion = TransactionPolicyVersionV1Schema.make("policy_point_mutation_v1");
@@ -62,7 +75,7 @@ export async function applicationMutationActivationFixture(input: Readonly<{
     createApplicationMutationGrantVerifierNamespaceV1({ deploymentId, grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
       trustedNowEpochMilliseconds: Effect.succeed(now), keys: [verificationKey] })));
   const authority = input.executionAuthority.authority;
-  const prepared: PreparedApplicationMutationSessionActivationV1 = { deploymentId, scopeId: decodeReplacementScopeIdV1(authority.runtimeTarget.scopeId), activeSelection: input.selection,
+  const prepared: Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection"> = { deploymentId, scopeId: decodeReplacementScopeIdV1(authority.runtimeTarget.scopeId),
     evidence: { executionAuthority: authority, verifiedGrant,
       functionPath,
       functionKind: TransactionFunctionKindV1Schema.make("mutation"), schemaVersionId: decodeCatalogSchemaVersionId(authority.schemaVersionId),

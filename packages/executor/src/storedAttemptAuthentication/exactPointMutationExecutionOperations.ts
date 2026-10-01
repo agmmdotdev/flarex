@@ -59,6 +59,7 @@ import type {
 import {
   getLoadedPointMutationSessionAttemptOccRerunInspectionV1,
 } from "../pointMutationSessionAttemptState";
+import { getActivatedPointMutationSessionStateV1 } from "../pointMutationSessionActivationState";
 import type {
   ApplicationPointMutationRunnerHostV1Error,
   CommitInputVerificationV1Error,
@@ -200,11 +201,28 @@ export interface ExactPointMutationExecutionOperationDependenciesV1 {
 }
 
 export interface ExactPointMutationExecutionOperationsV1 {
+  readonly prepareFiniteInitialEntry: PrepareFiniteInitialEntry;
   readonly executeExactPointMutationAttempt:
     ExecuteExactPointMutationAttemptKernelV1<
       PointMutationAuthenticatedAttemptExecutionV1Error
     >;
 }
+
+export interface AuthenticatedFiniteInitialEntry {
+  readonly runnerInput: PointMutationOccRuntimeNeutralRunnerInputV1;
+  readonly journalAttempt: PointMutationJournalAttemptV1;
+  readonly deriveStoredAuthority: ReturnType<StoredAttemptAuthenticationV1["deriveAuthority"]>;
+  readonly reopenJournalAttempt: Effect.Effect<PointMutationJournalAttemptV1,
+    PointMutationSessionAttemptLoadingExecutionV1Error | PointMutationJournalBoundaryV1Error>;
+  readonly enterFinishing: StoredPointCommitFinishingTransitionV1["enterPointCommitFinishing"];
+}
+interface PreparedFiniteInitialEntry extends AuthenticatedFiniteInitialEntry {
+  readonly cleanupOnFailure: Effect.Effect<unknown, PointMutationAuthenticatedAttemptExecutionV1Error>;
+}
+export type PrepareFiniteInitialEntry = <InspectionUnavailableError, CurrentValidationError>(
+  input: Readonly<ExecuteExactPointMutationAttemptInputV1<InspectionUnavailableError, CurrentValidationError>>,
+) => Effect.Effect<PreparedFiniteInitialEntry,
+  PointMutationAuthenticatedAttemptExecutionV1Error | InspectionUnavailableError | CurrentValidationError>;
 
 export function makeExactPointMutationExecutionOperationsV1(
   dependencies: ExactPointMutationExecutionOperationDependenciesV1,
@@ -226,19 +244,9 @@ export function makeExactPointMutationExecutionOperationsV1(
     captureRunningRelationConflictTicket,
   } = dependencies;
 
-  const executeExactPointMutationAttempt:
-    ExactPointMutationExecutionOperationsV1[
-      "executeExactPointMutationAttempt"
-    ] = Effect.fn(
-      "StoredAttemptAuthentication.executeExactPointMutationAttemptKernel",
-    )(function* <InspectionUnavailableError, CurrentValidationError>(
-      input: Readonly<
-        ExecuteExactPointMutationAttemptInputV1<
-          InspectionUnavailableError,
-          CurrentValidationError
-        >
-      >,
-    ) {
+  const prepareExecution = Effect.fn("StoredAttemptAuthentication.prepareExactExecution")(
+    function* <InspectionUnavailableError, CurrentValidationError>(input: Readonly<
+      ExecuteExactPointMutationAttemptInputV1<InspectionUnavailableError, CurrentValidationError>>) {
       const generation = input.verificationState.session
         .executionAuthorityGeneration;
       if (
@@ -334,40 +342,100 @@ export function makeExactPointMutationExecutionOperationsV1(
 
       // The RR capture is closed. This is the last liveness/claim reload before
       // the journal admission and user-code boundary.
-      const currentAttempt = yield* attemptLoading.load({
+      const loadCurrentAttempt = attemptLoading.load({
         deploymentId: input.selector.deploymentId,
         scopeId: input.selector.scopeId,
         sessionId: input.selector.sessionId,
         attemptFence: input.selector.attemptFence.toString(),
       });
-      const currentInspection =
-        getLoadedPointMutationSessionAttemptOccRerunInspectionV1(
-          currentAttempt,
-        );
+      const confirmedActivation = input.confirmedInitialActivation;
+      const finiteState = confirmedActivation === undefined ? undefined : getActivatedPointMutationSessionStateV1(confirmedActivation);
+      const finiteEntry = finiteState?.finiteEntry;
+      if (confirmedActivation !== undefined && (finiteEntry === undefined || finiteEntry.journal !== journal ||
+        finiteEntry.executionClaim !== finiteState?.executionClaim || journal.inspectConfirmedFiniteEntry === undefined ||
+        journal.openConfirmedFiniteEntry === undefined)) return yield* Effect.fail(input.currentInspectionUnavailable());
+      const currentAttempt = confirmedActivation === undefined ? yield* loadCurrentAttempt : undefined;
+      const currentAuthority = currentAttempt ?? confirmedActivation;
+      if (currentAuthority === undefined) return yield* Effect.fail(input.currentInspectionUnavailable());
+      const currentInspection = currentAttempt === undefined
+        ? finiteEntry === undefined || journal.inspectConfirmedFiniteEntry === undefined ? undefined
+          : yield* Effect.fromResult(journal.inspectConfirmedFiniteEntry(finiteEntry.capture, finiteEntry.preparation))
+        : getLoadedPointMutationSessionAttemptOccRerunInspectionV1(currentAttempt);
       if (currentInspection === undefined) {
         return yield* Effect.fail(input.currentInspectionUnavailable());
       }
       yield* input.validateCurrent(currentInspection);
 
+      return { currentAuthority, currentAttempt, runnerEvidence, entropy, loadCurrentAttempt };
+    });
+
+  const prepareBody = Effect.fn("StoredAttemptAuthentication.prepareExactBody")(
+    function* <InspectionUnavailableError, CurrentValidationError>(input: Readonly<
+      ExecuteExactPointMutationAttemptInputV1<InspectionUnavailableError, CurrentValidationError>>,
+      prepared: Effect.Success<ReturnType<typeof prepareExecution>>) {
+      const context = yield* Effect.fromResult(capturePointMutationOccExecutionContext(
+        prepared.entropy, input.executionEvidence.creationTimeSeed, input.attemptFence, input.snapshotToken));
+      const finiteEntry = input.confirmedInitialActivation === undefined ? undefined
+        : getActivatedPointMutationSessionStateV1(input.confirmedInitialActivation)?.finiteEntry;
+      const journalAttempt = prepared.currentAttempt !== undefined ? yield* journal.openAttempt(prepared.currentAttempt, input.executionScope)
+        : finiteEntry !== undefined && journal.openConfirmedFiniteEntry !== undefined
+        ? yield* journal.openConfirmedFiniteEntry(finiteEntry.capture, finiteEntry.preparation, input.executionScope, finiteEntry.executionClaim)
+        : yield* Effect.fail(input.currentInspectionUnavailable());
+      return Object.freeze({ journalAttempt, runnerInput: capturePointMutationOccRunnerInput(prepared.runnerEvidence,
+        context, bindPointMutationOccJournal(journal, journalAttempt)) });
+    });
+
+  const prepareFiniteInitialEntry: PrepareFiniteInitialEntry = Effect.fn("StoredAttemptAuthentication.prepareFiniteInitialEntry")(
+    function* (input) {
+      if (input.confirmedInitialActivation === undefined) return yield* Effect.fail(input.currentInspectionUnavailable());
+      const prepared = yield* prepareExecution(input);
+      const abort = Effect.flatMap(prepared.loadCurrentAttempt,
+        attempt => terminalization.abort(attempt, input.executionScope));
+      const body = yield* abortOnPreFinishingFailure(prepareBody(input, prepared), abort);
+      let finishing = false;
+      let finishingRequested = false;
+      return Object.freeze({ ...body,
+        deriveStoredAuthority: deriveAuthority(prepared.currentAuthority, input.executionScope),
+        reopenJournalAttempt: attemptLoading.load({ deploymentId: input.selector.deploymentId, scopeId: input.selector.scopeId,
+          sessionId: input.selector.sessionId, attemptFence: String(input.selector.attemptFence) }).pipe(
+          Effect.flatMap(attempt => journal.openAttempt(attempt, input.executionScope))),
+        enterFinishing: (plan: Parameters<StoredPointCommitFinishingTransitionV1["enterPointCommitFinishing"]>[0]) =>
+          Effect.suspend(() => {
+            finishingRequested = true;
+            return input.liveness.enterFinishing(enterPointCommitFinishing(plan)).pipe(
+              Effect.tap(() => Effect.sync(() => { finishing = true; })),
+            );
+          }),
+        cleanupOnFailure: Effect.suspend(() => Effect.andThen(
+          journal.discardTentativeRoot(body.journalAttempt), finishing ? Effect.void : finishingRequested
+            // A refused transition can leave the attempt running. Resolve the
+            // durable state before deciding; a confirmed non-running observation
+            // belongs to finishing/recovery and must never be aborted here.
+            ? abort.pipe(Effect.catchTag("PointMutationSessionAttemptLoadV1Error", error =>
+              error.issue.reason === "attemptNotRunning" ? Effect.void : Effect.fail(error)))
+            : abort)),
+      });
+    });
+
+  const executeExactPointMutationAttempt:
+    ExactPointMutationExecutionOperationsV1[
+      "executeExactPointMutationAttempt"
+    ] = Effect.fn(
+      "StoredAttemptAuthentication.executeExactPointMutationAttemptKernel",
+    )(function* <InspectionUnavailableError, CurrentValidationError>(
+      input: Readonly<
+        ExecuteExactPointMutationAttemptInputV1<
+          InspectionUnavailableError,
+          CurrentValidationError
+        >
+      >,
+    ) {
+      const prepared = yield* prepareExecution(input);
+      const { currentAuthority, currentAttempt, loadCurrentAttempt } = prepared;
       const prepareRunningPlan = Effect.gen(function* () {
-        const context = yield* Effect.fromResult(
-          capturePointMutationOccExecutionContext(
-            entropy,
-            input.executionEvidence.creationTimeSeed,
-            input.attemptFence,
-            input.snapshotToken,
-          ),
-        );
-        const journalAttempt = yield* journal.openAttempt(
-          currentAttempt,
-          input.executionScope,
-        );
+        const { journalAttempt, runnerInput } = yield* prepareBody(input, prepared);
         const runnerOutcome: PointMutationOccRunnerOutcome = yield* runner.run(
-          capturePointMutationOccRunnerInput(
-            runnerEvidence,
-            context,
-            bindPointMutationOccJournal(journal, journalAttempt),
-          ),
+          runnerInput,
         ).pipe(
           Effect.map((successfulResult): PointMutationOccRunnerOutcome =>
             Object.freeze({
@@ -429,7 +497,7 @@ export function makeExactPointMutationExecutionOperationsV1(
           encodeCommitEnvelopeV1(envelope)
         );
         const storedAuthority = yield* deriveAuthority(
-          currentAttempt,
+          currentAuthority,
           input.executionScope,
         );
         const storedAttempt = yield* authenticate(
@@ -448,9 +516,8 @@ export function makeExactPointMutationExecutionOperationsV1(
       });
       const runningPlan = yield* abortOnPreFinishingFailure(
         prepareRunningPlan,
-        currentAttempt,
-        input.executionScope,
-        terminalization,
+        currentAttempt === undefined ? Effect.flatMap(loadCurrentAttempt, attempt => terminalization.abort(attempt, input.executionScope))
+          : terminalization.abort(currentAttempt, input.executionScope),
       );
 
       if (runningPlan.kind === "runningRelationConflict") {
@@ -477,6 +544,7 @@ export function makeExactPointMutationExecutionOperationsV1(
     });
 
   return Object.freeze({
+    prepareFiniteInitialEntry,
     executeExactPointMutationAttempt,
   } satisfies ExactPointMutationExecutionOperationsV1);
 }
@@ -628,21 +696,16 @@ function discardTentativeRootOnFailure<A, E, R>(
 
 function abortOnPreFinishingFailure<A, E, R>(
   effect: Effect.Effect<A, E, R>,
-  attempt: LoadedPointMutationSessionAttemptV1,
-  executionClaim: PointMutationExecutionScopeV1,
-  terminalization: Pick<
-    PointMutationSessionAttemptTerminalizationV1,
-    "abort"
-  >,
+  abort: Effect.Effect<unknown, PointMutationSessionAttemptTerminalizationExecutionV1Error | PointMutationSessionAttemptLoadingExecutionV1Error>,
 ): Effect.Effect<
   A,
-  E | PointMutationSessionAttemptTerminalizationExecutionV1Error,
+  E | PointMutationSessionAttemptTerminalizationExecutionV1Error | PointMutationSessionAttemptLoadingExecutionV1Error,
   R
 > {
   return Effect.onExit(effect, (primaryExit) => {
     if (Exit.isSuccess(primaryExit)) return Effect.void;
     return Effect.uninterruptible(
-      terminalization.abort(attempt, executionClaim),
+      abort,
     );
   });
 }

@@ -36,7 +36,8 @@ import { decodeLogicalFindQuery, isLogicalRange, selectLogicalIndex, selectLogic
 import { compileLogicalRelationalRead } from "./relationalQuery";
 import { decodeLogicalAggregate, sumLogicalRows } from "./aggregate";
 import { relationalTextIdentity } from "./relationalRows";
-import { prepareLogicalRelationalRows } from "./relationalRows";
+import { prepareLogicalRelationalTableMechanics, hasPreparedLogicalRelationalTableMechanics,
+  bindPreparedLogicalRelationalRows } from "./relationalRows";
 import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
@@ -170,8 +171,13 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     constructionTx === undefined ? runRead(work) : work(constructionTx);
   const state = Object.freeze({ ...configuration, limits: Object.freeze({ ...configuration.limits }),
     relationalCapabilities: configuration.relationalCapabilities === undefined ? undefined : Object.freeze(structuredClone(configuration.relationalCapabilities)),
-    tables: Object.freeze(configuration.tables.map(table => Object.freeze({ ...table,
-      ...(table.relational === undefined ? {} : { relational: structuredClone(table.relational) }) }))) });
+    tables: Object.freeze(configuration.tables.map(table => {
+      if (table.relational === undefined) return Object.freeze(table);
+      const relational = table.relationalMechanics === undefined ? structuredClone(table.relational) : table.relational;
+      const relationalMechanics = table.relationalMechanics ??
+        prepareLogicalRelationalTableMechanics(relational, configuration.relationalCapabilities ?? []);
+      return Object.freeze({ ...table, relational, relationalMechanics });
+    })) });
   // Borrowed readTransaction authenticates inside its storage transaction;
   // only a directly supplied native transaction needs this separate guard.
   const requireReadAdmission = state.tx === undefined ? Effect.void : state.requireAdmission;
@@ -809,7 +815,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     if (table.relational === undefined || state.relationalCapabilities === undefined) return yield* Effect.fail(error("invalidAuthority"));
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
-    const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error));
+    const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error, table.relationalMechanics));
     if (state.snapshotCommitSeq !== undefined && (query.search !== null || query.json !== null))
       return yield* Effect.fail(error("invalidInput"));
     if (complete && query.selections === null && query.search === null && query.json === null)
@@ -939,7 +945,7 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
     if (table.relational === undefined || state.relationalCapabilities === undefined) return yield* Effect.fail(error("invalidAuthority"));
     const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), error));
     yield* charge(captured.bytes);
-    const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error));
+    const query = yield* Effect.fromResult(compileLogicalRelationalRead(table.relational, state.relationalCapabilities, captured.value, limits.pageRows, error, table.relationalMechanics));
     if (query.search !== null || query.direction !== "asc" || query.selections !== null && query.selections.length > 1)
       return yield* Effect.fail(error("invalidInput"));
     if (query.offset >= callIdentityLimit) return yield* Effect.fail(error("limitExceeded"));
@@ -1053,7 +1059,9 @@ export const makeLogicalDocumentWorkingSet = Effect.fn("LogicalDocuments.make")(
       yield* Effect.fromResult(decodeRelationalChange(operation).pipe(Result.mapError(cause => error("invalidInput", cause))));
       const table = yield* Effect.fromResult(tableForName(tableName));
       if (table.relational === undefined || state.relationalCapabilities === undefined) return yield* Effect.fail(error("invalidAuthority"));
-      const policy = yield* Effect.fromResult(prepareLogicalRelationalRows(table.relational, state.relationalCapabilities, error));
+      if (table.relationalMechanics === undefined || !hasPreparedLogicalRelationalTableMechanics(table.relationalMechanics, table.relational))
+        return yield* Effect.fail(error("invalidAuthority"));
+      const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.relationalMechanics, error));
       const captured = yield* Effect.fromResult(capturePrivateJsonData(input, lifetime.remainingBytes(), error));
       yield* charge(captured.bytes);
       if (!Array.isArray(captured.value)) return yield* Effect.fail(error("invalidInput"));

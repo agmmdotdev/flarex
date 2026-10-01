@@ -7,6 +7,7 @@ import { capturePrivateCanonicalValue, commerceError, commerceLimits, isJsonObje
 import { captureAtomicCommerceEvents, commerceCommandIdentity, makeBorrowedWorkflowAttempt,
   prepareAtomicCommerceEvents, type AtomicCommerceEvents, type AtomicCommerceParticipant,
   type AtomicCommerceParticipantInput, type BorrowedWorkflowAttemptInput,
+  requirePreparedAtomicCommerceLogicalParticipant, type PreparedAtomicCommerceLogicalParticipant,
   type ParticipantEventSelection } from "@flarex/persistence-postgres/internal/commerce-adapter";
 import { ProductVariantPricingOutput, productVariantPricingWorkflow } from "./product-variant-pricing-workflow";
 import { ProductTagWorkflowResult, type ProductWorkflowModule } from "./product-workflow-module";
@@ -112,7 +113,7 @@ type BorrowedProductLaunchCompletion = Readonly<{ result: Json }> &
 export interface PrivateProductLaunchAttempt {
   readonly profileRevision: string;
   readonly sources: readonly Readonly<{ participant: AtomicCommerceParticipant;
-    logicalStorage: LogicalWorkflowMember["logicalStorage"]; methods: readonly string[];
+    prepared: PreparedAtomicCommerceLogicalParticipant["prepared"]; methods: readonly string[];
     eventSelection: ParticipantEventSelection | undefined }>[];
   readonly identityAndAccessPolicy: Json;
   readonly eventPolicy: Effect.Success<ReturnType<typeof prepareAtomicCommerceEvents>>;
@@ -132,6 +133,9 @@ export const preparePrivateProductLaunchAttempt = Effect.fn("MedusaWorkflow.prep
   readonly identityAndAccessPolicy: Json;
   readonly revision: string;
   readonly subscribers: AtomicCommerceEvents["subscribers"];
+  /** The trusted outer owner retains catalog, scope and construction lifetime. */
+  readonly prepareSources: (members: readonly LogicalWorkflowMember[]) =>
+    Effect.Effect<readonly PreparedAtomicCommerceLogicalParticipant[], CommerceTransactionError>;
 }): Effect.fn.Return<PrivateProductLaunchAttempt, CommerceTransactionError> {
   const options = yield* Effect.fromResult(captureWorkflowRecord(input));
   const { modules, workflow } = yield* prepareProductLaunchWorkflow({ modules: options.modules });
@@ -157,12 +161,24 @@ export const preparePrivateProductLaunchAttempt = Effect.fn("MedusaWorkflow.prep
       ? Effect.succeed(workflowEvent) : Effect.fail(commerceError("unadmittedEvent")),
   });
   const sources = [];
-  const members = compiled.composition.participants;
-  if (!members.every(isLogicalWorkflowMember)) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const compiledMembers = compiled.composition.participants;
+  if (!compiledMembers.every(isLogicalWorkflowMember)) return yield* Effect.fail(commerceError("invalidAuthority"));
+  const members = Object.freeze([...(yield* options.prepareSources(compiledMembers))]);
+  if (members.length !== compiledMembers.length) return yield* Effect.fail(commerceError("invalidAuthority"));
+  for (const [index, member] of members.entries()) {
+    const original = compiledMembers[index];
+    if (original === undefined) return yield* Effect.fail(commerceError("invalidAuthority"));
+    yield* Effect.fromResult(requirePreparedAtomicCommerceLogicalParticipant(member, original));
+    if (original === undefined || member.participant !== original.participant || member.commands.size !== original.commands.length ||
+      original.commands.some(command => !member.commands.has(command)) ||
+      member.validateLogicalCall !== original.validateLogicalCall || member.allowSetNull !== original.allowSetNull ||
+      member.allowReferenceReplacement !== original.allowReferenceReplacement || member.events?.select !== original.events?.select)
+      return yield* Effect.fail(commerceError("invalidAuthority"));
+  }
   for (const member of members) {
-    const methods = member.commands.map(command => commerceCommandIdentity(command)?.name);
+    const methods = [...member.commands].map(command => commerceCommandIdentity(command)?.name);
     if (methods.some(method => method === undefined)) return yield* Effect.fail(commerceError("invalidAuthority"));
-    sources.push(Object.freeze({ participant: member.participant, logicalStorage: member.logicalStorage,
+    sources.push(Object.freeze({ participant: member.participant, prepared: member.prepared,
       methods: methods.filter((method): method is string => method !== undefined), eventSelection: member.events }));
   }
   if (sources.length !== 3) return yield* Effect.fail(commerceError("invalidAuthority"));

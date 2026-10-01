@@ -21,6 +21,7 @@ import { prepareLogicalStorageReadiness } from "../src/logicalStorageReadiness";
 import { locateAppUniqueConstraintDefinitionsForSchemaEffect } from "../src/appUniqueConstraintDefinitions";
 import { prepareAppUniqueConstraintSetClosureV1Effect, closeAppUniqueConstraintSetV1InTransactionEffect } from "../src/appUniqueConstraintSetClosureV1";
 import { prepareLogicalRelationalValueValidation } from "../src/logicalDocuments/relationalValues";
+import { prepareLogicalRelationalTableMechanics } from "../src/logicalDocuments/relationalRows";
 import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
 import { lockScopeClockForOrdinaryWriteInTransactionEffect } from "../src/scopeClock";
 import { resolveLocatedTrustedScopeAuthorityEffect } from "../src/scopeAuthorityResolution";
@@ -128,7 +129,7 @@ export const productForeignKeyScenario: (
   const selectedIndexes = indexes.filter((index): index is LocatedAppIndexDefinitionV1 => index !== null)
     .filter(index => tableIds.includes(index.access.tableId));
   expect(selectedIndexes.length).toBeGreaterThanOrEqual(59);
-  const values = yield* prepareLogicalRelationalValueValidation(db, deploymentId, schemaVersionId);
+  const values = yield* prepareLogicalRelationalValueValidation(db, deploymentId, schemaVersionId, { kind: "fresh" });
   const resolved = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId));
   const failure = (reason: string, cause?: unknown) => new Error(reason, { cause });
@@ -360,7 +361,8 @@ export const productForeignKeyScenario: (
     targetTableId: typeTableId, targetColumn: "id", targetKey: "batch_type",
     error: failure } as const;
   const boundTables = nativeTables.map(table => ({ tableId: table.tableId,
-    localName: table.logicalName, definition: table.relational }));
+    localName: table.logicalName, definition: table.relational,
+    mechanics: prepareLogicalRelationalTableMechanics(table.relational, schema.capabilities) }));
   const referenceInput = (tx: FlarexMetadataTransaction) => ({ tx, ...references,
     requireAdmission: Effect.succeed(Object.freeze({ tx, authority: resolved.authority,
       schema, tables: boundTables, indexes: selectedIndexes.filter(index => index.access.kind === "developer"),

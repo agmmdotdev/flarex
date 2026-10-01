@@ -6,7 +6,8 @@ import { encodeOrderedIndexComponentsV1, orderedIndexKeyHexV1ToBytes,
   orderedIndexValueFromFlarexValueV1, OrderedIndexKeyTooLargeError } from "flarex-protocol/ordered-index";
 import type { Json, JsonObject } from "flarex-protocol/json";
 import type { LogicalDocumentFailure } from "./model";
-import { prepareLogicalRelationalRowValues, relationalTextIdentity } from "./relationalRows";
+import { prepareLogicalRelationalRowValues, relationalTextIdentity, hasPreparedLogicalRelationalTableMechanics,
+  type PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import { hasMandatorySearchTrigram, type LogicalSearchPattern } from "./searchReads";
 import { jsonbContains } from "./jsonContains";
 import { relationalReadLimits } from "../frameworkExecutionPolicy";
@@ -83,17 +84,23 @@ function matchesTextLikeAscii(value: string, pattern: string): boolean {
 }
 
 export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefinition, capabilities: readonly RelationalPersistenceCapability[], input: unknown,
-  pageRows: number, error: LogicalDocumentFailure<Failure>) {
+  pageRows: number, error: LogicalDocumentFailure<Failure>, mechanics?: PreparedLogicalRelationalTableMechanics) {
   return Result.gen(function* () {
-    const identity = yield* relationalTextIdentity(table, error);
+    if (mechanics !== undefined && !hasPreparedLogicalRelationalTableMechanics(mechanics, table))
+      return yield* Result.fail(error("invalidAuthority"));
+    const identity = yield* (mechanics === undefined ? relationalTextIdentity(table, error) :
+      mechanics.identity.pipe(Result.mapError(cause => error(cause.reason, cause.cause))));
     const key = identity[0];
     if (key === undefined) return yield* Result.fail(error("invalidInput"));
-    const validate = prepareLogicalRelationalRowValues(table, capabilities, error);
+    const validate = mechanics === undefined ? prepareLogicalRelationalRowValues(table, capabilities, error) :
+      (row: JsonObject, reason: "documentInvalid" | "storedCorruption") => mechanics.validate(row, reason)
+        .pipe(Result.mapError(cause => error(cause.reason, cause.cause)));
     const query = yield* decodeEnvelope(input).pipe(Result.mapError(cause => error("invalidInput", cause)));
-    const fields = query.fields ?? table.columns.map(column => column.identity.columnId);
-    const orderColumn = table.columns.find(column => column.identity.columnId === query.order.column);
+    const columnForName = mechanics?.column ?? ((name: string) => table.columns.find(column => column.identity.columnId === name));
+    const fields = query.fields ?? mechanics?.columnNames ?? table.columns.map(column => column.identity.columnId);
+    const orderColumn = columnForName(query.order.column);
     if (fields.length === 0 || fields.length > table.columns.length || new Set(fields).size !== fields.length ||
-        fields.some(field => !table.columns.some(column => column.identity.columnId === field)) ||
+        fields.some(field => columnForName(field) === undefined) ||
         (orderColumn?.type !== "text" && orderColumn?.type !== "integer") || orderColumn.nullable)
       return yield* Result.fail(error("invalidInput"));
     const take = query.take ?? pageRows;
@@ -119,7 +126,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
       if (node.kind === "in") {
         operands += node.values.length;
         if (operands > relationalReadLimits.filterOperands) return yield* Result.fail(error("limitExceeded"));
-        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        const column = columnForName(node.column);
         if (column === undefined || (column.type !== "text" && column.type !== "boolean") ||
             node.values.some(value => !isRelationalColumnValue(column.type, false, value)))
           return yield* Result.fail(error("invalidInput"));
@@ -142,7 +149,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
         if (new Set(node.columns).size !== node.columns.length || node.values.some(point => point.length !== node.columns.length))
           return yield* Result.fail(error("invalidInput"));
         for (const [offset, name] of node.columns.entries()) {
-          const column = table.columns.find(candidate => candidate.identity.columnId === name);
+          const column = columnForName(name);
           if (column === undefined || (column.type !== "text" && column.type !== "boolean") ||
             node.values.some(point => { const value = point[offset];
               return value === undefined || !isRelationalColumnValue(column.type, false, value); }))
@@ -162,7 +169,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           matches: row => points.has(JSON.stringify(node.columns.map(column => row[column]))) };
       }
       if (node.kind === "isNull") {
-        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        const column = columnForName(node.column);
         if (column === undefined) return yield* Result.fail(error("invalidInput"));
         return { select: () => Result.succeed({ selections: column.nullable ? null : [], unindexedText: false }),
           requiredNulls: column.nullable ? new Set([node.column]) : new Set<string>(),
@@ -170,14 +177,14 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
           matches: row => row[node.column] === null };
       }
       if (node.kind === "textNotEqual") {
-        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        const column = columnForName(node.column);
         if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.value))
           return yield* Result.fail(error("invalidInput"));
         return { select: () => Result.succeed({ selections: null, unindexedText: false }), requiredNulls: new Set<string>(), search: null,
           matches: row => typeof row[node.column] === "string" && row[node.column] !== node.value };
       }
       if (node.kind === "greaterThan") {
-        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        const column = columnForName(node.column);
         if ((column?.type !== "text" && column?.type !== "timestamptz") ||
           !isRelationalColumnValue(column.type, false, node.value))
           return yield* Result.fail(error("invalidInput"));
@@ -193,7 +200,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
             compareBytesLexicographically(new TextEncoder().encode(value), bound) > 0; } };
       }
       if (node.kind === "textLikeAscii") {
-        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        const column = columnForName(node.column);
         if (column?.type !== "text" || !isRelationalColumnValue("text", false, node.pattern))
           return yield* Result.fail(error("invalidInput"));
         if ([...node.pattern].length > 256) return yield* Result.fail(error("limitExceeded"));
@@ -203,7 +210,7 @@ export function compileLogicalRelationalRead<Failure>(table: RelationalTableDefi
             matchesTextLikeAscii(value, node.pattern); } };
       }
       if (node.kind === "jsonContains") {
-        const column = table.columns.find(candidate => candidate.identity.columnId === node.column);
+        const column = columnForName(node.column);
         if (column?.type !== "jsonb") return yield* Result.fail(error("invalidInput"));
         const encoded = new TextEncoder().encode(JSON.stringify(node.value));
         if (encoded.byteLength > 4096) return yield* Result.fail(error("limitExceeded"));

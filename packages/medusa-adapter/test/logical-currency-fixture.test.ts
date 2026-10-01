@@ -90,7 +90,7 @@ describe("native Currency on the selected shared logical schema", () => {
           const unavailable = yield* Effect.acquireUseRelease(
             Effect.sync(() => vi.spyOn(crypto.subtle, "digest").mockRejectedValueOnce(outage)),
             () => Effect.result(prepareLogicalDocumentSourceAdmission(ports,
-              fixture.application.uniqueConstraintEligibility, input, source)),
+              fixture.application.uniqueConstraintEligibility, input, source, { kind: "standalone" })),
             digest => Effect.sync(() => digest.mockRestore()));
           expect(unavailable).toMatchObject({ _tag: "Failure", failure: { reason: "resourceFailure",
             cause: { reason: "digestUnavailable" } } });
@@ -98,7 +98,7 @@ describe("native Currency on the selected shared logical schema", () => {
           const defectivePreparation = yield* Effect.acquireUseRelease(
             Effect.sync(() => vi.spyOn(crypto.subtle, "digest").mockRejectedValueOnce(digestDefect)),
             () => Effect.exit(prepareLogicalDocumentSourceAdmission(ports,
-              fixture.application.uniqueConstraintEligibility, input, source)),
+              fixture.application.uniqueConstraintEligibility, input, source, { kind: "standalone" })),
             digest => Effect.sync(() => digest.mockRestore()));
           expect(Exit.isFailure(defectivePreparation)).toBe(true);
           if (Exit.isFailure(defectivePreparation)) expect(defectivePreparation.cause.reasons.some(reason =>
@@ -114,10 +114,10 @@ describe("native Currency on the selected shared logical schema", () => {
               return select(fields);
             })),
             () => prepareLogicalDocumentSourceAdmission(mutablePorts,
-              fixture.application.uniqueConstraintEligibility, mutableInput, source),
+              fixture.application.uniqueConstraintEligibility, mutableInput, source, { kind: "standalone" }),
             firstRead => Effect.sync(() => firstRead.mockRestore()));
           expect(yield* Effect.result(prepareLogicalDocumentSourceAdmission(ports,
-            fixture.application.uniqueConstraintEligibility, input, { ...source, evidence: {} })))
+            fixture.application.uniqueConstraintEligibility, input, { ...source, evidence: {} }, { kind: "standalone" })))
             .toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
           const active = yield* fixture.application.activation.readActive();
           const mutableAppPorts = { ...ports };
@@ -130,7 +130,7 @@ describe("native Currency on the selected shared logical schema", () => {
               return select(fields);
             })),
             () => prepareLogicalApplicationSourceAdmission(mutableAppPorts,
-              fixture.application.uniqueConstraintEligibility, mutableAppInput, fixture.applicationSource),
+              fixture.application.uniqueConstraintEligibility, mutableAppInput, fixture.applicationSource, { kind: "standalone" }),
             firstRead => Effect.sync(() => firstRead.mockRestore()));
           const located = yield* resolveLocatedTrustedScopeAuthorityEffect(fixture.deploymentId,
             fixture.application.authorityPorts);
@@ -313,7 +313,7 @@ describe("native Currency on the selected shared logical schema", () => {
           { controlDb: fixture.control.drizzle, authority: fixture.application.authorityPorts },
           fixture.application.uniqueConstraintEligibility,
           { deploymentId: fixture.deploymentId, scopeId: fixture.application.authority.scopeId,
-            schemaVersionId: fixture.schemaVersionId }, compiled.sourceContract)));
+            schemaVersionId: fixture.schemaVersionId }, compiled.sourceContract, { kind: "standalone" })));
         expect(refusal).toMatchObject({ _tag: "Failure", failure: { reason: "unsupportedProfile" } });
       } finally {
         const failures: unknown[] = [];

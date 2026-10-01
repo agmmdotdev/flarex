@@ -17,6 +17,13 @@ export async function payloadRelationManifest(prior: ApplicationManifestV3, many
   return runEffect(verifyApplicationManifestV3({ ...prior,
     sourceArtifact: { ...prior.sourceArtifact, rootSha256: (many ? "e" : "d").repeat(64) },
     schema: { ...prior.schema, writePolicies, writePolicySetSha256: hashPolicyFixture(writePolicies),
+      indexes: [
+        ...prior.schema.indexes.filter(index => index.tableId !== posts.tableId),
+        ...configuration.tables.flatMap(table => table.indexes ?? []).map(index => ({
+          ...index, tableId: posts.tableId, indexId: 0,
+        })),
+      ].sort((left, right) => left.tableId - right.tableId || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+        .map((index, position) => ({ ...index, indexId: position + 1 })),
       tables: prior.schema.tables.map(table => table.name !== "posts" ?
         // A second upgrade attempt needs a distinct schema candidate, not conflicting
         // evolution evidence replayed against the earlier fresh-many binding.

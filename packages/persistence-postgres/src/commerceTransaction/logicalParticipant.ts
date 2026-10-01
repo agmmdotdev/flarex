@@ -11,7 +11,7 @@ import type { BoundedRequestContext, BoundedRequestLifetime } from "../boundedRe
 import { requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet, type LogicalDocumentChanges } from "../logicalDocuments/workingSet";
 import type { CommerceSetNullSelection, CommerceReferenceReplacement } from "./commands";
-import { prepareLogicalRelationalRows } from "../logicalDocuments/relationalRows";
+import { bindPreparedLogicalRelationalRows } from "../logicalDocuments/relationalRows";
 import { validateLogicalDocumentChanges } from "../logicalDocuments/contribution";
 import { enterLogicalDocumentMaterialization, logicalMaterializationBatchBudget } from "../logicalDocuments/materialization";
 import { forEachLogicalSetNullPage, forEachLogicalReferenceReplacementPage,
@@ -72,9 +72,9 @@ export const makeLogicalCommerceParticipant = Effect.fn("LogicalCommerce.make")(
   const resources = selectedResources ?? defaultCommerceResources;
   const state = yield* requireLogicalRelationalAdmission(admission, tx).pipe(Effect.mapError(projectCommerceRequestFailure));
   // Reject incomplete semantic profiles before exposing any table operation.
-  for (const table of state.tables) yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
+  for (const table of state.tables) yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
   const working = yield* makeLogicalDocumentWorkingSet({ tx, scopeId: state.authority.scopeId, clock: state.clock, lifetime,
-    tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })),
+    tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition, relationalMechanics: table.mechanics })),
     relationalCapabilities: state.schema.capabilities,
     searchDefinitions: state.search,
     requireAdmission: requireLogicalRelationalAdmission(admission, tx).pipe(Effect.asVoid, Effect.mapError(projectCommerceRequestFailure)),

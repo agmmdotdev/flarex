@@ -30,7 +30,7 @@ import type { LogicalDocumentChange } from "./workingSet";
 import { logicalMaterializationBatchBudget } from "./materialization";
 import type { LogicalRelationalAdmissionState } from "./relationalAdmission";
 import { prepareLogicalRelationalForeignKeys } from "./relationalForeignKeys";
-import { logicalManagedUpdatedColumns, prepareLogicalRelationalRows } from "./relationalRows";
+import { logicalManagedUpdatedColumns, bindPreparedLogicalRelationalRows } from "./relationalRows";
 import { selectLogicalIndex, type LogicalWhere } from "./query";
 import { readLogicalIndexRange } from "./indexReads";
 
@@ -233,8 +233,7 @@ export const forEachLogicalSetNullPage = Effect.fn("LogicalReferences.forEachSet
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
   if (source === undefined || !admission.schema.tables.includes(source.definition))
     return yield* Effect.fail(input.error("invalidAuthority"));
-  const policy = yield* Effect.fromResult(prepareLogicalRelationalRows(source.definition,
-    admission.schema.capabilities, input.error));
+  const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const transactionTime = yield* Effect.cached(Effect.gen(function* () {
     const time = yield* runDrizzleStatementEffect(input.tx.select({ timestamp: sql<unknown>`current_timestamp` })
       .from(fxSystemScopeClocks).where(eq(fxSystemScopeClocks.scopeId, admission.authority.scopeId)),
@@ -299,8 +298,7 @@ export const selectLogicalReferenceReplacement = Effect.fn("LogicalReferences.se
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
   if (source === undefined || !admission.schema.tables.includes(source.definition))
     return yield* Effect.fail(input.error("invalidAuthority"));
-  const policy = yield* Effect.fromResult(prepareLogicalRelationalRows(source.definition,
-    admission.schema.capabilities, input.error));
+  const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const identity = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
   if (identity === undefined || input.desiredKeys.length > 256 ||
     new Set(input.desiredKeys).size !== input.desiredKeys.length)
@@ -457,8 +455,7 @@ export const forEachLogicalReferenceReplacementPage = Effect.fn("LogicalReferenc
   const source = admission.tables.find(table => table.tableId === input.sourceTableId);
   if (source === undefined || !admission.schema.tables.includes(source.definition))
     return yield* Effect.fail(input.error("invalidAuthority"));
-  const policy = yield* Effect.fromResult(prepareLogicalRelationalRows(source.definition,
-    admission.schema.capabilities, input.error));
+  const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(source.mechanics, input.error));
   const identity = policy.keyColumns.length === 1 ? policy.keyColumns[0] : undefined;
   if (identity === undefined) return yield* Effect.fail(input.error("invalidAuthority"));
   const selected = [...input.selection.detach, ...input.selection.associate];

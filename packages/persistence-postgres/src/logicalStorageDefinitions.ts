@@ -1,17 +1,18 @@
 import { Data, Effect } from "effect";
 import { logicalTableKey } from "flarex-protocol/internal/logical-schema-candidate";
+import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { compileLogicalSourceUniqueConstraints, compileLogicalSourceIndexes, compileLogicalSourceSearches,
   compileLogicalExtensionIndexes,
   type LogicalSourceIndexRequirement, type LogicalSourceSearchRequirement,
   type LogicalSourceUniqueRequirement } from "flarex-protocol/internal/logical-storage-requirements";
 import type { CatalogTableId } from "flarex-protocol/catalog";
-import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import { CanonicalSchemaManifestBytesSchema, SchemaManifestSha256Schema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { canonicalizeAppUniqueConstraintPhysicalSpecV1 } from "flarex-protocol/app-unique-constraint-definition";
 import type { AppUniqueConstraintSetMemberV1 } from "flarex-protocol/internal/app-unique-constraint-set-v1";
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
 import { getStableTableIdentityByValidatedIdEffect } from "./stableTableCatalog";
-import { readSchemaVersionArtifactByIdEffect } from "./schemaVersionArtifacts";
+import { readSchemaVersionArtifactByIdEffect, type SchemaVersionArtifact } from "./schemaVersionArtifacts";
 import { readLogicalSchemaAdmissionEvidence } from "./logicalSchemaAdmissionEvidence";
 import { lockSchemaManifestBindingDeploymentEffect } from "./schemaManifestTableBindings";
 import { ensureStableLogicalIndexIdentityInTransaction } from "./stableLogicalIndexCatalog";
@@ -29,6 +30,7 @@ type BoundSearch = LogicalSourceSearchRequirement & Readonly<{
   tableId: CatalogTableId; sourceKey: string; sourceSha256: string;
 }>;
 type BoundConstraint = LogicalSourceUniqueRequirement & Readonly<{ tableId: CatalogTableId }>;
+const requirementIssuers = new WeakMap<object, Readonly<{ db: FlarexMetadataDatabase; deploymentId: string; schemaVersionId: CatalogSchemaVersionId }>>();
 
 /** Index and unique requirements for the complete configured source set,
  * including explicit absence. This does not establish foreign-key, value or
@@ -38,15 +40,35 @@ export const readLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitio
 ) {
   const artifact = yield* readSchemaVersionArtifactByIdEffect(db, deploymentId, schemaVersionId);
   if (artifact === null) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "missingSchema" }));
-  const evidence = yield* readLogicalSchemaAdmissionEvidence(artifact.manifestJson, deploymentId);
+  return yield* prepareLogicalStorageRequirementsFromArtifact(db, artifact);
+});
+
+/** The artifact reader has already authenticated canonical bytes and digest.
+ * Compile the complete topology once in the caller's existing catalog lifetime. */
+export const prepareLogicalStorageRequirementsFromArtifact = Effect.fn("LogicalStorageDefinitions.prepareRequirements")(function* (
+  db: FlarexMetadataDatabase, artifact: SchemaVersionArtifact,
+) {
+  const artifactBytes = artifact.manifestBytes.slice();
+  const artifactDigest = artifact.manifestSha256.slice();
+  const artifactTime = artifact.createdAt.getTime();
+  const ownedArtifact: SchemaVersionArtifact = Object.freeze({ ...artifact,
+    manifestJson: snapshotDecodedProtocolPlainData(artifact.manifestJson),
+    get manifestBytes() { return CanonicalSchemaManifestBytesSchema.make(artifactBytes.slice()); },
+    get manifestSha256() { return SchemaManifestSha256Schema.make(artifactDigest.slice()); },
+    get createdAt() { return new Date(artifactTime); },
+  });
+  const { deploymentId } = ownedArtifact;
+  const evidence = yield* readLogicalSchemaAdmissionEvidence(ownedArtifact.manifestJson, deploymentId);
+  const tableBindings = new Map(evidence.tableBindings.map(binding => [logicalTableKey(binding.table), binding]));
   const ordered: BoundIndex[] = [];
   const search: BoundSearch[] = [];
   const unique: BoundConstraint[] = [];
   for (const source of evidence.candidate.sources) {
+    const definitionBindings = new Map(source.bindings.filter(binding => binding.kind === "definition")
+      .map(binding => [binding.localName, binding]));
     const bind = <Requirement extends LogicalSourceIndexRequirement | LogicalSourceSearchRequirement | LogicalSourceUniqueRequirement>(requirement: Requirement) => {
-      const binding = source.bindings.find(candidate => candidate.localName === requirement.localName && candidate.kind === "definition");
-      const table = binding === undefined ? undefined : evidence.tableBindings.find(candidate =>
-        logicalTableKey(candidate.table) === logicalTableKey(binding.table));
+      const binding = definitionBindings.get(requirement.localName);
+      const table = binding === undefined ? undefined : tableBindings.get(logicalTableKey(binding.table));
       return table === undefined ? Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }))
         : Effect.succeed({ ...requirement, tableId: table.tableId });
     };
@@ -56,8 +78,7 @@ export const readLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitio
     for (const requirement of yield* Effect.fromResult(compileLogicalSourceUniqueConstraints(source))) unique.push(yield* bind(requirement));
   }
   for (const requirement of yield* Effect.fromResult(compileLogicalExtensionIndexes(evidence.candidate))) {
-    const table = evidence.tableBindings.find(binding =>
-      logicalTableKey(binding.table) === logicalTableKey(requirement.table));
+    const table = tableBindings.get(logicalTableKey(requirement.table));
     if (table === undefined) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }));
     ordered.push({ localName: requirement.localName, descriptor: requirement.descriptor,
       physicalSpec: requirement.physicalSpec, tableId: table.tableId });
@@ -68,8 +89,24 @@ export const readLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitio
       return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "tableBindingChanged" }));
     }
   }
-  return Object.freeze({ artifact, evidence, ordered: Object.freeze(ordered),
-    search: Object.freeze(search), unique: Object.freeze(unique) });
+  // Byte/date descendants retain mutable native storage, so the projection
+  // lends detached copies while the issuer retains the authenticated originals.
+  const requirements = Object.freeze({ artifact: ownedArtifact, evidence: snapshotDecodedProtocolPlainData(evidence),
+    ordered: snapshotDecodedProtocolPlainData(ordered), search: snapshotDecodedProtocolPlainData(search),
+    unique: snapshotDecodedProtocolPlainData(unique) });
+  requirementIssuers.set(requirements, { db, deploymentId, schemaVersionId: ownedArtifact.schemaVersionId });
+  return requirements;
+});
+
+export type PreparedLogicalStorageRequirements = Effect.Success<ReturnType<typeof prepareLogicalStorageRequirementsFromArtifact>>;
+export const requirePreparedLogicalStorageRequirements = Effect.fn("LogicalStorageDefinitions.requireRequirements")(function* (
+  db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
+  requirements: PreparedLogicalStorageRequirements,
+) {
+  const issued = requirementIssuers.get(requirements);
+  if (issued === undefined || issued.db !== db || issued.deploymentId !== deploymentId || issued.schemaVersionId !== schemaVersionId)
+    return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }));
+  return requirements;
 });
 
 /** Closure is source-complete, not merely a digest of whichever bindings exist.

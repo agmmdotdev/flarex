@@ -5,7 +5,10 @@ import { fxAppRowCurrent } from "../../persistence-postgres/src/schema";
 import { fxSystemCommitEvents } from "../../persistence-postgres/src/commitEvents/schema";
 import { makeAtomicCommerceHost } from "../../persistence-postgres/src/atomicCommerce/host";
 import { prepareAtomicWorkflowHost } from "../src/workflow/host";
-import { prepareProductLaunchWorkflow } from "../src/product-launch-workflow";
+import { prepareProductLaunchWorkflow, preparePrivateProductLaunchAttempt } from "../src/product-launch-workflow";
+import { captureAtomicCommerceParticipants, prepareAtomicCommerceParticipants,
+  type AtomicCommerceParticipantInput, type PreparedAtomicCommerceLogicalParticipant } from "../../persistence-postgres/src/atomicCommerce/participants";
+import { commerceError } from "../../persistence-postgres/src/commerceTransaction/model";
 import { productVariantPricingResources } from "../src/workflow/policy";
 import { logicalCurrencyFixture } from "./support/logical-currency-fixture";
 import { prepareLogicalProductHost } from "./support/logical-product-fixture";
@@ -36,6 +39,47 @@ describe("selected native Product launch workflow", () => {
     }
   }, 150_000);
   afterAll(async () => { for (const close of cleanup.reverse()) await close(); });
+
+  it("retains exact native source descriptors and rejects equal-shape foreign factories or cloned members", async () => {
+    const modules = {
+      product: { module: product.runtime.workflow, logicalStorage: product.hostInput.logicalStorage },
+      pricing: { module: pricing.runtime.workflow, logicalStorage: pricing.hostInput.logicalStorage },
+      link: { module: link.runtime.workflow, logicalStorage: link.hostInput.logicalStorage },
+    };
+    const issue = Effect.fn("ProductLaunchTest.issueSources")(function* (members: readonly AtomicCommerceParticipantInput[]) {
+      const captured = yield* Effect.fromResult(captureAtomicCommerceParticipants(members));
+      const issued = yield* prepareAtomicCommerceParticipants(connected.control.drizzle, connected.bindingTarget,
+        captured, { deploymentId: connected.deploymentId, scopeId: connected.application.authority.scopeId }, { kind: "standalone" });
+      const logical: PreparedAtomicCommerceLogicalParticipant[] = [];
+      for (const original of members) {
+        const member = issued.find(candidate => candidate.participant === original.participant);
+        if (member === undefined || member.kind !== "logical") return yield* Effect.fail(commerceError("invalidAuthority"));
+        logical.push(member);
+      }
+      return logical;
+    });
+    const options = { modules, identityAndAccessPolicy: connected.hostInput.identityAndAccessPolicy,
+      revision: revision("private-launch-source-provenance"),
+      subscribers: [{ id: "private-launch-source-provenance", revision: revision("private-launch-source-subscriber") }] };
+    let exact: readonly PreparedAtomicCommerceLogicalParticipant[] = [];
+    const prepared = await Effect.runPromise(preparePrivateProductLaunchAttempt({ ...options,
+      prepareSources: members => issue(members).pipe(Effect.tap(issued => Effect.sync(() => { exact = issued; }))),
+    }));
+    expect(prepared.sources.map(source => source.prepared)).toEqual(exact.map(member => member.prepared));
+    for (const [index, source] of prepared.sources.entries()) expect(source.prepared).toBe(exact[index]?.prepared);
+    const equalFactory = await Effect.runPromise(Effect.result(preparePrivateProductLaunchAttempt({ ...options,
+      prepareSources: members => issue(members.map(member => ({ ...member }))),
+    })));
+    expect(equalFactory).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    const clonedMember = await Effect.runPromise(Effect.result(preparePrivateProductLaunchAttempt({ ...options,
+      prepareSources: members => issue(members).pipe(Effect.map(issued => issued.map(member => ({ ...member })))),
+    })));
+    expect(clonedMember).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    const swappedMembers = await Effect.runPromise(Effect.result(preparePrivateProductLaunchAttempt({ ...options,
+      prepareSources: members => issue(members).pipe(Effect.map(issued => issued.toReversed())),
+    })));
+    expect(swappedMembers).toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+  }, 150_000);
 
   it("runs both native children against pending graph state and retains one event publication", async () => {
     const { seed } = await seedNativeProductAttemptGraph(connected, product, "launch-native", "launch");

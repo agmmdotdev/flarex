@@ -145,7 +145,7 @@ describe("atomic participants sharing physical installation", () => {
         // SAFETY: the negative test supplies a forged participant token.
         [{ ...first, participant: {} as typeof first.participant }],
       ]) expect(await runEffectFailure(prepareAtomicCommerceParticipants(input.database, input.target,
-        Result.getOrThrow(captureAtomicCommerceParticipants(participants))))).toMatchObject({ reason: "invalidAuthority" });
+        Result.getOrThrow(captureAtomicCommerceParticipants(participants)), undefined, { kind: "standalone" }))).toMatchObject({ reason: "invalidAuthority" });
       expect(prepare).not.toHaveBeenCalled();
     } finally { prepare.mockRestore(); }
   });

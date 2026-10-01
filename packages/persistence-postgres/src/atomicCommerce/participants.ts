@@ -13,6 +13,8 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import { prepareInstallationRuntime, type PreparedInstallationRuntime } from "../frameworkSchema/installation/runtime";
 import { chargeHostPreparation } from "../preparedHostRuntime";
 import { prepareLogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
+import { prepareLogicalStorageReadiness, type PreparedLogicalStorageCatalog } from "../logicalStorageReadiness";
+import type { LogicalSourceConstruction } from "../logicalDocuments/sourceAdmission";
 import { captureLogicalCommerceSelection, prepareLogicalCommerceContract, type LogicalCommerceSelectionInput } from "../commerceTransaction/logicalSelection";
 import { captureCommerceResources, defaultCommerceResources, type CommerceResources } from "../commerceTransaction/resources";
 import type { ScopeId } from "flarex-protocol/storage-authority";
@@ -76,7 +78,7 @@ export const isCommerceDefinitionName = (name: string) => /^[a-z][a-zA-Z0-9_-]{0
 
 function captureParticipant(member: AtomicCommerceParticipantInput) {
   const derived = member.derivedIdEvent;
-  return Object.freeze({ participant: member.participant,
+  return Object.freeze({ factoryInput: member, participant: member.participant,
     commands: Object.freeze([...member.commands]), validate: member.validate, validateLogical: member.validateLogical,
     validateLogicalCall: member.validateLogicalCall,
     allowSetNull: member.allowSetNull, allowReferenceReplacement: member.allowReferenceReplacement,
@@ -90,6 +92,8 @@ function captureParticipant(member: AtomicCommerceParticipantInput) {
   });
 }
 export type CapturedAtomicCommerceParticipants = readonly ReturnType<typeof captureParticipant>[];
+const preparedLogicalMembers = new WeakMap<object, Readonly<{ factory: AtomicCommerceParticipantInput;
+  commands: readonly CommerceCommand[] }>>();
 
 /** The host takes ownership of every caller selection before any preparation
  * can yield to authority or catalog I/O. */
@@ -101,13 +105,15 @@ export function captureAtomicCommerceParticipants(input: readonly AtomicCommerce
 
 export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepareParticipants")(function* (
   database: FlarexMetadataDatabase, target: FrameworkSchemaTarget, captured: CapturedAtomicCommerceParticipants,
-  location?: Readonly<{ deploymentId: string; scopeId: ScopeId }>,
+  location: Readonly<{ deploymentId: string; scopeId: ScopeId }> | undefined,
+  construction: LogicalSourceConstruction,
 ) {
   const names = new Set<string>();
   const installations = new Map<string, { reference: InstallationBindingReference; descriptors: readonly CommerceProfileState[] }>();
   const logicalSources = new Set<string>();
   const members = [];
   let definitions = 0;
+  let catalog: PreparedLogicalStorageCatalog | undefined = construction.kind === "prepared" ? construction.catalog : undefined;
   for (const member of captured) {
     const events = yield* Effect.fromResult(member.events);
     const derivedIdEvent = member.derivedIdEvent;
@@ -149,15 +155,24 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
       if (typeof sourceKey !== "string" || logicalSources.has(sourceKey)) return yield* Effect.fail(commerceError("invalidAuthority"));
       logicalSources.add(sourceKey);
       const contract = yield* prepareLogicalCommerceContract(selection);
+      if (catalog === undefined) {
+        const preparedCatalog = yield* prepareLogicalStorageReadiness(selection.ports, selection.unique, {
+          ...location, schemaVersionId: selection.schemaVersionId,
+        }).pipe(Effect.mapError(projectCommerceRequestFailure));
+        if (preparedCatalog.status !== "prepared") return yield* Effect.fail(commerceError("invalidAuthority"));
+        catalog = preparedCatalog;
+      }
       const prepared = yield* prepareLogicalRelationalAdmission(selection.ports, selection.unique, {
         ...location, schemaVersionId: selection.schemaVersionId,
-      }, selection.source).pipe(Effect.mapError(projectCommerceRequestFailure));
+      }, selection.source, { kind: "prepared", catalog }).pipe(Effect.mapError(projectCommerceRequestFailure));
       yield* chargeHostPreparation({ sourceKey, contractSha256: contract.sha256Hex })
         .pipe(Effect.mapError(projectCommerceRequestFailure));
-      members.push({ ...common, kind: "logical" as const, sourceKey, contractSha256: contract.sha256Hex,
-        descriptor: { resources, contractSha256: contract.sha256Hex,
-          initialization: selection.initialization }, prepared,
-        selectedResources: member.resources === undefined ? undefined : resources });
+      const preparedMember = { ...common, kind: "logical" as const, sourceKey, contractSha256: contract.sha256Hex,
+        descriptor: Object.freeze({ resources, contractSha256: contract.sha256Hex,
+          initialization: selection.initialization }), prepared,
+        selectedResources: member.resources === undefined ? undefined : resources };
+      preparedLogicalMembers.set(preparedMember, { factory: member.factoryInput, commands: Object.freeze([...commands]) });
+      members.push(preparedMember);
       continue;
     }
     const capturedReference = yield* Effect.fromResult(member.reference);
@@ -187,7 +202,9 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     compareUtf16Strings(a.name, b.name));
   const prepared = new Map<string, PreparedInstallationRuntime>();
   return yield* Effect.forEach(ordered, Effect.fn(function* (member) {
-    if (member.kind === "logical") return member;
+    if (member.kind === "logical") {
+      return Object.freeze(member);
+    }
     const digest = member.reference.installation.installationSha256;
     let installation = prepared.get(digest);
     if (installation === undefined) {
@@ -197,3 +214,16 @@ export const prepareAtomicCommerceParticipants = Effect.fn("AtomicCommerce.prepa
     return { ...member, prepared: installation };
   }));
 });
+
+export type PreparedAtomicCommerceLogicalParticipant = Extract<Effect.Success<ReturnType<typeof prepareAtomicCommerceParticipants>>[number],
+  { readonly kind: "logical" }>;
+
+/** Workflow borrowing consumes this factory's exact members, including source
+ * descriptors; source-key or hash equality cannot reconstruct provenance. */
+export const requirePreparedAtomicCommerceLogicalParticipant = (member: PreparedAtomicCommerceLogicalParticipant,
+  expectedFactory: AtomicCommerceParticipantInput | undefined) => {
+  const issued = preparedLogicalMembers.get(member);
+  return issued !== undefined && (expectedFactory === undefined || issued.factory === expectedFactory) &&
+    member.commands.size === issued.commands.length && issued.commands.every(command => member.commands.has(command))
+    ? Result.succeed(member) : Result.fail(commerceError("invalidAuthority"));
+};

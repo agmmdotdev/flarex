@@ -240,8 +240,9 @@ export const readRequiredEnabledIndexBuildsInTransactionEffect = Effect.fn("Inde
       )).orderBy(asc(fxSystemIndexBuildStates.indexDefinitionId)).for(lock),
       cause => new IndexBuildStatePersistenceError("readRequiredIndexBuildStates", cause),
     ));
+    const rowsByDefinitionId = new Map(rows.map(row => [row.indexDefinitionId, row]));
     for (const indexDefinitionId of definitionIds) {
-      const build = rows.find(row => row.indexDefinitionId === indexDefinitionId);
+      const build = rowsByDefinitionId.get(indexDefinitionId);
       if (build === undefined) return Object.freeze({ status: "not_ready" as const, reason: "missing" as const, indexDefinitionId });
       if (build.storageGeneration !== clock.storageGeneration || build.storageGenerationFence !== clock.storageGenerationFence || build.epoch !== clock.epoch)
         return Object.freeze({ status: "not_ready" as const, reason: "stale" as const, indexDefinitionId });

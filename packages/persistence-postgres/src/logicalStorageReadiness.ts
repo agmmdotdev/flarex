@@ -17,15 +17,20 @@ import { lockScopeClockForSnapshotReadInTransactionEffect, type ScopeClockRecord
 import type { AppRowTransaction } from "./appRows";
 import type { CheckedApplicationActiveHead } from "./applicationActiveHeadRead";
 import type { IndexCoverageContext } from "./indexBuildStates";
-import { chargeHostPreparation } from "./preparedHostRuntime";
+import { chargeHostPreparation, captureHostPreparationLifetime } from "./preparedHostRuntime";
 import { prepareLogicalSearchBuild } from "./logicalSearchBuild";
-import { readLogicalStorageRequirements } from "./logicalStorageDefinitions";
 import { prepareLogicalStrongReferenceProjections } from "./logicalStrongReferenceProjection";
+import { prepareLogicalRelationalTableMechanics } from "./logicalDocuments/relationalRows";
 
 export class LogicalStorageReadinessError extends Data.TaggedError("LogicalStorageReadinessError")<{
   readonly reason: "invalidComposition" | "notLogicalCandidate" | "scopeMismatch" | "resourceFailure";
   readonly cause?: unknown;
 }> {}
+const preparedCatalogs = new WeakMap<object, Readonly<{
+  ports: AppUniqueConstraintSetBuildPortsV1; unique: AppUniqueConstraintSetEligibilityPortV1;
+  input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>;
+  lifetime: Effect.Success<ReturnType<typeof captureHostPreparationLifetime>>;
+}>>();
 
 /** Immutable catalog preparation, using the complete candidate's existing
  * index and closed-unique owners. No per-framework builder, durable receipt,
@@ -37,6 +42,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
   if (!hasAppUniqueConstraintSetEligibilityCompositionV1(unique, ports.controlDb, ports.authority))
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
   const captured = Object.freeze({ ...input });
+  const lifetime = yield* captureHostPreparationLifetime();
   const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(ports.controlDb, captured);
   if (requirements === null) return Object.freeze({ status: "not_ready" as const, reason: "schemaMissing" as const });
   yield* chargeHostPreparation(JSON.stringify({ manifest: requirements.manifest, definitions: requirements.definitions },
@@ -48,12 +54,14 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
   const constraints = yield* prepareAppUniqueConstraintSet(unique, captured);
   if (constraints.status === "not_ready") return Object.freeze({ status: "not_ready" as const, reason: "uniqueSetNotClosed" as const });
-  const search = yield* prepareLogicalSearchBuild(ports.controlDb, captured.deploymentId, captured.schemaVersionId);
+  const sourceRequirements = requirements.logicalRequirements;
+  if (sourceRequirements === undefined)
+    return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  const search = yield* prepareLogicalSearchBuild(ports.controlDb, captured.deploymentId, captured.schemaVersionId,
+    { kind: "prepared", requirements: sourceRequirements });
   yield* chargeUniqueConstraintPreparation(constraints.preparation);
   const definitionIds = Object.freeze(requirements.definitions.map(definition => definition.indexDefinitionId));
   const manifestSha256Hex = encodeBytesToLowercaseHex(requirements.manifestSha256);
-  const sourceRequirements = yield* readLogicalStorageRequirements(ports.controlDb,
-    captured.deploymentId, captured.schemaVersionId);
   if (encodeBytesToLowercaseHex(sourceRequirements.artifact.manifestSha256) !== manifestSha256Hex)
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
   const strongReferences = yield* prepareLogicalStrongReferenceProjections(ports.controlDb,
@@ -62,6 +70,47 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       reason: cause.reason === "resourceFailure" ? "resourceFailure" : "invalidComposition", cause,
     })));
   yield* chargeHostPreparation(JSON.stringify(strongReferences));
+  const sources = sourceRequirements.evidence.candidate.sources;
+  const sourceByKey = new Map(sources.map(source => [source.key, source]));
+  const stableTableByKey = new Map(sourceRequirements.evidence.tableBindings
+    .map(binding => [logicalTableKey(binding.table), binding]));
+  const sourceTables = Object.freeze(sources.map(source => {
+    const bindings = source.bindings.map(binding => stableTableByKey.get(logicalTableKey(binding.table))?.tableId);
+    return Object.freeze({ source, missing: bindings.some(table => table === undefined),
+      tables: Object.freeze(bindings.filter((table): table is CatalogTableId => table !== undefined)) });
+  }));
+  const sourceDefinitionTables = new Map(sources.map(source => {
+    const bindings = new Map(source.bindings.filter(binding => binding.kind === "definition").map(binding => [binding.localName, binding]));
+    const names = source.definition.kind === "documents" ? source.definition.tables.map(table => table.logicalName) :
+      source.definition.schema.tables.map(table => table.identity.tableId);
+    const tables = names.map(localName => {
+      const binding = bindings.get(localName);
+      const tableId = binding === undefined ? undefined : stableTableByKey.get(logicalTableKey(binding.table))?.tableId;
+      return tableId === undefined ? undefined : Object.freeze({ localName, tableId });
+    });
+    return [source.key, tables.some(table => table === undefined) ? undefined :
+      Object.freeze(tables.filter((table): table is NonNullable<typeof table> => table !== undefined))] as const;
+  }));
+  const invalidNormalizedReference = sources.some(source => {
+    if (source.definition.kind !== "relational") return false;
+    const schema = source.definition.schema;
+    return schema.tables.some(table => table.constraints.some(constraint => constraint.kind === "foreignKey" &&
+      constraint.targetColumns.some(column => column.owner !== table.identity.owner ||
+        column.lineageId !== table.identity.lineageId || !schema.tables.some(target => target.identity.tableId === column.tableId))));
+  });
+  const relationalMechanics = new Map<CatalogTableId, ReturnType<typeof prepareLogicalRelationalTableMechanics>>();
+  for (const source of sources) {
+    if (source.definition.kind !== "relational") continue;
+    const bindings = new Map(source.bindings.filter(binding => binding.kind === "definition").map(binding => [binding.localName, binding]));
+    for (const table of source.definition.schema.tables) {
+      const binding = bindings.get(table.identity.tableId);
+      const tableId = binding === undefined ? undefined : stableTableByKey.get(logicalTableKey(binding.table))?.tableId;
+      if (tableId !== undefined) relationalMechanics.set(tableId, prepareLogicalRelationalTableMechanics(table,
+        source.definition.schema.capabilities));
+    }
+  }
+  yield* chargeHostPreparation([...relationalMechanics].map(([tableId, mechanics]) => ({ tableId,
+    table: mechanics.table, capabilities: mechanics.capabilities })));
 
   /** Call inside the accepting owner's transaction after it locks the scope
    * clock. This observes fresh structural coverage; the outer binding owner
@@ -70,6 +119,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     definitions: typeof requirements.definitions, checkedActive?: CheckedApplicationActiveHead,
   ) {
+    if (lifetime !== undefined) yield* Effect.fromResult(lifetime.checkOpen());
     const inspectedDefinitionIds = Object.freeze(definitions.map(definition => definition.indexDefinitionId));
     if (authority.deploymentId !== captured.deploymentId || authority.scopeId !== captured.scopeId || clock.scopeId !== authority.scopeId ||
       clock.epoch !== authority.epoch || clock.storageGeneration !== authority.storageGeneration || clock.storageGenerationFence !== authority.storageGenerationFence)
@@ -88,8 +138,9 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       if (observedClock.storageGeneration !== clock.storageGeneration || observedClock.storageGenerationFence !== clock.storageGenerationFence ||
         observedClock.epoch !== clock.epoch || observedClock.lastCommitSeq < clock.lastCommitSeq)
         return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "scopeMismatch" }));
+      const buildByDefinitionId = new Map(builds.rows.map(build => [build.indexDefinitionId, build]));
       const selected = definitions.map(definition => {
-        const row = builds.rows.find(build => build.indexDefinitionId === definition.indexDefinitionId);
+        const row = buildByDefinitionId.get(definition.indexDefinitionId);
         if (row === undefined) return { definition, state: null } as const;
         const decoded = decodeIndexBuildStateRowResult(row, clock.scopeId, definition.indexDefinitionId);
         return { definition, state: decoded } as const;
@@ -145,7 +196,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, clock,
       "concurrentProgress", latestCoverage);
     if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
-    const searchReadiness = yield* search.inspect(tx, authority, clock);
+    const searchReadiness = yield* search.inspect(tx, authority, clock, latestCoverage);
     if (searchReadiness.status === "not_ready")
       return Object.freeze({ ...searchReadiness, kind: "search" as const });
     return Object.freeze({ status: "ready" as const, readiness: "full" as const, schemaVersionId: captured.schemaVersionId, manifestSha256Hex,
@@ -155,40 +206,22 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
    * method allowlists. Incoming edges include reverse/delete obligations and
    * outgoing edges include target identities. Repeat for each added source. */
   const selectSources = Effect.fn("LogicalStorageReadiness.selectSources")(function* (requestedSourceKeys: readonly string[]) {
-    const sources = sourceRequirements.evidence.candidate.sources;
     if (requestedSourceKeys.length === 0 || requestedSourceKeys.length > sources.length)
       return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
     const selectedSources = new Set(requestedSourceKeys);
     if (selectedSources.size !== requestedSourceKeys.length ||
-      [...selectedSources].some(key => !sources.some(source => source.key === key)))
+      [...selectedSources].some(key => !sourceByKey.has(key)))
       return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
     // The canonical candidate decoder proves declared-name cardinality and
     // definition/view shape; admission proves the complete stable binding set.
-    const sourceTables: Readonly<{ source: typeof sources[number]; tables: readonly CatalogTableId[] }>[] = [];
-    for (const source of sources) {
-      const tables: CatalogTableId[] = [];
-      for (const binding of source.bindings) {
-        const table = sourceRequirements.evidence.tableBindings.find(member => logicalTableKey(member.table) === logicalTableKey(binding.table));
-        if (table === undefined) return yield* Effect.die("Authenticated source lost its stable table binding");
-        tables.push(table.tableId);
-      }
-      sourceTables.push(Object.freeze({ source, tables: Object.freeze(tables) }));
-    }
+    if (sourceTables.some(member => member.missing))
+      return yield* Effect.die("Authenticated source lost its stable table binding");
     // Normalized foreign keys are admitted only within their owning source.
     // A cross-source normalized target is not proved by this source closure.
-    for (const { source } of sourceTables) {
-      if (source.definition.kind !== "relational") continue;
-      const schema = source.definition.schema;
-      for (const table of schema.tables) for (const constraint of table.constraints) {
-        if (constraint.kind !== "foreignKey") continue;
-        if (constraint.targetColumns.some(column => column.owner !== table.identity.owner ||
-          column.lineageId !== table.identity.lineageId || !schema.tables.some(target =>
-            target.identity.tableId === column.tableId)))
-          return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
-      }
-    }
+    if (invalidNormalizedReference)
+      return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
     const selectedTables = new Set(sourceTables.filter(member => selectedSources.has(member.source.key))
-      .flatMap(member => member.tables));
+      .flatMap(member => member.tables.filter((table): table is CatalogTableId => table !== undefined)));
     let changed = true;
     while (changed) {
       changed = false;
@@ -206,7 +239,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
           if (!member.tables.includes(reference.sourceTableId) && !member.tables.includes(reference.targetTableId)) continue;
           if (!selectedSources.has(member.source.key)) {
             selectedSources.add(member.source.key);
-            for (const tableId of member.tables) selectedTables.add(tableId);
+            for (const tableId of member.tables) if (tableId !== undefined) selectedTables.add(tableId);
             changed = true;
           }
         }
@@ -225,7 +258,7 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       if (indexes.status === "not_ready") return indexes;
       const eligibility = yield* selectedUnique.inspectSelected(tx, authority, clock, indexes.coverage);
       if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
-      const searchReadiness = yield* selectedSearch.inspectSelected(tx, authority, clock);
+      const searchReadiness = yield* selectedSearch.inspectSelected(tx, authority, clock, indexes.coverage);
       if (searchReadiness.status === "not_ready") return Object.freeze({ ...searchReadiness, kind: "search" as const });
       return Object.freeze({ status: "ready" as const, readiness: "selected" as const,
         schemaVersionId: captured.schemaVersionId, manifestSha256Hex, sourceKeys, tableIds,
@@ -235,7 +268,31 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
       applicationAnalysis });
   });
-  return Object.freeze({ status: "prepared" as const, inspect, selectSources, advanceEmptySearch: search.advanceEmpty,
+  const prepared = Object.freeze({ status: "prepared" as const, inspect, selectSources, advanceEmptySearch: search.advanceEmpty,
+    requirements: sourceRequirements, snapshot: requirements,
+    relationalTableMechanics: (tableId: CatalogTableId) => relationalMechanics.get(tableId),
+    source: (key: string) => sourceByKey.get(key), sourceDefinitionTables: (key: string) => sourceDefinitionTables.get(key),
     reference: Object.freeze({ schemaVersionId: captured.schemaVersionId, manifestSha256: manifestSha256Hex }),
     applicationAnalysis, strongReferences });
+  preparedCatalogs.set(prepared, { ports: Object.freeze({ ...ports }), unique, input: captured, lifetime });
+  return prepared;
+});
+
+export type PreparedLogicalStorageCatalog = Extract<Effect.Success<ReturnType<typeof prepareLogicalStorageReadiness>>,
+  { readonly status: "prepared" }>;
+
+/** Private issuer provenance pins construction to its exact catalog owners.
+ * A host lease proves mechanics lifetime only, never attempt authority. */
+export const requirePreparedLogicalStorageCatalog = Effect.fn("LogicalStorageReadiness.requireCatalog")(function* (
+  catalog: PreparedLogicalStorageCatalog, ports: AppUniqueConstraintSetBuildPortsV1,
+  unique: AppUniqueConstraintSetEligibilityPortV1,
+  input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
+) {
+  const issued = preparedCatalogs.get(catalog);
+  if (issued === undefined || issued.ports.controlDb !== ports.controlDb || issued.ports.authority !== ports.authority ||
+    issued.unique !== unique || issued.input.deploymentId !== input.deploymentId || issued.input.scopeId !== input.scopeId ||
+    issued.input.schemaVersionId !== input.schemaVersionId)
+    return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  if (issued.lifetime !== undefined) yield* Effect.fromResult(issued.lifetime.checkOpen());
+  return catalog;
 });

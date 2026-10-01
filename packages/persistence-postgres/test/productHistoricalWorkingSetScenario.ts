@@ -57,7 +57,7 @@ export const productHistoricalWorkingSetScenario = Effect.fn("ProductHistoricalW
   const unique = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(db, deploymentId, scopeId,
     schemaVersionId, tableIds, 24);
   if (unique === null) throw new Error("Missing Product unique definitions");
-  const values = yield* prepareLogicalRelationalValueValidation(db, deploymentId, schemaVersionId);
+  const values = yield* prepareLogicalRelationalValueValidation(db, deploymentId, schemaVersionId, { kind: "fresh" });
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authority);
   const scope = yield* Effect.fromResult(projectScopeIdUuidV1Result(scopeId));
   const transact = <A, E>(work: (tx: FlarexMetadataTransaction) => Effect.Effect<A, E>) =>

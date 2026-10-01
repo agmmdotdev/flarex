@@ -5,8 +5,10 @@ import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
 import type { Json } from "flarex-protocol/json";
 import type { FlarexMetadataDatabase } from "../deployments";
-import { readLogicalStorageRequirements, LogicalStorageDefinitionError } from "../logicalStorageDefinitions";
-import { prepareLogicalRelationalRowValues } from "./relationalRows";
+import { readLogicalStorageRequirements, requirePreparedLogicalStorageRequirements, LogicalStorageDefinitionError,
+  type PreparedLogicalStorageRequirements } from "../logicalStorageDefinitions";
+import { prepareLogicalRelationalRowValues, hasPreparedLogicalRelationalTableMechanics,
+  type PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import { chargeHostPreparation } from "../preparedHostRuntime";
 
 export class LogicalRelationalValueError extends Data.TaggedError("LogicalRelationalValueError")<{
@@ -20,9 +22,12 @@ const decodeDocument = Schema.decodeUnknownResult(Schema.JsonObject);
  * callers must separately retain fresh admission and complete capabilities. */
 export const prepareLogicalRelationalValueValidation = Effect.fn("LogicalRelationalValues.prepare")(function* (
   db: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
+  construction: Readonly<{ kind: "fresh" }> | Readonly<{ kind: "prepared"; requirements: PreparedLogicalStorageRequirements;
+    tableMechanics: (tableId: CatalogTableId) => PreparedLogicalRelationalTableMechanics | undefined }>,
 ) {
-  const { evidence } = yield* readLogicalStorageRequirements(db, deploymentId, schemaVersionId);
-  yield* chargeHostPreparation(JSON.stringify(evidence));
+  const { evidence } = yield* (construction.kind === "fresh" ? readLogicalStorageRequirements(db, deploymentId, schemaVersionId) :
+    requirePreparedLogicalStorageRequirements(db, deploymentId, schemaVersionId, construction.requirements));
+  if (construction.kind === "fresh") yield* chargeHostPreparation(JSON.stringify(evidence));
   const tables = new Map<CatalogTableId, ReturnType<typeof prepareLogicalRelationalRowValues<LogicalRelationalValueError>>>();
   for (const source of evidence.candidate.sources) {
     if (source.definition.kind !== "relational") continue;
@@ -31,8 +36,16 @@ export const prepareLogicalRelationalValueValidation = Effect.fn("LogicalRelatio
       const bound = binding === undefined ? undefined : evidence.tableBindings.find(value =>
         logicalTableKey(value.table) === logicalTableKey(binding.table));
       if (bound === undefined || tables.has(bound.tableId)) return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }));
-      tables.set(bound.tableId, prepareLogicalRelationalRowValues(table, source.definition.schema.capabilities,
+      if (construction.kind === "fresh") tables.set(bound.tableId, prepareLogicalRelationalRowValues(table, source.definition.schema.capabilities,
         (_, cause) => new LogicalRelationalValueError({ reason: "invalidDocument", cause })));
+      else {
+        const mechanics = construction.tableMechanics(bound.tableId);
+        if (mechanics === undefined || !hasPreparedLogicalRelationalTableMechanics(mechanics, table) ||
+          mechanics.capabilities !== source.definition.schema.capabilities)
+          return yield* Effect.fail(new LogicalStorageDefinitionError({ reason: "incompleteBinding" }));
+        tables.set(bound.tableId, (row, reason) => mechanics.validate(row, reason).pipe(Result.mapError(cause =>
+          new LogicalRelationalValueError({ reason: "invalidDocument", cause: cause.cause }))));
+      }
     }
   }
   const validate = (tableId: CatalogTableId, document: CanonicalFlarexValueV1) => Result.gen(function* () {

@@ -159,6 +159,42 @@ workflow steps; standalone and durable-operation construction retain their named
 full-admission profiles. This amendment grants no new issuer, certificate,
 maintenance authority, settlement capability or durable format.
 
+The [delivered aggregate-entry slice](../roadmaps/mixed-mutation-core/19-aggregate-entry-preflight.md)
+connects the existing private `finiteRoot` profile to one preparatory target
+capture and one accepting transaction for atomic session creation and complete
+ordered source entry. Source refusal rolls back creation. Issuer-bound entry
+facts and journal installation require confirmed COMMIT and the original local
+claim; unknown decisions, cleanup failure and interruption expose no usable fact.
+Actual final session, lease, journal root and claim correlation, all five child
+absence predicates, full Application/function/readiness checks, and the full
+23-table protected tail attestation remain mandatory. Detached immutable schema,
+publication, task, argument and grant authentication runs outside target SQL.
+Existing bounded hashes of fresh physical, head and materialization observations
+remain at their accepting frontier; unprotected PGlite retains complete canonical
+final reread/authentication. Prepared source catalogs share immutable topology
+within their existing host lifetime and retain exact source/factory issuer,
+database/authority, schema and scope provenance. These facts stay in trusted core
+construction, with no Worker RPC, SDK or application author capability transfer.
+Ordinary `durableOperations`, rerun, redispatch and later durable readers retain
+their real obligations; the standard Application default profile is unchanged.
+The complete initial executor retains its fresh renewal and liveness across
+body, seal and transition. Confirmed entry facts establish structural admission,
+and cannot replace that later live observation. Cost comparisons must include
+complete initial authentication and renewal, which the prior measured private
+fixture omitted; the three-transaction structural entry is not a complete
+authenticated-request transaction ceiling.
+Issuer-local entry capacity is reserved before writes and released by the
+activation acquisition/use/release lifetime, including cancelled handoffs;
+database execution remains interruptible. The complete-profile admission gate
+counts the renewal as a fourth transaction. Original whole-request SQL ceilings
+remain applicable to every sample; transaction ceilings include the additional
+renewal, and whole-request latency goals remain unchanged.
+The bounded private profile passed its stage SQL/transaction gates. Whole mixed
+latency goals remain unmet; the earlier measured fixture omitted complete
+initial authentication and renewal, so its timing distribution establishes no
+profile equivalence or causal regression. Host lifecycle work remains conditional
+and unapproved.
+
 ### Overall Direction
 
 The storage backbone is good, but the original unified-runtime proposal was

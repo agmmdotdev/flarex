@@ -2,16 +2,20 @@ import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBui
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
-import { captureProtectedMetadataEpoch, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
+import { captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
   type ProtectedMetadataEpochIdentity, type ProtectedMetadataPreparation } from "./preparedMetadataEpoch";
 import {
   canonicalizeApplicationManifestV1,
+  APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import { isCanonicalCalendarDate } from "@flarex/time/calendar-date";
 import {
   applicationFunctionEntryPublicationFrameV1,
+  applicationFunctionCatalogPublicationFrameV1,
+  applicationPublicationCommitmentFrameV1,
   applicationSchemaPublicationFrameV1,
+  APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1,
 } from "@flarex/analysis/internal/application-publication-v1";
 import {
   bytesEqualFullScan,
@@ -22,9 +26,9 @@ import {
   uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 } from
+import { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1, MAX_APPLICATION_RUNTIME_COLD_RECEIPT_BYTES_V1 } from
   "flarex-protocol/internal/application-runtime-cold-receipt-v1";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import {
@@ -64,6 +68,9 @@ import {
   hasApplicationSchemaAuthorityComposition,
 } from "./applicationSchemaAuthority";
 import {
+  captureApplicationTaskCatalogRowsInTransaction,
+  authenticateCapturedApplicationTaskCatalogRows,
+  type CapturedApplicationTaskCatalogRows,
   isApplicationTaskCatalogSnapshotPort,
   type ApplicationTaskCatalogSnapshot,
   type ApplicationTaskCatalogSnapshotError,
@@ -75,6 +82,7 @@ import { detachDriverRows } from "./detachDriverRows";
 import { runEffectTransaction } from "./effectTransaction";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { isRetryableSqlTransactionCause } from "./locatedReadCommittedEffect";
+import { chargeHostPreparation } from "./preparedHostRuntime";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   type IndexBuildReconciliationCatalogV1Error,
@@ -428,6 +436,174 @@ const issuedReadinessStates = new WeakMap<
   Extract<ApplicationReadinessResult, { readonly status: "ready" }>,
   IssuedApplicationReadinessState
 >();
+
+interface CapturedFiniteReadinessRows {
+  readonly authority: ApplicationReadinessAuthority;
+  readonly deploymentId: string;
+  readonly revision: typeof fxSystemApplicationRevisionsV2.$inferSelect;
+  readonly selected: CapturedBundleSelection;
+  readonly functions: ReadonlyArray<typeof fxSystemApplicationFunctionsV1.$inferSelect>;
+  readonly task: CapturedApplicationTaskCatalogRows | null;
+  readonly readiness: typeof fxSystemApplicationReadinessV1.$inferSelect;
+  readonly cold: ReadonlyArray<typeof fxSystemApplicationReadinessFunctionsV1.$inferSelect>;
+  readonly protection?: NonNullable<ApplicationReadinessContext<unknown, unknown>["protectedMetadata"]> & {
+    readonly epoch: ProtectedMetadataEpochIdentity;
+  };
+}
+
+declare const finiteReadinessCaptureBrand: unique symbol;
+export interface CapturedFiniteApplicationReadiness {
+  readonly [finiteReadinessCaptureBrand]: true;
+}
+const finiteReadinessCaptures = new WeakMap<CapturedFiniteApplicationReadiness, {
+  readonly issuer: ApplicationReadinessRepositoryIssuerV1;
+  readonly rows: CapturedFiniteReadinessRows;
+}>();
+
+/** Private finite entry capture. No canonical hashing or control access runs in this transaction. */
+export const captureFiniteApplicationReadinessInTransaction = Effect.fn(
+  "ApplicationReadiness.captureFiniteEntry",
+)(function* (repository: ApplicationReadinessRepository<unknown, unknown>, authority: TrustedScopeAuthority, revisionId: string,
+  target: LocatedReadCommittedAttemptTargetV1, tx: AppRowTransaction) {
+  const state = readinessRepositoryStates.get(repository);
+  const protection = state?.context.protectedMetadata;
+  if (state === undefined || authority.storageGeneration !== "flarexdb_v1" ||
+    (protection !== undefined && !hasLocatedReadCommittedTargetDatabaseV1(target, protection.database)))
+    return yield* readinessFailure("invalidComposition");
+  const exactAuthority: ApplicationReadinessAuthority = Object.freeze({ ...authority,
+    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1") });
+  const before = protection === undefined ? undefined : yield* captureProtectedMetadataEpoch(protection.token, protection.database, tx).pipe(
+    Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  const clock = yield* lockScopeClockForSnapshotReadInTransactionEffect(tx, authority.scopeId);
+  yield* requireExactAuthority(exactAuthority, clock);
+  const revisions = yield* query(tx.select().from(fxSystemApplicationRevisionsV2).where(and(
+    eq(fxSystemApplicationRevisionsV2.scopeId, authority.scopeId),
+    eq(fxSystemApplicationRevisionsV2.revisionId, revisionId),
+  )).limit(1).for("share"));
+  const revision = revisions[0];
+  if (revision === undefined) return yield* readinessFailure("storedState");
+  const selectedRows = yield* query(tx.select({ candidate: fxSystemApplicationCandidatesV1,
+    analysis: { ...getTableColumns(fxSystemApplicationAnalysesV1),
+      manifestBytes: sql<Uint8Array | null>`case when octet_length(${fxSystemApplicationAnalysesV1.manifestBytes}) between 1 and ${APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1}
+        then ${fxSystemApplicationAnalysesV1.manifestBytes} else null end` },
+    publication: { ...getTableColumns(fxSystemApplicationPublicationsV1),
+      schemaBytes: sql<Uint8Array>`case when octet_length(${fxSystemApplicationPublicationsV1.schemaBytes}) between 1 and ${APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1}
+        then ${fxSystemApplicationPublicationsV1.schemaBytes} else ''::bytea end`,
+      functionCatalogBytes: sql<Uint8Array>`case when octet_length(${fxSystemApplicationPublicationsV1.functionCatalogBytes}) between 1 and ${APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1}
+        then ${fxSystemApplicationPublicationsV1.functionCatalogBytes} else ''::bytea end` } })
+    .from(fxSystemApplicationRevisionsV2)
+    .leftJoin(fxSystemApplicationCandidatesV1, and(
+      eq(fxSystemApplicationCandidatesV1.scopeId, fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationCandidatesV1.candidateId, fxSystemApplicationRevisionsV2.candidateId)))
+    .leftJoin(fxSystemApplicationAnalysesV1, and(
+      eq(fxSystemApplicationAnalysesV1.scopeId, fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationAnalysesV1.analysisId, fxSystemApplicationRevisionsV2.analysisId)))
+    .leftJoin(fxSystemApplicationPublicationsV1, and(
+      eq(fxSystemApplicationPublicationsV1.scopeId, fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationPublicationsV1.revisionId, fxSystemApplicationRevisionsV2.revisionId)))
+    .where(and(eq(fxSystemApplicationRevisionsV2.scopeId, authority.scopeId),
+      eq(fxSystemApplicationRevisionsV2.revisionId, revisionId))).limit(1));
+  const selected = selectedRows[0];
+  if (selected === undefined || selected.analysis?.manifestBytes === null ||
+    selected.analysis?.manifestBytes === undefined || selected.analysis.manifestBytes.byteLength > APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1)
+    return yield* readinessFailure("storedState");
+  // Every canonical function entry is an element of the same bounded catalog.
+  // Admit the aggregate stored bytes before transferring any entry body.
+  const functionBytesAdmitted = sql<boolean>`(select coalesce(sum(octet_length(${fxSystemApplicationFunctionsV1.entryBytes})), 0)
+    <= ${APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1} and count(*) <= ${MAX_FUNCTIONS}
+    from ${fxSystemApplicationFunctionsV1} where ${fxSystemApplicationFunctionsV1.scopeId} = ${authority.scopeId}
+      and ${fxSystemApplicationFunctionsV1.revisionId} = ${revisionId})`;
+  const functions = yield* query(tx.select({ ...getTableColumns(fxSystemApplicationFunctionsV1),
+    entryBytes: sql<Uint8Array>`case when ${functionBytesAdmitted} and octet_length(${fxSystemApplicationFunctionsV1.entryBytes}) between 1 and ${APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1}
+      then ${fxSystemApplicationFunctionsV1.entryBytes} else ''::bytea end` }).from(fxSystemApplicationFunctionsV1).where(and(
+    eq(fxSystemApplicationFunctionsV1.scopeId, authority.scopeId),
+    eq(fxSystemApplicationFunctionsV1.revisionId, revisionId),
+  )).limit(MAX_FUNCTIONS + 1));
+  if (functions.length > MAX_FUNCTIONS || functions.some(row => row.entryBytes.byteLength < 1 ||
+    row.entryBytes.byteLength > APPLICATION_PUBLICATION_MAXIMUM_FRAME_BYTES_V1))
+    return yield* readinessFailure("storedState");
+  const task = yield* captureApplicationTaskCatalogRowsInTransaction(state.context.taskCatalog, tx, exactAuthority, revisionId);
+  const readyRows = yield* query(tx.select({ ...getTableColumns(fxSystemApplicationReadinessV1),
+    readinessBytes: sql<Uint8Array>`case when octet_length(${fxSystemApplicationReadinessV1.readinessBytes}) between 1 and ${MAX_READINESS_BYTES}
+      then ${fxSystemApplicationReadinessV1.readinessBytes} else ''::bytea end` }).from(fxSystemApplicationReadinessV1).where(and(
+    eq(fxSystemApplicationReadinessV1.scopeId, authority.scopeId),
+    eq(fxSystemApplicationReadinessV1.revisionId, revisionId),
+  )).limit(1).for("share"));
+  const readiness = readyRows[0];
+  if (readiness === undefined || readiness.readinessBytes.byteLength > MAX_READINESS_BYTES)
+    return yield* readinessFailure("storedState");
+  const coldBytesAdmitted = sql<boolean>`(select coalesce(sum(octet_length(${fxSystemApplicationReadinessFunctionsV1.coldReceiptBytes})), 0)
+    <= ${MAX_FUNCTIONS * MAX_APPLICATION_RUNTIME_COLD_RECEIPT_BYTES_V1} and count(*) <= ${MAX_FUNCTIONS}
+    from ${fxSystemApplicationReadinessFunctionsV1}
+    where ${fxSystemApplicationReadinessFunctionsV1.scopeId} = ${authority.scopeId}
+      and ${fxSystemApplicationReadinessFunctionsV1.revisionId} = ${revisionId})`;
+  const cold = yield* query(tx.select({ ...getTableColumns(fxSystemApplicationReadinessFunctionsV1),
+    coldReceiptBytes: sql<Uint8Array>`case when ${coldBytesAdmitted} and octet_length(${fxSystemApplicationReadinessFunctionsV1.coldReceiptBytes}) between 1 and ${MAX_APPLICATION_RUNTIME_COLD_RECEIPT_BYTES_V1}
+      then ${fxSystemApplicationReadinessFunctionsV1.coldReceiptBytes} else ''::bytea end` }).from(fxSystemApplicationReadinessFunctionsV1).where(and(
+    eq(fxSystemApplicationReadinessFunctionsV1.scopeId, authority.scopeId),
+    eq(fxSystemApplicationReadinessFunctionsV1.revisionId, revisionId),
+  )).limit(MAX_FUNCTIONS + 1).for("share"));
+  if (cold.length > MAX_FUNCTIONS || cold.some(row => row.coldReceiptBytes.byteLength < 1 ||
+    row.coldReceiptBytes.byteLength > MAX_APPLICATION_RUNTIME_COLD_RECEIPT_BYTES_V1))
+    return yield* readinessFailure("storedState");
+  if (protection !== undefined && before !== undefined) yield* authenticateProtectedTargetMetadataSnapshot(
+    { ...protection, epoch: before }, tx).pipe(
+      Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  const rows = structuredClone({ authority: exactAuthority, deploymentId: authority.deploymentId,
+    revision, selected, functions, task, readiness, cold });
+  // SAFETY: the inert token is authenticated solely by the issuing repository's private map.
+  const capture = Object.freeze({}) as CapturedFiniteApplicationReadiness;
+  finiteReadinessCaptures.set(capture, { issuer: state.issuer, rows: Object.freeze({ ...rows,
+    ...(protection === undefined || before === undefined ? {} : {
+      protection: Object.freeze({ ...protection, epoch: before }) }) }) });
+  return capture;
+});
+
+/** Complete immutable authentication and configured control preparation after target SQL closes. */
+export const prepareCapturedFiniteApplicationReadiness = Effect.fn(
+  "ApplicationReadiness.prepareCapturedFiniteEntry",
+)(function* (repository: ApplicationReadinessRepository<unknown, unknown>, capture: CapturedFiniteApplicationReadiness) {
+  const state = readinessRepositoryStates.get(repository);
+  const captured = finiteReadinessCaptures.get(capture);
+  if (state === undefined || captured === undefined || captured.issuer !== state.issuer)
+    return yield* readinessFailure("invalidComposition");
+  const rows = captured.rows;
+  const bundle = yield* authenticateStoredBundle(rows.authority,
+    { deploymentId: rows.deploymentId, revisionId: rows.revision.revisionId }, rows.revision, rows.selected,
+    () => Effect.succeed(rows.functions),
+    () => rows.task === null ? Effect.succeed(null) : authenticateCapturedApplicationTaskCatalogRows(rows.task));
+  if ("status" in bundle) return yield* readinessFailure("storedState");
+  const schema = yield* state.context.schema.readPublished({ deploymentId: rows.deploymentId, manifest: bundle.manifest });
+  yield* requireSchemaCorrelation(bundle, schema.schemaVersion, schema);
+  const requirements = yield* loadPublishedPhysicalRequirementSnapshotV1(state.context.controlDb,
+    { deploymentId: rows.deploymentId, schemaVersionId: schema.schemaVersionId });
+  if (requirements === null || encodeBytesToLowercaseHex(requirements.manifestSha256) !== schema.schemaManifestSha256 ||
+    requirements.definitions.length > MAX_PHYSICAL_DEFINITIONS) return yield* readinessFailure("storedState");
+  const unique = yield* loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(state.context.pointCommit,
+    { deploymentId: rows.deploymentId, scopeId: rows.authority.scopeId, schemaVersionId: schema.schemaVersionId },
+    state.context.controlDb, state.context.authority);
+  if (unique.status === "not_ready") return yield* readinessFailure("authorityChanged");
+  const physicalDefinitionLifecycle = yield* preparePhysicalDefinitionLifecycleReadinessEffect(
+    state.context.physicalDefinitionLifecycle, rows.authority.scopeId, requirements);
+  const schemaBindingSha256 = yield* runTransaction(state.context.controlDb,
+    tx => readSchemaBinding(tx, bundle, schema.schemaVersion, schema));
+  const cold = yield* authenticateStoredColdEvidence(bundle, state.context.cold, rows.readiness, rows.cold);
+  const stored = yield* authenticateStoredReadinessAuthority(bundle, schema.schemaVersion, schema,
+    schemaBindingSha256, requirements, physicalDefinitionLifecycle, rows.readiness.physicalReadinessSha256,
+    rows.readiness, cold);
+  yield* chargeHostPreparation({ bundle: { ...bundle,
+    revision: { ...bundle.revision, registeredAt: bundle.revision.registeredAt.getTime() },
+    publication: { ...bundle.publication, publishedAt: bundle.publication.publishedAt.getTime() } },
+    schema, requirements: { ...requirements }, cold, schemaBindingSha256,
+    readinessBytes: stored.readinessBytes }).pipe(
+      Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  const issued = storedReadyProjection(Object.freeze({ ...stored,
+    ...(rows.protection === undefined ? {} : { protectedMetadata: rows.protection }) }), state.issuer);
+  if (issued.status !== "ready") return yield* readinessFailure("storedState");
+  const issuedState = issuedReadinessStates.get(issued);
+  if (issuedState === undefined) return yield* readinessFailure("storedState");
+  return Object.freeze({ readiness: issued, basis: activationBasis(issuedState), schema });
+});
 
 /** Only the exact readiness issuer can expose its already bracketed immutable
  * target proof to connected internal preparation owners. */
@@ -1075,7 +1251,31 @@ function* (
           eq(fxSystemApplicationRevisionsV2.revisionId, revision.revisionId),
         )).limit(1),
     );
-    const selected = selectedRows[0];
+    return yield* authenticateStoredBundle(authority, input, revision, selectedRows[0],
+      count => query(tx.select().from(fxSystemApplicationFunctionsV1).where(and(
+        eq(fxSystemApplicationFunctionsV1.scopeId, revision.scopeId),
+        eq(fxSystemApplicationFunctionsV1.revisionId, revision.revisionId),
+      )).limit(count + 1)),
+      () => taskCatalog.loadInTransaction(tx, authority, revision.revisionId));
+  },
+);
+
+interface CapturedBundleSelection {
+  readonly candidate: typeof fxSystemApplicationCandidatesV1.$inferSelect | null;
+  readonly analysis: typeof fxSystemApplicationAnalysesV1.$inferSelect | null;
+  readonly publication: typeof fxSystemApplicationPublicationsV1.$inferSelect | null;
+}
+
+/** Authentication is reused by retained readers and SQL-closed finite preparation. */
+const authenticateStoredBundle = Effect.fn('ApplicationReadiness.authenticateBundle')(
+function* (
+  authority: ApplicationReadinessAuthority,
+  input: { readonly deploymentId: string; readonly revisionId: string },
+  revision: typeof fxSystemApplicationRevisionsV2.$inferSelect,
+  selected: CapturedBundleSelection | undefined,
+  readFunctions: (count: number) => Effect.Effect<ReadonlyArray<typeof fxSystemApplicationFunctionsV1.$inferSelect>, ApplicationReadinessError>,
+  readTask: () => Effect.Effect<ApplicationTaskCatalogSnapshot | null, ApplicationTaskCatalogSnapshotError>,
+) {
     const candidate = selected?.candidate;
     if (candidate === undefined || candidate === null ||
       candidate.storageGeneration !== authority.storageGeneration ||
@@ -1123,15 +1323,25 @@ function* (
         )),
       ),
     );
-    if (!bytesEqualFullScan(yield* sha256(schemaFrame), publication.schemaSha256)) {
+    if (!bytesEqualFullScan(schemaFrame, publication.schemaBytes) ||
+      !bytesEqualFullScan(yield* sha256(schemaFrame), publication.schemaSha256)) {
       return yield* readinessFailure("storedState");
     }
-    const functionRows = yield* query(
-      tx.select().from(fxSystemApplicationFunctionsV1).where(and(
-        eq(fxSystemApplicationFunctionsV1.scopeId, revision.scopeId),
-        eq(fxSystemApplicationFunctionsV1.revisionId, revision.revisionId),
-      )).limit(manifest.functions.length + 1),
-    );
+    const catalogFrame = yield* Effect.fromResult(applicationFunctionCatalogPublicationFrameV1(manifest).pipe(
+      Result.mapError(cause => readinessFailureValue("storedState", false, cause))));
+    if (!bytesEqualFullScan(catalogFrame, publication.functionCatalogBytes) ||
+      !bytesEqualFullScan(yield* sha256(catalogFrame), publication.functionCatalogSha256))
+      return yield* readinessFailure("storedState");
+    const commitmentFrame = yield* Effect.fromResult(applicationPublicationCommitmentFrameV1({
+      scopeId: authority.scopeId, revisionId: revision.revisionId, candidateId: revision.candidateId,
+      analysisId: revision.analysisId, sourceArtifactRootSha256: manifest.sourceArtifact.rootSha256,
+      manifestSha256: encodeBytesToLowercaseHex(revision.manifestSha256),
+      schemaSha256: encodeBytesToLowercaseHex(publication.schemaSha256),
+      functionCatalogSha256: encodeBytesToLowercaseHex(publication.functionCatalogSha256),
+    }).pipe(Result.mapError(cause => readinessFailureValue("storedState", false, cause))));
+    if (!bytesEqualFullScan(yield* sha256(commitmentFrame), publication.publicationSha256))
+      return yield* readinessFailure("storedState");
+    const functionRows = yield* readFunctions(manifest.functions.length);
     if (functionRows.length !== manifest.functions.length ||
       functionRows.length > MAX_FUNCTIONS) {
       return yield* readinessFailure("storedState");
@@ -1149,11 +1359,7 @@ function* (
       functions.push(row);
     }
     yield* validateStoredFunctions(manifest, publication, functions);
-    const task = yield* taskCatalog.loadInTransaction(
-      tx,
-      authority,
-      revision.revisionId,
-    );
+    const task = yield* readTask();
     if (task === null) {
       return notReady(input.revisionId, "taskCatalogMissing");
     }
@@ -1477,6 +1683,20 @@ const loadStoredColdEvidence = Effect.fn("ApplicationReadiness.loadStoredColdEvi
         ),
       )).for("share"),
     );
+    return yield* authenticateStoredColdEvidence(bundle, port, readiness, children);
+});
+
+const authenticateStoredColdEvidence = Effect.fn('ApplicationReadiness.authenticateStoredColdEvidence')(
+function* <Failure>(bundle: StoredBundle, port: ApplicationReadinessColdMaterializationPort<Failure>,
+  readiness: typeof fxSystemApplicationReadinessV1.$inferSelect,
+  children: ReadonlyArray<typeof fxSystemApplicationReadinessFunctionsV1.$inferSelect>) {
+    const runtimeHostIdentity = port.runtimeHostIdentity;
+    const compatibilityDate = port.compatibilityDate;
+    if (!validRuntimeHostIdentity(runtimeHostIdentity) || !validCompatibilityDate(compatibilityDate) ||
+      typeof port.materialize !== 'function' || runtimeHostIdentity !== bundle.task.runtimeHostIdentity ||
+      compatibilityDate !== bundle.task.compatibilityDate) return yield* readinessFailure('coldMaterialization');
+    if (readiness.runtimeHostIdentity !== runtimeHostIdentity || readiness.compatibilityDate !== compatibilityDate)
+      return yield* readinessFailure('conflictingReplay');
     if (children.length !== bundle.manifest.functions.length) {
       return yield* readinessFailure("conflictingReplay");
     }
@@ -1561,6 +1781,18 @@ const loadStoredReadinessAuthority = Effect.fn(
   );
   const row = rows[0];
   if (row === undefined) return yield* readinessFailure("storedState");
+  return yield* authenticateStoredReadinessAuthority(bundle, schemaVersion, schema, schemaBindingSha256,
+    requirements, physicalDefinitionLifecycle, physicalReadinessSha256, row, cold);
+});
+
+const authenticateStoredReadinessAuthority = Effect.fn('ApplicationReadiness.authenticateStoredAuthority')(
+function* (
+  bundle: StoredBundle, schemaVersion: CatalogSchemaVersion, schema: ApplicationSchemaAuthority,
+  schemaBindingSha256: Uint8Array, requirements: PublishedPhysicalRequirementSnapshotV1,
+  physicalDefinitionLifecycle: PreparedPhysicalDefinitionLifecycleReadiness,
+  physicalReadinessSha256: Uint8Array, row: typeof fxSystemApplicationReadinessV1.$inferSelect,
+  cold: PreparedColdEvidence,
+) {
   const readyAt = databaseTimestampFromUnknown(row.readyAt);
   const readinessByteLength = uint8ArrayByteLength(row.readinessBytes);
   const sha256Fields = [

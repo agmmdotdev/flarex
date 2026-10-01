@@ -57,6 +57,7 @@ export type LogicalParticipantDocumentValidator = (tableId: CatalogTableId, docu
 declare const attemptBrand: unique symbol;
 export interface LogicalParticipantAttemptAdmission { readonly [attemptBrand]: true }
 interface AttemptState {
+  readonly preparedSource: object;
   readonly attempt: SessionJournalAttempt;
   readonly root: LogicalParticipantAttemptRoot;
   readonly methods: ReadonlySet<string>;
@@ -96,12 +97,13 @@ export const hasLogicalParticipantAttemptAdmission = (
 export const inspectLogicalParticipantAttemptAdmission = (
   admission: LogicalParticipantAttemptAdmission, attempt: SessionJournalAttempt, method: string,
 ): Readonly<{ root: LogicalParticipantAttemptRoot; sourceKey: string; sourceSha256: string;
+  preparedSource: object;
   bindingHead: DataBindingHeadToken; tableIds: ReadonlySet<CatalogTableId>;
   indexes: readonly LocatedAppIndexDefinitionV1[];
   unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }> | null => {
   const state = typeof admission === "object" && admission !== null ? attempts.get(admission) : undefined;
   return state === undefined || state.attempt !== attempt || !state.methods.has(method) ? null : Object.freeze({
-    root: state.root, sourceKey: state.sourceKey, sourceSha256: state.sourceSha256,
+    root: state.root, sourceKey: state.sourceKey, sourceSha256: state.sourceSha256, preparedSource: state.preparedSource,
     bindingHead: state.head, tableIds: new Set(state.tableIds),
     indexes: state.indexes, unique: state.unique,
   });

@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import {
   chargeHostPreparation,
   captureHostPreparationCharge,
+  captureHostPreparationLifetime,
   makePreparedHostRuntime,
   retainPreparedHost,
 } from "../src/preparedHostRuntime";
@@ -18,6 +19,24 @@ const prepare = Effect.gen(function* () {
   yield* chargeHostPreparation(metadata);
   return { metadata };
 });
+
+it("checks the existing construction lease without spending its retained payload budget", () =>
+  runEffect(Effect.scoped(Effect.gen(function* () {
+    expect(yield* captureHostPreparationLifetime()).toBeUndefined();
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 64 });
+    const retained = yield* retainPreparedHost(runtime, Effect.gen(function* () {
+      const lifetime = yield* captureHostPreparationLifetime();
+      if (lifetime === undefined) return yield* Effect.die("Missing existing construction lease");
+      return { lifetime };
+    }));
+    const lifetime = yield* retained.use(host => Effect.succeed(host.lifetime));
+    for (let check = 0; check < 100; check++) expect(Result.isSuccess(lifetime.checkOpen())).toBe(true);
+    expect(Result.isSuccess(lifetime.charge("x".repeat(32)))).toBe(true);
+    yield* retained.close;
+    expect(lifetime.checkOpen()).toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+    const replacement = yield* retainPreparedHost(runtime, prepare);
+    expect(yield* replacement.use(host => Effect.succeed(host.metadata.length))).toBe(32);
+  }))));
 
 it("keeps lazy charges within their host allocation and rejects them after close", () =>
   runEffect(Effect.scoped(Effect.gen(function* () {

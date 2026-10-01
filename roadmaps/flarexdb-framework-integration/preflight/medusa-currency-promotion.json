@@ -4160,7 +4160,7 @@
     {
       "target": "packages/medusa-adapter/src/product-launch-workflow.ts",
       "classification": "authored",
-      "targetSha256": "959b0de72c01c04b5011eedd1083e39b83574bdc609fdc6bb56da3ad42d869c1"
+      "targetSha256": "f0c7df917263942b9a9cfbaa5224a40b4d848300949fbe7f29daf2152b8dd97f"
     },
     {
       "target": "packages/medusa-adapter/src/variant-pricing-link-service.ts",
@@ -4381,7 +4381,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-cross-source-admission.test.ts",
       "classification": "authored",
-      "targetSha256": "6b5bdb93f6ea0777e0e761e7e87da57661560318df4281b7c492631885cd8729"
+      "targetSha256": "cb9cfdd528da7f15d86fb0bf718519c91e71e511c1aff2ea9a4bfc3d75204546"
     },
     {
       "target": "packages/medusa-adapter/test/logical-commerce-snapshot.postgres.test.ts",
@@ -4391,12 +4391,12 @@
     {
       "target": "packages/medusa-adapter/test/logical-currency-fixture.test.ts",
       "classification": "authored",
-      "targetSha256": "23c8d33a27f6c43db5393844a58054185b183c8cb2f5c973383716f2263ac31b"
+      "targetSha256": "9f38b646291cbce69727cef96dc0b07538cc73654ba90ee85f6a7c58fbc88b38"
     },
     {
       "target": "packages/medusa-adapter/test/logical-currency-joint.test.ts",
       "classification": "authored",
-      "targetSha256": "8ee52622670b7358d7ac87027d7176285f185c2aec024752c3aa61b455c50ad1"
+      "targetSha256": "b53adda40fb1de6a82b65606ee72b183c31ea7245db33de8d021392defc600cd"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-tag-retirement.test.ts",
@@ -4516,12 +4516,12 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-launch-workflow.test.ts",
       "classification": "authored",
-      "targetSha256": "5559225a7d7b82f2550a33089563d40449b3f9a5192480c7351b5147e5ce9b67"
+      "targetSha256": "1a214bfc83891f011ed3082206dc2bdc564e5586021ec5d51e0540e3f54b72f5"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-service.test.ts",
       "classification": "authored",
-      "targetSha256": "8e4a40fca3d6062c4d840bbfea8300938b36f874434db90c4883f44e7b58c255"
+      "targetSha256": "fc4a792276525936b3ab733d4f442b919f8112f47df77cfc20bd38974cc9387f"
     },
     {
       "target": "packages/medusa-adapter/test/logical-product-tag-lifecycle.test.ts",
@@ -4541,7 +4541,7 @@
     {
       "target": "packages/medusa-adapter/test/logical-product-type-storage.test.ts",
       "classification": "authored",
-      "targetSha256": "353140e3963a01d429c266299730a73c4a2bb6eb7fa31d612eec498c7b9ee2f6"
+      "targetSha256": "3c1ea6bbf4171987d21806111858dc6765971f13eac0df20b51e8f0b9dc8749c"
     },
     {
       "target": "packages/medusa-adapter/test/support/logical-product-fixture.ts",

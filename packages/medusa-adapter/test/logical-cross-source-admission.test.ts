@@ -50,10 +50,10 @@ describe("cross-source relationship publication and source admission", () => {
     const productHost = await prepareLogicalProductHost(fixture);
     await Effect.runPromise(productHost.host.close);
     await Effect.runPromise(prepareLogicalApplicationSourceAdmission(ports,
-      fixture.application.uniqueConstraintEligibility, input, fixture.applicationSource));
+      fixture.application.uniqueConstraintEligibility, input, fixture.applicationSource, { kind: "standalone" }));
     const payload = await Effect.runPromise(compilePayloadCollections(payloadCollections));
     await Effect.runPromise(prepareLogicalDocumentSourceAdmission(ports,
-      fixture.application.uniqueConstraintEligibility, input, payload.sourceContract));
+      fixture.application.uniqueConstraintEligibility, input, payload.sourceContract, { kind: "standalone" }));
     const composite = await Effect.runPromise(makeCurrencyAnnouncementHost({
       hostRuntime: preparedHostTestRuntime(fixture.persistence.drizzle),
       database: fixture.persistence.drizzle, controlDatabase: fixture.control.drizzle,

@@ -22,7 +22,7 @@ import { capturePrivateJsonData } from "../privateJsonData";
 import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import type { LogicalDocumentWrite } from "./model";
-import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState } from "./sourceAdmission";
+import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState, type LogicalSourceConstruction } from "./sourceAdmission";
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
   withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
   type LogicalParticipantAttemptAdmission, type LogicalParticipantAttemptRoot,
@@ -81,6 +81,8 @@ export interface LogicalDocumentSourceAdmissionState {
 const admissions = new WeakMap<object, LogicalDocumentSourceAdmissionState>();
 export interface LogicalDocumentAttemptAdmissionState extends Omit<LogicalDocumentSourceAdmissionState, "tx" | "authority"> {
   readonly root: LogicalParticipantAttemptRoot;
+  readonly preparedSource: object;
+  readonly requirePreparedSource: Effect.Effect<void, LogicalParticipantAdmissionError>;
 }
 const attemptStates = new WeakMap<object, LogicalDocumentAttemptAdmissionState>();
 
@@ -98,6 +100,7 @@ export const withLogicalDocumentAttemptAdmissionEffect = Effect.fn("LogicalDocum
       (_, tx, checkedRead) => Effect.gen(function* () {
       const state = attemptStates.get(admission);
       if (state === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      yield* state.requirePreparedSource;
       return Object.freeze({ state, prepared: yield* prepare(state, checkedRead, tx) });
     }), (_, checkedRead, result) => work(result.state, checkedRead, result.prepared));
   });
@@ -109,6 +112,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
   ports: AppUniqueConstraintSetBuildPortsV1, unique: AppUniqueConstraintSetEligibilityPortV1,
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
   sourceInput: unknown,
+  construction: LogicalSourceConstruction,
 ) {
   const capturedPorts = Object.freeze({ controlDb: ports.controlDb, authority: ports.authority });
   const capturedInput = Object.freeze({ deploymentId: input.deploymentId, scopeId: input.scopeId,
@@ -131,7 +135,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
   const selected = yield* prepareLogicalSourceEvidence(capturedPorts, unique, capturedInput, {
     sourceKey: expected.sourceKey, writeProfile: expected.writeProfile,
     definition: expected.definition, evidence: expected.evidence,
-  }, "payload", "documents").pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
+  }, "payload", "documents", construction).pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
   if (selected.source.definition.kind !== "documents" || selected.source.bindings.some(binding => binding.kind !== "definition"))
     return yield* Effect.fail(new LogicalDocumentSourceAdmissionError({ reason: "sourceMismatch" }));
   const definitions = selected.source.definition.tables;
@@ -217,10 +221,12 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
       selected.withReadBinding(application, tx, authority, clock, binding => verifyPinnedBinding(binding, authority, clock))
         .pipe(Effect.mapError(projectAttemptFailure));
     const token = issueLogicalParticipantAttemptAdmission(Object.freeze({ attempt, root: Object.freeze({ ...root }),
+      preparedSource: prepared,
       methods: new Set(methods), readTransaction, verifyBinding, verifyReadBinding, tableIds,
       indexes: selected.indexes, unique: selected.unique,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: pinned.head }));
     attemptStates.set(token, Object.freeze({ root: Object.freeze({ ...root }), clock: pinned.clock,
+      preparedSource: prepared, requirePreparedSource: selected.requirePrepared.pipe(Effect.mapError(projectAttemptFailure)),
       schemaVersionId: capturedInput.schemaVersionId, sourceKey: selected.source.key,
       sourceSha256: selected.source.sourceSha256, head: pinned.head, frame: pinned.frame,
       contentIdentity, configuration: expected.configuration, tables: selectedTables,
@@ -265,7 +271,8 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
           }).pipe(Effect.mapError(projectAttemptFailure)),
     }));
   };
-  return Object.freeze({ withAdmission, bindAttemptEffect, createCommitAuthority });
+  const prepared = Object.freeze({ withAdmission, bindAttemptEffect, createCommitAuthority });
+  return prepared;
 });
 
 export const requireLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentSourceAdmission.require")(function* (

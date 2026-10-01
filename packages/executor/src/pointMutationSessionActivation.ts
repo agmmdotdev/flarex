@@ -12,7 +12,9 @@ import type {
   PointMutationSessionAttemptTerminalizationResultV1,
   PreparedPointMutationSessionActivationV1,
   PreparedApplicationMutationSessionActivationV1,
+  PreparedFiniteApplicationMutationSessionActivation,
 } from "@flarex/persistence-postgres/transaction-session-activation";
+import type { PointMutationJournalV1 } from "./pointMutationJournal";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
@@ -170,6 +172,9 @@ export interface PointMutationSessionActivationV1 {
 }
 
 export interface ApplicationPointMutationSessionActivationV1 {
+  readonly activateFinite: (prepared: PreparedFiniteApplicationMutationSessionActivation) => Effect.Effect<ActivatedPointMutationSessionV1,
+    ApplicationPointMutationSessionActivationExecutionV1Error | Effect.Error<ReturnType<NonNullable<PointMutationJournalV1["prepareFiniteEntry"]>>> |
+    Effect.Error<ReturnType<ApplicationMutationSessionActivationPersistenceV1["activateFiniteEffect"]>>>;
   readonly activate: (
     prepared: PreparedApplicationMutationSessionActivationV1,
   ) => Effect.Effect<
@@ -281,6 +286,7 @@ export function createPointMutationSessionActivationV1(
 export function createApplicationPointMutationSessionActivationV1(
   persistence: ApplicationMutationSessionActivationPersistenceV1,
   executionClaims: PointMutationExecutionClaimIssuerV1,
+  journal?: PointMutationJournalV1,
 ): ApplicationPointMutationSessionActivationV1 {
   const activate: ApplicationPointMutationSessionActivationV1["activate"] =
     Effect.fn("ExecutorApplicationPointMutationSessionActivation.activate")(
@@ -311,7 +317,38 @@ export function createApplicationPointMutationSessionActivationV1(
       },
     );
 
-  return Object.freeze({ activate });
+  const activateFinite: ApplicationPointMutationSessionActivationV1["activateFinite"] =
+    Effect.fn("ExecutorApplicationPointMutationSessionActivation.activateFinite")(function* (input) {
+      if (journal?.prepareFiniteEntry === undefined || journal.openConfirmedFiniteEntry === undefined)
+        return yield* Effect.fail(new ApplicationPointMutationSessionActivationContractV1Error());
+      const captured = yield* capturePreparedApplicationActivationEvidence(input);
+      const prepareFiniteEntry = journal.prepareFiniteEntry.bind(journal);
+      return yield* Effect.scoped(Effect.gen(function* () {
+        const preparation = yield* prepareFiniteEntry();
+        const result = yield* persistence.activateFiniteEffect({ ...input, evidence: captured.activation.evidence }, preparation);
+        const handle = Object.freeze({ [activatedPointMutationSessionBrand]: true as const });
+        const executionClaim = result.activation.status === "created" ? executionClaims.mint({
+          selector: Object.freeze({ deploymentId: result.activation.anchor.deploymentId, scopeId: result.activation.anchor.scopeId,
+            sessionId: result.activation.anchor.sessionId, attemptFence: result.activation.anchor.attemptFence }),
+          observation: result.activation.executionClaim, mode: "execute",
+        }) : undefined;
+        registerActivatedPointMutationSessionStateV1(handle, Object.freeze({ inspection: result.activation, prepared: captured.retained,
+          ...(executionClaim === undefined ? {} : { executionClaim }),
+          ...(result.entry === undefined || executionClaim === undefined ? {} : {
+            finiteEntry: Object.freeze({ capture: result.entry, preparation, journal, executionClaim }),
+          }),
+        }));
+        return handle;
+      }));
+    });
+  return Object.freeze({ activate, activateFinite });
+}
+
+export function confirmedFinitePointMutationEntryFromActivated(activated: ActivatedPointMutationSessionV1) {
+  const state = getActivatedPointMutationSessionStateV1(activated);
+  if (state?.finiteEntry === undefined || state.finiteEntry.executionClaim !== state.executionClaim)
+    throw new InvalidActivatedPointMutationSessionV1Error();
+  return Object.freeze({ capture: state.finiteEntry.capture, preparation: state.finiteEntry.preparation });
 }
 
 export function createPointMutationSessionAttemptLoadingV1(
@@ -619,6 +656,12 @@ function snapshotPreparedActivation(
 const capturePreparedApplicationActivation = Effect.fn(
   "ExecutorApplicationPointMutationSessionActivation.capture",
 )(function* (input: PreparedApplicationMutationSessionActivationV1) {
+  const captured = yield* capturePreparedApplicationActivationEvidence(input);
+  return Object.freeze({ ...captured, activation: Object.freeze({ ...captured.activation, activeSelection: input.activeSelection }) });
+});
+const capturePreparedApplicationActivationEvidence = Effect.fn(
+  "ExecutorApplicationPointMutationSessionActivation.captureEvidence",
+)(function* (input: Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection">) {
   const executionAuthority = yield*
     canonicalizeApplicationMutationExecutionAuthorityV1(
       input.evidence.executionAuthority,
@@ -657,13 +700,12 @@ const capturePreparedApplicationActivation = Effect.fn(
   const activation = Object.freeze({
     deploymentId: captured.deploymentId,
     scopeId: captured.scopeId,
-    activeSelection: input.activeSelection,
     evidence: Object.freeze({
       ...captured.evidence,
       executionAuthority: executionAuthority.authority,
       verifiedGrant: input.evidence.verifiedGrant,
     }),
-  }) satisfies PreparedApplicationMutationSessionActivationV1;
+  });
   const retained: ActivatedApplicationMutationSessionPreparationV1 = Object.freeze({
     executionAuthorityGeneration: "application_v1" as const,
     deploymentId: activation.deploymentId,

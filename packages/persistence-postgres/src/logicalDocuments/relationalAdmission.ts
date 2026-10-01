@@ -19,8 +19,9 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import { getStableLogicalIndexIdentityByNameEffect } from "../stableLogicalIndexCatalog";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
-import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState } from "./sourceAdmission";
+import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceBindingState, type LogicalSourceConstruction } from "./sourceAdmission";
 import { prepareLogicalRelationalValueValidation, LogicalRelationalValueError } from "./relationalValues";
+import type { PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 import type { LogicalSearchDefinition } from "./searchEntries";
 import { issueLogicalParticipantAttemptAdmission, issueLogicalParticipantCommitAuthority,
   withLogicalParticipantAttemptAdmissionEffect, LogicalParticipantAdmissionError,
@@ -65,7 +66,8 @@ export interface LogicalRelationalAdmissionState {
   readonly sourceSha256: string;
   readonly schema: RelationalSchema;
   readonly head: DataBindingHeadToken;
-  readonly tables: readonly Readonly<{ localName: string; tableId: CatalogTableId; definition: RelationalTableDefinition }>[];
+  readonly tables: readonly Readonly<{ localName: string; tableId: CatalogTableId; definition: RelationalTableDefinition;
+    mechanics: PreparedLogicalRelationalTableMechanics }>[];
   readonly values: Effect.Success<ReturnType<typeof prepareLogicalRelationalValueValidation>>;
   readonly indexes: readonly LocatedAppIndexDefinitionV1[];
   readonly unique: readonly LocatedAppUniqueConstraintDefinitionV1[];
@@ -77,6 +79,8 @@ const admissions = new WeakMap<object, LogicalRelationalAdmissionState>();
  * neutral issuer owns the opaque token, exact attempt and checked reads. */
 export interface LogicalRelationalAttemptAdmissionState extends Omit<LogicalRelationalAdmissionState, "tx" | "authority"> {
   readonly root: LogicalParticipantAttemptRoot;
+  readonly preparedSource: object;
+  readonly requirePreparedSource: Effect.Effect<void, LogicalParticipantAdmissionError>;
 }
 const relationalAttemptStates = new WeakMap<object, LogicalRelationalAttemptAdmissionState>();
 
@@ -94,6 +98,7 @@ export const withLogicalRelationalAttemptAdmissionEffect = Effect.fn("LogicalRel
       (_, tx, checkedRead) => Effect.gen(function* () {
       const state = relationalAttemptStates.get(admission);
       if (state === undefined) return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+      yield* state.requirePreparedSource;
       return Object.freeze({ state, prepared: yield* prepare(state, checkedRead, tx) });
     }), (_, checkedRead, result) => work(result.state, checkedRead, result.prepared));
   });
@@ -103,6 +108,7 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
   ports: AppUniqueConstraintSetBuildPortsV1, unique: AppUniqueConstraintSetEligibilityPortV1,
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
   sourceInput: unknown,
+  construction: LogicalSourceConstruction,
 ) {
   const capturedPorts = Object.freeze({ controlDb: ports.controlDb, authority: ports.authority });
   const capturedInput = Object.freeze({ deploymentId: input.deploymentId, scopeId: input.scopeId,
@@ -114,15 +120,17 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
   const selected = yield* prepareLogicalSourceEvidence(capturedPorts, unique, capturedInput, {
     sourceKey: expected.sourceKey, writeProfile: expected.writeProfile,
     definition: { kind: "relational", schema: expected.schema }, evidence: expected.evidence,
-  }, "medusa", "relational").pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
+  }, "medusa", "relational", construction).pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
   if (selected.source.definition.kind !== "relational")
     return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "sourceMismatch" }));
   const schema = selected.source.definition.schema;
   const tables = [];
   for (const binding of selected.tables) {
     const definition = schema.tables.find(table => table.identity.tableId === binding.localName);
-    if (definition === undefined) return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "sourceMismatch" }));
-    tables.push(Object.freeze({ ...binding, definition }));
+    const mechanics = selected.catalog.relationalTableMechanics(binding.tableId);
+    if (definition === undefined || mechanics === undefined || mechanics.table !== definition)
+      return yield* Effect.fail(new LogicalRelationalAdmissionError({ reason: "sourceMismatch" }));
+    tables.push(Object.freeze({ ...binding, definition, mechanics }));
   }
   const selectedTables = Object.freeze(tables);
   const tableIds = new Set(selectedTables.map(table => table.tableId));
@@ -141,7 +149,8 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       nullPredicateField: requirement.nullPredicateField }));
   }
   const values = yield* prepareLogicalRelationalValueValidation(capturedPorts.controlDb,
-    capturedInput.deploymentId, capturedInput.schemaVersionId);
+    capturedInput.deploymentId, capturedInput.schemaVersionId, { kind: "prepared", requirements: selected.requirements,
+      tableMechanics: selected.catalog.relationalTableMechanics });
   const confinedValues = Object.freeze({ validate: (tableId: CatalogTableId, document: Parameters<typeof values.validate>[1]) =>
     tableIds.has(tableId) ? values.validate(tableId, document) : Result.fail(new LogicalRelationalValueError({ reason: "invalidTable" })) });
 
@@ -189,10 +198,13 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       selected.withReadBinding(application, tx, authority, clock, binding => verifyPinnedBinding(binding, authority, clock))
         .pipe(Effect.mapError(projectParticipantBindingFailure));
     const token = issueLogicalParticipantAttemptAdmission(Object.freeze({ attempt, root: Object.freeze({ ...root }),
+      preparedSource: prepared,
       methods: new Set(methods), readTransaction, verifyBinding, verifyReadBinding, tableIds,
       indexes: selected.indexes, unique: selected.unique,
       sourceKey: selected.source.key, sourceSha256: selected.source.sourceSha256, head: pinned.head }));
     relationalAttemptStates.set(token, Object.freeze({ root: Object.freeze({ ...root }),
+      preparedSource: prepared,
+      requirePreparedSource: selected.requirePrepared.pipe(Effect.mapError(projectParticipantBindingFailure)),
       clock: pinned.clock, schemaVersionId: capturedInput.schemaVersionId, sourceKey: selected.source.key,
       sourceSha256: selected.source.sourceSha256, schema, tables: selectedTables,
       values: confinedValues, indexes: selected.indexes, unique: selected.unique,
@@ -234,7 +246,8 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
       }).pipe(Effect.mapError(projectParticipantBindingFailure)),
     }));
   };
-  return Object.freeze({ withAdmission, bindAttemptEffect, createCommitAuthority });
+  const prepared = Object.freeze({ withAdmission, bindAttemptEffect, createCommitAuthority });
+  return prepared;
 });
 
 export const requireLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdmission.require")(function* (

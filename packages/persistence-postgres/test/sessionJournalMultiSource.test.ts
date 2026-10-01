@@ -88,7 +88,7 @@ describe("neutral admitted operation source bundle", () => {
         const pinnedHead = Object.freeze({ sequence: "1", sha256: `${index + 1}`.repeat(64) });
         const selection: LogicalParticipantSelection = {
           bindAttemptEffect: (_application, selectedAttempt, root, readTransaction, methods) => Effect.sync(() =>
-            issueLogicalParticipantAttemptAdmission({ attempt: selectedAttempt, root, readTransaction,
+            issueLogicalParticipantAttemptAdmission({ preparedSource: selection, attempt: selectedAttempt, root, readTransaction,
               methods: new Set(methods), verifyReadBinding: () => Effect.die("Durable profile must retain full readiness"), verifyBinding: () => {
                 checks[index] = checks[index]! + 1;
                 return currentHeads[index] === pinnedHead.sequence ? Effect.void :
@@ -238,6 +238,7 @@ describe("neutral admitted operation source bundle", () => {
             if (entryFailure === "body" && index === 1)
               return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "sourceMismatch" }));
             const admission = issueLogicalParticipantAttemptAdmission({
+            preparedSource: Object.freeze({ sourceKey: `neutral.finite.${index}` }),
             attempt: selectedAttempt, root, readTransaction, methods: new Set(methods),
             verifyBinding: () => Effect.die("Finite internal reads must use the issued read verifier"),
             verifyReadBinding: () => Effect.sync(() => { pinChecks.push(index); }).pipe(

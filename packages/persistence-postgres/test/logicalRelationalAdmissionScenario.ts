@@ -1,7 +1,8 @@
 import { Effect, Result } from "effect";
 import { expect, vi } from "vitest";
 import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
-import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { CatalogSchemaVersionIdSchema, type CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import type { JsonObject } from "flarex-protocol/json";
 import { prepareLogicalRelationalAdmission, requireLogicalRelationalAdmission, type LogicalRelationalAdmission } from "../src/logicalDocuments/relationalAdmission";
 import { makeLogicalDocumentWorkingSet } from "../src/logicalDocuments/workingSet";
@@ -21,6 +22,12 @@ import { makeCommerceCommandContext } from "../src/commerceTransaction/context";
 import { commerceError, logicalCommerceError, type CommerceTransactionError } from "../src/commerceTransaction/model";
 import type { CommerceCommandContext } from "../src/commerceTransaction/commands";
 import { defaultCommerceResources } from "../src/commerceTransaction/resources";
+import { makePreparedHostRuntime, retainPreparedHost } from "../src/preparedHostRuntime";
+import { prepareLogicalStorageReadiness, requirePreparedLogicalStorageCatalog } from "../src/logicalStorageReadiness";
+import { requirePreparedLogicalStorageRequirements, prepareLogicalStorageRequirementsFromArtifact } from "../src/logicalStorageDefinitions";
+import { readSchemaVersionArtifactByIdEffect } from "../src/schemaVersionArtifacts";
+import { bindPreparedLogicalRelationalRows, hasPreparedLogicalRelationalTableMechanics } from "../src/logicalDocuments/relationalRows";
+import { prepareLogicalRelationalValueValidation } from "../src/logicalDocuments/relationalValues";
 import type { ApplicationNativeMutationFixture, ApplicationNativeMutationPersistence } from "./fixtures/applicationNativeMutationTestFixture";
 
 /** Native-source admission and scalar lifecycle in the real pending working set.
@@ -43,14 +50,85 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
       mutablePorts.controlDb = target.drizzle;
       return originalSelect(fields);
     })),
-    () => prepareLogicalRelationalAdmission(mutablePorts, fixture.uniqueConstraintEligibility, input, source),
+    () => prepareLogicalRelationalAdmission(mutablePorts, fixture.uniqueConstraintEligibility, input, source, { kind: "standalone" }),
     firstRead => Effect.sync(() => firstRead.mockRestore()),
   );
   expect(mutablePorts.controlDb).toBe(target.drizzle);
   for (const wrong of [{ ...source, evidence: {} }, { ...source, writeProfile: "other.profile" }, { ...source, sourceKey: "application" }]) {
-    expect(yield* Effect.result(prepareLogicalRelationalAdmission(ports, fixture.uniqueConstraintEligibility, input, wrong)))
+    expect(yield* Effect.result(prepareLogicalRelationalAdmission(ports, fixture.uniqueConstraintEligibility, input, wrong, { kind: "standalone" })))
       .toMatchObject({ _tag: "Failure", failure: { reason: "sourceMismatch" } });
   }
+  const closedPrepared = yield* Effect.scoped(Effect.gen(function* () {
+    const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 });
+    const retained = yield* retainPreparedHost(runtime, Effect.gen(function* () {
+      const catalog = yield* prepareLogicalStorageReadiness(ports, fixture.uniqueConstraintEligibility, input);
+      if (catalog.status !== "prepared") return yield* Effect.die("Missing prepared source catalog");
+      return { catalog, source: yield* prepareLogicalRelationalAdmission(ports, fixture.uniqueConstraintEligibility,
+        input, source, { kind: "prepared", catalog }) };
+    }));
+    const host = yield* retained.use(Effect.succeed);
+    expect(yield* requirePreparedLogicalStorageCatalog(host.catalog, ports, fixture.uniqueConstraintEligibility, input)).toBe(host.catalog);
+    expect(yield* requirePreparedLogicalStorageCatalog(host.catalog, { ...ports }, fixture.uniqueConstraintEligibility, input)).toBe(host.catalog);
+    for (const supplied of [
+      { catalog: { ...host.catalog }, ports, input },
+      { catalog: host.catalog, ports: { ...ports, controlDb: target.drizzle }, input },
+      { catalog: host.catalog, ports, input: { ...input, deploymentId: "foreign" } },
+      { catalog: host.catalog, ports, input: { ...input, scopeId: ScopeIdSchema.make("scope_11111111-2222-3333-4444-555555555555") } },
+      { catalog: host.catalog, ports, input: { ...input, schemaVersionId: CatalogSchemaVersionIdSchema.make("foreign_schema") } },
+    ]) {
+      expect(yield* Effect.result(requirePreparedLogicalStorageCatalog(supplied.catalog, supplied.ports,
+        fixture.uniqueConstraintEligibility, supplied.input)))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
+    }
+    expect(yield* Effect.result(requirePreparedLogicalStorageRequirements(control.drizzle, deploymentId, schemaVersionId,
+      { ...host.catalog.requirements }))).toMatchObject({ _tag: "Failure", failure: { reason: "incompleteBinding" } });
+    const inputArtifact = yield* readSchemaVersionArtifactByIdEffect(control.drizzle, deploymentId, schemaVersionId);
+    if (inputArtifact === null) return yield* Effect.die("Missing authenticated artifact");
+    const issuedRequirements = yield* prepareLogicalStorageRequirementsFromArtifact(control.drizzle, inputArtifact);
+    const issuedBytes = issuedRequirements.artifact.manifestBytes;
+    const issuedDigest = issuedRequirements.artifact.manifestSha256;
+    const issuedTime = issuedRequirements.artifact.createdAt.getTime();
+    inputArtifact.manifestBytes.fill(0);
+    inputArtifact.manifestSha256.fill(0);
+    inputArtifact.createdAt.setTime(0);
+    expect(issuedRequirements.artifact.manifestBytes).toEqual(issuedBytes);
+    expect(issuedRequirements.artifact.manifestSha256).toEqual(issuedDigest);
+    expect(issuedRequirements.artifact.createdAt.getTime()).toBe(issuedTime);
+    expect(yield* Effect.result(requirePreparedLogicalStorageCatalog(host.catalog, { ...ports, authority: { ...authorityPorts } },
+      fixture.uniqueConstraintEligibility, input))).toMatchObject({ _tag: "Failure", failure: { reason: "invalidComposition" } });
+    const originalDigest = host.catalog.snapshot.manifestSha256;
+    host.catalog.snapshot.manifestSha256.fill(0);
+    host.catalog.requirements.artifact.manifestSha256.fill(0);
+    expect(host.catalog.snapshot.manifestSha256).toEqual(originalDigest);
+    expect(host.catalog.requirements.artifact.manifestSha256).toEqual(originalDigest);
+    const candidate = host.catalog.requirements.evidence.candidate;
+    expect(Reflect.set(candidate.sources[0]!, "writeProfile", "forged")).toBe(false);
+    const binding = host.catalog.requirements.evidence.tableBindings[0];
+    if (binding === undefined) return yield* Effect.die("Missing stable binding");
+    expect(Reflect.set(binding.table, "logicalName", "forged")).toBe(false);
+    const table = host.catalog.requirements.evidence.tableBindings.map(bound => ({ tableId: bound.tableId,
+      mechanics: host.catalog.relationalTableMechanics(bound.tableId) })).find(bound => bound.mechanics !== undefined);
+    const mechanics = table?.mechanics;
+    if (table === undefined || mechanics === undefined) return yield* Effect.die("Missing relational source table");
+    expect(host.catalog.relationalTableMechanics(table.tableId)).toBe(mechanics);
+    expect(hasPreparedLogicalRelationalTableMechanics({ ...mechanics }, mechanics.table)).toBe(false);
+    expect(hasPreparedLogicalRelationalTableMechanics(mechanics, { ...mechanics.table })).toBe(false);
+    expect(bindPreparedLogicalRelationalRows({ ...mechanics }, logicalCommerceError))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "invalidAuthority" } });
+    expect(yield* Effect.result(prepareLogicalRelationalValueValidation(control.drizzle, deploymentId, schemaVersionId,
+      { kind: "prepared", requirements: host.catalog.requirements, tableMechanics: tableId => {
+        const selected = host.catalog.relationalTableMechanics(tableId);
+        return selected === undefined ? undefined : { ...selected };
+      } }))).toMatchObject({ _tag: "Failure", failure: { reason: "incompleteBinding" } });
+    expect(Reflect.set(mechanics.rows, "success", {})).toBe(false);
+    const policy = yield* Effect.fromResult(bindPreparedLogicalRelationalRows(mechanics, logicalCommerceError));
+    expect(policy.validateInput({ foreign: "value" })).toMatchObject({ _tag: "Failure", failure: { reason: "invalidInput" } });
+    expect(policy.validateInput({})).toMatchObject({ _tag: "Success" });
+    yield* retained.close;
+    expect(yield* Effect.result(requirePreparedLogicalStorageCatalog(host.catalog, ports, fixture.uniqueConstraintEligibility, input)))
+      .toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
+    return host.source;
+  }));
   const resolved = yield* resolveLocatedTrustedScopeAuthorityEffect(deploymentId, authorityPorts);
   const active = yield* fixture.activation.readActive();
   const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(control.drizzle, { deploymentId, schemaVersionId });
@@ -60,6 +138,9 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
   yield* runEffectTransaction(work => target.drizzle.transaction(work), "Logical source admission fixture",
     (tx: FlarexMetadataTransaction) => Effect.scoped(Effect.gen(function* () {
       const clock = yield* lockScopeClockForUpdateInTransactionEffect(tx, authority.scopeId);
+      expect(yield* Effect.result(closedPrepared.withAdmission(active.selection, tx, resolved.authority, clock,
+        () => Effect.die("Closed descriptor must not enter"))))
+        .toMatchObject({ _tag: "Failure", failure: { reason: "closed" } });
       let entered = false;
       expect(yield* Effect.result(prepared.withAdmission(active.selection, tx, { ...resolved.authority, deploymentId: "foreign" }, clock,
         () => Effect.sync(() => { entered = true; })))).toMatchObject({ _tag: "Failure", failure: { reason: "scopeMismatch" } });
@@ -96,7 +177,8 @@ export const logicalRelationalAdmissionScenario = Effect.fn("LogicalRelationalAd
         const reads: string[] = [];
         const guard = requireLogicalRelationalAdmission(admission, tx).pipe(Effect.asVoid);
         const workingConfiguration = { tx, scopeId: authority.scopeId, clock, lifetime,
-          tables: selected.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })),
+          tables: selected.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition,
+            relationalMechanics: table.mechanics })),
           relationalCapabilities: selected.schema.capabilities,
           requireAdmission: guard, validateDocument: (write: LogicalDocumentWrite) => Effect.fromResult(selected.values.validate(write.tableId, write.document)),
           error: failure, uniqueConflict: () => failure("uniqueConflict"), limits: { pageRows: 10, identities: 10, documentBytes: 65_536 },

@@ -1,0 +1,22 @@
+{
+  "format": "flarex.mixed-mutation-performance-exclusions",
+  "excludedSampleIds": [],
+  "failedSampleIds": [],
+  "unattemptedSampleIds": [],
+  "setupFailures": [],
+  "warmupSampleIds": [
+    "product-warm-0-0",
+    "product-warm-0-1",
+    "product-warm-0-2",
+    "productPayload-warm-0-0",
+    "productPayload-warm-0-1",
+    "productPayload-warm-0-2",
+    "mixedWorkflow-warm-0-0",
+    "mixedWorkflow-warm-0-1",
+    "mixedWorkflow-warm-0-2",
+    "standaloneWorkflow-warm-0-0",
+    "standaloneWorkflow-warm-0-1",
+    "standaloneWorkflow-warm-0-2"
+  ],
+  "interpretation": "Every observed sample and every maximum is retained. Only declared warmups are omitted from warm latency distributions. Failed samples remain in raw and CSV; no outlier exclusion or replacement occurs."
+}

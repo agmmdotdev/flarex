@@ -238,7 +238,7 @@ const composeCmsHost = Effect.fn("CmsHost.compose")(function* <Failure>(
   const preparedLogical = logicalSelection === undefined || logicalLocation === undefined ? undefined :
     yield* prepareLogicalDocumentSourceAdmission(logicalSelection.ports, logicalSelection.unique,
       { deploymentId, scopeId: logicalLocation.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId },
-      (yield* Effect.fromResult(logicalSelection.source)).value).pipe(Effect.mapError(projectFailure));
+      (yield* Effect.fromResult(logicalSelection.source)).value, { kind: "standalone" }).pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("cms.host") });
   const materialization = Object.freeze({ ...input.materialization });
   const testHooks = hooks === undefined ? undefined : Object.freeze({ ...hooks });

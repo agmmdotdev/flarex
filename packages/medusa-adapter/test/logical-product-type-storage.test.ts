@@ -230,7 +230,7 @@ describe("native Product Type on shared logical Product storage", () => {
       await fixture.persistence.drizzle.delete(fxSystemSearchBuildStates);
       try {
         const build = await Effect.runPromise(prepareLogicalSearchBuild(
-          fixture.control.drizzle, fixture.deploymentId, fixture.schemaVersionId));
+          fixture.control.drizzle, fixture.deploymentId, fixture.schemaVersionId, { kind: "fresh" }));
         const result = await Effect.runPromise(runEffectTransaction(
           work => fixture.persistence.drizzle.transaction(work), "Inspect populated search source",
           (tx: FlarexMetadataTransaction) => build.advanceEmpty(tx, fixture.application.active.basis.authority),

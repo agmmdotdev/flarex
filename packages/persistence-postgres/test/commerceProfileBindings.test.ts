@@ -62,7 +62,7 @@ describe("module-neutral installation profile membership", () => {
     const hosts = await Promise.all(profiles.map(profile => runEffect(makeLocalCommerceHost({ ...fixture.hostInput, profile, commands: registeredCommands }, events))));
     const members = await runEffect(prepareAtomicCommerceParticipants(fixture.persistence.drizzle, fixture.cms.target,
       Result.getOrThrow(captureAtomicCommerceParticipants(profiles.slice(0, 2).map((profile, index) => ({ participant: defineAtomicCommerceParticipant(`independent${index}`),
-        profile, installation: fixture.installation, commands: registeredCommands, validate: events.validate }))))));
+        profile, installation: fixture.installation, commands: registeredCommands, validate: events.validate })))), undefined, { kind: "standalone" }));
     expect(members).toHaveLength(2);
     expect(members[0]?.prepared).toBe(members[1]?.prepared);
     const beta = hosts[1]; const betaCommand = commands[1];

@@ -11,6 +11,7 @@ import type { FlarexMetadataDatabase } from "../src/deployments";
 import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
 import { prepareLogicalSearchBuild } from "../src/logicalSearchBuild";
+import { readIndexCoverageContextInTransactionEffect, readIndexCoverageTableFrontiersInTransactionEffect, type IndexCoverageContext } from "../src/indexBuildStates";
 import { fxSystemScopeClocks, fxSystemSearchBuildStates } from "../src/schema";
 import { getScopeClock } from "../src/scopeClock";
 import type { TrustedScopeAuthority } from "../src/scopeAuthorityResolution";
@@ -96,18 +97,50 @@ export async function verifyLogicalSearchBuildBatch(
     sourceSha256: definition.sourceSha256, lifecycle: "ready" as const,
     coveredThroughCommitSeq: CommitSeqSchema.make(0n),
   })));
-  const build = await Effect.runPromise(prepareLogicalSearchBuild(db, authority.deploymentId, schemaVersionId));
+  const build = await Effect.runPromise(prepareLogicalSearchBuild(db, authority.deploymentId, schemaVersionId, { kind: "fresh" }));
   expect(build.definitionCount).toBe(70);
-  const inspect = (atClock = clock, failFrontiers = false) => {
+  const inspect = (atClock = clock, failFrontiers = false, coverage?: IndexCoverageContext) => {
     const counts: InspectCounts = { states: 0, physical: 0, frontiers: 0 };
     return db.transaction(async tx => ({
-      verdict: await Effect.runPromise(build.inspect(observeTransaction(tx, counts, failFrontiers), authority, atClock)),
+      verdict: await Effect.runPromise(build.inspect(observeTransaction(tx, counts, failFrontiers), authority, atClock, coverage)),
       counts,
     }));
   };
   const initial = await inspect();
   expect(initial.verdict).toEqual({ status: "ready", definitionCount: 70 });
   expect(initial.counts).toEqual({ states: 2, physical: 1, frontiers: 1 });
+  let foreignCoverage: IndexCoverageContext | undefined;
+  await db.transaction(async tx => {
+    const counts: InspectCounts = { states: 0, physical: 0, frontiers: 0 };
+    const observed = observeTransaction(tx, counts);
+    const coverage = await Effect.runPromise(readIndexCoverageContextInTransactionEffect(observed, clock));
+    foreignCoverage = coverage;
+    await Effect.runPromise(readIndexCoverageTableFrontiersInTransactionEffect(observed, coverage,
+      [11, 12, 13].map(value => decodeCatalogTableId(value))));
+    const beforeSearch = counts.frontiers;
+    expect(await Effect.runPromise(build.inspect(observed, authority, clock, coverage)))
+      .toEqual({ status: "ready", definitionCount: 70 });
+    expect(counts.frontiers).toBe(beforeSearch);
+    const beforeChangedClock = counts.frontiers;
+    expect(await Effect.runPromise(build.inspect(observed, authority,
+      { ...clock, updatedAt: new Date(clock.updatedAt.getTime() + 1) }, coverage)))
+      .toEqual({ status: "ready", definitionCount: 70 });
+    expect(counts.frontiers).toBe(beforeChangedClock + 1);
+    // A legitimate proof lacking one selected table cannot lend a partial map.
+    const partial = await Effect.runPromise(readIndexCoverageContextInTransactionEffect(observed, clock));
+    await Effect.runPromise(readIndexCoverageTableFrontiersInTransactionEffect(observed, partial,
+      [decodeCatalogTableId(11)]));
+    const beforePartial = counts.frontiers;
+    expect(await Effect.runPromise(build.inspect(observed, authority, clock, partial)))
+      .toEqual({ status: "ready", definitionCount: 70 });
+    expect(counts.frontiers).toBe(beforePartial + 1);
+  });
+  await db.transaction(async tx => {
+    const counts: InspectCounts = { states: 0, physical: 0, frontiers: 0 };
+    const verdict = await Effect.runPromise(Effect.result(build.inspect(observeTransaction(tx, counts), authority, clock, foreignCoverage)));
+    expect(verdict).toMatchObject({ _tag: "Failure", failure: { reason: "statementFailure" } });
+    expect(counts).toEqual({ states: 1, physical: 1, frontiers: 0 });
+  });
   const selectedTable = build.selectTables([decodeCatalogTableId(11)]);
   const inspectSelected = () => db.transaction(tx => Effect.runPromise(selectedTable.inspectSelected(tx, authority, clock)));
   expect(await inspectSelected()).toEqual({ status: "ready", definitionCount: 24 });
@@ -187,7 +220,7 @@ export async function verifyLogicalSearchBuildBatch(
   // A known first-member refusal must finish before the later physical and
   // frontier statements, even when those statements would fail if reached.
   await db.delete(fxSystemSearchBuildStates).where(eq(fxSystemSearchBuildStates.logicalIndexId, decodeCatalogIndexId(101)));
-  const missingFirst = await inspect(await getScopeClock(db, scopeId) ?? clock, true);
+  const missingFirst = await inspect(await getScopeClock(db, scopeId) ?? clock, true, foreignCoverage);
   expect(missingFirst.verdict).toEqual({ status: "not_ready", reason: "uncovered" });
   expect(missingFirst.counts).toEqual({ states: 1, physical: 0, frontiers: 0 });
 }

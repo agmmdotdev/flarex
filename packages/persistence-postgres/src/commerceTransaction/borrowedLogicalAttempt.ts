@@ -10,7 +10,7 @@ import { requireLogicalDocumentRootEvaluatorOpen } from "../logicalDocuments/roo
 import type { LogicalDocumentBorrowView } from "../logicalDocuments/model";
 import { withLogicalRelationalAttemptAdmissionEffect } from "../logicalDocuments/relationalAdmission";
 import type { LogicalParticipantAttemptAdmission } from "../logicalDocuments/participantAdmission";
-import { prepareLogicalRelationalRows } from "../logicalDocuments/relationalRows";
+import { bindPreparedLogicalRelationalRows } from "../logicalDocuments/relationalRows";
 import { makeCommerceCommandContext } from "./context";
 import { commerceError, commerceLimits, logicalCommerceError } from "./model";
 import { defaultCommerceResources, logicalCommerceWorkingSetLimits } from "./resources";
@@ -54,7 +54,7 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
       return yield* Effect.gen(function* () {
         const id = yield* lifetime.begin(lifetime.context);
         for (const table of state.tables)
-          yield* Effect.fromResult(prepareLogicalRelationalRows(table.definition, state.schema.capabilities, logicalCommerceError));
+          yield* Effect.fromResult(bindPreparedLogicalRelationalRows(table.mechanics, logicalCommerceError));
         const requireAdmission = input.rootEvaluator === undefined
           ? checkedRead(() => Effect.void).pipe(Effect.mapError(projectCommerceRequestFailure))
           : localRootGate;
@@ -65,7 +65,7 @@ export const makeBorrowedLogicalAttempt = Effect.fn("LogicalCommerce.borrowAttem
             { rootEvaluator: input.rootEvaluator, rootAttempt: input.attempt,
               rootAttemptFence: input.rootAttemptFence }),
           lifetime, requireAdmission,
-          tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition })),
+          tables: state.tables.map(table => ({ tableId: table.tableId, logicalName: table.localName, relational: table.definition, relationalMechanics: table.mechanics })),
           relationalCapabilities: state.schema.capabilities, searchDefinitions: state.search,
           validateDocument: write => Effect.fromResult(state.values.validate(write.tableId, write.document))
             .pipe(Effect.mapError(cause => commerceError("invalidInput", cause))),

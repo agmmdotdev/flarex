@@ -21,7 +21,7 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, desc, eq, getTableColumns, inArray, ne, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
-import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
+import { Cause, Data, Effect, Exit, Option, Result, Schema, type Scope } from "effect";
 import { validateApplicationWriteOwnershipForCommit } from "./applicationWriteOwnership/Commit";
 import { EventEnvelope, commitEventLimits } from "./commitEvents/model";
 import { ApplicationTableWriteDeniedError } from "./applicationWriteOwnership/Model";
@@ -161,6 +161,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   SnapshotTokenSchema,
   decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
@@ -769,6 +770,12 @@ export interface OpenSessionJournalAttemptInput {
   readonly logicalParticipants?: readonly SessionJournalParticipantSelection[];
 }
 
+import { preparedFiniteSessionJournalEntryBrand, preparedFiniteEntries, confirmedFiniteEntries, abandonPreparedFiniteSessionJournalEntry,
+  type PreparedFiniteSessionJournalEntry, type ConfirmedFiniteRootEntryCapture,
+  type FiniteSessionJournalParticipantSelection, type FiniteEntryFailure } from "./sessionJournalFiniteEntry";
+export { readConfirmedFiniteRootEntryCapture } from "./sessionJournalFiniteEntry";
+export type { PreparedFiniteSessionJournalEntry, ConfirmedFiniteRootEntryCapture,
+  FiniteSessionJournalParticipantSelection } from "./sessionJournalFiniteEntry";
 export type SessionJournalParticipantSelection = Readonly<{
   participant: string;
   operationMethods: readonly string[];
@@ -809,6 +816,14 @@ export type LogicalParticipantBorrow = (input: LogicalParticipantBorrowBase &
     LogicalParticipantInvocationError>;
 
 export interface SessionJournalStorePersistence {
+  readonly prepareFiniteEntryEffect: (participants: readonly FiniteSessionJournalParticipantSelection[]) =>
+    Effect.Effect<PreparedFiniteSessionJournalEntry, FiniteEntryFailure, Scope.Scope>;
+  readonly confirmedFiniteEntryAttempt: (capture: ConfirmedFiniteRootEntryCapture,
+    preparation: PreparedFiniteSessionJournalEntry) => Result.Result<Readonly<{
+      attempt: SessionJournalAttempt; context: ExactRunningAttemptKernelContextV1;
+      admissions: ReadonlyMap<string, LogicalParticipantAdmissionBundle>;
+      applicationSelection: import("./applicationActivation").ApplicationActiveSelection;
+    }>, LogicalParticipantAdmissionError>;
   readonly openAttemptEffect: (
     input: OpenSessionJournalAttemptInput,
   ) => Effect.Effect<
@@ -1188,7 +1203,7 @@ export {
   PinnedPointTableNotFoundV1Error,
 };
 
-interface SessionJournalAttemptStateV1 {
+export interface SessionJournalAttemptStateV1 {
   readonly selector: PointMutationSessionAttemptSelectorV1;
   readonly snapshotToken: SnapshotToken;
   readonly schemaVersionId: CatalogSchemaVersionId;
@@ -1511,7 +1526,7 @@ interface FiniteRootRelationRecord {
 type FiniteRootRecord = FiniteRootAdmittedRecord | FiniteRootPointRecord |
   FiniteRootIndexRecord | FiniteRootRelationRecord;
 
-interface FiniteRootAttemptState {
+export interface FiniteRootAttemptState {
   readonly initialContext: ExactRunningAttemptKernelContextV1;
   readonly initialSessionSizes: readonly SessionSizeRow[];
   readonly admissions: Map<string, Readonly<{ selection: SessionJournalParticipantSelection;
@@ -2318,6 +2333,7 @@ export function createSessionJournalStorePersistence(
     handle: SessionJournalAttempt;
     state: FiniteRootAttemptState;
   }>>();
+  let reservedFiniteEntries = 0;
   const tableStates = new WeakMap<object, PinnedPointTableStateV1>();
   const indexStates = new WeakMap<object, PinnedDeveloperIndexStateV1>();
   const relationStates = new WeakMap<
@@ -2371,6 +2387,98 @@ export function createSessionJournalStorePersistence(
       }
     }
   });
+
+  const prepareFiniteEntryEffect: SessionJournalStorePersistence["prepareFiniteEntryEffect"] =
+    Effect.fn("SessionJournalStore.prepareFiniteEntry")(function* (participants) {
+      if (participants.length > 3 || new Set(participants.map(participant => participant.participant)).size !== participants.length ||
+        participants.some(participant => participant.sources.length === 0 || participant.sources.length > 3))
+        return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "unsupportedProfile" }));
+      if (finiteClaims.size + reservedFiniteEntries >= 1_024) yield* retireFinishedFiniteRootsEffect().pipe(Effect.mapError(error =>
+        error instanceof ExactRunningAttemptTransactionV1Error ? new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause: error }) : error));
+      const selections = participants.map(participant => Object.freeze({
+        participant: participant.participant, profileRevision: participant.profileRevision,
+        operationMethods: Object.freeze([...participant.operationMethods]),
+        sources: Object.freeze(participant.sources.map(source => Object.freeze({
+          selection: source.selection, methods: Object.freeze([...source.methods]),
+          bindAttemptEffect: source.selection.bindAttemptEffect.bind(source.selection),
+        }))),
+      }));
+      const handle = createAttemptHandle();
+      const preparation = Object.freeze({ [preparedFiniteSessionJournalEntryBrand]: true as const });
+      // Check capacity, reserve and register cleanup in one synchronous acquisition. Catalog or
+      // retirement SQL above and all accepting SQL remain interruptible.
+      return yield* Effect.acquireRelease(Effect.suspend(() => {
+        if (finiteClaims.size + reservedFiniteEntries >= 1_024) return Effect.fail(new SessionJournalPersistenceV1Error({
+          operation: "openAttempt", cause: "finite root owner capacity exhausted" }));
+        reservedFiniteEntries += 1;
+        let reserved = true;
+        const release = () => { if (reserved) { reserved = false; reservedFiniteEntries -= 1; } };
+        preparedFiniteEntries.set(preparation, {
+          issuer: ports, handle, status: "prepared", release,
+          run: (tx, context, resolved, application, control, verifyFinalRows) => withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
+            const state = yield* Effect.fromResult(captureAttemptStateResult({ selector: context.anchor,
+              snapshotToken: context.anchor.snapshotToken, schemaVersionId: context.executionPin.schemaVersionId,
+              executionClaim: context.executionClaim, executionProfile: "finiteRoot" }));
+            if (!kernelContextMatchesAttempt(context, state) || context.journalRoot.executionProfile !== "finiteRoot" ||
+              context.journalRoot.state !== "open" || context.journalRoot.lastSyscallSequence !== 0n)
+              return yield* Effect.fail(corruption(state, "journalStateInvalid"));
+            const admissions = new Map<string, Readonly<{ selection: SessionJournalParticipantSelection; bundle: LogicalParticipantAdmissionBundle }>>();
+            const readTransaction = makeAttemptReadTransaction(state, resolved);
+            for (const selection of selections) {
+              const sources = [];
+              for (const source of selection.sources) {
+                const admission = yield* source.bindAttemptEffect(application, handle, {
+                  scopeId: state.selector.scopeId, sessionId: state.selector.sessionId, attemptFence: state.selector.attemptFence,
+                  principalDigest: context.principalDigest, executionProfile: state.executionProfile,
+                  snapshotCommitSeq: state.snapshotToken.commitSeq, schemaVersionId: state.schemaVersionId,
+                }, readTransaction, source.methods, { tx, authority: resolved.authority, clock: context.scopeClock });
+                sources.push(Object.freeze({ admission, methods: source.methods }));
+              }
+              const acceptedSelection = Object.freeze({ ...selection,
+                sources: selection.sources.map(source => Object.freeze({ ...source, application })) });
+              const bundle = yield* Effect.fromResult(issueLogicalParticipantAdmissionBundle(handle, { ...selection, sources }));
+              admissions.set(selection.participant, Object.freeze({ selection: acceptedSelection, bundle }));
+            }
+            yield* verifyFinalRows;
+            const rows = yield* Effect.tryPromise({
+              try: () => captureStoredCommitAuthorityRowsInTransaction(tx, {
+                ...state.selector, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+                storageGenerationFence: resolved.authority.storageGenerationFence, snapshotToken: state.snapshotToken,
+                schemaVersionId: state.schemaVersionId }, ports, {}, true, control),
+              catch: cause => new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }),
+            });
+            const finite: FiniteRootAttemptState = {
+              admissions, initialContext: structuredClone(context), initialSessionSizes: rows.sessionSizeRows,
+              evaluator: makeLogicalDocumentRootEvaluator({ attempt: handle, scopeId: state.selector.scopeId,
+                snapshotCommitSeq: state.snapshotToken.commitSeq, attemptFence: String(state.selector.attemptFence) }, {
+                identities: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1, workingBytes: MAX_COMMIT_PARTICIPANT_WORK_BYTES_V1 }),
+              entries: new Map(), points: new Map(), pointReads: new Map(), indexRanges: [], relationDependencies: [],
+              status: "open", lastSequence: 0n, inFlightOperations: 0, counters: { ...ZERO_FINITE_COUNTERS },
+              participantWorkBytes: 0, participantWorkCalls: 0,
+            };
+            const finiteKey = JSON.stringify([state.selector.deploymentId, state.selector.scopeId, state.selector.sessionId,
+              String(state.selector.attemptFence), state.executionClaim.claimOwner, String(state.executionClaim.claimFence)]);
+            const issuedAdmissions = new Map([...admissions].map(([key, value]) => [key, value.bundle]));
+            return Object.freeze({ state, preliminaryAuthority: structuredClone(resolved.authority), context: structuredClone(context),
+              rows, finite, finiteKey, issuedAdmissions, applicationSelection: application });
+          })),
+          install: capture => {
+            attemptStates.set(handle, capture.state);
+            finiteRootStates.set(capture.state, capture.finite);
+            finiteClaims.set(capture.finiteKey, Object.freeze({ handle, state: capture.finite }));
+          },
+          discard: capture => { capture.finite.status = "aborted"; discardFiniteRootEvidence(capture.finite); },
+        });
+        return Effect.succeed(preparation);
+      }), entry => Effect.sync(() => abandonPreparedFiniteSessionJournalEntry(entry)));
+    });
+  const confirmedFiniteEntryAttempt: SessionJournalStorePersistence["confirmedFiniteEntryAttempt"] = (capture, preparation) => {
+    const state = confirmedFiniteEntries.get(capture);
+    return state?.issuer === ports && state.preparation === preparation && preparedFiniteEntries.get(preparation)?.status === "confirmed"
+      ? Result.succeed(Object.freeze({ attempt: state.attempt, context: structuredClone(state.context), admissions: new Map(state.admissions),
+        applicationSelection: state.applicationSelection }))
+      : Result.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
+  };
 
   const openAttemptEffect: SessionJournalStorePersistence[
     "openAttemptEffect"
@@ -3669,6 +3777,8 @@ export function createSessionJournalStorePersistence(
   });
 
   return Object.freeze({
+    prepareFiniteEntryEffect,
+    confirmedFiniteEntryAttempt,
     admitLogicalParticipantsEffect,
     runAdmittedOperationEffect,
     openAttemptEffect,
@@ -3780,7 +3890,7 @@ function mapExactRunningAttemptCompleteSealFailure(
   });
 }
 
-interface ResolvedJournalTargetV1 {
+export interface ResolvedJournalTargetV1 {
   readonly target: LocatedExactRunningAttemptKernelV1;
   readonly authority: TrustedScopeAuthority;
 }

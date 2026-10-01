@@ -14,8 +14,9 @@ import {
 import { canonicalizeAppIndexPhysicalSpecV1, type CanonicalAppIndexPhysicalSpecV1 } from "flarex-protocol/index-definition";
 import { APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1, type AppOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
 import type { LogicalSchemaCandidate } from "flarex-protocol/internal/logical-schema-candidate";
+import { snapshotDecodedProtocolPlainData } from "flarex-protocol/internal/decoded-protocol-snapshot";
 import { isLogicalSchemaAdmissionManifest } from "./logicalSchemaAdmissionEvidence";
-import { readLogicalStorageRequirements } from "./logicalStorageDefinitions";
+import { prepareLogicalStorageRequirementsFromArtifact } from "./logicalStorageDefinitions";
 import { getStableLogicalIndexIdentityByNameEffect } from "./stableLogicalIndexCatalog";
 import {
   INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
@@ -24,6 +25,7 @@ import {
 } from "flarex-protocol/index-build-state";
 import {
   CatalogSchemaVersionIdSchema,
+  SchemaManifestSha256Schema,
   decodeSchemaManifestAppSchemaV1Result,
   type CatalogSchemaVersionId,
   type SchemaManifestAppSchemaV1,
@@ -273,6 +275,7 @@ export function publishedPhysicalDefinitionMatchesLocated(
 }
 
 export interface PublishedPhysicalRequirementSnapshotV1 {
+  readonly logicalRequirements?: Effect.Success<ReturnType<typeof prepareLogicalStorageRequirementsFromArtifact>>;
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly manifestSha256: SchemaManifestSha256;
@@ -457,11 +460,13 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
   if (artifact === null) return null;
   let manifest: SchemaManifestAppSchemaV1 | LogicalSchemaCandidate;
   let requirements: IndexRequirements;
+  let logicalRequirements: Effect.Success<ReturnType<typeof prepareLogicalStorageRequirementsFromArtifact>> | undefined;
   if (isLogicalSchemaAdmissionManifest(artifact.manifestJson)) {
-    const logical = yield* readCandidateIndexRequirements(db, input);
+    const logical = yield* readCandidateIndexRequirements(db, input, artifact);
     artifact = logical.artifact;
     manifest = logical.manifest;
     requirements = logical.requirements;
+    logicalRequirements = logical.source;
   } else {
     manifest = yield* Effect.fromResult(
       decodeSchemaManifestAppSchemaV1Result(artifact.manifestJson),
@@ -546,12 +551,14 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
       bindings,
     ),
   );
+  const manifestSha256 = artifact.manifestSha256.slice();
   const snapshot = Object.freeze({
+    ...(logicalRequirements === undefined ? {} : { logicalRequirements }),
     deploymentId: input.deploymentId,
     schemaVersionId: input.schemaVersionId,
-    manifestSha256: artifact.manifestSha256,
+    get manifestSha256() { return SchemaManifestSha256Schema.make(manifestSha256.slice()); },
     manifest: manifest.kind === "appSchema" ? snapshotSchemaManifestValue(manifest) : manifest,
-    definitions: projectedDefinitions,
+    definitions: snapshotDecodedProtocolPlainData(projectedDefinitions),
   });
   publishedPhysicalRequirementSnapshots.set(snapshot, db);
   return snapshot;
@@ -564,11 +571,12 @@ interface IndexRequirements {
 
 const readCandidateIndexRequirements = Effect.fn("IndexBuildReconciliation.readCandidateRequirements")(function* (
   db: FlarexMetadataDatabase, input: Pick<ReconcilePublishedIndexBuildsV1Input, "deploymentId" | "schemaVersionId">,
+  artifact: NonNullable<Effect.Success<ReturnType<typeof getSchemaVersionArtifactByIdEffect>>>,
 ) {
   const fail = (reason: IndexBuildReconciliationCatalogV1Error["reason"], detail: string, cause?: unknown) =>
     new IndexBuildReconciliationCatalogV1Error({ ...input, reason, detail, ...(cause === undefined ? {} : { cause }) });
-  const source = yield* readLogicalStorageRequirements(db, input.deploymentId, input.schemaVersionId).pipe(Effect.mapError(cause =>
-    fail(cause._tag === "SchemaVersionArtifactPersistenceError" || cause._tag === "StableTableIdentityPersistenceError" ||
+  const source = yield* prepareLogicalStorageRequirementsFromArtifact(db, artifact).pipe(Effect.mapError(cause =>
+    fail(cause._tag === "StableTableIdentityPersistenceError" ||
       (cause._tag === "LogicalSchemaAdmissionEvidenceError" && cause.reason === "resourceFailure") ? "resourceFailure" : "manifestInvalid",
     "the complete logical source requirements could not be verified", cause)));
   if (source.evidence.tableBindings.length + source.ordered.length > MAX_RECONCILED_DEFINITIONS) {
@@ -591,7 +599,7 @@ const readCandidateIndexRequirements = Effect.fn("IndexBuildReconciliation.readC
       canonical: yield* canonicalize(declaration.physicalSpec) });
   }
   developerIndexes.sort((left, right) => left.logicalIndexId - right.logicalIndexId);
-  return { artifact: source.artifact, manifest: source.evidence.candidate, requirements: {
+  return { source, artifact: source.artifact, manifest: source.evidence.candidate, requirements: {
     creationTimeIndexes: source.evidence.tableBindings.map(binding => ({ tableId: binding.tableId, canonical: intrinsic })),
     developerIndexes,
   } satisfies IndexRequirements };

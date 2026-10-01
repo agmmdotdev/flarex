@@ -1,8 +1,8 @@
-import { Result, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 import { decodeExactDecimal } from "flarex-protocol/internal/exact-decimal";
 import { isRelationalColumnValue, validateRelationalRowValues, type RelationalColumnIdentity, type RelationalPersistenceCapability, type RelationalTableDefinition } from "flarex-protocol/internal/relational-schema";
 import type { JsonObject } from "flarex-protocol/json";
-import type { LogicalDocumentFailure } from "./model";
+import type { LogicalDocumentFailure, LogicalDocumentFailureReason } from "./model";
 
 export function relationalTextIdentity<Failure>(table: RelationalTableDefinition, error: LogicalDocumentFailure<Failure>) {
   const primary = table.keys.find(key => key.kind === "primary");
@@ -54,17 +54,23 @@ export function prepareLogicalRelationalRowValues<Failure>(table: RelationalTabl
  * ownership of their input coercion and numeric precision rules. */
 export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
   capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>) {
+  return compileLogicalRelationalRows(table, capabilities, error, prepareLogicalRelationalRowValues(table, capabilities, error));
+}
+
+function compileLogicalRelationalRows<Failure>(table: RelationalTableDefinition,
+  capabilities: readonly RelationalPersistenceCapability[], error: LogicalDocumentFailure<Failure>,
+  validate: ReturnType<typeof prepareLogicalRelationalRowValues<Failure>>) {
   return Result.gen(function* () {
     const keyColumns = yield* relationalTextIdentity(table, error);
     const managed = logicalManagedUpdatedColumns(table, capabilities);
     const deletions = capabilities.flatMap(capability => capability.kind === "softDelete" && belongsTo(table, capability.deletedAtColumn)
       ? [capability.deletedAtColumn.columnId] : []);
-    const validate = prepareLogicalRelationalRowValues(table, capabilities, error);
+    const columnsByName = new Map<string, typeof table.columns[number]>(table.columns.map(column => [column.identity.columnId, column]));
     const validateInput = (input: JsonObject) => Result.gen(function* () {
       // A native write cannot smuggle internal Flarex identity fields or columns
       // outside its source. Complete rows are validated again after defaults.
       for (const [name, value] of Object.entries(input)) {
-        const column = table.columns.find(candidate => candidate.identity.columnId === name);
+        const column = columnsByName.get(name);
         if (column === undefined || !isRelationalColumnValue(column.type, column.nullable, value))
           return yield* Result.fail(error("documentInvalid"));
       }
@@ -94,4 +100,41 @@ export function prepareLogicalRelationalRows<Failure>(table: RelationalTableDefi
     });
     return Object.freeze({ keyColumns, normalize, validate, validateInput, deletedAt: deletions.length === 1 ? deletions[0] : undefined });
   });
+}
+
+export class LogicalRelationalMechanicsError extends Data.TaggedError("LogicalRelationalMechanicsError")<{
+  readonly reason: LogicalDocumentFailureReason; readonly cause?: unknown;
+}> {}
+const mechanicError: LogicalDocumentFailure<LogicalRelationalMechanicsError> = (reason, cause) =>
+  new LogicalRelationalMechanicsError({ reason, ...(cause === undefined ? {} : { cause }) });
+const issuedTableMechanics = new WeakSet<object>();
+
+/** Compile only immutable table mechanics. A failed table identity remains a
+ * lazy verdict consumed where that operation previously prepared its table. */
+export function prepareLogicalRelationalTableMechanics(table: RelationalTableDefinition,
+  capabilities: readonly RelationalPersistenceCapability[]) {
+  const validate = prepareLogicalRelationalRowValues(table, capabilities, mechanicError);
+  const rows = Object.freeze(compileLogicalRelationalRows(table, capabilities, mechanicError, validate));
+  const columns = new Map<string, typeof table.columns[number]>(table.columns.map(column => [column.identity.columnId, column]));
+  const mechanics = Object.freeze({ table, capabilities,
+    column: (name: string) => columns.get(name), columnNames: Object.freeze([...columns.keys()]),
+    identity: Object.freeze(rows.pipe(Result.map(policy => policy.keyColumns))), rows, validate,
+  });
+  issuedTableMechanics.add(mechanics);
+  return mechanics;
+}
+export type PreparedLogicalRelationalTableMechanics = ReturnType<typeof prepareLogicalRelationalTableMechanics>;
+export const hasPreparedLogicalRelationalTableMechanics = (mechanics: PreparedLogicalRelationalTableMechanics,
+  table: RelationalTableDefinition) => issuedTableMechanics.has(mechanics) && mechanics.table === table;
+
+export function bindPreparedLogicalRelationalRows<Failure>(mechanics: PreparedLogicalRelationalTableMechanics,
+  error: LogicalDocumentFailure<Failure>) {
+  if (!issuedTableMechanics.has(mechanics)) return Result.fail(error("invalidAuthority"));
+  const project = (cause: LogicalRelationalMechanicsError) => error(cause.reason, cause.cause);
+  return mechanics.rows.pipe(Result.mapError(project), Result.map(rows => Object.freeze({
+    keyColumns: rows.keyColumns, deletedAt: rows.deletedAt,
+    normalize: (...args: Parameters<typeof rows.normalize>) => rows.normalize(...args).pipe(Result.mapError(project)),
+    validate: (...args: Parameters<typeof rows.validate>) => rows.validate(...args).pipe(Result.mapError(project)),
+    validateInput: (...args: Parameters<typeof rows.validateInput>) => rows.validateInput(...args).pipe(Result.mapError(project)),
+  })));
 }

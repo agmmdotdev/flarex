@@ -15,6 +15,7 @@ import type { LogicalSearchDefinition } from "./searchEntries";
 import type { ApplicationDocumentObservation } from "../applicationDocumentMaterialization/model";
 import type { SessionJournalAttempt } from "../sessionJournalStore";
 import type { LogicalDocumentRootEvaluator } from "./rootEvaluator";
+import type { PreparedLogicalRelationalTableMechanics } from "./relationalRows";
 
 export type LogicalDocumentFailureReason = "invalidInput" | "invalidAuthority" | "closed" | "limitExceeded"
   | "documentMissing" | "documentInvalid" | "uniqueConflict" | "writeConflict" | "storedCorruption"
@@ -83,7 +84,8 @@ export type LogicalDocumentWorkingSetInput<Failure> = Readonly<{
   readonly clock: ScopeClockRecord;
   /** Fixed historical view for a logical attempt. Unsupported candidate paths refuse. */
   readonly snapshotCommitSeq?: CommitSeq;
-  readonly tables: readonly Readonly<{ tableId: CatalogTableId; logicalName: string; relational?: RelationalTableDefinition }>[];
+  readonly tables: readonly Readonly<{ tableId: CatalogTableId; logicalName: string; relational?: RelationalTableDefinition;
+    relationalMechanics?: PreparedLogicalRelationalTableMechanics }>[];
   readonly relationalCapabilities?: readonly RelationalPersistenceCapability[];
   readonly searchDefinitions?: readonly LogicalSearchDefinition[];
   readonly lifetime: BoundedRequestLifetime<Failure>;

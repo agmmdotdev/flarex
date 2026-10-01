@@ -53,6 +53,25 @@ const OBSERVATION = Object.freeze({
 });
 
 describe("B2b1/C06-A execution-claim capability projection", () => {
+  it("binds a confirmed entry scope to the original claim, including same-pin remints", () => {
+    const vault = createPointMutationExecutionClaimVaultV1();
+    const state = { selector: { deploymentId: DEPLOYMENT_ID, scopeId: SCOPE_ID,
+      sessionId: SESSION_ID, attemptFence: ATTEMPT_FENCE }, observation: OBSERVATION, mode: "execute" as const };
+    const original = vault.issuer.mint(state);
+    const reminted = vault.issuer.mint(state);
+    const scope = Result.getOrThrow(vault.admission.admit(original, "execute"));
+    expect(Result.isSuccess(vault.admission.inspectOriginalStoredAttempt(scope, original))).toBe(true);
+    expect(vault.admission.inspectOriginalStoredAttempt(scope, reminted)).toMatchObject({
+      _tag: "Failure", failure: { reason: "notSameFactory" },
+    });
+    expect(vault.admission.inspectOriginalStoredAttempt(structuredClone(scope), original)).toMatchObject({ _tag: "Failure" });
+    const foreign = createPointMutationExecutionClaimVaultV1();
+    expect(foreign.admission.inspectOriginalStoredAttempt(scope, original)).toMatchObject({ _tag: "Failure" });
+    Result.getOrThrow(vault.admission.consume(scope, "execute"));
+    expect(vault.admission.inspectOriginalStoredAttempt(scope, original)).toMatchObject({
+      _tag: "Failure", failure: { reason: "consumed" },
+    });
+  });
   it("stays off the root surface and rejects malformed selectors before I/O", async () => {
     type RootLeak = Extract<
       keyof typeof executorRoot,

@@ -46,11 +46,11 @@ describe("joint selected logical sources", () => {
           schemaVersionId: fixture.schemaVersionId };
         const prepared = yield* Effect.all({
           application: prepareLogicalApplicationSourceAdmission(ports,
-            fixture.application.uniqueConstraintEligibility, input, fixture.applicationSource),
+            fixture.application.uniqueConstraintEligibility, input, fixture.applicationSource, { kind: "standalone" }),
           payload: prepareLogicalDocumentSourceAdmission(ports,
-            fixture.application.uniqueConstraintEligibility, input, compiled.sourceContract),
+            fixture.application.uniqueConstraintEligibility, input, compiled.sourceContract, { kind: "standalone" }),
           currency: prepareLogicalRelationalAdmission(ports,
-            fixture.application.uniqueConstraintEligibility, input, fixture.hostInput.logicalStorage.source),
+            fixture.application.uniqueConstraintEligibility, input, fixture.hostInput.logicalStorage.source, { kind: "standalone" }),
         });
         const active = yield* fixture.application.activation.readActive();
         const located = yield* resolveLocatedTrustedScopeAuthorityEffect(fixture.deploymentId,

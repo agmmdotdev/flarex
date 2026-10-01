@@ -17,7 +17,7 @@ import type { ScopeClockRecord } from "../scopeClock";
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import { getStableLogicalIndexIdentityByNameEffect } from "../stableLogicalIndexCatalog";
 import type { LogicalDocumentWrite } from "./model";
-import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError } from "./sourceAdmission";
+import { prepareLogicalSourceEvidence, LogicalSourceAdmissionError, type LogicalSourceConstruction } from "./sourceAdmission";
 
 export class LogicalApplicationSourceAdmissionError extends Data.TaggedError("LogicalApplicationSourceAdmissionError")<{
   readonly reason: "invalidInput" | "sourceMismatch" | "notReady" | "bindingMissing" | "invalidAuthority" | "documentInvalid" | "unsupportedProfile";
@@ -52,6 +52,7 @@ const admissions = new WeakMap<object, LogicalApplicationSourceAdmissionState>()
 export const prepareLogicalApplicationSourceAdmission = Effect.fn("LogicalApplicationSourceAdmission.prepare")(function* (
   ports: AppUniqueConstraintSetBuildPortsV1, unique: AppUniqueConstraintSetEligibilityPortV1,
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>, sourceInput: unknown,
+  construction: LogicalSourceConstruction,
 ) {
   const capturedPorts = Object.freeze({ controlDb: ports.controlDb, authority: ports.authority });
   const capturedInput = Object.freeze({ deploymentId: input.deploymentId, scopeId: input.scopeId,
@@ -61,7 +62,7 @@ export const prepareLogicalApplicationSourceAdmission = Effect.fn("LogicalApplic
   const expected = yield* decodeContract(captured.value).pipe(Effect.mapError(cause =>
     new LogicalApplicationSourceAdmissionError({ reason: "invalidInput", cause })));
   const selected = yield* prepareLogicalSourceEvidence(capturedPorts, unique, capturedInput, expected,
-    "application", "documents").pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
+    "application", "documents", construction).pipe(Effect.catchTag("LogicalSourceAdmissionError", cause => Effect.fail(projectSourceFailure(cause))));
   if (selected.source.definition.kind !== "documents" ||
     selected.source.bindings.some(binding => binding.kind !== "definition"))
     return yield* Effect.fail(new LogicalApplicationSourceAdmissionError({ reason: "unsupportedProfile" }));

@@ -1,3 +1,4 @@
+import { SessionJournalPersistenceV1Error, type SessionJournalStorePersistence } from "./sessionJournalStore";
 import {
   bytesEqual,
   encodeBytesToLowercaseHex,
@@ -8,7 +9,8 @@ import {
   finiteDateMilliseconds,
 } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, sql, type SQL } from "drizzle-orm";
+import type { PgTable } from "drizzle-orm/pg-core";
 import { Data, Effect, Exit, Result, Schema } from "effect";
 import type { Cause as EffectCause } from "effect/Cause";
 
@@ -158,6 +160,7 @@ import {
 } from "./transactionExecutionClaimPersistence";
 import {
   decodeTransactionExecutionClaimFenceV1,
+  TransactionExecutionClaimFenceV1Schema,
   decodeTransactionExecutionClaimOwnerV1,
   type TransactionExecutionClaimObservationV1,
   type TransactionExecutionClaimOwnerV1,
@@ -184,6 +187,23 @@ import {
   ApplicationActivationError,
   type ApplicationActiveSelection,
 } from "./applicationActivation";
+import {
+  readPreparedFiniteApplicationMutationInputs,
+  validatePreparedFiniteApplicationMutationAdmissionInTransaction,
+  type PreparedFiniteApplicationMutationAdmission,
+  type ApplicationMutationAdmissionContext,
+  type ApplicationMutationAdmissionError,
+  type ApplicationMutationAdmission,
+} from "./applicationMutationAdmission";
+import {
+  abandonPreparedFiniteSessionJournalEntry,
+  prepareFiniteSessionJournalEntryControlEffect,
+  runPreparedFiniteSessionJournalEntryEffect,
+  confirmPreparedFiniteSessionJournalEntry,
+  type PreparedFiniteSessionJournalEntry,
+  type ConfirmedFiniteRootEntryCapture,
+} from "./sessionJournalFiniteEntry";
+import type { PreparedTerminalControl } from "./storedCommitAuthority/postgresLoader";
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
@@ -233,6 +253,9 @@ const ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1 = Symbol(
 );
 const ACTIVATE_APPLICATION_MUTATION_SESSION_EFFECT_V1 = Symbol(
   "flarex.persistence-postgres.activateApplicationMutationSessionEffectV1",
+);
+const ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT = Symbol(
+  "flarex.persistence-postgres.activateFiniteApplicationMutationSession",
 );
 const LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1 = Symbol(
   "flarex.persistence-postgres.loadExactPointMutationSessionAttemptEffectV1",
@@ -665,6 +688,11 @@ export interface PreparedApplicationMutationSessionActivationV1 {
 }
 
 export interface ApplicationMutationSessionActivationPersistenceV1 {
+  readonly activateFiniteEffect: (
+    input: PreparedFiniteApplicationMutationSessionActivation,
+    entry: PreparedFiniteSessionJournalEntry,
+  ) => Effect.Effect<FiniteApplicationMutationSessionActivationResult,
+    FiniteApplicationMutationSessionActivationError>;
   readonly activateEffect: (
     input: PreparedApplicationMutationSessionActivationV1,
   ) => Effect.Effect<
@@ -674,6 +702,27 @@ export interface ApplicationMutationSessionActivationPersistenceV1 {
     | ApplicationMutationExecutionAuthorityV1Error
   >;
 }
+
+export interface PreparedFiniteApplicationMutationSessionActivation {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly scopeId: ReplacementScopeIdV1;
+  readonly preparedAdmission: PreparedFiniteApplicationMutationAdmission;
+  readonly admissionContext: ApplicationMutationAdmissionContext;
+  readonly evidence: PreparedApplicationMutationSessionEvidenceV1;
+}
+
+export type FiniteApplicationMutationSessionActivationResult = Readonly<{
+  activation: PointMutationSessionActivationResultV1;
+  entry?: ConfirmedFiniteRootEntryCapture;
+}>;
+export type FiniteApplicationMutationSessionActivationError =
+  | PointMutationSessionActivationEffectErrorV1
+  | ApplicationActivationError
+  | ApplicationMutationAdmissionError
+  | ApplicationMutationExecutionAuthorityV1Error
+  | Effect.Error<ReturnType<typeof validatePreparedFiniteApplicationMutationAdmissionInTransaction>>
+  | Effect.Error<ReturnType<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>>
+  | Effect.Error<ReturnType<typeof runPreparedFiniteSessionJournalEntryEffect>>;
 
 export interface PointMutationSessionAttemptLoadPersistenceV1 {
   readonly loadEffect: (
@@ -1016,6 +1065,15 @@ interface LocatedPointMutationSessionActivationTargetV1
     | PointMutationSessionActivationPersistenceV1Error
     | ApplicationActivationError
   >;
+  readonly [ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]: (
+    input: LocatedPointMutationSessionActivationInputV1,
+    prepared: PreparedFiniteApplicationMutationSessionActivation,
+    entry: PreparedFiniteSessionJournalEntry,
+    control: PreparedTerminalControl | undefined,
+  ) => Effect.Effect<Readonly<{
+    activation: PointMutationSessionActivationResultV1;
+    capture?: Effect.Success<ReturnType<typeof runPreparedFiniteSessionJournalEntryEffect>>;
+  }>, FiniteApplicationMutationSessionActivationError>;
 }
 
 interface LocatedPointMutationSessionAttemptLoadTargetV1
@@ -1227,7 +1285,43 @@ export function createApplicationMutationSessionActivationPersistenceV1(
     );
   });
 
-  return Object.freeze({ activateEffect });
+  const activateFiniteEffect: ApplicationMutationSessionActivationPersistenceV1["activateFiniteEffect"] =
+    Effect.fn("ApplicationMutationSessionActivation.activateFinite")(function* (input, entry) {
+      return yield* Effect.gen(function* () {
+        const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(input.preparedAdmission, input.admissionContext));
+        const prepared = yield* capturePreparedApplicationActivationFromBasis({ ...input, executionProfile: "finiteRoot" }, inputs.basis);
+        const candidateSessionId = yield* generateSessionIdEffect(randomUuid);
+        const executionClaimOwner = yield* generateExecutionClaimOwnerEffect(randomExecutionClaimOwner);
+        const located = yield* resolveLocatedTrustedScopeAuthorityByIdEffect({ deploymentId: input.deploymentId, scopeId: input.scopeId }, {
+          scopeMetadata: ports.scopeMetadata, provisioningReceipts: ports.provisioningReceipts, scopeClockTargets: ports.scopeSessionTargets,
+        }).pipe(Effect.mapError(mapActivationAuthorityError));
+        const target = yield* Effect.fromResult(requireActivationTarget(located.target, input.scopeId));
+        const authority = inputs.executionAuthority.authority;
+        const control = yield* prepareFiniteSessionJournalEntryControlEffect(entry, {
+          kind: "claimedAttempt", deploymentId: input.deploymentId, scopeId: input.scopeId,
+          scopeUuid: projectScopeIdUuidV1(input.scopeId).scopeUuid, sessionId: candidateSessionId,
+          attemptFence: INITIAL_ATTEMPT_FENCE, storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+          storageGenerationFence: located.authority.storageGenerationFence,
+          snapshotToken: SnapshotTokenSchema.make({ scopeId: input.scopeId, epoch: located.authority.epoch, commitSeq: located.authority.lastCommitSeq }),
+          schemaVersionId: inputs.basis.schemaVersionId, executionClaim: { claimOwner: executionClaimOwner,
+            claimFence: TransactionExecutionClaimFenceV1Schema.make(1n) },
+        }, { executionAuthorityGeneration: "application_v1", applicationExecutionAuthorityFormat: authority.format,
+          applicationExecutionAuthorityVersionText: String(authority.version), applicationExecutionAuthorityActivationSequence: authority.activationSequence,
+          applicationExecutionAuthorityRevisionId: authority.runtimeTarget.revisionId,
+          applicationExecutionAuthorityFunctionPath: authority.runtimeTarget.function.path,
+          applicationExecutionAuthoritySchemaSha256: authority.runtimeTarget.schemaSha256 });
+        const result = yield* target[ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]({ prepared: prepared.activation,
+          preliminaryAuthority: located.authority, candidateSessionId, leaseDurationMilliseconds,
+          executionClaimDurationMilliseconds, executionClaimOwner }, input, entry, control);
+        if (result.capture === undefined) {
+          abandonPreparedFiniteSessionJournalEntry(entry);
+          return Object.freeze({ activation: result.activation });
+        }
+        return Object.freeze({ activation: result.activation,
+          entry: confirmPreparedFiniteSessionJournalEntry(entry, result.capture) });
+      }).pipe(Effect.onError(() => Effect.sync(() => abandonPreparedFiniteSessionJournalEntry(entry))));
+    });
+  return Object.freeze({ activateEffect, activateFiniteEffect });
 }
 
 export function createPointMutationSessionAttemptLoadPersistenceV1(
@@ -1462,6 +1556,54 @@ const applicationActivationScopedOperation = defineScopedWriteOperation(
   ),
 );
 
+const finiteApplicationActivationScopedOperation = defineScopedWriteOperation(
+  Effect.fn("ApplicationMutationSessionActivation.enterFiniteInTransaction")(function* (
+    tx: AppRowTransaction, _scoped, operationInput: Readonly<{
+      input: LocatedPointMutationSessionActivationInputV1;
+      prepared: PreparedFiniteApplicationMutationSessionActivation;
+      entry: PreparedFiniteSessionJournalEntry;
+      control: PreparedTerminalControl | undefined;
+      target: LocatedExactRunningAttemptKernelV1;
+      afterWrite: LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"];
+    }>) {
+    const { input, prepared, entry, target, control, afterWrite } = operationInput;
+    const clock = yield* Effect.tryPromise({
+      try: () => lockPointMutationSessionClock(tx, input.prepared.scopeId), catch: mapActivationTransactionError,
+    });
+    requireStableAuthority(clock, input);
+    const replay = yield* Effect.tryPromise({ try: () => replayApplicationSessionIfPresent(tx, input, clock), catch: mapActivationTransactionError });
+    if (replay !== null) return Object.freeze({ activation: replay });
+    openProtectedMetadataFinalGuardScope(tx);
+    return yield* Effect.gen(function* () {
+      const accepted = yield* validatePreparedFiniteApplicationMutationAdmissionInTransaction(
+        prepared.preparedAdmission, prepared.admissionContext, tx, clock.record);
+      if (clock.record.lastCommitSeq !== input.preliminaryAuthority.lastCommitSeq)
+        return yield* Effect.fail(activationError({ reason: "snapshotCommitSeqChanged" }));
+      let projection: FreshSessionEntryProjection | undefined;
+      const activation = yield* Effect.tryPromise({
+        try: async () => createSession(tx, input, clock, await readDatabaseNow(tx, input.prepared.scopeId), afterWrite,
+          captured => { projection = captured; }),
+        catch: mapActivationTransactionError,
+      });
+      if (activation.status !== "created") return yield* Effect.fail(activationError({ reason: "invalidPreparedEvidence" }));
+      const finalProjection = projection;
+      if (finalProjection === undefined) return yield* Effect.fail(corruptionError(input.prepared.scopeId, "sessionRecordInvalid"));
+      yield* requireCorrelatedFreshSessionEntryEffect(tx, finalProjection, input.prepared.scopeId);
+      const loaded = yield* Effect.fromResult(projectCorrelatedFreshSessionEntry(input, clock, finalProjection));
+      const context = yield* Effect.fromResult(runningAttemptKernelContextResult(loaded));
+      const capture = yield* runPreparedFiniteSessionJournalEntryEffect(entry, tx, context,
+        { authority: input.preliminaryAuthority, target }, accepted.selection, control,
+        requireCorrelatedFreshSessionEntryEffect(tx, finalProjection, input.prepared.scopeId).pipe(Effect.mapError(cause =>
+          new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }))));
+      yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(cause =>
+        new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause })));
+      return Object.freeze({ activation, capture });
+    }).pipe(Effect.ensuring(Effect.sync(() => {
+      closeProtectedMetadataFinalGuardScope(tx);
+    })));
+  }),
+);
+
 export function createLocatedPointMutationSessionActivationTargetV1(
   db: FlarexMetadataDatabase,
   physicalLocator: ScopePhysicalLocator,
@@ -1520,6 +1662,18 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       applicationActivationScopedOperation,
       Object.freeze({ input, selection }),
     ).pipe(Effect.mapError(mapApplicationActivationTransactionError)),
+    [ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]: (
+      input: LocatedPointMutationSessionActivationInputV1,
+      prepared: PreparedFiniteApplicationMutationSessionActivation,
+      entry: PreparedFiniteSessionJournalEntry,
+      control: PreparedTerminalControl | undefined,
+    ): ReturnType<LocatedPointMutationSessionActivationTargetV1[typeof ACTIVATE_FINITE_APPLICATION_MUTATION_SESSION_EFFECT]> => liveScopeExecution.runWrite(locatedActivationAuthority(scopeExecutionTarget, input.preliminaryAuthority), {
+      clockProtection: "ordinaryWrite", rollbackMessage: "Finite Application entry rolled back.",
+      cleanupDefect: mapActivationTransactionError,
+    }, finiteApplicationActivationScopedOperation, { input, prepared, entry, control, target, afterWrite }).pipe(
+      Effect.mapError(cause => cause instanceof ScopeExecutionAuthorityError || cause instanceof LocatedReadCommittedTransactionFailureV1
+        ? mapApplicationActivationTransactionError(cause) : cause),
+    ),
     [LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
       input: LocatedPointMutationSessionAttemptLoadInputV1,
     ) => Effect.uninterruptible(Effect.tryPromise({
@@ -2691,6 +2845,7 @@ async function createSession(
   afterWrite:
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"]
     | undefined,
+  captureProjection?: (projection: FreshSessionEntryProjection) => void,
 ): Promise<PointMutationSessionActivationResultV1> {
   const evidence = input.prepared.evidence;
   const hardExpiresAt = cloneValidDate(evidence.authorizationGrantExpiresAt);
@@ -2699,9 +2854,7 @@ async function createSession(
     hardExpiresAt,
     input.leaseDurationMilliseconds,
   );
-  const inserted = await tx
-    .insert(fxSystemTransactionSessions)
-    .values({
+  const sessionRow = {
       scopeUuid: clock.scopeUuid,
       sessionId: input.candidateSessionId,
       storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
@@ -2713,7 +2866,10 @@ async function createSession(
       hardExpiresAt,
       createdAt: databaseNow,
       updatedAt: databaseNow,
-    })
+    } satisfies typeof fxSystemTransactionSessions.$inferSelect;
+  const inserted = await tx
+    .insert(fxSystemTransactionSessions)
+    .values(sessionRow)
     .onConflictDoNothing({
       target: [
         fxSystemTransactionSessions.scopeUuid,
@@ -2726,14 +2882,15 @@ async function createSession(
   }
   await afterWrite?.("sessionInserted");
 
-  await tx.insert(fxSystemSnapshotLeases).values({
+  const leaseRow = {
     scopeUuid: clock.scopeUuid,
     sessionId: input.candidateSessionId,
     attemptFence: INITIAL_ATTEMPT_FENCE,
     snapshotEpochUuid: clock.epochUuid,
     snapshotCommitSeq: clock.record.lastCommitSeq,
     leaseExpiresAt,
-  });
+  } satisfies typeof fxSystemSnapshotLeases.$inferSelect;
+  await tx.insert(fxSystemSnapshotLeases).values(leaseRow);
   await afterWrite?.("leaseInserted");
 
   const databaseNowMilliseconds = finiteDateMilliseconds(databaseNow);
@@ -2741,7 +2898,7 @@ async function createSession(
     throw corruptionError(input.prepared.scopeId, "databaseClockInvalid");
   }
   const creationTimeSeed = decodeAppCreationTimeV1(databaseNowMilliseconds);
-  await tx.insert(fxSystemTransactionJournals).values({
+  const journalRow = {
     scopeUuid: clock.scopeUuid,
     sessionId: input.candidateSessionId,
     attemptFence: INITIAL_ATTEMPT_FENCE,
@@ -2769,7 +2926,11 @@ async function createSession(
       CommitMaterialWriteEventEvidenceBytesV1Schema.make(0),
     createdAt: databaseNow,
     updatedAt: databaseNow,
-  });
+    failureDimension: null, sealedJournalBytes: null, sealedJournalSha256: null,
+    sealedResultValueCodecVersion: null, sealedResultSemanticBytes: null, sealedResultBytes: null,
+    sealedResultSha256: null, sealedAt: null,
+  } satisfies typeof fxSystemTransactionJournals.$inferSelect;
+  await tx.insert(fxSystemTransactionJournals).values(journalRow);
   await afterWrite?.("journalRootInserted");
 
   const executionClaim = deriveTransactionExecutionClaimV1({
@@ -2796,6 +2957,7 @@ async function createSession(
     claimRow,
   );
   await afterWrite?.("executionClaimInserted");
+  captureProjection?.(Object.freeze({ session: sessionRow, lease: leaseRow, root: journalRow, claim: claimRow }));
 
   return activationResult("created", {
     deploymentId: input.prepared.deploymentId,
@@ -2821,6 +2983,72 @@ async function createSession(
     claimedAt: claimRow.claimedAt.toISOString(),
     claimExpiresAt: claimRow.claimExpiresAt.toISOString(),
   }));
+}
+
+interface FreshSessionEntryProjection {
+  readonly session: typeof fxSystemTransactionSessions.$inferSelect;
+  readonly lease: typeof fxSystemSnapshotLeases.$inferSelect;
+  readonly root: typeof fxSystemTransactionJournals.$inferSelect;
+  readonly claim: typeof fxSystemTransactionExecutionClaims.$inferSelect;
+}
+
+/** All actual final columns correlate on the server; no large payload crosses before this verdict. */
+async function correlateFreshSessionEntryProjection(tx: AppRowTransaction, projection: FreshSessionEntryProjection,
+  _scopeId: ReplacementScopeIdV1): Promise<boolean> {
+  const session = projection.session;
+  const rows = await tx.select({
+    session: sql<boolean>`(${freshSessionRowCorrelationSql(fxSystemTransactionSessions, projection.session)})`,
+    lease: sql<boolean>`(${freshSessionRowCorrelationSql(fxSystemSnapshotLeases, projection.lease)})`,
+    root: sql<boolean>`(${freshSessionRowCorrelationSql(fxSystemTransactionJournals, projection.root)})`,
+    claim: sql<boolean>`(${freshSessionRowCorrelationSql(fxSystemTransactionExecutionClaims, projection.claim)})`,
+    childrenAbsent: sql<boolean>`not exists (select 1 from ${fxSystemTransactionJournalReceipts} where ${fxSystemTransactionJournalReceipts.scopeUuid} = ${session.scopeUuid} and ${fxSystemTransactionJournalReceipts.sessionId} = ${session.sessionId} and ${fxSystemTransactionJournalReceipts.attemptFence} = ${session.attemptFence})
+      and not exists (select 1 from ${fxSystemTransactionJournalPoints} where ${fxSystemTransactionJournalPoints.scopeUuid} = ${session.scopeUuid} and ${fxSystemTransactionJournalPoints.sessionId} = ${session.sessionId} and ${fxSystemTransactionJournalPoints.attemptFence} = ${session.attemptFence})
+      and not exists (select 1 from ${fxSystemTransactionJournalIndexRanges} where ${fxSystemTransactionJournalIndexRanges.scopeUuid} = ${session.scopeUuid} and ${fxSystemTransactionJournalIndexRanges.sessionId} = ${session.sessionId} and ${fxSystemTransactionJournalIndexRanges.attemptFence} = ${session.attemptFence})
+      and not exists (select 1 from ${fxSystemTransactionJournalRelationIncomingDependencies} where ${fxSystemTransactionJournalRelationIncomingDependencies.scopeUuid} = ${session.scopeUuid} and ${fxSystemTransactionJournalRelationIncomingDependencies.sessionId} = ${session.sessionId} and ${fxSystemTransactionJournalRelationIncomingDependencies.attemptFence} = ${session.attemptFence})
+      and not exists (select 1 from ${fxSystemTransactionJournalWriteEvents} where ${fxSystemTransactionJournalWriteEvents.scopeUuid} = ${session.scopeUuid} and ${fxSystemTransactionJournalWriteEvents.sessionId} = ${session.sessionId} and ${fxSystemTransactionJournalWriteEvents.attemptFence} = ${session.attemptFence})`,
+  }).from(fxSystemTransactionSessions)
+    .innerJoin(fxSystemSnapshotLeases, and(eq(fxSystemSnapshotLeases.scopeUuid, fxSystemTransactionSessions.scopeUuid), eq(fxSystemSnapshotLeases.sessionId, fxSystemTransactionSessions.sessionId)))
+    .innerJoin(fxSystemTransactionJournals, and(eq(fxSystemTransactionJournals.scopeUuid, fxSystemTransactionSessions.scopeUuid), eq(fxSystemTransactionJournals.sessionId, fxSystemTransactionSessions.sessionId), eq(fxSystemTransactionJournals.attemptFence, fxSystemTransactionSessions.attemptFence)))
+    .innerJoin(fxSystemTransactionExecutionClaims, and(eq(fxSystemTransactionExecutionClaims.scopeUuid, fxSystemTransactionSessions.scopeUuid), eq(fxSystemTransactionExecutionClaims.sessionId, fxSystemTransactionSessions.sessionId), eq(fxSystemTransactionExecutionClaims.attemptFence, fxSystemTransactionSessions.attemptFence)))
+    .where(and(eq(fxSystemTransactionSessions.scopeUuid, session.scopeUuid), eq(fxSystemTransactionSessions.sessionId, session.sessionId))).limit(2);
+  return rows.length === 1 && rows[0] !== undefined && Object.values(rows[0]).every(value => value === true);
+}
+
+function freshSessionRowCorrelationSql(table: PgTable, expected: Readonly<Record<string, unknown>>): SQL {
+  return sql.join(Object.entries(getTableColumns(table)).map(([key, column]) =>
+    sql`${column} is not distinct from ${sql.param(expected[key], column)}`), sql` and `);
+}
+
+const requireCorrelatedFreshSessionEntryEffect = Effect.fn("ApplicationMutationSessionActivation.correlateFinalEntry")(
+  function* (tx: AppRowTransaction, projection: FreshSessionEntryProjection, scopeId: ReplacementScopeIdV1) {
+    const matches = yield* Effect.tryPromise({ try: () => correlateFreshSessionEntryProjection(tx, projection, scopeId), catch: mapActivationTransactionError });
+    if (!matches) return yield* Effect.fail(corruptionError(scopeId, "sessionRecordInvalid"));
+  });
+
+/** The complete scalar verdict above proves these owner-authored bytes are the actual final stored rows. */
+function projectCorrelatedFreshSessionEntry(input: LocatedPointMutationSessionActivationInputV1,
+  clock: LockedPointMutationSessionClockV1, projection: FreshSessionEntryProjection):
+  Result.Result<LockedRunningPointMutationSessionAttemptV1, PointMutationSessionAuthorityCorruptionV1Error> {
+  const { session, lease, root, claim } = projection;
+  return buildFreshTransactionAttemptFacetV1({ scopeUuid: clock.scopeUuid, sessionId: session.sessionId,
+    attemptFence: session.attemptFence, executionProfile: root.executionProfile, snapshotEpochUuid: lease.snapshotEpochUuid,
+    snapshotCommitSeq: lease.snapshotCommitSeq, databaseNowMilliseconds: session.createdAt.getTime(),
+    authorizationGrantExpiresAtMilliseconds: session.authorizationGrantExpiresAt.getTime(), hardExpiresAtMilliseconds: session.hardExpiresAt.getTime(),
+    leaseDurationMilliseconds: lease.leaseExpiresAt.getTime() - session.createdAt.getTime() }).pipe(
+    Result.mapError(cause => corruptionError(input.prepared.scopeId, "journalRootInvalid", cause)),
+    Result.flatMap(facet => !isPristineFreshTransactionAttemptJournalRootV1(root, facet.journalRoot)
+      ? Result.fail(corruptionError(input.prepared.scopeId, "journalRootInvalid"))
+      : inspectTransactionExecutionClaimV1Result(input.prepared.scopeId, claim).pipe(
+    Result.mapError(cause => corruptionError(input.prepared.scopeId, "executionClaimInvalid", cause)),
+    Result.map(executionClaim => ({ deploymentId: input.prepared.deploymentId, scopeId: input.prepared.scopeId,
+      clock, session, journalRoot: root, executionClaim, databaseNow: session.createdAt,
+      authorizationGrantExpiresAtMilliseconds: session.authorizationGrantExpiresAt.getTime(),
+      hardExpiresAtMilliseconds: session.hardExpiresAt.getTime(),
+      locked: { leaseState: "present" as const, sessionId: session.sessionId, attemptFence: session.attemptFence,
+        storageGenerationFence: session.storageGenerationFence, lease, leaseExpiresAtMilliseconds: lease.leaseExpiresAt.getTime(),
+        snapshotEpoch: replacementScopeEpochV1FromUuid(lease.snapshotEpochUuid), snapshotCommitSeq: lease.snapshotCommitSeq },
+    })))),
+  );
 }
 
 async function replayExistingSession(
@@ -4286,7 +4514,13 @@ const capturePreparedApplicationActivation = Effect.fn(
   const claimedSelection = yield* Effect.fromResult(
     claimApplicationExecutableActiveSelection(input.activeSelection),
   );
-  const selectionBasis = claimedSelection.basis;
+  const prepared = yield* capturePreparedApplicationActivationFromBasis(input, claimedSelection.basis);
+  return Object.freeze({ ...prepared, selection: input.activeSelection });
+});
+
+const capturePreparedApplicationActivationFromBasis = Effect.fn("ApplicationMutationSessionActivation.captureBasis")(
+function* (input: Omit<PreparedApplicationMutationSessionActivationV1, "activeSelection">,
+  selectionBasis: ApplicationMutationAdmission["basis"]) {
   const executionAuthority = yield*
     canonicalizeApplicationMutationExecutionAuthorityV1(
       input.evidence.executionAuthority,
@@ -4375,7 +4609,6 @@ const capturePreparedApplicationActivation = Effect.fn(
     },
   ));
   return Object.freeze({
-    selection: input.activeSelection,
     activation: Object.freeze({
       deploymentId: common.deploymentId,
       scopeId: common.scopeId,

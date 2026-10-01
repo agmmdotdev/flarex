@@ -6,13 +6,14 @@ import { projectScopeIdUuidV1Result, type CommitSeq } from "flarex-protocol/stor
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
-import { readLogicalStorageRequirements } from "./logicalStorageDefinitions";
+import { readLogicalStorageRequirements, requirePreparedLogicalStorageRequirements, type PreparedLogicalStorageRequirements } from "./logicalStorageDefinitions";
 import { fxAppRowCurrent, fxSystemSearchBuildStates } from "./schema";
 import { lockScopeClockForSnapshotReadInTransactionEffect, lockScopeClockForUpdateInTransactionEffect } from "./scopeClock";
 import type { ScopeClockRecord } from "./scopeClock";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import { getStableLogicalIndexIdentityByNameEffect } from "./stableLogicalIndexCatalog";
 import { readAppTableWriteFrontiersInTransactionEffect, type AppRowTableFrontierCorruptionError } from "./appRows";
+import { readPreparedIndexCoverageTableFrontiers, type IndexCoverageContext } from "./indexBuildStates";
 
 const physicalSearchIndexReady = (physical: Readonly<{
   index: string; table: string; column: string; operator: string;
@@ -67,8 +68,10 @@ const failure = (reason: LogicalSearchBuildError["reason"], cause?: unknown) =>
  * closure is trusted build authority for exactly one deployment and schema. */
 export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")(function* (
   controlDb: FlarexMetadataDatabase, deploymentId: string, schemaVersionId: CatalogSchemaVersionId,
+  construction: Readonly<{ kind: "fresh" }> | Readonly<{ kind: "prepared"; requirements: PreparedLogicalStorageRequirements }>,
 ) {
-  const requirements = yield* readLogicalStorageRequirements(controlDb, deploymentId, schemaVersionId);
+  const requirements = yield* (construction.kind === "fresh" ? readLogicalStorageRequirements(controlDb, deploymentId, schemaVersionId) :
+    requirePreparedLogicalStorageRequirements(controlDb, deploymentId, schemaVersionId, construction.requirements));
   const definitions = [];
   for (const requirement of requirements.search) {
     const identity = yield* getStableLogicalIndexIdentityByNameEffect(controlDb, {
@@ -84,6 +87,7 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
    * row frontier. A missing or stale coverage row never grants search reads. */
   const inspectDefinitions = Effect.fn("LogicalSearchBuild.inspectDefinitions")(function* (
     inspected: typeof selected, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    coverage?: IndexCoverageContext,
   ) {
     const tableIds = Object.freeze([...new Set(inspected.map(definition => definition.tableId))]);
     const needsJsonPhysical = inspected.some(definition => definition.kind === "jsonContainment");
@@ -133,9 +137,15 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
           }
           if (!(definition.kind === "jsonContainment" ? physical.jsonReady : physical.textReady))
             return Object.freeze({ status: "not_ready" as const, reason: "uncovered" as const });
-          if (frontiers === undefined)
-            frontiers = yield* readAppTableWriteFrontiersInTransactionEffect(tx, authority.scopeId, tableIds)
+          if (frontiers === undefined) {
+            // Borrow only after the original state and physical checks. An
+            // issuer failure is consumed at the same frontier observation cut.
+            const prepared = coverage === undefined ? null : yield* Effect.fromResult(
+              readPreparedIndexCoverageTableFrontiers(tx, observedClock, coverage, tableIds))
               .pipe(Effect.mapError(cause => failure("statementFailure", cause)));
+            frontiers = prepared ?? (yield* readAppTableWriteFrontiersInTransactionEffect(tx, authority.scopeId, tableIds)
+              .pipe(Effect.mapError(cause => failure("statementFailure", cause))));
+          }
           const frontier = frontiers.get(definition.tableId);
           if (frontier === undefined) return yield* Effect.die("Search table frontier lost a inspected member");
           const tableFrontier = yield* Effect.fromResult(frontier)
@@ -211,13 +221,13 @@ export const prepareLogicalSearchBuild = Effect.fn("LogicalSearchBuild.prepare")
     }
     return Object.freeze({ status: "ready" as const, definitionCount: selected.length });
   });
-  const inspect = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
-    inspectDefinitions(selected, tx, authority, clock);
+  const inspect = (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    coverage?: IndexCoverageContext) => inspectDefinitions(selected, tx, authority, clock, coverage);
   const selectTables = (tables: readonly CatalogTableId[]) => {
     const tableSet = new Set(tables);
     const inspected = Object.freeze(selected.filter(definition => tableSet.has(definition.tableId)));
     return Object.freeze({ inspectSelected: (tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority,
-      clock: ScopeClockRecord) => inspectDefinitions(inspected, tx, authority, clock) });
+      clock: ScopeClockRecord, coverage?: IndexCoverageContext) => inspectDefinitions(inspected, tx, authority, clock, coverage) });
   };
   return Object.freeze({ advanceEmpty, inspect, selectTables, definitionCount: selected.length });
 });

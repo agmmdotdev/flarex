@@ -14,10 +14,10 @@ connected latency work and its remaining goal: [admission/protection](./15-admis
 delivered with its measured stage cost gate passed; [batched reads](./16-batched-read-execution-preflight.md)
 is delivered with its measured stage cost gate passed;
 [settlement](./17-batched-settlement-preflight.md) is delivered with its measured
-structural stage cost gates passed. Proposed
+structural stage cost gates passed. Delivered
 [aggregate entry and prepared source graph](./19-aggregate-entry-preflight.md)
-is the next recommended core package; runtime and atomic creation-plus-entry
-remain unapproved. It precedes reserved
+passes its stage gates, including atomic creation-plus-entry and complete initial
+authentication. It precedes reserved
 [host lifecycle](./18-host-lifecycle-preflight.md), which remains conditional on
 attributable evidence. Slice 15 extends immutable target protection under existing full
 attestation and privileged quiescence. Slice 16 accepts tentative finite native
@@ -211,15 +211,25 @@ mixed latency goal remains unmet.
 The separate Node diagnostic names readiness/index-build decoding, private JSON
 capture and library/query work on actual calltrees. Idle/generated frames and
 profiler overhead remain explicit. Existing metadata/admission/preparation work
-supports proposed [aggregate entry and prepared source graph](./19-aggregate-entry-preflight.md)
+supports delivered [aggregate entry and prepared source graph](./19-aggregate-entry-preflight.md)
 before a host change. It connects existing private finiteRoot core entry and
-genuine consumers with one bounded authenticated construction and
-exact-transaction coverage reuse. The new
-atomic creation-plus-full-entry boundary, guard lifecycle and confirmed facts
-require owner approval; no further runtime slice is approved. Proposed admission
-transactions are 9 to 3, with ceiling 126 from `122 - D + A`; whole proposed
-ceilings 540 / 563 / 853 / 309 SQL and 19 / 20 / 33 / 6 transactions depend on
-actual construction and coverage proof. Root point bootstrap remains outside
+genuine consumers with one bounded authenticated construction, atomic
+creation-plus-full-entry, confirmed facts and exact-transaction coverage reuse.
+Structural entry transaction topology is **9 to 3**. Complete initial
+authentication preserves the fresh renewal omitted by the previous measured
+fixture: admission is **97** SQL dispatches in **four** transactions.
+The [aggregate-entry measurements](../../packages/flarex-backend/benchmarks/mixed-mutation-core/aggregate-entry/README.md)
+retain **519 / 542 / 845 / 309** warm SQL dispatches and **20 / 21 / 34 / 6**
+transactions, passing all-sample SQL ceilings **540 / 563 / 853 / 309** and the
+complete-profile transaction gates. Warm terminal SQL is **173 / 178 / 216** in
+three transactions. Untraced p50/p95 is **752.955/888.010, 678.637/695.351,
+1,196.599/1,289.494 and 314.581/336.328 ms**. Standalone remains below 400 ms
+median and passes its strict below-10% regression gate at **9.586912%**.
+All mixed latency goals remain unmet. The prior private mixed fixture omitted
+complete initial authentication and renewal; the distributions establish neither
+profile equivalence nor a causal regression. Existing distribution changes and
+all outliers remain retained, including the current **7,701.252 ms** Product maximum.
+Root point bootstrap remains outside
 those savings. Standard Application retains its distinct durableOperations
 selection/activation/evidence/load/open contract and regression obligations; no
 default profile or hosted cutover is proposed. Host slice 18 remains conditional

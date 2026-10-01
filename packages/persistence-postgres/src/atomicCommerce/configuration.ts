@@ -117,7 +117,7 @@ export const prepareAtomicCommerceConfiguration = Effect.fn("AtomicCommerce.prep
       .pipe(Effect.mapError(projectCommerceRequestFailure))
     : undefined;
   const members = yield* prepareAtomicCommerceParticipants(database, target, capturedMembers,
-    logicalLocation === undefined ? undefined : { deploymentId, scopeId: logicalLocation.authority.scopeId });
+    logicalLocation === undefined ? undefined : { deploymentId, scopeId: logicalLocation.authority.scopeId }, { kind: "standalone" });
   if (commandMs > commerceLimits.commandMs && members.some(member => member.kind !== "logical"))
     return yield* Effect.fail(commerceError("unsupportedProfile"));
   const eventPolicy = eventInput === undefined ? undefined : yield* prepareAtomicCommerceEvents(yield* Effect.fromResult(eventInput));

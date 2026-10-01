@@ -124,6 +124,7 @@ export interface ExecuteExactPointMutationAttemptInputV1<
   InspectionUnavailableError,
   CurrentValidationError,
 > {
+  readonly confirmedInitialActivation?: import("../pointMutationSessionActivation").ActivatedPointMutationSessionV1;
   readonly selector: PointMutationSessionAttemptSelectorV1;
   readonly attemptFence: TransactionAttemptFence;
   readonly snapshotToken: SnapshotToken;

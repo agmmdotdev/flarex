@@ -128,7 +128,7 @@ const composeCommerceHost = Effect.fn("CommerceHost.compose")(function* <Failure
   const preparedLogical = logicalSelection === undefined || initialLocation === undefined ? undefined :
     yield* prepareLogicalRelationalAdmission(logicalSelection.ports, logicalSelection.unique, {
       deploymentId, scopeId: initialLocation.authority.scopeId, schemaVersionId: logicalSelection.schemaVersionId,
-    }, logicalSelection.source).pipe(Effect.mapError(projectFailure));
+    }, logicalSelection.source, { kind: "standalone" }).pipe(Effect.mapError(projectFailure));
   const owner = Object.freeze({ hostId: Symbol("commerce.host") });
   const execute = Effect.fn("CommerceHost.execute")(function* (requestKey: string | null, token: CommerceCommand | null, args: Json) {
     const root = token === null ? undefined : getCommerceCommand(token);

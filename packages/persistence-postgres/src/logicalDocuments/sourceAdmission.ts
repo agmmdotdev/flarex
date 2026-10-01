@@ -1,9 +1,8 @@
 import { Data, Effect, Option, Schema } from "effect";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
-import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES, logicalTableKey,
+import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES,
   type LogicalSchemaSource } from "flarex-protocol/internal/logical-schema-candidate";
-import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { ReplacementScopeIdV1Schema, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
@@ -17,9 +16,8 @@ import { readBindingSelectedEvidence, prepareBindingSelectedStructure, type Prep
 import { verifyLogicalSchemaBindingInTransaction, verifyLogicalSchemaReadBindingInTransaction,
   type SelectedLogicalStorageReadiness } from "../frameworkSchema/binding/logicalSchema";
 import type { DataBindingHeadToken, DataBindingSetFrame } from "../frameworkSchema/binding/model";
-import { loadPublishedPhysicalRequirementSnapshotV1, publishedPhysicalDefinitionMatchesLocated } from "../indexBuildReconciliation";
-import { readLogicalStorageRequirements } from "../logicalStorageDefinitions";
-import { prepareLogicalStorageReadiness } from "../logicalStorageReadiness";
+import { publishedPhysicalDefinitionMatchesLocated } from "../indexBuildReconciliation";
+import { prepareLogicalStorageReadiness, requirePreparedLogicalStorageCatalog, type PreparedLogicalStorageCatalog } from "../logicalStorageReadiness";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { chargeHostPreparation, captureHostPreparationCharge } from "../preparedHostRuntime";
 import { capturePrivateJsonData } from "../privateJsonData";
@@ -67,6 +65,8 @@ type SharedCheckedBinding = Readonly<{
 }>;
 const checkedBindings = new WeakMap<FlarexMetadataTransaction, SharedCheckedBinding[]>();
 const readSourceKeys = new WeakMap<FlarexMetadataTransaction, readonly string[]>();
+export type LogicalSourceConstruction = Readonly<{ kind: "standalone" }> |
+  Readonly<{ kind: "prepared"; catalog: PreparedLogicalStorageCatalog }>;
 
 /** Scope common candidate/readiness IO to one checked historical-read transaction.
  * Each source still compares its own pinned head and source contract. The next
@@ -106,6 +106,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   ports: AppUniqueConstraintSetBuildPortsV1, unique: AppUniqueConstraintSetEligibilityPortV1,
   input: Readonly<{ deploymentId: string; scopeId: ScopeId; schemaVersionId: CatalogSchemaVersionId }>,
   sourceInput: unknown, expectedOwner: LogicalSchemaSource["owner"], expectedKind: LogicalSchemaSource["definition"]["kind"],
+  construction: LogicalSourceConstruction,
 ) {
   const capturedPorts = Object.freeze({ controlDb: ports.controlDb, authority: ports.authority });
   const captured = Object.freeze({ ...input });
@@ -114,37 +115,27 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
   yield* chargeHostPreparation(owned.value);
   const expected = yield* decodeContract(owned.value).pipe(Effect.mapError(cause =>
     new LogicalSourceAdmissionError({ reason: "invalidInput", cause })));
-  const readiness = yield* prepareLogicalStorageReadiness(capturedPorts, unique, captured);
+  const readiness = yield* (construction.kind === "standalone"
+    ? prepareLogicalStorageReadiness(capturedPorts, unique, captured)
+    : requirePreparedLogicalStorageCatalog(construction.catalog, capturedPorts, unique, captured));
   if (readiness.status !== "prepared") return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "notReady" }));
-  const requirements = yield* readLogicalStorageRequirements(capturedPorts.controlDb, captured.deploymentId, captured.schemaVersionId);
-  const { evidence } = requirements;
-  yield* chargeHostPreparation(JSON.stringify(evidence));
+  const requirements = readiness.requirements;
   if (encodeBytesToLowercaseHex(requirements.artifact.manifestSha256) !== readiness.reference.manifestSha256)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
-  const source = evidence.candidate.sources.find(member => member.key === expected.sourceKey);
+  const source = readiness.source(expected.sourceKey);
   if (source === undefined || source.owner !== expectedOwner || source.definition.kind !== expectedKind ||
       source.writeProfile !== expected.writeProfile || canonical(source.definition) !== canonical(expected.definition) ||
       canonical(source.evidence) !== canonical(expected.evidence))
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
-  const tableNames = source.definition.kind === "documents"
-    ? source.definition.tables.map(table => table.logicalName)
-    : source.definition.schema.tables.map(table => table.identity.tableId);
-  const tables: Readonly<{ localName: string; tableId: CatalogTableId }>[] = [];
-  for (const localName of tableNames) {
-    const binding = source.bindings.find(member => member.kind === "definition" && member.localName === localName);
-    const stable = binding === undefined ? undefined : evidence.tableBindings.find(member =>
-      logicalTableKey(member.table) === logicalTableKey(binding.table));
-    if (stable === undefined) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
-    tables.push(Object.freeze({ localName, tableId: stable.tableId }));
-  }
-  const selectedTables = Object.freeze(tables);
+  const selectedTables = readiness.sourceDefinitionTables(source.key);
+  if (selectedTables === undefined) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   const tableIds = new Set(selectedTables.map(table => table.tableId));
   // Built-in document relations still require their separate edge owner.
   // The common publisher maintains activated reverse indexes and enforces
   // strong references for native as well as source-bound writes.
   if (source.definition.kind === "documents" && source.definition.relations.length !== 0)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "unsupportedProfile" }));
-  const snapshot = yield* loadPublishedPhysicalRequirementSnapshotV1(capturedPorts.controlDb, captured);
+  const snapshot = readiness.snapshot;
   if (snapshot === null || encodeBytesToLowercaseHex(snapshot.manifestSha256) !== readiness.reference.manifestSha256)
     return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
   const indexes: readonly LocatedAppIndexDefinitionV1[] = Object.freeze(yield* Effect.forEach(
@@ -167,12 +158,14 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     (_, member: unknown) => typeof member === "bigint" ? member.toString() : member));
   const chargePrepared = yield* captureHostPreparationCharge();
   const targetPreparations = new WeakMap<object, PreparedBindingSelectedStructure>();
+  const requirePrepared = requirePreparedLogicalStorageCatalog(readiness, capturedPorts, unique, captured).pipe(Effect.asVoid);
 
   const checkBinding = Effect.fn("LogicalSourceAdmission.checkBinding")(function* <Value, Failure, Requirements>(
     selection: "full" | "read",
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>,
   ) {
+    yield* requirePrepared;
     const sourceKeys = readSourceKeys.get(tx) ?? [source.key];
     if (selection === "read" && !sourceKeys.includes(source.key))
       return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
@@ -222,5 +215,6 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
     checkBinding("read", application, tx, authority, clock, work);
-  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withReadBinding });
+  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withReadBinding,
+    requirements, catalog: readiness, requirePrepared });
 });

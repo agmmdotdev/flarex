@@ -76,6 +76,8 @@ export interface PointMutationExecutionClaimIssuerV1 {
 }
 
 export interface PointMutationExecutionClaimAdmissionV1 {
+  readonly inspectOriginalStoredAttempt: (scope: unknown, originalClaim: unknown) => Result.Result<
+    PointMutationExecutionWorkClaimStateV1, InvalidPointMutationExecutionClaimV1Error>;
   /** Synchronously consumes one dispatch claim and opens one execution scope. */
   readonly admit: (
     claim: unknown,
@@ -144,6 +146,7 @@ export interface PointMutationExecutionClaimVaultV1 {
 export function createPointMutationExecutionClaimVaultV1():
   PointMutationExecutionClaimVaultV1 {
   const states = new WeakMap<object, PointMutationExecutionClaimStateV1>();
+  const scopeOrigins = new WeakMap<object, object>();
   const claimed = new WeakSet<object>();
   const scopeStates = new WeakMap<
     object,
@@ -311,6 +314,7 @@ export function createPointMutationExecutionClaimVaultV1():
         [pointMutationExecutionScopeBrand]: pointMutationExecutionScopeBrand,
       } satisfies PointMutationExecutionScopeV1);
       scopeStates.set(scope, state);
+      scopeOrigins.set(scope, claim);
       return scope;
     }),
     inspect: (
@@ -325,6 +329,11 @@ export function createPointMutationExecutionClaimVaultV1():
       inspectScope(scope, requiredMode, true),
     inspectStoredAttempt: (scope: unknown) =>
       inspectScope(scope, undefined, false),
+    inspectOriginalStoredAttempt: (scope: unknown, originalClaim: unknown) =>
+      typeof scope === "object" && scope !== null && typeof originalClaim === "object" && originalClaim !== null &&
+        scopeOrigins.get(scope) === originalClaim
+        ? inspectScope(scope, undefined, false)
+        : Result.fail(new InvalidPointMutationExecutionClaimV1Error({ reason: "notSameFactory" })),
     consumeStoredAttempt: (scope: unknown) =>
       inspectScope(scope, undefined, true),
   });

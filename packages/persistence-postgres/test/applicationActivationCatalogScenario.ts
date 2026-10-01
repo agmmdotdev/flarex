@@ -2,7 +2,8 @@ import { Effect } from "effect";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { sql } from "drizzle-orm";
 import { expect, vi } from "vitest";
-import { payloadScalarFields } from "../../payload-adapter/src/conformanceProfile";
+import { payloadScalarFields, payloadScalarConfiguration } from "../../payload-adapter/src/conformanceProfile";
+import { policyManifestFixture } from "./applicationWritePolicyFixture";
 import { makeApplicationActivationRepository } from "../src/applicationActivation";
 import { fxSystemApplicationActivations, fxSystemApplicationActiveHeads } from "../src/applicationActivationSchema";
 import { makeApplicationRelationReadinessFoldRepository, readApplicationActivationRelatedPhysicalRequirements, readApplicationRelationActivationUniqueRequirements, withApplicationActivationCatalogLock, type ApplicationActivationCatalogLease } from "../src/applicationRelationReadinessFold";
@@ -18,7 +19,8 @@ export async function applicationActivationCatalogScenario(
   options: Pick<NonNullable<Parameters<typeof relationReadinessFixture>[0]>, "persistence" | "controlPersistence"> = {},
 ) {
   const fixture = await relationReadinessFixture({ ...options, writePolicy: true, cmsIndexes: true,
-    cmsFields: payloadScalarFields });
+    cmsFields: payloadScalarFields,
+    cmsManifest: await policyManifestFixture(undefined, true, payloadScalarFields, payloadScalarConfiguration) });
   const target = fixture.pointTarget;
   if (!isLocatedReadCommittedAttemptTargetV1(target)) throw new Error("Expected read-committed target");
   expect(fixture.control.drizzle).not.toBe(fixture.persistence.drizzle);

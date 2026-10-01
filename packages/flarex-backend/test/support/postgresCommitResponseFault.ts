@@ -2,8 +2,10 @@ import { projectScopeIdUuidV1 } from "flarex-protocol/storage-authority";
 import type { PostgresLocatedReadCommittedRunnerOptionsV1 } from
   "../../../persistence-postgres/src/postgresLocatedReadCommitted";
 import type { createMixedMutationProductFixture } from "./mixedMutationProductFixture";
+import type { MixedMutationFinalEntryTestContext } from "./mixedMutationProductFixture";
 
 type MixedFixture = Awaited<ReturnType<typeof createMixedMutationProductFixture>>;
+type PostgresFixtureResource = Extract<MixedFixture["currency"]["resource"], { readonly kind: "postgres" }>;
 type PoolClient = Parameters<NonNullable<PostgresLocatedReadCommittedRunnerOptionsV1["afterAcquire"]>>[0];
 
 function isPoolClient(value: unknown): value is PoolClient {
@@ -12,7 +14,7 @@ function isPoolClient(value: unknown): value is PoolClient {
 }
 
 function installCommitResponseFault(client: PoolClient,
-  fault: (forward: () => unknown) => unknown): () => void {
+  fault: (forward: () => unknown) => unknown, observeStatement?: (text: string) => void): () => void {
   const originalDescriptor = Object.getOwnPropertyDescriptor(client, "query");
   const query = client.query;
   const installed = Reflect.set(client, "query", (...args: ReadonlyArray<unknown>): unknown => {
@@ -21,6 +23,7 @@ function installCommitResponseFault(client: PoolClient,
       typeof statement === "object" && statement !== null && "text" in statement &&
         typeof statement.text === "string" ? statement.text : "";
     const forward = () => Reflect.apply(query, client, args);
+    observeStatement?.(text);
     return text.trim().toLowerCase() === "commit" ? fault(forward) : forward();
   });
   if (!installed) throw new Error("Could not install PostgreSQL COMMIT response fault");
@@ -48,15 +51,10 @@ export async function installOneCommitResponseFault(fixture: MixedFixture,
   const schemaName = (await fixture.currency.resource.target.query<{ schema: string }>(
     "select current_schema() as schema")).rows[0]?.schema;
   if (schemaName === undefined) throw new Error("Missing PostgreSQL fixture schema");
-  const pool = fixture.currency.resource.target.pool;
-  const originalDescriptor = Object.getOwnPropertyDescriptor(pool, "connect");
-  const connect = pool.connect;
-  const restoreQueries: Array<() => void> = [];
   let armed = true;
   let didFire = false;
-  const decorate = (candidate: unknown): void => {
-    if (!isPoolClient(candidate)) return;
-    restoreQueries.push(installCommitResponseFault(candidate, forward => {
+  return installPoolCommitResponseFault(fixture.currency.resource.target.pool, () => ({
+    commit: forward => {
       if (!armed) return forward();
       return Promise.resolve(forward()).then(async result => {
         const committed = await committedCountFromIndependentConnection(fixture, schemaName);
@@ -68,7 +66,42 @@ export async function installOneCommitResponseFault(fixture: MixedFixture,
         await fault();
         return result;
       });
-    }));
+    },
+  }), () => didFire);
+}
+
+/** Lose only the response to the actual creation transaction, after PostgreSQL
+ * has acknowledged its COMMIT. Callers independently inspect the durable rows. */
+export function installOneEntryCommitResponseFault(context: MixedMutationFinalEntryTestContext,
+  fault: () => unknown): Readonly<{ restore: () => void; fired: () => boolean }> {
+  if (context.currency.resource.kind !== "postgres") throw new Error("Expected real PostgreSQL fixture");
+  let didFire = false;
+  return installPoolCommitResponseFault(context.currency.resource.target.pool, () => {
+    let createdSession = false;
+    return {
+      observe: text => { if (/insert\s+into\s+"?fx_system_tx_session"?\s/i.test(text)) createdSession = true; },
+      commit: forward => {
+        if (!createdSession || didFire) return forward();
+        return Promise.resolve(forward()).then(async result => {
+          didFire = true;
+          await fault();
+          return result;
+        });
+      },
+    };
+  }, () => didFire);
+}
+
+function installPoolCommitResponseFault(pool: PostgresFixtureResource["target"]["pool"],
+  makeFault: () => Readonly<{ commit: (forward: () => unknown) => unknown; observe?: (text: string) => void }>,
+  fired: () => boolean): Readonly<{ restore: () => void; fired: () => boolean }> {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(pool, "connect");
+  const connect = pool.connect;
+  const restoreQueries: Array<() => void> = [];
+  const decorate = (candidate: unknown): void => {
+    if (!isPoolClient(candidate)) return;
+    const fault = makeFault();
+    restoreQueries.push(installCommitResponseFault(candidate, fault.commit, fault.observe));
   };
   const installed = Reflect.set(pool, "connect", (...args: ReadonlyArray<unknown>): unknown => {
     const callback = args[0];
@@ -87,7 +120,7 @@ export async function installOneCommitResponseFault(fixture: MixedFixture,
   });
   if (!installed) throw new Error("Could not install PostgreSQL connection fault");
   return Object.freeze({
-    fired: () => didFire,
+    fired,
     restore: () => {
       for (const restore of restoreQueries.toReversed()) restore();
       if (originalDescriptor === undefined) Reflect.deleteProperty(pool, "connect");

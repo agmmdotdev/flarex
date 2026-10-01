@@ -24,6 +24,7 @@ import type { FlarexMetadataDatabase } from "../deployments";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
 import { sameBindingValue } from "../frameworkSchema/binding/canonical";
 import { requireLogicalApplicationSourceAdmission, prepareLogicalApplicationSourceAdmission } from "../logicalDocuments/applicationAdmission";
+import { prepareLogicalStorageReadiness } from "../logicalStorageReadiness";
 import { requireLogicalDocumentSourceAdmission, prepareLogicalDocumentSourceAdmission } from "../logicalDocuments/documentAdmission";
 import { requireLogicalRelationalAdmission, prepareLogicalRelationalAdmission } from "../logicalDocuments/relationalAdmission";
 import { capturePrivateJsonData } from "../privateJsonData";
@@ -127,12 +128,15 @@ const composeLogicalCurrencyAnnouncementHost = Effect.fn("CurrencyAnnouncement.c
       { deploymentId, scopeId }, exactAuthority);
     const coordinates = { deploymentId, scopeId: locatedAtPreparation.authority.scopeId,
       schemaVersionId: selection.schemaVersionId };
+    const catalog = yield* prepareLogicalStorageReadiness(selection.ports, selection.unique, coordinates);
+    if (catalog.status !== "prepared") return yield* Effect.fail(compositeError("invalidAuthority"));
+    const construction = { kind: "prepared" as const, catalog };
     const preparedApplication = yield* prepareLogicalApplicationSourceAdmission(selection.ports,
-      selection.unique, coordinates, applicationSource);
+      selection.unique, coordinates, applicationSource, construction);
     const preparedPayload = yield* prepareLogicalDocumentSourceAdmission(selection.ports,
-      selection.unique, coordinates, payloadSource);
+      selection.unique, coordinates, payloadSource, construction);
     const preparedCurrency = yield* prepareLogicalRelationalAdmission(selection.ports,
-      selection.unique, coordinates, selection.source);
+      selection.unique, coordinates, selection.source, construction);
     const owner = Object.freeze({ hostId: Symbol("currency.announcement") });
     yield* chargeHostPreparation({ deploymentId, applicationTable, identityDigest,
       expectedContent, contractSha256: contract.sha256Hex });

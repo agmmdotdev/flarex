@@ -793,7 +793,7 @@ export interface StoredAttemptFinishingEvidenceLoaderPortV1
 
 export interface StoredAttemptAuthenticationV1 {
   readonly deriveAuthority: (
-    attempt: LoadedPointMutationSessionAttemptV1,
+    attempt: LoadedPointMutationSessionAttemptV1 | ActivatedPointMutationSessionV1,
     executionClaim: PointMutationExecutionScopeV1,
   ) => Effect.Effect<
     TrustedStoredAttemptAuthorityV1,
@@ -1186,6 +1186,9 @@ export type PointMutationInitialExecutionV1Error =
 
 export interface PointMutationInitialExecutionV1
   extends StoredPointMutationOccRerunExecutionV1 {
+  readonly runAuthenticatedFiniteInitialEntry: <A, E, R>(activated: ActivatedPointMutationSessionV1,
+    work: (entry: import("./storedAttemptAuthentication/exactPointMutationExecutionOperations").AuthenticatedFiniteInitialEntry) => Effect.Effect<A, E, R>) =>
+    Effect.Effect<A, E | PointMutationInitialExecutionV1Error, R>;
   readonly executeInitialPointMutationAttempt: (
     activated: ActivatedPointMutationSessionV1,
   ) => Effect.Effect<
@@ -1929,6 +1932,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
 
   const {
     executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
+    prepareFiniteInitialEntry,
   } = makeExactPointMutationExecutionOperationsV1({
     functionMetadata: commitAuthority.functionMetadata,
     contextFactory: pointMutationOccContextFactoryPort,
@@ -1979,6 +1983,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
           commitAuthority.applicationMutationGrantVerifier,
         ),
       executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
+      prepareFiniteInitialEntry,
       publicationResultFromCommittedOutcome,
     }),
   } satisfies PointMutationInitialExecutionV1);

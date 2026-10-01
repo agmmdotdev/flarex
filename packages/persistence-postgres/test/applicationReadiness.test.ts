@@ -1,6 +1,6 @@
 import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
 import { webcrypto } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 
 import {
   decodeApplicationTaskRunCreationRequestV1,
@@ -96,7 +96,7 @@ import {
   decodeCatalogEdgeDefinitionId,
   decodeCatalogTableId,
 } from "flarex-protocol/catalog";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 
 import {
@@ -127,6 +127,9 @@ import {
 import {
   isRetryableApplicationMutationAdmissionCause,
   selectApplicationMutationAdmission,
+  prepareFiniteApplicationMutationAdmission,
+  readPreparedFiniteApplicationMutationInputs,
+  validatePreparedFiniteApplicationMutationAdmissionInTransaction,
 } from "../src/applicationMutationAdmission";
 import { selectApplicationActionAdmission } from
   "../src/applicationActionAdmission";
@@ -244,6 +247,7 @@ import { fxSystemApplicationActiveHeads, fxSystemApplicationActivations } from
 import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { makePreparedHostRuntime, retainPreparedHost } from "../src/preparedHostRuntime";
 import type { SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import {
@@ -253,6 +257,7 @@ import {
 import {
   fxSystemIndexBuildStates,
   fxSystemApplicationFunctionsV1,
+  fxSystemApplicationPublicationsV1,
   fxSystemApplicationReadinessFunctionsV1,
   fxSystemApplicationReadinessV1,
   fxSystemApplicationActionInvocationsV1,
@@ -2374,6 +2379,136 @@ describe("Application activation", { timeout: 30_000 }, () => {
     ));
     await expect(runEffect(graphLoader.loadEffect(executionAuthority))).resolves
       .toMatchObject({ kind: "corrupt", reason: "applicationGraphInvalid" });
+  });
+
+  it("prepares private finite mutation inputs with detached getters and fresh unprotected acceptance", async () => {
+    const fixture = await readinessFixture({ functionKind: "mutation" });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
+    await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
+    const context = Object.freeze({ deploymentId: fixture.input.deploymentId,
+      controlDb: fixture.control.drizzle, schema: fixture.schema, authority: fixture.authorityPorts });
+    let targetOpen = false;
+    let targetCaptures = 0;
+    const originalTransaction = fixture.target.drizzle.transaction.bind(fixture.target.drizzle);
+    const transaction = vi.spyOn(fixture.target.drizzle, "transaction").mockImplementation(async (work, config) => {
+      targetCaptures++;
+      return originalTransaction(async tx => {
+        targetOpen = true;
+        try { return await work(tx); } finally { targetOpen = false; }
+      }, config);
+    });
+    const originalHash = crypto.subtle.digest.bind(crypto.subtle);
+    const hashBoundaries: boolean[] = [];
+    const digest = vi.spyOn(crypto.subtle, "digest").mockImplementation((algorithm, data) => {
+      hashBoundaries.push(targetOpen);
+      return originalHash(algorithm, data);
+    });
+    const prepared = await (async () => {
+      try { return await runEffect(prepareFiniteApplicationMutationAdmission(activation, "users:get", context)); }
+      finally { digest.mockRestore(); transaction.mockRestore(); }
+    })();
+    expect(targetCaptures).toBe(1);
+    expect(hashBoundaries.length).toBeGreaterThan(0);
+    expect(hashBoundaries.every(open => !open)).toBe(true);
+    const first = Result.getOrThrow(readPreparedFiniteApplicationMutationInputs(prepared, context));
+    const originalDigest = encodeBytesToLowercaseHex(first.basis.manifestSha256);
+    first.basis.manifestSha256.fill(0);
+    Reflect.set(first.basis.manifest.functions[0]!, "path", "tampered:path");
+    first.executionAuthority.canonicalBytes.fill(0);
+    const second = Result.getOrThrow(readPreparedFiniteApplicationMutationInputs(prepared, context));
+    expect(encodeBytesToLowercaseHex(second.basis.manifestSha256)).toBe(originalDigest);
+    expect(second.basis.manifest.functions[0]?.path).toBe("users:get");
+    expect(second.executionAuthority.canonicalBytes.some(value => value !== 0)).toBe(true);
+    expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(Object.freeze({ ...prepared }), context))).toBe(true);
+    expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(prepared, Object.freeze({ ...context })))).toBe(true);
+    const closedPreparation = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const runtime = yield* makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 });
+      const host = yield* retainPreparedHost(runtime, prepareFiniteApplicationMutationAdmission(
+        activation, "users:get", context).pipe(Effect.map(preparation => Object.freeze({ preparation }))));
+      return yield* host.use(value => Effect.succeed(value.preparation));
+    })));
+    expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(closedPreparation, context))).toBe(true);
+    const accept = () => fixture.target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
+      const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.input.scopeId);
+      return yield* validatePreparedFiniteApplicationMutationAdmissionInTransaction(prepared, context, tx, clock);
+    })));
+    expect((await accept()).basis.revisionId).toBe(fixture.input.revisionId);
+    await fixture.target.drizzle.update(fxSystemApplicationFunctionsV1).set({ entryBytes: new Uint8Array([1]) })
+      .where(eq(fxSystemApplicationFunctionsV1.functionPath, "users:get"));
+    await expect(accept()).rejects.toMatchObject({ _tag: "ApplicationReadinessError", reason: "storedState" });
+  });
+
+  it("refuses aggregate function bytes and oversized cold receipts before driver payload capture", async () => {
+    const db = newTestPGlite();
+    let observing = false;
+    const driverBytes: number[] = [];
+    const observeBytes = (value: unknown): void => {
+      if (value instanceof Uint8Array) driverBytes.push(value.byteLength);
+      else if (Array.isArray(value)) value.forEach(observeBytes);
+      else if (typeof value === "object" && value !== null) Object.values(value).forEach(observeBytes);
+    };
+    const targetPersistence = await createPGlitePersistence({ db: {
+      exec: db.exec.bind(db), query: db.query.bind(db),
+      transaction: run => db.transaction(tx => run({ exec: tx.exec.bind(tx),
+        query: new Proxy(tx.query, { apply(targetQuery, _receiver, args: unknown[]) {
+          return Promise.resolve(Reflect.apply(targetQuery, tx, args)).then(result => {
+            if (observing) observeBytes(result);
+            return result;
+          });
+        } }),
+      })),
+    } });
+    const fixture = await readinessFixture({ targetPersistence, functionKind: "mutation" });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
+    await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
+    const context = Object.freeze({ deploymentId: fixture.input.deploymentId,
+      controlDb: fixture.control.drizzle, schema: fixture.schema, authority: fixture.authorityPorts });
+    const original = (await fixture.target.drizzle.select().from(fxSystemApplicationFunctionsV1))[0];
+    if (original === undefined) throw new Error("Expected stored function");
+    const inflated = new Uint8Array(65_536);
+    await fixture.target.drizzle.update(fxSystemApplicationFunctionsV1).set({ entryBytes: inflated });
+    await fixture.target.drizzle.insert(fxSystemApplicationFunctionsV1).values(Array.from({ length: 16 }, (_, index) => ({ ...original,
+      functionPath: `users:peer${index}`, exportName: `peer${index}`, entrySha256: new Uint8Array(32).fill(index + 1),
+      entryBytes: inflated })));
+    observing = true;
+    await expect(runEffect(prepareFiniteApplicationMutationAdmission(activation, "users:get", context)))
+      .rejects.toMatchObject({ reason: "storedState" });
+    expect(driverBytes.length).toBeGreaterThan(0);
+    expect(Math.max(...driverBytes)).toBeLessThan(16_384);
+    observing = false;
+    await fixture.target.drizzle.delete(fxSystemApplicationFunctionsV1).where(ne(
+      fxSystemApplicationFunctionsV1.functionPath, original.functionPath));
+    await fixture.target.drizzle.update(fxSystemApplicationFunctionsV1).set({ entryBytes: original.entryBytes });
+    // Deliberate unprotected corruption beyond the persisted check: the capture
+    // owner must still prevent the oversized value crossing the driver boundary.
+    await fixture.target.query("alter table fx_system_application_readiness_function_v1 drop constraint fx_application_readiness_function_v1_identity_check");
+    await fixture.target.drizzle.update(fxSystemApplicationReadinessFunctionsV1).set({
+      coldReceiptBytes: new Uint8Array(16_385),
+    });
+    driverBytes.length = 0;
+    observing = true;
+    await expect(runEffect(prepareFiniteApplicationMutationAdmission(activation, "users:get", context)))
+      .rejects.toMatchObject({ reason: "storedState" });
+    expect(driverBytes.length).toBeGreaterThan(0);
+    expect(Math.max(...driverBytes)).toBeLessThan(16_384);
+  });
+
+  it("refuses unchanged-digest publication body corruption before issuing finite preparation", async () => {
+    const fixture = await readinessFixture({ functionKind: "mutation" });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({ deploymentId: fixture.input.deploymentId,
+      scopeId: fixture.input.scopeId, readiness: fixture.repository, authority: fixture.authorityPorts });
+    await runEffect(activation.activate({ revisionId: fixture.input.revisionId, expectedActiveHead: null }));
+    const context = Object.freeze({ deploymentId: fixture.input.deploymentId,
+      controlDb: fixture.control.drizzle, schema: fixture.schema, authority: fixture.authorityPorts });
+    await fixture.target.drizzle.update(fxSystemApplicationPublicationsV1).set({ schemaBytes: new Uint8Array([1]) })
+      .where(eq(fxSystemApplicationPublicationsV1.revisionId, fixture.input.revisionId));
+    await expect(runEffect(prepareFiniteApplicationMutationAdmission(activation, "users:get", context)))
+      .rejects.toMatchObject({ _tag: "ApplicationReadinessError", reason: "storedState" });
   });
 
   it("selects an exact public Application mutation and rejects a stale admitted head", async () => {
