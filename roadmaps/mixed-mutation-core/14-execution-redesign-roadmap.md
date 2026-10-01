@@ -13,15 +13,31 @@ initial authentication and renewal. New attestation/maintenance and host
 contracts remain gated.
 
 The active successor is [core component performance](../core-performance/README.md).
-The latest owner direction selects a component-first loop: checked reads,
+The prior owner direction selected a component-first loop: checked reads,
 publication, initial admission and seal verification, then conditional host
 investigation. It replaces automatic full end-to-end measurement after every
 local performance iteration with real component baselines, attribution and
 focused validation; full mixed integration measurements remain milestone gates.
 The first checked-read iteration delivers immutable singleton projection reuse
 and a real component baseline with unchanged SQL; no causal latency improvement
-is established. Group 1 remains active at the ordered kernel/source-readiness
-dispatch investigation, with later groups inactive and host changes conditional.
+is established. The second checked-read iteration delivers structural kernel/search
+frontier transport composition; miss medians are higher and latency acceptance
+remains open. Group 1 remains active at the mandatory orchestration reassessment,
+with the prior later-group order provisional, groups
+inactive and host changes conditional.
+
+The latest owner direction makes
+[orchestration simplification](../core-performance/orchestration-simplification-preflight.md)
+the mandatory next architectural gate after the delivered checked-read slice,
+before publication or another minor iteration. Compare real native Product
+retrieval and connected Product/Application/Payload/workflow graphs against
+proof boundaries, lifetimes, read transactions, native batching/joins, journal
+merge and terminal choreography. High counts require actual native demand or
+demonstrated necessary correctness work; avoidable platform amplification is a
+redesign failure. Runtime decisions and small-overhead ceilings remain
+evidence-pending, with accepted authority/transaction contracts unchanged.
+Component improvements cannot close this broader gate without all-server-work,
+latency and scaling evidence.
 
 ## Outcome and current evidence
 

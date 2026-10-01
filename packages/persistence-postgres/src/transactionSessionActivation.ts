@@ -98,6 +98,7 @@ import {
   openProtectedMetadataFinalGuardScope,
 } from "./preparedMetadataEpoch";
 import type { AppRowTransaction } from "./appRows";
+import { readRunningAttemptTail, type RunningAttemptTailIssue } from "./exactRunningAttemptTail";
 import {
   createCommittedPointOutcomeResolverV1,
   type CommittedPointOutcomeResolutionV1,
@@ -986,6 +987,7 @@ export type PointMutationSessionAttemptLoadLockStepV1 =
   | "clockLocked"
   | "sessionLocked"
   | "leaseLocked"
+  | "attemptTailLocked"
   | "journalRootLocked"
   | "executionClaimLocked";
 
@@ -3255,24 +3257,18 @@ async function loadLockedRunningAttempt<Failure extends Error>(
     throw corruptionError(input.scopeId, "snapshotLeaseMissing");
   }
 
-  const journalRoot = await requireExactPointMutationSessionJournalRoot(
-    tx,
-    input.scopeId,
-    clock.scopeUuid,
-    locked.sessionId,
-    locked.attemptFence,
-    input.afterLeaseLock,
-  );
-  const claim = projectTransactionSessionActivationResult(
-    await lockExactTransactionExecutionClaimV1Result(tx, {
+  const tail = projectTransactionSessionActivationResult(
+    (await readRunningAttemptTail(tx, {
       scopeId: input.scopeId,
       scopeUuid: clock.scopeUuid,
       sessionId: locked.sessionId,
       attemptFence: locked.attemptFence,
-    }),
+    })).pipe(Result.mapError(issue => runningAttemptTailError(input.scopeId, issue))),
   );
-  await input.afterLeaseLock?.("executionClaimLocked");
-  const databaseNow = await readDatabaseNow(tx, input.scopeId);
+  await input.afterLeaseLock?.("attemptTailLocked");
+  const journalRoot = tail.journalRoot;
+  const claim = tail.executionClaim;
+  const databaseNow = databaseNowFromEpochMilliseconds(input.scopeId, tail.databaseNowEpochMilliseconds);
   const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
     session.authorizationGrantExpiresAt,
   );
@@ -3323,6 +3319,18 @@ async function loadLockedRunningAttempt<Failure extends Error>(
     hardExpiresAtMilliseconds,
     databaseNow,
   };
+}
+
+function runningAttemptTailError(scopeId: ScopeId, issue: RunningAttemptTailIssue):
+  PointMutationSessionAuthorityCorruptionV1Error | TransactionExecutionClaimCorruptionV1Error {
+  switch (issue.reason) {
+    case "journalRootMissing": return corruptionError(scopeId, "activeJournalRootMissing");
+    case "journalRootInvalid": return corruptionError(scopeId, "journalRootInvalid", issue.cause);
+    case "executionClaimMissingOrDuplicate": return new TransactionExecutionClaimCorruptionV1Error({
+      scopeId, reason: "claimMissingOrDuplicate",
+    });
+    case "databaseClockInvalid": return corruptionError(scopeId, "databaseClockInvalid");
+  }
 }
 
 const decodeCheckedSchemaVersionIdResult = Schema.decodeUnknownResult(CatalogSchemaVersionIdSchema);
@@ -4258,7 +4266,10 @@ async function readDatabaseNow(
     .from(fxSystemScopeClocks)
     .where(eq(fxSystemScopeClocks.scopeId, scopeId))
     .limit(1);
-  const epochMillisecondsText = rows[0]?.databaseNowEpochMilliseconds;
+  return databaseNowFromEpochMilliseconds(scopeId, rows[0]?.databaseNowEpochMilliseconds);
+}
+
+function databaseNowFromEpochMilliseconds(scopeId: ScopeId, epochMillisecondsText: unknown): Date {
   if (typeof epochMillisecondsText !== "string") {
     throw corruptionError(scopeId, "databaseClockInvalid");
   }

@@ -1,0 +1,128 @@
+{
+  "format": "checked-read-dispatch-composition-artifact-manifest",
+  "disposition": "Structural gates pass; no latency improvement/whole acceptance; final runtime restoration verified. Initial overfetch candidate and every raw observation preserved.",
+  "measuredOwnerCount": 40,
+  "finalPairedSourceDifferenceCount": 3,
+  "initialToFinalSourceDifferenceCount": 1,
+  "frozenHarnessUnchanged": true,
+  "currentSourcesMatchFinalReport": true,
+  "firstIterationArtifacts": [
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/checked-reads/baseline-dispatch-owner-map.json",
+      "bytes": 28975,
+      "sha256": "4b00f8e47825dbb945e9948f5453adbcb53515ac40845bff0f65b588671466fd",
+      "sameAsBaselineCommit": true
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/checked-reads/paired-observations.json",
+      "bytes": 2065,
+      "sha256": "6b55b4dba0990d13b5e6e0492c75408234952a114f31f16c469ab9f4968f8bbe",
+      "sameAsBaselineCommit": true
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/checked-reads/pglite-baseline.json",
+      "bytes": 13259,
+      "sha256": "70ea594b080b8de7fc708a3030bd94ac44ae141c5c06056537f7afe0ab8707b1",
+      "sameAsBaselineCommit": true
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/checked-reads/pglite-candidate.json",
+      "bytes": 15564,
+      "sha256": "a8b2f6851f453044af6a2d4db856ad8f996d194f6ad3472c925c4d18e1085379",
+      "sameAsBaselineCommit": true
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/checked-reads/postgres-baseline.json.gz",
+      "bytes": 74139,
+      "sha256": "b4317c2295e1db50947cd1f5238b6cfcc1dd1e88f499722bd80e0553b3500657",
+      "sameAsBaselineCommit": true
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/checked-reads/postgres-candidate.json.gz",
+      "bytes": 75046,
+      "sha256": "39c12eeea4b7865107906f1db8ebc6c1d15847dc47517b3c6ba1cbe12071bd64",
+      "sameAsBaselineCommit": true
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/checked-reads/postgres-matched-baseline.json.gz",
+      "bytes": 75274,
+      "sha256": "e7b4a5a173443ac3106c800079ebcf98689be1309b2f039b6ac30652505014c0",
+      "sameAsBaselineCommit": true
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/checked-reads/README.md",
+      "bytes": 10705,
+      "sha256": "5b86265af7463f1b71d42550ffd9d7bc440cf093fa8dce765cd5855a047212aa",
+      "sameAsBaselineCommit": true
+    }
+  ],
+  "files": [
+    {
+      "path": "client-interval-observations.json",
+      "bytes": 163213,
+      "sha256": "7a83b4d34666b9f8b9dbaa9861bde37813a522402c2510a7348d1599e4c824be"
+    },
+    {
+      "path": "initial-candidate-preservation.json",
+      "bytes": 1047,
+      "sha256": "895fafa114b61e1f782d3554e843ac255374d0b4d44eea6c92fe337d3f2c8f84"
+    },
+    {
+      "path": "initial-paired-observations.json",
+      "bytes": 249246,
+      "sha256": "8e09644ccf7c214d8d4079d5c4e683ccda341371b4082679a85fe07d4c518523"
+    },
+    {
+      "path": "paired-observations.json",
+      "bytes": 246447,
+      "sha256": "2d35a17a9d7deb2185cccff347acf79cb8c9797f7704b34e26c988a04c764005"
+    },
+    {
+      "path": "pglite-candidate.json",
+      "bytes": 17641,
+      "sha256": "053afa28a68d84388bff42a37133728b3826f115d272571bab40c339b9f51302"
+    },
+    {
+      "path": "pglite-initial-candidate.json",
+      "bytes": 17631,
+      "sha256": "997758db557f569e6fd76c4de41e084534f1fbcfcc0973449b4250515b8892e0"
+    },
+    {
+      "path": "postgres-baseline.json",
+      "bytes": 1002385,
+      "sha256": "15a5c4ac4776a34a5663e68b248188b4682abca086731c80aa7dfae0b30be973"
+    },
+    {
+      "path": "postgres-baseline.json.gz",
+      "bytes": 78488,
+      "sha256": "764e48bf4c0665637bfbed6542842628fe90bf9599cee75c15d619174ceff505"
+    },
+    {
+      "path": "postgres-candidate.json",
+      "bytes": 983520,
+      "sha256": "8a83e5b5d95386a0ad4ae4b75ffea4d7ae681eaca7810133f3d252e6a7d4627f"
+    },
+    {
+      "path": "postgres-candidate.json.gz",
+      "bytes": 77743,
+      "sha256": "825de63bbe6d08283e30d6be8f904f0d79fa7feeeb70d9f60c4feac95079f1b2"
+    },
+    {
+      "path": "postgres-initial-candidate.json",
+      "bytes": 986793,
+      "sha256": "fa7c4d6c72fc1d8b7808e174b4cc5999f08d27e4000f1e09e33acf563624f776"
+    },
+    {
+      "path": "postgres-initial-candidate.json.gz",
+      "bytes": 78328,
+      "sha256": "afcbdb8da5e3a7d5e0bd6d5a32d6aa8314d765280de51073745ffeba2d768bfc"
+    }
+  ],
+  "verification": {
+    "allRawReportHashesMatch": true,
+    "gzipRoundTripsExact": true,
+    "initialCandidateAliasesExact": true,
+    "baselineUnchangedFromInitialPair": true,
+    "firstIterationFilesByteIdenticalTo7d5cf2d27": true
+  }
+}

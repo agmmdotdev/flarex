@@ -2,12 +2,25 @@
 
 ## Status And Scope
 
-Status: **active; the first checked-read iteration is delivered; group 1 remains
-active.** The owner authorized this component-first performance program after the delivered mixed
-entry stage. Its sequence is checked reads, publication, initial request
-admission, seal verification, then conditional host investigation. Groups 2–4
-are prepared but inactive; their documents do not select or approve a runtime
-remedy. Host changes remain conditional and unapproved.
+Status: **active; the first checked-read iteration and the second structural
+transport composition iteration are delivered. Latency acceptance remains open;
+group 1 remains active.** The owner authorized this component-first performance program after the delivered mixed
+entry stage. The prior prepared order was checked reads, publication, initial
+request admission, seal verification, then conditional host investigation.
+That later order is provisional and subject to the mandatory reassessment below.
+Groups 2–4 remain prepared and inactive; their documents do not select or approve
+a runtime remedy. Host changes remain conditional and unapproved.
+
+The latest owner direction requires the
+[orchestration simplification reassessment](./orchestration-simplification-preflight.md)
+immediately after the delivered checked-read slice, before publication or another
+minor performance iteration. The research/design gate is mandatory; runtime
+choices, timing amendments and numeric overhead ceilings remain evidence-pending.
+High counts require actual native/business demand or demonstrated necessary
+correctness work. Avoidable platform amplification is a redesign failure.
+Native demand, all server work, latency and scaling must determine the next
+coherent owner graph; a small dispatch reduction cannot close that gate.
+Accepted authority and transaction contracts still govern.
 
 This roadmap owns bounded performance iterations in existing trusted core
 owners. It does not own developer APIs, framework capability expansion, hosted
@@ -39,7 +52,7 @@ work runs without an open SQL transaction; actual storage frontiers retain
 fresh checked authority, required source readiness and protected tails. Seal,
 fresh finishing and publication remain distinct owners.
 
-The complete mixed warm trace has the following phase dispatch ledger:
+The retained aggregate-entry mixed warm trace has the following phase dispatch ledger:
 
 | Phase | SQL dispatches | Meaning |
 | --- | ---: | --- |
@@ -119,13 +132,18 @@ this performance program introduces no new developer behavior or divergence.
 
 ## Group Order And Gates
 
+The numbered groups preserve the prior prepared order. The mandatory next gate
+after the delivered checked-read slice determines whether and how later groups
+proceed; those groups remain inactive and provisional.
+
 | Group | Status | Focused preflight |
 | --- | --- | --- |
-| 1. Checked reads | Active; first real baseline and immutable singleton projection cut delivered; fresh SQL composition and latency work remain | [01](./01-checked-reads-preflight.md) |
-| 2. Publication | Prepared, inactive | [02](./02-publication-preflight.md) |
-| 3. Initial request admission | Prepared, inactive | [03](./03-request-admission-preflight.md) |
-| 4. Seal verification | Prepared, inactive | [04](./04-seal-verification-preflight.md) |
-| 5. Host lifecycle | Conditional; runtime unapproved | [05](./05-host-lifecycle-preflight.md) |
+| 1. Checked reads | Active; immutable singleton projection and structural kernel/search frontier composition delivered; latency acceptance and orchestration work remain | [01](./01-checked-reads-preflight.md) |
+| Mandatory next: orchestration reassessment | Required after the delivered slice, before publication or another minor iteration; runtime decisions evidence-pending | [Orchestration](./orchestration-simplification-preflight.md) |
+| 2. Publication | Prepared, inactive; provisional after reassessment | [02](./02-publication-preflight.md) |
+| 3. Initial request admission | Prepared, inactive; provisional after reassessment | [03](./03-request-admission-preflight.md) |
+| 4. Seal verification | Prepared, inactive; provisional after reassessment | [04](./04-seal-verification-preflight.md) |
+| 5. Host lifecycle | Provisional and conditional; runtime unapproved | [05](./05-host-lifecycle-preflight.md) |
 
 The active preflight itself owns its finite iteration plan; do not create a
 duplicate status log. Groups become active serially after the root records their
@@ -149,9 +167,21 @@ transactions are unchanged. Lower observed timings also occur in the pending
 control, which does no database or selection compilation work, so a latency
 improvement attributable to this change is not established.
 
-Next investigate the actual six ordered attempt-kernel queries and ten source/
-readiness dispatches through their existing owners. Preserve fresh refusal,
-lock order and full tail proof; no fixed SQL function or new authority is
-selected. Preserve the current integrated baseline and require a declared
+The delivered [second checked-read iteration](./checked-reads/02-dispatch-composition-preflight.md)
+composes the ordered root/claim/time tail through one private invoker function
+and expands the first already-needed ordered frontier batch with selected search
+requirements. Unique readiness retains its original lazy needed-table cut and
+borrows only complete observations. Clock/session/lease refusals, lock order, native
+decoding and full tail proof remain mandatory. The actual checked-read kernel
+uses four dispatches and its measured source readiness uses nine. Real Product
+ID/other selections use 18/17 dispatches with one transaction; pending reads
+remain zero. The final forwarded frontier membership matches the baseline's
+eight-table union. Complete initial admission uses 96 dispatches and four
+transactions in this component fixture. These observations do not revise the
+retained full mixed benchmark or establish less server work. Small paired miss
+medians are higher; latency improvement is not established. Structural transport
+composition is delivered; the mandatory next gate is orchestration
+simplification reassessment.
+Preserve the current integrated baseline and require a declared
 integration milestone before advancing a claimed whole-request improvement.
 Hosted capacity, throughput and host cost causation remain unproven.

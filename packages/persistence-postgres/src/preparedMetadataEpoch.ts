@@ -5,6 +5,7 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { fxSystemPreparedMetadataEpoch } from "./schema";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
+import { runningAttemptTailProtectionSql } from "./exactRunningAttemptTail";
 
 /** Immutable target projection and complete sidecar membership. Control,
  * coverage, live heads and physical catalogs keep their owned fresh proofs. */
@@ -48,6 +49,8 @@ const coveredNames = sql`ARRAY[${sql.join(coveredTables.map(name => sql`${name}`
 // restricted current_user reached through SET ROLE is insufficient. The
 // installation owner and privileged repair actor are outside the cache lane.
 const protectionSql = sql<boolean>`(
+  ${runningAttemptTailProtectionSql}
+  and
   current_user = session_user
   and pg_catalog.current_setting('session_replication_role') = 'origin'
   and exists (

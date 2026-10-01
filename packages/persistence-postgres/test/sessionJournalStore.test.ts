@@ -3602,7 +3602,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const current = await scenario("seal_transaction_retry", {
       targetOptions: {
         afterLoadLock: (step) => {
-          if (failCompletion && step === "journalRootLocked") {
+          if (failCompletion && step === "attemptTailLocked") {
             failCompletion = false;
             throw transactionFailure;
           }
@@ -3742,7 +3742,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const current = await scenario("seal_effect_interruption_settlement", {
       targetOptions: {
         afterLoadLock: async (step) => {
-          if (step !== "journalRootLocked" || !pauseCompletion) return;
+          if (step !== "attemptTailLocked" || !pauseCompletion) return;
           pauseCompletion = false;
           entered.resolve();
           await release.promise;
@@ -3981,7 +3981,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const current = await scenario("effect_interruption_settlement", {
       targetOptions: {
         afterLoadLock: async (step) => {
-          if (step !== "journalRootLocked" || !pauseJournalRootLock) return;
+          if (step !== "attemptTailLocked" || !pauseJournalRootLock) return;
           pauseJournalRootLock = false;
           entered.resolve();
           await release.promise;

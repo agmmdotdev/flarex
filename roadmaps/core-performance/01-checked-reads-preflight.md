@@ -1,10 +1,12 @@
 # Checked Reads: Component Preflight
 
-Status: **group 1 active; first iteration delivered.** The real component baseline
-and immutable preparation cut are delivered; checked-read SQL and latency work
+Status: **group 1 active; first iteration and second structural transport
+composition iteration delivered; latency acceptance remains open.** The real component baseline
+and immutable preparation cut are delivered; checked-read latency and orchestration work
 remain. The implementation retains one lazily compiled singleton-read source
 projection in its existing source preparation. It changes immutable mechanics
-only; the exact-running kernel and fresh read contract remain
+only. The second iteration composes the kernel and selected search frontier
+dispatches under its own focused preflight. The fresh read contract remains
 unchanged. Component measurements must establish the actual effect rather than
 promise a speedup from phase totals.
 
@@ -107,12 +109,12 @@ attribution, not tail latency or production capacity. Capture actual fresh
 checks, operations, bounds and dispatches; claim neither pure server CPU nor
 decode time from driver duration.
 
-The existing six-query exact-running kernel retains ordered locks and first
+The first iteration's six-query exact-running kernel retains ordered locks and first
 refusals. Logical reads use the exact kernel's `"attempt"` clock lock mode with
 `NO KEY UPDATE`; Application read syscalls retain their `SHARE` mode. The
 selected immutable source projection change removes no SQL or fresh check.
 
-### Current Component Evidence And Limits
+### First Iteration Component Evidence And Limits
 
 The [component artifact guide](../../packages/flarex-backend/benchmarks/core-performance/checked-reads/README.md)
 owns the observation settings, source provenance and preserved evidence.
@@ -226,17 +228,30 @@ baseline. It does not reduce checked-read SQL or establish a causal latency
 improvement. Compare future work against the real operation baseline above,
 not reconstructed mixed phase totals.
 
-### Next Focused Iteration
+### Delivered Second Iteration
 
-Investigate dispatch composition in the existing six ordered attempt-kernel
-queries and ten source/readiness queries before selecting a runtime change.
-Inventory each query's owner, actual rows and fresh proof, lock/refusal order,
-post-lock time and protected tail. Determine which composition, if any, can
-reduce client dispatches while retaining those obligations and bounded payloads.
-No fixed new SQL function, cached verdict, new authority or weaker guard is
-selected by this direction. Record the concrete owner contract and focused
-correctness/measurement gates before implementation. Group 1 remains active;
+The [second checked-read preflight](./checked-reads/02-dispatch-composition-preflight.md)
+selects two connected cuts: sequential root/claim/time composition in a private
+invoker function, while retaining separate clock/session/lease refusal
+boundaries, and selected search requirements added at the first already-needed
+ordered index batch. Unique readiness keeps its original lazy needed-table
+observation and borrows only a complete map. Its measured kernel/source dispatch counts are
+six to four and ten to nine, preserving one actual read transaction and every
+fresh proof. First ID demand is 18 dispatches and other checked demands 17;
+pending-local demands remain zero. Complete initial authentication and renewal
+are separately observed at 96 dispatches/four transactions. Its additive private
+function retains native decoders and the existing shared load/replay/exact owner.
+The measured final frontier set equals the two baseline calls' eight-table union;
+initial overfetch and its outliers remain preserved in the
+[second iteration evidence](../../packages/flarex-backend/benchmarks/core-performance/checked-reads/dispatch-composition/README.md).
+Miss medians are higher in the small paired comparison, so no latency improvement
+or whole-request acceptance is established. Delivery is structural transport only.
+The mandatory next design gate is
+[orchestration simplification](./orchestration-simplification-preflight.md),
+before another minor iteration or publication. Group 1 remains active;
 publication, admission and seal groups remain inactive and host changes conditional.
+This post-current decision supersedes automatic continuation through the prior
+prepared group order; the reassessment's runtime choices remain evidence-pending.
 
 ## Compatibility, Migration And Cleanup
 
@@ -245,8 +260,9 @@ it; migrate every real consumer and remove duplicate helpers, exports, fixtures
 and stale claims in the same iteration. Retain ordinary Application, standalone,
 OCC rerun and durable recovery readers for their real profile obligations. Do
 not retain a wrapper or alternate read engine for a hypothetical caller. No
-schema, codec, durable format or deletion is currently selected; a material
-change requires explicit disposition before cutover.
+schema, codec, durable format or deletion was required for the first iteration.
+The selected second iteration adds a private function migration with no durable
+data deletion; its focused preflight owns installation and cutover disposition.
 
 ## Validation And Completion
 

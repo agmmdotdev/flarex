@@ -28,9 +28,17 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
   const tracer = Tracer.make({ span(options) { spans.push(options.name); return new Tracer.NativeSpan(options); } });
   let retainedSelections = 0;
   let rejectSelection = false;
+  const chargedFrontierRequirements: Array<readonly number[]> = [];
   const actualCapture = preparation.captureHostPreparationCharge;
+  const actualCharge = preparation.chargeHostPreparation;
   yield* Effect.acquireUseRelease(
-    Effect.sync(() => vi.spyOn(preparation, "captureHostPreparationCharge").mockImplementation(() => actualCapture().pipe(
+    Effect.sync(() => ({
+      charge: vi.spyOn(preparation, "chargeHostPreparation").mockImplementation(value => {
+        if (Array.isArray(value) && value.every(member => typeof member === "number"))
+          chargedFrontierRequirements.push([...value]);
+        return actualCharge(value);
+      }),
+      capture: vi.spyOn(preparation, "captureHostPreparationCharge").mockImplementation(() => actualCapture().pipe(
       Effect.map(charge => charge === undefined ? undefined : value => {
         const singleton = typeof value === "object" && value !== null &&
           Object.keys(value).toSorted().join(",") === "reference,sourceKeys,tableIds";
@@ -38,12 +46,18 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
         // Invoke the actual allocation's invalid-payload refusal. Its sticky
         // rejection and closed-lease behavior remain owned by the real lease.
         return charge(singleton && rejectSelection ? () => undefined : value);
-      })))),
+      }))),
+    })),
     () => Effect.scoped(Effect.gen(function* () {
       const runtime = yield* preparation.makePreparedHostRuntime({ maximumHosts: 1, maximumPreparedBytes: 16_777_216 });
       const construct = () => preparation.retainPreparedHost(runtime, Effect.gen(function* () {
+        const priorCharges = chargedFrontierRequirements.length;
         const catalog = yield* prepareLogicalStorageReadiness(ports, fixture.uniqueConstraintEligibility, input);
         if (catalog.status !== "prepared") return yield* Effect.die("Missing real prepared catalog");
+        const expectedRequirements = [...new Set(
+          catalog.requirements.search.map(requirement => requirement.tableId),
+        )].toSorted((left, right) => left - right);
+        expect(chargedFrontierRequirements.slice(priorCharges)).toEqual([expectedRequirements]);
         return yield* prepareLogicalSourceEvidence(ports, fixture.uniqueConstraintEligibility, input,
           { sourceKey: source.sourceKey, writeProfile: source.writeProfile,
             definition: { kind: "relational", schema: source.schema }, evidence: source.evidence },
@@ -71,6 +85,11 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       expect(count("LogicalStorageReadiness.selectSources")).toBe(firstCompilations);
       expect(count("LogicalStorageReadiness.inspectSelected")).toBe(4);
       expect(entered).toBe(4);
+      // Fully covered ordered builds must not add an early batch. Later owners
+      // still perform their genuine on-demand frontier reads in this catalog.
+      expect(count("LogicalStorageReadiness.inspectIndexes")).toBe(4);
+      expect(count("IndexBuildState.readCoverageTableFrontiers")).toBe(0);
+      expect(count("AppRows.readTableWriteFrontiers")).toBe(4);
       yield* read(true);
       yield* read(true);
       expect(count("LogicalStorageReadiness.selectSources")).toBe(firstCompilations + 2);
@@ -126,6 +145,6 @@ export const logicalSourceReadSelectionScenario = Effect.fn("LogicalSourceReadSe
       expect(retainedSelections).toBe(3);
       yield* freshLease.close;
     })).pipe(Effect.provideService(Tracer.Tracer, tracer)),
-    spy => Effect.sync(() => spy.mockRestore()),
+    spies => Effect.sync(() => { spies.capture.mockRestore(); spies.charge.mockRestore(); }),
   );
 });

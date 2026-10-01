@@ -3,10 +3,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect, Exit, Schema, Tracer } from "effect";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import type { JsonObject } from "flarex-protocol/json";
 import { decodePointMutationExactRuntimeResultV1Effect } from "flarex-protocol/point-mutation-exact-runtime";
 import type { CommerceTransactionError } from "../../persistence-postgres/src/commerceTransaction/model";
+import * as appRows from "../../persistence-postgres/src/appRows";
 import { createMixedMutationPerformanceTrace, type MixedMutationPerformanceTrace,
   type TraceInvocationRecord } from "../../persistence-postgres/test/mixedMutationPerformanceTrace";
 import { createMixedMutationProductFixture, type MixedMutationProductFixtureHooks } from "./support/mixedMutationProductFixture";
@@ -15,10 +16,14 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const sourcePaths = [
   "packages/persistence-postgres/src/transactionSessionActivation.ts",
   "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+  "packages/persistence-postgres/src/exactRunningAttemptTail.ts",
+  "packages/persistence-postgres/drizzle/0121_exact_running_attempt_tail.sql",
+  "packages/persistence-postgres/drizzle/meta/_journal.json",
   "packages/persistence-postgres/src/sessionJournalStore.ts",
   "packages/persistence-postgres/src/locatedReadCommittedEffect.ts",
   "packages/persistence-postgres/src/postgresLocatedReadCommitted.ts",
   "packages/persistence-postgres/src/postgres.ts",
+  "packages/persistence-postgres/src/pglite.ts",
   "packages/persistence-postgres/src/scopeClock.ts",
   "packages/persistence-postgres/src/transactionExecutionClaimPersistence.ts",
   "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
@@ -63,6 +68,8 @@ interface ReadSample {
   readonly returnedJsonBytes: number;
   readonly trace: TraceInvocationRecord | null;
   readonly effectSpans: readonly Readonly<{ name: string; count: number; inclusiveMs: number }>[] | null;
+  /** Forwarded owner calls, not observed SQL parameter or server work. */
+  readonly issuedFrontierTableIds: readonly (readonly number[])[] | null;
 }
 
 const sourceHashes = async () => Object.fromEntries(await Promise.all(sourcePaths.map(async path =>
@@ -73,6 +80,8 @@ const sourceHashes = async () => Object.fromEntries(await Promise.all(sourcePath
 export async function runCheckedReadPerformanceScenario(driver: "pglite" | "postgres") {
   const stage = Schema.decodeUnknownSync(Schema.Literals(["baseline", "matched-baseline", "candidate"]))(
     process.env.FLAREX_CHECKED_READ_PERF_STAGE ?? "baseline");
+  const iteration = Schema.decodeUnknownSync(Schema.Literals(["immutable-preparation", "dispatch-composition"]))(
+    process.env.FLAREX_CHECKED_READ_PERF_ITERATION ?? "immutable-preparation");
   const hashesBefore = await sourceHashes();
   const lanes = [];
   for (const observation of ["untraced", "traced"] as const) {
@@ -82,6 +91,13 @@ export async function runCheckedReadPerformanceScenario(driver: "pglite" | "post
     let fixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>> | undefined;
     let admissionStartedAt = 0;
     const setupStartedAt = performance.now();
+    let currentFrontierCalls: number[][] | undefined;
+    const actualReadFrontiers = appRows.readAppTableWriteFrontiersInTransactionEffect;
+    const frontierObserver = iteration === "dispatch-composition" && observation === "traced" && driver === "postgres"
+      ? vi.spyOn(appRows, "readAppTableWriteFrontiersInTransactionEffect").mockImplementation((...args) => {
+        currentFrontierCalls?.push([...args[2]]);
+        return actualReadFrontiers(...args);
+      }) : undefined;
     const measure = Effect.fn(function* (readCase: ReadCase, index: number,
       read: Effect.Effect<readonly JsonObject[], CommerceTransactionError>) {
       const id = `${readCase}/${index}`;
@@ -94,6 +110,8 @@ export async function runCheckedReadPerformanceScenario(driver: "pglite" | "post
         return span;
       } });
       const observedRead = readTrace === undefined ? read : Effect.withTracer(read, spanObserver);
+      const issuedFrontierTableIds: number[][] | null = frontierObserver === undefined ? null : [];
+      currentFrontierCalls = issuedFrontierTableIds ?? undefined;
       const startedAt = performance.now();
       // Forward interruption into the real read fiber and preserve its entire
       // Cause across the trace's Promise boundary.
@@ -101,6 +119,7 @@ export async function runCheckedReadPerformanceScenario(driver: "pglite" | "post
         readTrace.withInvocation({ id, mode: "recon" }, () =>
           readTrace.withPhase(readCase, () => Effect.runPromiseExit(observedRead, { signal }))));
       const wallMs = performance.now() - startedAt;
+      currentFrontierCalls = undefined;
       if (Exit.isFailure(exit)) return yield* Effect.failCause(exit.cause);
       const rows = exit.value;
       expect(rows).toHaveLength(readCase.endsWith("miss") ? 0 : 1);
@@ -112,6 +131,16 @@ export async function runCheckedReadPerformanceScenario(driver: "pglite" | "post
         expect(record.transactions.every(tx => tx.outcome === "commit")).toBe(true);
         if (readCase === "pending-product-id-hit") expect(record.dispatches).toHaveLength(0);
         else expect(record.transactions).toHaveLength(1);
+        if (iteration === "dispatch-composition") {
+          const pending = readCase === "pending-product-id-hit";
+          const expected = pending ? 0 : (readCase === "product-id-hit" ? 21 : 20) - (stage === "candidate" ? 3 : 0);
+          expect(record.dispatches).toHaveLength(expected);
+          // Match the actual FROM call; installation attestation also names the function.
+          expect(record.dispatches.filter(dispatch => dispatch.template !== null &&
+            /\bfrom fx_lock_running_attempt_tail \( \$\? , \$\? , \$\? , \$\? \) as attempt_tail\b/.test(dispatch.template)))
+            .toHaveLength(pending || stage !== "candidate" ? 0 : 1);
+          expect(issuedFrontierTableIds).toHaveLength(pending ? 0 : stage === "candidate" ? 1 : 2);
+        }
       }
       const spanGroups = new Map<string, { name: string; count: number; inclusiveMs: number }>();
       for (const span of spans) {
@@ -123,7 +152,7 @@ export async function runCheckedReadPerformanceScenario(driver: "pglite" | "post
       }
       samples.push({ case: readCase, index, demand: index === 0 ? "first" : "successive",
         wallMs, returnedRows: rows.length, returnedJsonBytes: Buffer.byteLength(JSON.stringify(rows)),
-        trace: record, effectSpans: readTrace === undefined ? null : [...spanGroups.values()] });
+        trace: record, effectSpans: readTrace === undefined ? null : [...spanGroups.values()], issuedFrontierTableIds });
     });
     try {
       fixture = await createMixedMutationProductFixture({ driver,
@@ -199,11 +228,15 @@ export async function runCheckedReadPerformanceScenario(driver: "pglite" | "post
         builtInSqlObserver: fixture.hasSqlObserver });
     } finally {
       try { await fixture?.close(); }
-      finally { trace?.close(); }
+      finally { frontierObserver?.mockRestore(); trace?.close(); }
     }
   }
   expect(await sourceHashes()).toEqual(hashesBefore);
-  const report = { format: "flarex.checked-read-component-performance", stage, sourceBase: "6a5391110",
+  const report = { format: "flarex.checked-read-component-performance", stage, iteration,
+    sourceBase: iteration === "dispatch-composition" ? "7d5cf2d27" : "6a5391110",
+    schemaDisposition: iteration === "dispatch-composition"
+      ? "Additive0121 installed in both lanes; baseline runtime leaves the function unused; candidate invokes it."
+      : "Existing schema profile",
     driver, sourceHashes: hashesBefore, lanes,
     interpretation: [
       "Construction, seeding and initial full authentication/renewal are outside the component operation samples.",
@@ -218,6 +251,7 @@ export async function runCheckedReadPerformanceScenario(driver: "pglite" | "post
       "Named Effect spans are directly observed inclusive durations, not isolated CPU or additive phase times.",
       "SQL awaited intervals and whole transactions are client observations, not pure server or lock-hold times.",
       "PGlite is a correctness lane and provides no pool trace or PostgreSQL performance proof.",
+      "Issued frontier table memberships forward actual owner calls unchanged; observed only in the PostgreSQL traced composition lane, not SQL parameter capture or server work.",
     ],
     unavailable: ["server execution time", "pure lock hold time", "driver wire bytes", "SQL parameter bytes",
       "isolated validation/decode CPU", "initial admission Effect span counts", "construction/seeding SQL counts"],

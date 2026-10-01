@@ -1004,13 +1004,11 @@ describePostgres("real Postgres O03-B session authority", () => {
         "clockLocked",
         "sessionLocked",
         "leaseLocked",
-        "journalRootLocked",
-        "executionClaimLocked",
+        "attemptTailLocked",
         "clockLocked",
         "sessionLocked",
         "leaseLocked",
-        "journalRootLocked",
-        "executionClaimLocked",
+        "attemptTailLocked",
       ]);
       await expect(attemptRowState(persistence, context.scopeId))
         .resolves.toEqual(before);
@@ -1080,6 +1078,57 @@ describePostgres("real Postgres O03-B session authority", () => {
       expect(resultB.anchor).toEqual(anchorB);
     });
   });
+
+  it("locks the root before a held claim and reads time after the claim wait", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(persistence, "attempt_tail_wait",
+        sharedLocator("attempt-tail-wait"), ids);
+      const activated = await activatePointMutationSession(
+        createActivationPersistence(persistence, ids),
+        pointMutationSessionActivationFixture(context.deploymentId, context.scopeId));
+      await persistence.query(`update fx_system_snapshot_lease
+        set lease_expires_at = clock_timestamp() + interval '2 seconds'
+        where session_id = $1`, [activated.anchor.sessionId]);
+      const before = await attemptRowState(persistence, context.scopeId);
+      const claimBefore = await executionClaimRow(persistence, activated.anchor.sessionId);
+      const held = await persistence.pool.connect();
+      let pending: Promise<unknown> | undefined;
+      let outcome: Promise<void> | undefined;
+      try {
+        await held.query("begin");
+        await held.query(`select 1 from fx_system_tx_execution_claim
+          where session_id = $1 for update`, [activated.anchor.sessionId]);
+        const pid = (await held.query<{ pid: number }>("select pg_backend_pid()::int as pid")).rows[0]?.pid;
+        if (pid === undefined) throw new Error("Missing held-claim backend PID");
+        pending = loadPointMutationSessionAttempt(createLoadPersistence(persistence),
+          selectorFromAnchor(activated.anchor));
+        // Attach the rejection assertion before releasing the independent lock.
+        outcome = expect(pending).rejects.toMatchObject({ issue: { reason: "activeAttemptExpired" } });
+        await waitForBlockedAttemptTail(persistence, pid);
+        // KEY SHARE conflicts with FOR UPDATE, but not FOR NO KEY UPDATE.
+        await expect(persistence.query(`select 1 from fx_system_tx_journal
+          where session_id = $1 for key share nowait`, [activated.anchor.sessionId]))
+          .rejects.toMatchObject({ code: "55P03" });
+        const deadline = Date.now() + 5_000;
+        while (true) {
+          const time = await persistence.query<{ expired: boolean }>(`select lease_expires_at <= clock_timestamp() as expired
+            from fx_system_snapshot_lease where session_id = $1`, [activated.anchor.sessionId]);
+          if (time.rows[0]?.expired === true) break;
+          if (Date.now() >= deadline) throw new Error("Lease deadline did not cross while claim was held");
+          await delay(25);
+        }
+        await held.query("rollback");
+        await outcome;
+        await expect(attemptRowState(persistence, context.scopeId)).resolves.toEqual(before);
+        await expect(executionClaimRow(persistence, activated.anchor.sessionId)).resolves.toEqual(claimBefore);
+      } finally {
+        await rollbackAndReleasePostgresClient(held);
+        await pending?.catch(() => undefined);
+        await outcome?.catch(() => undefined);
+      }
+    });
+  }, 120_000);
 
   it("uses database time only after the exact lease lock", async () => {
     await withPostgresPersistence(async (persistence) => {
@@ -1684,6 +1733,24 @@ async function waitForBlockedScopeClock(
     await delay(25);
   }
   throw new Error("Timed out waiting for a blocked scope-clock lock.");
+}
+
+async function waitForBlockedAttemptTail(
+  persistence: PostgresFlarexPersistence,
+  blockerPid: number,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<{ blocked: number }>(`select count(*)::int as blocked
+      from pg_stat_activity where datname = current_database()
+        and wait_event_type = 'Lock' and $1::int = any(pg_blocking_pids(pid))
+        -- The function name follows 2kB of native projections and is truncated
+        -- by the default activity buffer. This leading projection is stable.
+        and query like 'select attempt_tail.disposition,%'`, [blockerPid]);
+    if ((result.rows[0]?.blocked ?? 0) > 0) return;
+    await delay(25);
+  }
+  throw new Error("Timed out waiting for the running-attempt tail claim lock");
 }
 
 interface BlockedPostgresWriter {

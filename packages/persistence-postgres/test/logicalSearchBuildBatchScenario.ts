@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { eq } from "drizzle-orm";
 import { expect, vi } from "vitest";
 import { canonicalizeAppDocumentV1, decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -51,10 +51,11 @@ const epoch = ScopeEpochSchema.make("epoch_66100000-0000-0000-0000-000000000002"
 const schemaVersionId = decodeCatalogSchemaVersionId("search_batch_neutral");
 
 interface InspectCounts { states: number; physical: number; frontiers: number }
+const decodeFrontierDriverResponse = Schema.decodeUnknownSync(Schema.Struct({ rows: Schema.Array(Schema.Unknown) }));
 
 /** Observe target-local statement categories without replacing their results. */
 function observeTransaction(tx: FlarexMetadataTransaction, counts: InspectCounts,
-  failFrontiers = false): FlarexMetadataTransaction {
+  failFrontiers = false, corruptFrontierOrdinal?: number): FlarexMetadataTransaction {
   return new Proxy(tx, {
     get(target, property, receiver) {
       if (property === "select") return (fields?: Record<string, unknown>) => {
@@ -65,7 +66,15 @@ function observeTransaction(tx: FlarexMetadataTransaction, counts: InspectCounts
       if (property === "execute") return (statement: Parameters<typeof target.execute>[0]) => {
         counts.frontiers++;
         if (failFrontiers) return Promise.reject(new Error("Later frontier query must not run"));
-        return target.execute(statement);
+        const query = target.execute(statement);
+        if (corruptFrontierOrdinal === undefined) return query;
+        // Corrupt only one actual driver field. The real frontier decoder and
+        // issuer retain the per-table failure; no readiness verdict is mocked.
+        return query.then(result => {
+          const response = decodeFrontierDriverResponse(result);
+          return { ...response, rows: response.rows.map((row, ordinal) => ordinal === corruptFrontierOrdinal
+            ? { ordinal, commitSeqText: "not-an-integer" } : row) };
+        });
       };
       return Reflect.get(target, property, receiver);
     },
@@ -141,6 +150,25 @@ export async function verifyLogicalSearchBuildBatch(
     expect(verdict).toMatchObject({ _tag: "Failure", failure: { reason: "statementFailure" } });
     expect(counts).toEqual({ states: 1, physical: 1, frontiers: 0 });
   });
+  const inspectPrefetchedCorruptFrontier = (tableIds = [11, 12, 13]) => db.transaction(async tx => {
+    const counts: InspectCounts = { states: 0, physical: 0, frontiers: 0 };
+    const observed = observeTransaction(tx, counts, false, 2);
+    const coverage = await Effect.runPromise(readIndexCoverageContextInTransactionEffect(observed, clock));
+    await Effect.runPromise(readIndexCoverageTableFrontiersInTransactionEffect(observed, coverage,
+      [11, 12, 13].map(value => decodeCatalogTableId(value))));
+    expect(counts.frontiers).toBe(1);
+    const beforeSearch = { ...counts };
+    const verdict = await Effect.runPromise(Effect.result(build.selectTables(tableIds.map(value => decodeCatalogTableId(value)))
+      .inspectSelected(observed, authority, clock, coverage)));
+    return { verdict, counts: { states: counts.states - beforeSearch.states,
+      physical: counts.physical - beforeSearch.physical, frontiers: counts.frontiers - beforeSearch.frontiers } };
+  });
+  const corruptLater = await inspectPrefetchedCorruptFrontier();
+  expect(corruptLater.verdict).toMatchObject({ _tag: "Failure", failure: { reason: "statementFailure" } });
+  expect(corruptLater.counts).toEqual({ states: 1, physical: 1, frontiers: 0 });
+  // The same prefetched corrupt table does not contaminate another selection.
+  expect((await inspectPrefetchedCorruptFrontier([11])).verdict)
+    .toMatchObject({ _tag: "Success", success: { status: "ready", definitionCount: 24 } });
   const selectedTable = build.selectTables([decodeCatalogTableId(11)]);
   const inspectSelected = () => db.transaction(tx => Effect.runPromise(selectedTable.inspectSelected(tx, authority, clock)));
   expect(await inspectSelected()).toEqual({ status: "ready", definitionCount: 24 });
@@ -159,6 +187,9 @@ export async function verifyLogicalSearchBuildBatch(
   try {
     expect((await inspect()).verdict).toEqual({ status: "not_ready", reason: "uncovered" });
     expect(await inspectSelected()).toEqual({ status: "not_ready", reason: "uncovered" });
+    const physicalBeforeCorruption = await inspectPrefetchedCorruptFrontier();
+    expect(physicalBeforeCorruption.verdict).toMatchObject({ _tag: "Success", success: { status: "not_ready", reason: "uncovered" } });
+    expect(physicalBeforeCorruption.counts).toEqual({ states: 1, physical: 1, frontiers: 0 });
     await persistence.query(`create index fx_app_search_entry_current_lookup_gin
       on fx_app_search_entry_current using gin
         (scope_uuid public.uuid_ops, logical_index_id public.int4_ops, field_id public.gin_trgm_ops)`);
@@ -223,4 +254,8 @@ export async function verifyLogicalSearchBuildBatch(
   const missingFirst = await inspect(await getScopeClock(db, scopeId) ?? clock, true, foreignCoverage);
   expect(missingFirst.verdict).toEqual({ status: "not_ready", reason: "uncovered" });
   expect(missingFirst.counts).toEqual({ states: 1, physical: 0, frontiers: 0 });
+  // An already-gathered later failure must not precede missing first state.
+  const missingBeforeCorruption = await inspectPrefetchedCorruptFrontier();
+  expect(missingBeforeCorruption.verdict).toMatchObject({ _tag: "Success", success: { status: "not_ready", reason: "uncovered" } });
+  expect(missingBeforeCorruption.counts).toEqual({ states: 1, physical: 0, frontiers: 0 });
 }

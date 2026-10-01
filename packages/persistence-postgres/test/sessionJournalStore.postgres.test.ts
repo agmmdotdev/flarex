@@ -585,7 +585,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const adjacent = await scenario(persistence, "adjacent_sequence", {
         targetOptions: {
           afterLoadLock: async (step) => {
-            if (step !== "journalRootLocked" || !pauseFirstRootLock) return;
+            if (step !== "attemptTailLocked" || !pauseFirstRootLock) return;
             pauseFirstRootLock = false;
             entered.resolve(undefined);
             await release.promise;
@@ -942,8 +942,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         "clockLocked",
         "sessionLocked",
         "leaseLocked",
-        "journalRootLocked",
-        "executionClaimLocked",
+        "attemptTailLocked",
       ]);
 
       const resultPayloadBytes = MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 - 1_024;
@@ -1018,8 +1017,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         "clockLocked",
         "sessionLocked",
         "leaseLocked",
-        "journalRootLocked",
-        "executionClaimLocked",
+        "attemptTailLocked",
       ]);
 
       const sealed = await persistence.query<{
@@ -1279,7 +1277,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         {
           targetOptions: {
             afterLoadLock: async (step) => {
-              if (step !== "journalRootLocked" || !pauseCompletion) return;
+              if (step !== "attemptTailLocked" || !pauseCompletion) return;
               pauseCompletion = false;
               entered.resolve();
               await release.promise;

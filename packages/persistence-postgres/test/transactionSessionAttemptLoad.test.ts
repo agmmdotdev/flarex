@@ -218,13 +218,11 @@ describe("O03-B exact point-mutation attempt authority", () => {
       "clockLocked",
       "sessionLocked",
       "leaseLocked",
-      "journalRootLocked",
-      "executionClaimLocked",
+      "attemptTailLocked",
       "clockLocked",
       "sessionLocked",
       "leaseLocked",
-      "journalRootLocked",
-      "executionClaimLocked",
+      "attemptTailLocked",
     ]);
 
     await persistence.query(
@@ -291,8 +289,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       "clockLocked",
       "sessionLocked",
       "leaseLocked",
-      "journalRootLocked",
-      "executionClaimLocked",
+      "attemptTailLocked",
     ]);
 
     const callbackFailure = new Error("read syscall callback rejected");
@@ -341,6 +338,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       throw new Error("Expected the private read-syscall admission facet.");
     }
     const queryFields: string[][] = [];
+    const queryTexts: string[] = [];
     const runTransaction = driver.transaction.bind(driver);
     const observeTransaction: typeof driver.transaction = (work) =>
       runTransaction(async (tx) => {
@@ -348,6 +346,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
         try {
           return await work(tx);
         } finally {
+          queryTexts.push(...queryObserver.mock.calls.map(([query]) => query));
           const results = await Promise.all(queryObserver.mock.results
             .filter((result) => result.type === "return")
             .map((result) => result.value));
@@ -370,14 +369,17 @@ describe("O03-B exact point-mutation attempt authority", () => {
         return Effect.succeed(undefined);
       }));
       const checkedFields = queryFields.splice(0);
-      expect(checkedFields).toHaveLength(6);
+      expect(checkedFields).toHaveLength(4);
+      const tailQueries = queryTexts.splice(0).filter(query => query.includes("fx_lock_running_attempt_tail"));
+      expect(tailQueries).toHaveLength(1);
+      expect(tailQueries[0]).toMatch(/from fx_lock_running_attempt_tail\(/i);
       expect(checkedFields.find((fields) => fields.includes("protocol_version")))
         .toEqual([
           "session_id", "attempt_fence", "storage_generation",
           "storage_generation_fence", "authorization_revocation_epoch",
           "authorization_grant_expires_at", "hard_expires_at", "created_at",
           "updated_at", "protocol_version", "lifecycle", "schema_version_id",
-          "request_key",
+          "identity_access_policy_sha256", "request_key",
         ]);
       expect(checkedFields.some((fields) =>
         fields.length === 5 && fields.every((field) => field === "exists")))
@@ -625,7 +627,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const transactionFailure = createPointMutationSessionAttemptLoadPersistenceV1(
       resolutionPorts(persistence, {
         afterLoadLock: (step) => {
-          if (step === "journalRootLocked") throw transactionCause;
+          if (step === "attemptTailLocked") throw transactionCause;
         },
       }),
     );

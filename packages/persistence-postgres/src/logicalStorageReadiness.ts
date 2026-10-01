@@ -64,6 +64,13 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
   const manifestSha256Hex = encodeBytesToLowercaseHex(requirements.manifestSha256);
   if (encodeBytesToLowercaseHex(sourceRequirements.artifact.manifestSha256) !== manifestSha256Hex)
     return yield* Effect.fail(new LogicalStorageReadinessError({ reason: "invalidComposition" }));
+  // Search reads every selected requirement table at its original frontier
+  // cut. Unique readiness keeps its lazy, freshly derived needed-table set.
+  // Charge only this newly retained immutable array, not its catalog.
+  const additionalSearchFrontierTableIds = Object.freeze([...new Set(
+    sourceRequirements.search.map(requirement => requirement.tableId),
+  )].toSorted((left, right) => left - right));
+  yield* chargeHostPreparation(additionalSearchFrontierTableIds);
   const strongReferences = yield* prepareLogicalStrongReferenceProjections(ports.controlDb,
     captured.deploymentId, captured.scopeId, sourceRequirements, requirements.definitions)
     .pipe(Effect.mapError(cause => new LogicalStorageReadinessError({
@@ -117,7 +124,8 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
    * must still select this exact schema/digest and authenticate semantic gates. */
   const inspectIndexes = Effect.fn("LogicalStorageReadiness.inspectIndexes")(function* (
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
-    definitions: typeof requirements.definitions, checkedActive?: CheckedApplicationActiveHead,
+    definitions: typeof requirements.definitions, selectedAdditionalSearchFrontierTableIds: ReadonlyArray<CatalogTableId>,
+    checkedActive?: CheckedApplicationActiveHead,
   ) {
     if (lifetime !== undefined) yield* Effect.fromResult(lifetime.checkOpen());
     const inspectedDefinitionIds = Object.freeze(definitions.map(definition => definition.indexDefinitionId));
@@ -164,7 +172,11 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
         if (!frontierBatchReady && state.lifecycle === "enabled" && state.maintenance === null &&
           state.coveredThroughCommitSeq !== null && state.coveredThroughCommitSeq < clock.lastCommitSeq &&
           state.firstReadableCommitSeq !== null && state.firstReadableCommitSeq <= clock.lastCommitSeq) {
-          yield* readIndexCoverageTableFrontiersInTransactionEffect(tx, coverage, tableIds);
+          // Retain search Results without consuming them here. Later owners
+          // borrow only complete maps at their original frontier verdict.
+          // No ordered frontier need means no early query.
+          yield* readIndexCoverageTableFrontiersInTransactionEffect(tx, coverage,
+            [...new Set([...tableIds, ...selectedAdditionalSearchFrontierTableIds])]);
           frontierBatchReady = true;
         }
         if (!(yield* isIndexBuildSnapshotCoveredInTransactionEffect(tx, state, definition, clock.lastCommitSeq, coverage))) {
@@ -190,7 +202,8 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
     tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     checkedActive?: CheckedApplicationActiveHead,
   ) {
-    const indexes = yield* inspectIndexes(tx, authority, clock, requirements.definitions, checkedActive);
+    const indexes = yield* inspectIndexes(tx, authority, clock, requirements.definitions,
+      additionalSearchFrontierTableIds, checkedActive);
     if (indexes.status === "not_ready") return indexes;
     const latestCoverage = indexes.coverage;
     const eligibility = yield* acceptPreparedAppUniqueConstraintSet(unique, constraints.preparation, tx, authority, clock,
@@ -254,7 +267,8 @@ export const prepareLogicalStorageReadiness = Effect.fn("LogicalStorageReadiness
       tx: AppRowTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
       checkedActive?: CheckedApplicationActiveHead,
     ) {
-      const indexes = yield* inspectIndexes(tx, authority, clock, definitions, checkedActive);
+      const indexes = yield* inspectIndexes(tx, authority, clock, definitions,
+        additionalSearchFrontierTableIds.filter(tableId => selectedTables.has(tableId)), checkedActive);
       if (indexes.status === "not_ready") return indexes;
       const eligibility = yield* selectedUnique.inspectSelected(tx, authority, clock, indexes.coverage);
       if (eligibility.status === "not_ready") return Object.freeze({ ...eligibility, kind: "unique" as const });
