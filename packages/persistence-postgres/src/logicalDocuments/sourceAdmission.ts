@@ -6,8 +6,10 @@ import { MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES,
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { ReplacementScopeIdV1Schema, type ScopeId } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { readApplicationBindingTargetProtection, type ApplicationBindingInput } from "../applicationActivation";
-import { withApplicationBindingEvidenceInTransaction } from "../applicationBindingProjection";
+import { readApplicationBindingTargetProtection, isPreparedApplicationBinding, requireAcceptedApplicationBindingObservation,
+  type AcceptedApplicationBinding, type ApplicationBindingInput } from "../applicationActivation";
+import { withApplicationBindingEvidenceInTransaction, withPreparedApplicationBindingEvidenceInTransaction,
+  type ApplicationBindingEvidence } from "../applicationBindingProjection";
 import type { AppUniqueConstraintSetBuildPortsV1, AppUniqueConstraintSetEligibilityPortV1 } from "../appUniqueConstraintSetBuildV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from "../appUniqueConstraintCommitV1";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
@@ -110,6 +112,7 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
 ) {
   const capturedPorts = Object.freeze({ controlDb: ports.controlDb, authority: ports.authority });
   const captured = Object.freeze({ ...input });
+  const constructionKind = construction.kind;
   const owned = yield* Effect.fromResult(capturePrivateJsonData(sourceInput, MAX_LOGICAL_SCHEMA_CANDIDATE_BYTES,
     (reason, cause) => new LogicalSourceAdmissionError({ reason: "invalidInput", cause: { reason, cause } })));
   yield* chargeHostPreparation(owned.value);
@@ -177,20 +180,24 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
 
   const checkBinding = Effect.fn("LogicalSourceAdmission.checkBinding")(function* <Value, Failure, Requirements>(
     selection: "full" | "read",
+    owner: "sourceProof" | "transactionCompletion",
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>,
+    borrowed?: AcceptedApplicationBinding,
   ) {
     yield* requirePrepared;
     // Authenticity and the actual issuer lease remain mandatory even when a
     // positive source observation is reused in this accepting transaction.
     const targetProtection = yield* Effect.fromResult(readApplicationBindingTargetProtection(application));
+    if (borrowed !== undefined)
+      yield* Effect.fromResult(requireAcceptedApplicationBindingObservation(borrowed, application, tx, clock));
     const sourceKeys = readSourceKeys.get(tx) ?? [source.key];
     if (selection === "read" && !sourceKeys.includes(source.key))
       return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "sourceMismatch" }));
     // An exact root set under the same authenticated candidate determines one
     // exact closure. No subset, superset or full proof can satisfy this key.
     const selectionKey = selection === "full" ? "full" : JSON.stringify(sourceKeys);
-    const shared = checkedBindings.get(tx)?.find(checked =>
+    const shared = isPreparedApplicationBinding(application) ? undefined : checkedBindings.get(tx)?.find(checked =>
       checked.selectionKey === selectionKey && checked.application === application && checked.controlDb === capturedPorts.controlDb &&
       checked.authorityPort === capturedPorts.authority && checked.unique === unique &&
       checked.deploymentId === captured.deploymentId && checked.scopeId === captured.scopeId &&
@@ -211,29 +218,41 @@ export const prepareLogicalSourceEvidence = Effect.fn("LogicalSourceAdmission.pr
     const selected = yield* readBindingSelectedEvidence(tx, authority, targetPreparation);
     if (Option.isNone(selected)) return yield* Effect.fail(new LogicalSourceAdmissionError({ reason: "bindingMissing" }));
     const { head: current, candidate } = selected.value;
-    yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, applicationEvidence =>
-      selectedReadiness === undefined
+    const admit = (applicationEvidence: ApplicationBindingEvidence) =>
+      Effect.gen(function* () {
+      yield* (selectedReadiness === undefined
         ? verifyLogicalSchemaBindingInTransaction(readiness, candidate.frame, applicationEvidence,
           tx, authority, clock, applicationEvidence.checkedActive).pipe(Effect.asVoid)
         : verifyLogicalSchemaReadBindingInTransaction(selectedReadiness, candidate.frame, applicationEvidence,
           tx, authority, clock, applicationEvidence.checkedActive).pipe(Effect.asVoid));
-    const head = Object.freeze({ sequence: current.frame.sequence, sha256: current.sha256 });
-    checkedBindings.get(tx)?.push(Object.freeze({ selectionKey, application, controlDb: capturedPorts.controlDb,
-      authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,
-      scopeId: captured.scopeId, authority, clock,
-      schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
-      frame: candidate.frame, head }));
-    return yield* work(Object.freeze({ tx, authority, clock, schemaVersionId: captured.schemaVersionId, source,
-      frame: candidate.frame, head }));
+      const head = Object.freeze({ sequence: current.frame.sequence, sha256: current.sha256 });
+      checkedBindings.get(tx)?.push(Object.freeze({ selectionKey, application, controlDb: capturedPorts.controlDb,
+        authorityPort: capturedPorts.authority, unique, deploymentId: captured.deploymentId,
+        scopeId: captured.scopeId, authority, clock,
+        schemaVersionId: captured.schemaVersionId, manifestSha256: readiness.reference.manifestSha256,
+        frame: candidate.frame, head }));
+      return yield* Effect.suspend(() => work(Object.freeze({ tx, authority, clock,
+        schemaVersionId: captured.schemaVersionId, source, frame: candidate.frame, head })));
+    });
+    if (owner === "transactionCompletion" && constructionKind === "standalone" && isPreparedApplicationBinding(application))
+      return yield* withPreparedApplicationBindingEvidenceInTransaction(application, tx, clock, admit);
+    return yield* withApplicationBindingEvidenceInTransaction(application, tx, clock, admit, borrowed);
   });
   const withBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
     authority: TrustedScopeAuthority, clock: ScopeClockRecord,
+    work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>, borrowed?: AcceptedApplicationBinding) =>
+    checkBinding("full", "sourceProof", application, tx, authority, clock, work, borrowed);
+  // Only the trusted standalone host places all native work and publication in
+  // this callback. Attempt pinning and commit verification use sourceProof and
+  // cannot acquire the request's final guard before their outer owner settles.
+  const withTransactionBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
+    authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
-    checkBinding("full", application, tx, authority, clock, work);
+    checkBinding("full", "transactionCompletion", application, tx, authority, clock, work);
   const withReadBinding = <Value, Failure, Requirements>(application: ApplicationBindingInput, tx: FlarexMetadataTransaction,
     authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (state: LogicalSourceBindingState) => Effect.Effect<Value, Failure, Requirements>) =>
-    checkBinding("read", application, tx, authority, clock, work);
-  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withReadBinding,
+    checkBinding("read", "sourceProof", application, tx, authority, clock, work);
+  return Object.freeze({ source, tables: selectedTables, indexes, unique: selectedUnique, withBinding, withReadBinding, withTransactionBinding,
     requirements, catalog: readiness, requirePrepared });
 });

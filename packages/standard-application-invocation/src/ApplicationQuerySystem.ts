@@ -763,8 +763,8 @@ class ApplicationQueryRpcCapability extends RpcTarget {
     super();
   }
 
-  revalidate() {
-    return Effect.runPromise(revalidateApplicationQuerySnapshot(this.snapshot));
+  revalidate(): Promise<void> {
+    return Effect.runPromise(revalidateApplicationQuerySnapshot(this.snapshot).pipe(Effect.asVoid));
   }
 
   readPointDocument(tableName: string, documentId: string) {

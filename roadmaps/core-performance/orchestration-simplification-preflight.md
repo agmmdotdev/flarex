@@ -1,8 +1,8 @@
 # Orchestration simplification: architectural reassessment
 
 Status: **active research and design gate; bounded native retrieval ledger available,
-focused request-owned read-admission construction implemented under the approved
-focused contract;
+focused request-owned construction and Application acceptance implemented with
+bounded connected correctness;
 broader runtime choices and ceilings pending.** The
 checked-read slice delivers structural transport composition, with latency acceptance open.
 Before publication or another minor performance iteration, compare the whole
@@ -232,11 +232,20 @@ remains unchanged. Matched final-source quiet/trace/server evidence reports boun
 Fresh binding/Application acceptance is the largest remaining region by dispatches
 and JSON bytes, with `validateStoredIssuedReadiness` repeating canonical evidence
 after preparation. Full logical-source readiness is the largest metadata-row region.
-The proposed [fresh Application acceptance preflight](./fresh-application-acceptance-preflight.md)
-traces these accepting owners, their actual guard lifetimes, full live and
-protected alternatives, callback frontiers and connected caller gates. Its
-runtime mechanism requires the coordinator's decision before implementation;
-exact region counts remain in the artifact ledger.
+The approved [fresh Application acceptance preflight](./fresh-application-acceptance-preflight.md)
+selects Application-only pre-business snapshot attestation and direct final tail,
+explicit tentative-local refusal timing and finite same-entry immutable-observation
+composition. Earlier candidates remove repeated captured bodies but miss the
+combined latency gate. The approved bounded named identity owner now passes the
+controlled initial-readiness/pre-attestation/tail median and P95 gate while
+preserving every protection predicate and refusal contract. Complete native
+requests, cold connection/protocol evidence, covered-write validation and bounded
+connected correctness are established. The full mixed milestone retains an
+original quiet regression and nonreproducing targeted repeat; cause is unestablished.
+Whole goals remain open. Exact source attribution
+of publication at existing `pointCommitTransaction` is a next hypothesis, requiring
+its own preflight before activation. Counts, distributions and limits remain in
+the artifact ledgers.
 
 - The native MikroORM control, deterministic native seed/config and complete
   scalar/collection DTO plus missing-error parity are established for the bounded

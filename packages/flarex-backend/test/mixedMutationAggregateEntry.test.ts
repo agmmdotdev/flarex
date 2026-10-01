@@ -6,10 +6,42 @@ import { createPostgresPersistence } from "../../persistence-postgres/src/postgr
 import { fxSystemSnapshotLeases, fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournals, fxSystemTransactionSessions } from "../../persistence-postgres/src/schema";
 import { createMixedMutationProductFixture,
-  type MixedMutationFinalEntryTestContext } from "./support/mixedMutationProductFixture";
+  type MixedMutationFinalEntryTestContext, type MixedMutationProductFixtureHooks } from "./support/mixedMutationProductFixture";
 import { inspectActivatedPointMutationSessionV1 } from "../../executor/src/pointMutationSessionActivation";
 import { preparedFiniteEntries } from "../../persistence-postgres/src/sessionJournalFiniteEntry";
 import { installOneEntryCommitResponseFault } from "./support/postgresCommitResponseFault";
+
+type EntryParticipants = Parameters<NonNullable<MixedMutationProductFixtureHooks["transformFiniteEntrySources"]>>[0];
+type EntrySourceBinder = EntryParticipants[number]["sources"][number]["selection"]["bindAttemptEffect"];
+
+function interceptEntryBindings(wrap: (original: EntrySourceBinder) => EntrySourceBinder) {
+  const intercepted = new WeakSet<EntrySourceBinder>();
+  const restorers: Array<() => void> = [];
+  return {
+    transform: (participants: EntryParticipants): EntryParticipants => {
+      for (const participant of participants) for (const source of participant.sources) {
+        const binder = source.selection.bindAttemptEffect;
+        if (intercepted.has(binder)) continue;
+        intercepted.add(binder);
+        const original = binder.bind(source.selection);
+        const previous = Object.getOwnPropertyDescriptor(binder, "bind");
+        const injected = wrap(original);
+        // Intercept the store's call capture, preserving the genuine source
+        // selection passed to the issuer and its callback-local observation.
+        Object.defineProperty(binder, "bind", { configurable: true, value: (receiver: unknown) => {
+          if (receiver !== source.selection) throw new Error("Finite entry captured the wrong source receiver");
+          return injected;
+        } });
+        restorers.push(() => {
+          if (previous === undefined) Reflect.deleteProperty(binder, "bind");
+          else Object.defineProperty(binder, "bind", previous);
+        });
+      }
+      return participants;
+    },
+    restore: () => { for (const restore of restorers.toReversed()) restore(); },
+  };
+}
 
 async function entryInventory(context: MixedMutationFinalEntryTestContext) {
   const database = context.currency.persistence.drizzle;
@@ -49,24 +81,20 @@ describe("atomic finite aggregate entry", () => {
     const release = await Effect.runPromise(Deferred.make<void>());
     let holdNext = false;
     let sourceBindings = 0;
-    const first = await createMixedMutationProductFixture({ driver: "postgres", suffix: "entry-contention-base", hooks: {
-      transformFiniteEntrySources: participants => participants.map(participant => ({ ...participant,
-        sources: participant.sources.map(source => {
-          const original = source.selection.bindAttemptEffect.bind(source.selection);
-          return { ...source, selection: { ...source.selection,
-            bindAttemptEffect: (...args: Parameters<typeof original>) => Effect.suspend(() => {
-              const wait = holdNext;
-              holdNext = false;
-              return (wait ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))) : Effect.void).pipe(
-                Effect.andThen(original(...args)), Effect.tap(() => Effect.sync(() => { sourceBindings += 1; })));
-            }),
-          } };
-        }),
-      })),
-    } });
+    const bindings = interceptEntryBindings(original => (...args) => Effect.suspend(() => {
+      const wait = holdNext;
+      holdNext = false;
+      return (wait ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))) : Effect.void).pipe(
+        Effect.andThen(original(...args)), Effect.tap(() => Effect.sync(() => { sourceBindings += 1; })));
+    }));
+    let firstFixture: Awaited<ReturnType<typeof createMixedMutationProductFixture>> | undefined;
     let other: Awaited<ReturnType<typeof createMixedMutationProductFixture>> | undefined;
     const operations: Array<Promise<unknown>> = [];
     try {
+      const first = await createMixedMutationProductFixture({ driver: "postgres", suffix: "entry-contention-base", hooks: {
+        transformFiniteEntrySources: bindings.transform,
+      } });
+      firstFixture = first;
       other = await createMixedMutationProductFixture({ driver: "postgres", suffix: "entry-contention-other",
         resource: first.currency.resource, fixtureIdentity: { deploymentId: "entry-contention-other",
           projectId: "entry-contention-other-project", uuidOffset: 600_000 } });
@@ -134,10 +162,13 @@ describe("atomic finite aggregate entry", () => {
           queryMilliseconds: waiter.queryMilliseconds, transactionMilliseconds: waiter.transactionMilliseconds })),
         sameScopeSourceBindings: sourceBindings - baselineBindings, outcomes: ["created", "busy", "created", "created"] }));
     } finally {
-      await Effect.runPromise(Deferred.succeed(release, undefined));
-      await Promise.allSettled(operations);
-      await other?.close();
-      await first.close();
+      try {
+        await Effect.runPromise(Deferred.succeed(release, undefined));
+        await Promise.allSettled(operations);
+      } finally {
+        try { await other?.close(); }
+        finally { try { await firstFixture?.close(); } finally { bindings.restore(); } }
+      }
     }
   }, 240_000);
 
@@ -212,20 +243,17 @@ describe("atomic finite aggregate entry", () => {
         let firstSucceeded = false;
         let sourcesPrepared = 0;
         let observedFailure = false;
+        const bindings = interceptEntryBindings(original => {
+          const ordinal = sourcesPrepared++;
+          return (...args) => ordinal === 1
+            ? failureMode === "defect" ? Effect.die(sentinel) : Effect.interrupt : original(...args).pipe(Effect.tap(() =>
+              Effect.sync(() => { if (ordinal === 0) firstSucceeded = true; })));
+        });
+        try {
         const failure = await createMixedMutationProductFixture({ driver, suffix: `entry-source-${failureMode}-${driver}`,
           payloadProfile: "success", hooks: {
             beforeFinalEntry: async context => { baseline = await entryInventory(context); },
-            transformFiniteEntrySources: participants => participants.map(participant => ({ ...participant,
-              sources: participant.sources.map(source => {
-                const ordinal = sourcesPrepared++;
-                const original = source.selection.bindAttemptEffect.bind(source.selection);
-                return { ...source, selection: { ...source.selection,
-                  bindAttemptEffect: (...args: Parameters<typeof original>) => ordinal === 1
-                    ? failureMode === "defect" ? Effect.die(sentinel) : Effect.interrupt : original(...args).pipe(Effect.tap(() =>
-                      Effect.sync(() => { if (ordinal === 0) firstSucceeded = true; }))),
-                } };
-              }),
-            })),
+            transformFiniteEntrySources: bindings.transform,
             onFinalEntryFailure: async (context, exit) => {
               expect(firstSucceeded).toBe(true);
               expect(Exit.isFailure(exit)).toBe(true);
@@ -243,6 +271,7 @@ describe("atomic finite aggregate entry", () => {
         }).then(async fixture => { await fixture.close(); throw new Error("Expected source defect"); }, cause => cause);
         expect(sourcesPrepared).toBeGreaterThanOrEqual(2);
         expect(observedFailure, String(failure)).toBe(true);
+        } finally { bindings.restore(); }
       }, 180_000);
     }
 

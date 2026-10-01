@@ -36,9 +36,10 @@ the active head, matching activation without weakening locks. Missing/corrupt cl
 can therefore precede missing head; well-formed foreign authority still checks
 after the head. The focused preflight inventories this diagnostic consequence.
 Standalone and private finite profiles retain their actual lifetimes.
-Demand narrowing, cross-request reuse, cheaper attestation, terminal/recovery and
-host changes remain deferred. Broader runtime choices, timing amendments and
-numeric overhead ceilings remain pending;
+Demand narrowing, cross-request reuse, reduced attestation, terminal/recovery and
+host changes remain deferred. Other runtime choices and numeric overhead ceilings
+remain pending; the focused fresh-acceptance proof and refusal-timing amendment
+is approved below;
 scaling, full setup SQL/CPU attribution and whole mixed acceptance remain open.
 High counts require actual native/business demand or demonstrated necessary
 correctness work. Avoidable platform amplification is a redesign failure.
@@ -49,11 +50,20 @@ Accepted authority and transaction contracts still govern.
 Matched final-source bounded standalone measurement reports lower work and quiet latency with
 the same native scalar/collection demand; exact observations and source inventories
 remain in the artifact ledger. Fresh business binding/Application acceptance is
-the largest remaining measured region by dispatches/bytes; the proposed
+the historical construction follow-up region by dispatches/bytes; the implemented
 [fresh Application acceptance preflight](./fresh-application-acceptance-preflight.md)
-traces its accepting owners, full live and protected alternatives, callback
-frontiers and connected caller gates. Its runtime mechanism remains a coordinator
-decision before implementation. Full logical-source definition
+owns the approved Application-only pre-business snapshot attestation and direct
+final tail, explicit tentative-local refusal timing and finite same-entry
+immutable-observation composition. Earlier accepting candidates meet the selected
+dispatch graph but miss the combined latency gate. The approved bounded named
+identity owner now passes the controlled initial-readiness/pre-attestation/tail
+median and P95 gate with complete protection predicates. Complete native requests,
+cold connection/protocol evidence, covered-write refusals and bounded connected
+correctness are established. The declared full mixed measurement retains an
+original quiet regression and a healthy targeted repeat with no established
+cause; the repeat does not replace the original. Publication at the existing `pointCommitTransaction` owner is the
+next exact-attribution hypothesis, requiring its own focused preflight before
+activation. Full logical-source definition
 breadth is the largest metadata-row region and retains a separate readiness-scope
 decision gate. Neither residual selects a cheaper proof or closes finite, mixed,
 scaling or whole-goal latency acceptance.
@@ -175,7 +185,7 @@ proceed; those groups remain inactive and provisional.
 | Group | Status | Focused preflight |
 | --- | --- | --- |
 | 1. Checked reads | Active; immutable singleton projection and structural kernel/search frontier composition delivered; latency acceptance and orchestration work remain | [01](./01-checked-reads-preflight.md) |
-| Orchestration reassessment | Active; request-owned read-admission construction implemented under the approved focused contract with bounded standalone improvement; accepting Application readiness remains the next measured construction owner, broader target decisions pending | [Orchestration](./orchestration-simplification-preflight.md), [target](./orchestration-target-design.md), [measurement](./native-retrieval-measurement-preflight.md), [selected slice](./read-admission-construction-preflight.md) |
+| Orchestration reassessment | Active; construction and Application acceptance implemented with bounded connected proof; original mixed latency regression unresolved and whole goals open | [Orchestration](./orchestration-simplification-preflight.md), [target](./orchestration-target-design.md), [measurement](./native-retrieval-measurement-preflight.md), [construction](./read-admission-construction-preflight.md), [acceptance](./fresh-application-acceptance-preflight.md) |
 | 2. Publication | Prepared, inactive; provisional after reassessment | [02](./02-publication-preflight.md) |
 | 3. Initial request admission | Prepared, inactive; provisional after reassessment | [03](./03-request-admission-preflight.md) |
 | 4. Seal verification | Prepared, inactive; provisional after reassessment | [04](./04-seal-verification-preflight.md) |

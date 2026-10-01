@@ -190,7 +190,8 @@ import {
 } from "./applicationActivation";
 import {
   readPreparedFiniteApplicationMutationInputs,
-  validatePreparedFiniteApplicationMutationAdmissionInTransaction,
+  withPreparedFiniteApplicationMutationAdmissionInTransaction,
+  type PreparedFiniteApplicationMutationAdmissionAcceptanceError,
   type PreparedFiniteApplicationMutationAdmission,
   type ApplicationMutationAdmissionContext,
   type ApplicationMutationAdmissionError,
@@ -721,7 +722,7 @@ export type FiniteApplicationMutationSessionActivationError =
   | ApplicationActivationError
   | ApplicationMutationAdmissionError
   | ApplicationMutationExecutionAuthorityV1Error
-  | Effect.Error<ReturnType<typeof validatePreparedFiniteApplicationMutationAdmissionInTransaction>>
+  | PreparedFiniteApplicationMutationAdmissionAcceptanceError
   | Effect.Error<ReturnType<SessionJournalStorePersistence["prepareFiniteEntryEffect"]>>
   | Effect.Error<ReturnType<typeof runPreparedFiniteSessionJournalEntryEffect>>;
 
@@ -1576,9 +1577,8 @@ const finiteApplicationActivationScopedOperation = defineScopedWriteOperation(
     const replay = yield* Effect.tryPromise({ try: () => replayApplicationSessionIfPresent(tx, input, clock), catch: mapActivationTransactionError });
     if (replay !== null) return Object.freeze({ activation: replay });
     openProtectedMetadataFinalGuardScope(tx);
-    return yield* Effect.gen(function* () {
-      const accepted = yield* validatePreparedFiniteApplicationMutationAdmissionInTransaction(
-        prepared.preparedAdmission, prepared.admissionContext, tx, clock.record);
+    return yield* withPreparedFiniteApplicationMutationAdmissionInTransaction(
+      prepared.preparedAdmission, prepared.admissionContext, tx, clock.record, (accepted, binding) => Effect.gen(function* () {
       if (clock.record.lastCommitSeq !== input.preliminaryAuthority.lastCommitSeq)
         return yield* Effect.fail(activationError({ reason: "snapshotCommitSeqChanged" }));
       let projection: FreshSessionEntryProjection | undefined;
@@ -1594,13 +1594,13 @@ const finiteApplicationActivationScopedOperation = defineScopedWriteOperation(
       const loaded = yield* Effect.fromResult(projectCorrelatedFreshSessionEntry(input, clock, finalProjection));
       const context = yield* Effect.fromResult(runningAttemptKernelContextResult(loaded));
       const capture = yield* runPreparedFiniteSessionJournalEntryEffect(entry, tx, context,
-        { authority: input.preliminaryAuthority, target }, accepted.selection, control,
+        { authority: input.preliminaryAuthority, target }, accepted.selection, binding, control,
         requireCorrelatedFreshSessionEntryEffect(tx, finalProjection, input.prepared.scopeId).pipe(Effect.mapError(cause =>
           new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause }))));
       yield* flushProtectedMetadataFinalGuards(tx).pipe(Effect.mapError(cause =>
         new SessionJournalPersistenceV1Error({ operation: "openAttempt", cause })));
       return Object.freeze({ activation, capture });
-    }).pipe(Effect.ensuring(Effect.sync(() => {
+    })).pipe(Effect.ensuring(Effect.sync(() => {
       closeProtectedMetadataFinalGuardScope(tx);
     })));
   }),

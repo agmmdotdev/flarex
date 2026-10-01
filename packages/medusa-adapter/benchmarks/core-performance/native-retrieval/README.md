@@ -78,6 +78,41 @@ must be `-1`. Trace uses a new label, mode `trace` and one sample by default.
 It records client dispatch, rows and native call edges separately from quiet
 latency. Setup, parity checks and settings capture remain outside intervals.
 
+For a separate quiet component run set `NATIVE_RETRIEVAL_COMPONENT_SPANS=1`
+and use a fresh label. Each Flarex sample retains selected existing Effect owner
+spans with inclusive duration, parent identity and outcome; successful admission
+must include exactly one binding validator and one stored-readiness validator.
+The request interval still includes all preparation and acceptance work. Compare
+this run with the original quiet control to observe tracer overhead. Nested span
+durations and their medians/P95 are not additive. The stored-readiness validator
+is the comparable initial-readiness subcomponent; a replacement that extends a
+binding callback through native work changes that callback's denominator. Measure
+the final guard separately and derive any combined admission interval from each
+sample's disjoint intervals before computing its distribution. Missing spans do
+not establish zero cost; SQL/server/body-transfer evidence remains separate.
+
+For a separate complete-request cold connection run set
+`NATIVE_RETRIEVAL_COLD_POOL_CLIENT=1`. Before every Flarex invocation, the benchmark
+requires idle target/control Pools with no held or waiting clients, acquires all
+idle clients through their Pool and destroys them with `release(true)`. This reset
+is outside the request interval and reported separately; connection establishment,
+authentication and first Parse occur inside the unchanged `CommerceHost.read`
+interval. The profile is **coldPoolClient**, not a request-scoped Client host.
+The native paired lane retains its existing module/pool lifetime. Five process
+warmups still precede thirty retained samples; every Flarex sample gets fresh
+physical connections. Default retained-pool measurements remain separate.
+
+For independent protocol diagnostics use `NATIVE_RETRIEVAL_MODE=trace` and
+`NATIVE_RETRIEVAL_PROTOCOL=1`, optionally with the cold option. Actual pg Connection
+`parse`, `bind`, `describe`, `execute`, `sync` and simple `query` submissions are
+observed in both drivers. Arguments, receivers, results and thrown errors pass
+through unchanged. Evidence retains method, connection, statement name and SQL
+byte length/hash only; no SQL bodies, bind values or credentials. This records
+method submissions, not server completion or wire bytes. Simple Query plus Execute
+counts must match client SQL dispatches; named identity bindings cover both shapes,
+and cold requests must Parse both exact SQL names. Keep protocol/hash instrumentation
+outside quiet latency comparisons and label each report with its actual options.
+
 Server mode requires root configuration of both measured databases for
 `pg_stat_statements.track=all`, plus explicitly recorded auto_explain settings
 and external server-log cuts. Start a fresh process after configuration. Set
@@ -564,3 +599,69 @@ verified final DTO/runtime/source stability, executing-file hashes, positive
 lane server work, the 27 focused tests and final core/diff lint.
 For another run, supply a fresh base label without a mode prefix. Exclusive
 creation refuses replacement of retained reports.
+
+## Fresh Application acceptance
+
+The selected named identity owner passes the controlled component gate. Complete
+retained-Pool requests also improve, while a substantial gap to native Medusa
+remains. Bounded connected correctness and cold/protocol evidence are established;
+the full mixed milestone retains its original unresolved regression. The [focused preflight](../../../../../roadmaps/core-performance/fresh-application-acceptance-preflight.md)
+owns the approved proof and refusal timing; this ledger owns exact measurements.
+
+| Distribution, ms | Baseline scalar median/P95 | Named scalar median/P95 | Baseline collection median/P95 | Named collection median/P95 |
+| --- | ---: | ---: | ---: | ---: |
+| Initial readiness + precheck + tail sample-level interval union | 8.03275 / 12.8889 | 4.3112 / 6.8804 | 7.34905 / 11.749 | 4.18135 / 7.4727 |
+| Complete request, no component/protocol observation | 56.2086 / 68.1748 | 52.98275 / 66.3527 | 54.91225 / 89.1993 | 47.83545 / 53.2059 |
+
+Each quiet run uses five warmups and thirty retained samples per demand and lane.
+The union merges each sample's overlapping intervals before distribution; medians
+and P95 are never added. Current paired native medians/P95 are 1.5369/2.1463 ms
+scalar and 1.6499/2.134 ms collection. These measurements establish this component
+improvement, not native parity, Hyperdrive latency or whole-goal acceptance.
+
+`named-acceptance-summary.json` links the original baseline, named component and
+complete-request raw JSON. Both named reports retain their exact source before
+the mechanical Describe portal/type label correction. That helper executes only
+in opt-in protocol trace mode, and the production sources are unchanged. Later
+protocol/cold evidence uses its own source inventory. The original baseline's
+omitted Application-native fixture inventory remains explicitly recorded; no
+retroactive hash is presented as an original capture.
+
+Warm protocol scalar/collection requests have 63/65 SQL dispatches and three
+transactions, with Parse 51/53, Bind/Describe/Execute/Sync 55/57 each and eight
+simple Query submissions. The two identity shapes execute four Binds with no
+Parse in the warm profile. `coldPoolClient` destroys one idle target and one idle
+control client per request, then has the same SQL/transaction counts with Parse
+53/55: both identity statements get their first Parse, whose names match the
+compiled SQL digest, while all four identity Binds still execute. Native uses one
+simple Query per selected retrieval. These method counts are distinct from SQL
+dispatches, server-completed messages, wire bytes and roundtrips.
+
+The separate cold quiet run retains five warmups/thirty samples with component
+and protocol observation disabled. Flarex scalar median/P95 is
+177.5451/211.7458 ms; collection is 178.4756/185.6469 ms. Reset method medians
+0.1204/0.11305 ms are outside these request intervals. Native existing-lifetime
+medians/P95 are 1.4323/1.8189 ms scalar and 1.7454/2.1442 ms collection. No
+pre-change complete cold request baseline was captured, so this establishes
+charged coldPoolClient costs rather than comparative improvement. It does not
+establish request-scoped Client-host or cache-disabled Hyperdrive performance.
+
+`fresh-acceptance-candidate-summary.json` preserves both earlier failed latency
+candidates, their canonical-removal/dispatch proof and bounded structural scaling.
+Filenames containing `final` in those older artifacts identify their collection
+labels; they do not imply performance acceptance. Their server artifacts are
+lossless gzip of explicitly sanitized derivatives. Only SQL PASSWORD credential
+literals were redacted; exact original bytes and original/sanitized hashes remain
+in ignored private receipts. The repository artifacts retain the redaction label
+and original hash, and the summary records compressed and uncompressed hashes.
+
+### Connected milestone disposition
+
+The [focused shared milestone ledger](../../../../flarex-backend/benchmarks/core-performance/fresh-application-acceptance/README.md)
+preserves baseline quiet/structural smoke, final complete quiet/traced requests
+and the targeted mixed repeat with lossless raw packaging and source/settings
+provenance. Bounded connected correctness is established. The original full mixed
+quiet run regresses; its targeted repeat is healthy, but cause is unestablished.
+The repeat does not replace original samples or close whole performance goals.
+Actual Hyperdrive activation, native parity
+and post-native finite Product event global-tail proof remain outside this evidence.

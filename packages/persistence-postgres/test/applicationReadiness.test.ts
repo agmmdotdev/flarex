@@ -1,4 +1,5 @@
 import { applicationMutationActivationFixture } from "./applicationMutationActivationFixture";
+import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import { webcrypto } from "node:crypto";
 import { eq, ne, sql } from "drizzle-orm";
 
@@ -49,7 +50,7 @@ import {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/internal/prepared-definition-v1";
-import { Effect, Encoding, Exit, Result, Scope } from "effect";
+import { Effect, Encoding, Exit, Result, Schema, Scope } from "effect";
 
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
@@ -129,7 +130,7 @@ import {
   selectApplicationMutationAdmission,
   prepareFiniteApplicationMutationAdmission,
   readPreparedFiniteApplicationMutationInputs,
-  validatePreparedFiniteApplicationMutationAdmissionInTransaction,
+  withPreparedFiniteApplicationMutationAdmissionInTransaction,
 } from "../src/applicationMutationAdmission";
 import { selectApplicationActionAdmission } from
   "../src/applicationActionAdmission";
@@ -169,6 +170,9 @@ import {
   readApplicationBindingPreparationInputs,
   readApplicationBindingTargetProtection,
   validateApplicationBindingBasisInTransaction,
+  withValidatedApplicationBindingBasisInTransaction,
+  requireAcceptedApplicationBindingObservation,
+  type AcceptedApplicationBinding,
   type ApplicationBindingInput,
   validateApplicationActiveSelectionInTransaction,
   type CoherentActiveApplication,
@@ -2660,7 +2664,29 @@ describe("Application activation", { timeout: 30_000 }, () => {
     expect(Result.isFailure(readPreparedFiniteApplicationMutationInputs(closedPreparation, context))).toBe(true);
     const accept = () => fixture.target.drizzle.transaction(tx => runEffect(Effect.gen(function* () {
       const clock = yield* lockScopeClockForShareInTransactionEffect(tx, fixture.input.scopeId);
-      return yield* validatePreparedFiniteApplicationMutationAdmissionInTransaction(prepared, context, tx, clock);
+      let escaped: AcceptedApplicationBinding | undefined;
+      const accepted = yield* withPreparedFiniteApplicationMutationAdmissionInTransaction(prepared, context, tx, clock,
+        (admitted, binding) => Effect.gen(function* () {
+          escaped = binding;
+          expect(Result.isSuccess(requireAcceptedApplicationBindingObservation(binding, admitted.selection, tx, clock))).toBe(true);
+          expect(Result.isFailure(claimApplicationExecutableActiveSelection(binding))).toBe(true);
+          // SAFETY: cloned nominal token/transaction deliberately exercise identity refusal.
+          expect(Result.isFailure(requireAcceptedApplicationBindingObservation({ ...binding } as AcceptedApplicationBinding,
+            admitted.selection, tx, clock))).toBe(true);
+          expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding, admitted.selection, { ...tx } as typeof tx, clock))).toBe(true);
+          expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding, admitted.selection, tx,
+            { ...clock, storageGenerationFence: Schema.decodeUnknownSync(StorageGenerationFenceSchema)(
+              (clock.storageGenerationFence + 1n).toString()) }))).toBe(true);
+          expect(Result.isFailure(requireAcceptedApplicationBindingObservation(binding,
+            { ...admitted.selection }, tx, clock))).toBe(true);
+          const borrowed = yield* withValidatedApplicationBindingBasisInTransaction(admitted.selection, tx, clock,
+            validated => Effect.succeed(validated), binding);
+          expect(borrowed.basis.revisionId).toBe(admitted.basis.revisionId);
+          return admitted;
+        }));
+      if (escaped === undefined) throw new Error("Missing finite callback observation");
+      expect(Result.isFailure(requireAcceptedApplicationBindingObservation(escaped, accepted.selection, tx, clock))).toBe(true);
+      return accepted;
     })));
     expect((await accept()).basis.revisionId).toBe(fixture.input.revisionId);
     await fixture.target.drizzle.update(fxSystemApplicationFunctionsV1).set({ entryBytes: new Uint8Array([1]) })

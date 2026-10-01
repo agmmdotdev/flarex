@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { Result, Schema } from "effect";
 
 import type { ScopeId, ScopeUuidV1 } from "flarex-protocol/storage-authority";
@@ -103,16 +103,17 @@ export async function readRunningAttemptTail(
 
 // The only body normalization is line endings and the actual pinned schema
 // prefix. Foreign relations, changed predicates and altered statements differ.
-export const runningAttemptTailProtectionSql = sql<boolean>`(
-  (select count(*) = 1 from pg_catalog.pg_proc p
-    where p.pronamespace = pg_catalog.current_schema()::pg_catalog.regnamespace
+// The metadata attestation owner supplies its query-local catalog relations.
+// This owner keeps the complete function contract and never retains a verdict.
+export const runningAttemptTailProtectionSql = (functions: SQL, tables: SQL, context: SQL) => sql<boolean>`(
+  (select count(*) = 1 from ${functions} p
+    where p.pronamespace = (select namespace_oid from ${context})
       and p.proname = 'fx_lock_running_attempt_tail')
   and exists (
-    select 1 from pg_catalog.pg_proc p
-    join pg_catalog.pg_language l on l.oid = p.prolang
-    join pg_catalog.pg_class r on r.relnamespace = p.pronamespace and r.relname = 'fx_system_tx_journal'
-    join pg_catalog.pg_class c on c.relnamespace = p.pronamespace and c.relname = 'fx_system_tx_execution_claim'
-    where p.pronamespace = pg_catalog.current_schema()::pg_catalog.regnamespace
+    select 1 from ${functions} p
+    join ${tables} r on r.relnamespace = p.pronamespace and r.relname = 'fx_system_tx_journal'
+    join ${tables} c on c.relnamespace = p.pronamespace and c.relname = 'fx_system_tx_execution_claim'
+    where p.pronamespace = (select namespace_oid from ${context})
       and p.proname = 'fx_lock_running_attempt_tail'
       and p.pronargs = 4 and p.pronargdefaults = 0
       and p.proargtypes = '2950 2950 20 25'::pg_catalog.oidvector
@@ -121,16 +122,16 @@ export const runningAttemptTailProtectionSql = sql<boolean>`(
       and p.proargnames = array['p_scope_uuid', 'p_session_id', 'p_attempt_fence', 'p_scope_id',
         'disposition', 'journal_root', 'execution_claim', 'database_now_epoch_milliseconds']::text[]
       and p.prorettype = 'pg_catalog.record'::pg_catalog.regtype and p.proretset
-      and p.prokind = 'f' and l.lanname = 'plpgsql' and p.provolatile = 'v'
+      and p.prokind = 'f' and p.lanname = 'plpgsql' and p.provolatile = 'v'
       and not p.prosecdef and not p.proisstrict and not p.proleakproof and p.proparallel = 'u'
       and p.prosupport = 0
       and p.proconfig = array['search_path=pg_catalog, pg_temp']
       and p.proowner = r.relowner and p.proowner = c.relowner
-      and p.proowner <> (select oid from pg_catalog.pg_roles where rolname = session_user)
-      and pg_catalog.has_function_privilege(session_user, p.oid, 'EXECUTE')
+      and p.proowner <> (select oid from ${context})
+      and pg_catalog.has_function_privilege((select oid from ${context}), p.oid, 'EXECUTE')
       and pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.replace(
         pg_catalog.replace(p.prosrc, E'\\r\\n', E'\\n'),
-        pg_catalog.quote_ident(pg_catalog.current_schema()) || '.', '"__flarex_target__".'
+        pg_catalog.quote_ident((select schema_name from ${context})) || '.', '"__flarex_target__".'
       ), 'UTF8')), 'hex') = '73683de27b07e15c4030d1590b447a7d7625a485244e745325bf9f43b8d43300'
   )
 )`;

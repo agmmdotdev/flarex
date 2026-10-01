@@ -3,7 +3,7 @@ import { prepareLogicalSchemaCandidate, readPreparedLogicalSchemaCandidate } fro
 import { makeSchemaComposer } from "../../src/schemaComposition";
 import { createApplicationNativeMutationPGliteFixtureWithPersistence,
   createApplicationNativeMutationPostgresFixture, type ApplicationNativeMutationPGliteFixture,
-  type ApplicationNativeMutationPostgresFixture } from
+  type ApplicationNativeMutationPostgresFixture, type ApplicationNativeMutationFixtureOptions } from
   "../../../persistence-postgres/test/fixtures/applicationNativeMutationTestFixture";
 import { createMigratedPGlitePersistence } from "../../../persistence-postgres/test/pgliteTestFixture";
 import { createRelationalPGliteFixture } from "../../../persistence-postgres/test/relationalPGliteWorkerTestSupport";
@@ -78,6 +78,9 @@ type LogicalCurrencyFixtureOptions = Readonly<{
   includeShippingProfile?: boolean;
   includeProductShippingProfileLink?: boolean;
   protectedRuntime?: boolean;
+  applicationAcceptanceScale?: ApplicationNativeMutationFixtureOptions["acceptanceScale"];
+  readinessRuntimeHostIdentity?: string;
+  includeApplicationTask?: boolean;
 }> & (Readonly<{ resource?: never; fixtureIdentity?: FixtureIdentity }>
   | Readonly<{ resource: LogicalCurrencyResource; fixtureIdentity: FixtureIdentity }>);
 
@@ -137,7 +140,9 @@ export async function logicalCurrencyFixture(
   const { control, target } = pair;
   const schemaName = (await target.query<{ schema: string }>("select current_schema() as schema")).rows[0]?.schema;
   if (schemaName === undefined) throw new Error("Missing logical Currency target schema");
-  const applicationOptions = { runtimeHostIdentity: "flarex.test/logical-currency", compatibilityDate: "2026-09-20",
+  const applicationOptions = { runtimeHostIdentity: options?.readinessRuntimeHostIdentity ?? "flarex.test/logical-currency", compatibilityDate: "2026-09-20",
+    ...(options?.applicationAcceptanceScale === undefined ? {} : { acceptanceScale: options.applicationAcceptanceScale }),
+    ...(options?.includeApplicationTask === undefined ? {} : { includeTask: options.includeApplicationTask }),
     ...(options?.includeUserNameIndex === true ? { includeUserNameIndex: true } : {}),
     ...(options?.includeProductLaunch === true ? { includeProductLaunch: true } : {}),
     ...(options?.fixtureIdentity === undefined ? {} : { fixtureIdentity: options.fixtureIdentity }),

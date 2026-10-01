@@ -24,7 +24,9 @@ import {
   validateApplicationExecutableActiveSelectionInTransaction,
   prepareFiniteActiveApplication,
   readPreparedFiniteActiveApplication,
-  validatePreparedFiniteActiveApplicationInTransaction,
+  withPreparedFiniteActiveApplicationInTransaction,
+  type AcceptedApplicationBinding,
+  type validateApplicationBindingBasisInTransaction,
   type PreparedFiniteActiveApplication,
   type ApplicationActiveSelection,
   type ApplicationActivationRepository,
@@ -145,16 +147,21 @@ export function readPreparedFiniteApplicationMutationInputs(prepared: PreparedFi
     Object.freeze({ basis: claimed.basis, schema, executionAuthority: structuredClone(state.inputs.executionAuthority) })));
 }
 
-/** The sole live Application acceptance frontier for the migrated finite entry. */
-export const validatePreparedFiniteApplicationMutationAdmissionInTransaction = Effect.fn(
+export type PreparedFiniteApplicationMutationAdmissionAcceptanceError = ApplicationMutationAdmissionError |
+  Effect.Error<ReturnType<typeof validateApplicationBindingBasisInTransaction>>;
+
+/** The sole live Application frontier owns its observation through the exact entry/source union. */
+export const withPreparedFiniteApplicationMutationAdmissionInTransaction = Effect.fn(
   "ApplicationMutationAdmission.acceptPreparedFinite",
-)(function* (prepared: PreparedFiniteApplicationMutationAdmission, context: ApplicationMutationAdmissionContext,
-  tx: AppRowTransaction, clock: ScopeClockRecord) {
+)(function* <Value, Failure, Requirements>(prepared: PreparedFiniteApplicationMutationAdmission,
+  context: ApplicationMutationAdmissionContext, tx: AppRowTransaction, clock: ScopeClockRecord,
+  work: (accepted: ApplicationMutationAdmission, binding: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>) {
   const state = finiteMutationPreparations.get(prepared);
   if (state === undefined || state.context !== context) return yield* failure("invalidComposition");
-  const inputs = yield* Effect.fromResult(readPreparedFiniteApplicationMutationInputs(prepared, context));
-  const accepted = yield* validatePreparedFiniteActiveApplicationInTransaction(state.active, tx, clock);
-  return Object.freeze({ ...inputs, selection: accepted.selection });
+  return yield* withPreparedFiniteActiveApplicationInTransaction(state.active, tx, clock,
+    (accepted, binding) => work(Object.freeze({ basis: accepted.basis, selection: accepted.selection,
+      schema: structuredClone(state.inputs.schema),
+      executionAuthority: structuredClone(state.inputs.executionAuthority) }), binding));
 });
 
 export class ApplicationMutationAdmissionError extends Data.TaggedError(

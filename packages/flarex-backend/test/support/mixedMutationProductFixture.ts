@@ -162,6 +162,7 @@ export interface MixedMutationProductFixtureHooks {
     Parameters<ReturnType<typeof createSessionJournalStorePersistence>["prepareFiniteEntryEffect"]>[0];
   readonly beforeFinalEntry?: (context: MixedMutationFinalEntryTestContext) => Promise<void>;
   readonly onFinalEntryFailure?: (context: MixedMutationFinalEntryTestContext, exit: Exit.Exit<unknown, unknown>) => Promise<void>;
+  readonly standaloneOwnerCredentialFault?: true;
   readonly beforeProductBorrow?: (method: string) => Effect.Effect<void, CommerceTransactionError>;
   readonly beforeWorkflowBorrow?: () => Effect.Effect<void, CommerceTransactionError>;
   readonly beforeNative?: (method: string) => Effect.Effect<void, CommerceTransactionError>;
@@ -1338,28 +1339,39 @@ export default { async fetch(_request, env) {
     const primary = await target.pool.connect();
     let separate: Awaited<ReturnType<typeof createPostgresPersistence>> | undefined;
     try {
-      const identity = (await primary.query<{ schemaName: string; pid: number }>(
-        'select current_schema() as "schemaName", pg_backend_pid()::int as pid')).rows[0];
+      const identity = (await primary.query<{ schemaName: string; pid: number; login: string; role: string; databaseName: string }>(
+        'select current_schema() as "schemaName", pg_backend_pid()::int as pid, session_user as login, current_user as role, current_database() as "databaseName"')).rows[0];
       if (identity === undefined || !/^[a-z_][a-z0-9_]*$/.test(identity.schemaName))
         throw new Error("Missing standalone target PostgreSQL connection identity");
-      const postgresUrl = process.env.FLAREX_POSTGRES_DATABASE_URL;
-      if (postgresUrl === undefined) throw new Error("Missing PostgreSQL URL for standalone command");
+      const faultUrl = input.hooks?.standaloneOwnerCredentialFault === true ? process.env.FLAREX_POSTGRES_DATABASE_URL : undefined;
+      if (input.hooks?.standaloneOwnerCredentialFault === true && faultUrl === undefined)
+        throw new Error("Missing PostgreSQL owner URL for standalone credential fault");
       separate = await createPostgresPersistence({
-        connectionString: postgresUrl,
-        poolConfig: { options: `-c search_path=${identity.schemaName}`,
+        poolConfig: { ...target.pool.options, password: target.pool.options.password,
+          ...(faultUrl === undefined ? {} : { connectionString: faultUrl }),
+          options: `-c search_path=${identity.schemaName}`,
           application_name: applicationName, max: 1 },
       });
+      const authenticated = (await separate.query<{ schemaName: string; login: string; role: string; databaseName: string }>(
+        'select current_schema() as "schemaName", session_user as login, current_user as role, current_database() as "databaseName"')).rows[0];
+      if (authenticated === undefined || authenticated.schemaName !== identity.schemaName ||
+        authenticated.login !== identity.login || authenticated.role !== identity.role ||
+        authenticated.databaseName !== identity.databaseName)
+        throw new Error("Standalone Commerce credential identity mismatch");
       const session = makePostgresRelationalSession({ drizzle: target.drizzle,
         pool: separate.pool });
       const result = await invoke(session);
       if (separate.pool.totalCount !== 1 || separate.pool.idleCount !== 1)
         throw new Error("Standalone command did not release its single PostgreSQL connection");
-      const standalone = (await separate.query<{ pid: number; schemaName: string; applicationName: string }>(
+      const standalone = (await separate.query<{ pid: number; schemaName: string; applicationName: string;
+        login: string; role: string; databaseName: string }>(
         `select pg_backend_pid()::int as pid, current_schema() as "schemaName",
-          current_setting('application_name') as "applicationName"`)).rows[0];
+          current_setting('application_name') as "applicationName", session_user as login,
+          current_user as role, current_database() as "databaseName"`)).rows[0];
       if (standalone === undefined || standalone.pid === identity.pid ||
         standalone.schemaName !== identity.schemaName ||
-        standalone.applicationName !== applicationName)
+        standalone.applicationName !== applicationName || standalone.login !== identity.login ||
+        standalone.role !== identity.role || standalone.databaseName !== identity.databaseName)
         throw new Error("Standalone command used wrong PostgreSQL connection");
       const sameTargetBackend = (await primary.query<{ present: boolean }>(
         `select exists(select 1 from pg_stat_activity where pid = $1 and application_name = $2
@@ -1400,27 +1412,44 @@ export default { async fetch(_request, env) {
     const postgresTarget = currency.resource.kind === "postgres" ? currency.resource.target : undefined;
     const primary = await postgresTarget?.pool.connect();
     try {
-    const postgresUrl = process.env.FLAREX_POSTGRES_DATABASE_URL;
-    const primaryIdentity = await primary?.query<{ schemaName: string; pid: number }>(
-      'select current_schema() as "schemaName", pg_backend_pid()::int as pid');
+    const faultUrl = input.hooks?.standaloneOwnerCredentialFault === true ? process.env.FLAREX_POSTGRES_DATABASE_URL : undefined;
+    if (input.hooks?.standaloneOwnerCredentialFault === true && faultUrl === undefined)
+      throw new Error("Missing PostgreSQL owner URL for standalone credential fault");
+    const primaryIdentity = await primary?.query<{ schemaName: string; pid: number; login: string; role: string; databaseName: string }>(
+      'select current_schema() as "schemaName", pg_backend_pid()::int as pid, session_user as login, current_user as role, current_database() as "databaseName"');
     const schemaName = primaryIdentity?.rows[0]?.schemaName;
     const primaryTargetPid = primaryIdentity?.rows[0]?.pid;
-    if (postgresTarget !== undefined && (postgresUrl === undefined || schemaName === undefined ||
-      primaryTargetPid === undefined || !/^[a-z_][a-z0-9_]*$/.test(schemaName)))
+    const primaryLogin = primaryIdentity?.rows[0]?.login;
+    const primaryRole = primaryIdentity?.rows[0]?.role;
+    const primaryDatabase = primaryIdentity?.rows[0]?.databaseName;
+    if (postgresTarget !== undefined && (schemaName === undefined ||
+      primaryTargetPid === undefined || primaryLogin === undefined || primaryRole === undefined ||
+      primaryDatabase === undefined || !/^[a-z_][a-z0-9_]*$/.test(schemaName)))
       throw new Error("Missing PostgreSQL standalone target identity");
     const standaloneApplicationName = "flarex_payload_standalone";
     let separate: Awaited<ReturnType<typeof createPostgresPersistence>> | undefined;
+    try {
     if (postgresTarget !== undefined) {
-      if (postgresUrl === undefined || schemaName === undefined)
+      if (schemaName === undefined)
         throw new Error("Missing PostgreSQL standalone target identity");
-      separate = await createPostgresPersistence({ connectionString: postgresUrl,
-        poolConfig: { options: `-c search_path=${schemaName}`,
-          application_name: standaloneApplicationName },
+      separate = await createPostgresPersistence({
+        poolConfig: { ...postgresTarget.pool.options, password: postgresTarget.pool.options.password,
+          ...(faultUrl === undefined ? {} : { connectionString: faultUrl }),
+          options: `-c search_path=${schemaName}`,
+          application_name: standaloneApplicationName, max: 1 },
       });
     }
     const postgresSession = postgresTarget === undefined || separate === undefined ? undefined :
       makePostgresRelationalSession({ drizzle: postgresTarget.drizzle, pool: separate.pool });
-    try { return await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+    if (separate !== undefined) {
+      const authenticated = (await separate.query<{ schemaName: string; login: string; role: string; databaseName: string }>(
+        'select current_schema() as "schemaName", session_user as login, current_user as role, current_database() as "databaseName"')).rows[0];
+      if (authenticated === undefined || authenticated.schemaName !== schemaName ||
+        authenticated.login !== primaryLogin || authenticated.role !== primaryRole ||
+        authenticated.databaseName !== primaryDatabase)
+        throw new Error("Standalone Payload credential identity mismatch");
+    }
+    const result = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
       const runtime = yield* makePayloadRuntime(compiledPayload);
       const host = yield* makeCmsHost({ hostRuntime: preparedHostTestRuntime(currency.persistence.drizzle),
         database: currency.persistence.drizzle, controlDatabase: currency.control.drizzle,
@@ -1444,17 +1473,21 @@ export default { async fetch(_request, env) {
       separate === undefined ? undefined : { afterAdmission: tx => Effect.tryPromise({
         try: async () => {
           const observed = await tx.execute<{ pid: number; schemaName: string; applicationName: string;
-            primaryStillConnected: boolean }>(sql`select pg_backend_pid()::int as pid,
+            primaryStillConnected: boolean; login: string; role: string; databaseName: string }>(sql`select pg_backend_pid()::int as pid,
               current_schema() as "schemaName",
               current_setting('application_name') as "applicationName",
+              session_user as login, current_user as role, current_database() as "databaseName",
               exists(select 1 from pg_stat_activity where pid = ${primaryTargetPid}) as "primaryStillConnected"`);
           const connection = Schema.decodeUnknownSync(Schema.Struct({ rows: Schema.Array(
             Schema.Struct({ pid: Schema.Number, schemaName: Schema.String,
-              applicationName: Schema.String, primaryStillConnected: Schema.Boolean })) }))(observed).rows[0];
+              applicationName: Schema.String, primaryStillConnected: Schema.Boolean,
+              login: Schema.String, role: Schema.String, databaseName: Schema.String })) }))(observed).rows[0];
           if (connection === undefined || primaryTargetPid === undefined ||
             connection.pid === primaryTargetPid ||
             connection.schemaName !== schemaName ||
             connection.applicationName !== standaloneApplicationName ||
+            connection.login !== primaryLogin || connection.role !== primaryRole ||
+            connection.databaseName !== primaryDatabase ||
             connection.primaryStillConnected !== true) throw new Error("Standalone Payload used wrong PostgreSQL connection");
           standalonePayloadPgConnections.push(Object.freeze({
             primaryTargetPid, standalonePid: connection.pid }));
@@ -1464,7 +1497,11 @@ export default { async fetch(_request, env) {
       return yield* host.run(host.newRequestKey(), runtime.commands.create, {
         collection: "posts", data: { title, publishedAt: "2026-01-01" },
       }).pipe(Effect.ensuring(host.close));
-    }))); } finally { await separate?.close(); }
+    })));
+    if (separate !== undefined && (separate.pool.totalCount !== 1 || separate.pool.idleCount !== 1))
+      throw new Error("Standalone Payload did not release its single PostgreSQL connection");
+    return result;
+    } finally { await separate?.close(); }
     } finally { primary?.release(); }
   }
   const defaultPublisher = createPointCommitPublisherPortV1(application.sessionAuthority, publisherOptions);

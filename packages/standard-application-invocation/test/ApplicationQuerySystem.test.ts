@@ -8,6 +8,8 @@ import type {
 } from "@flarex/persistence-postgres/internal/application-activation";
 import { ScopeExecutionLive } from
   "@flarex/persistence-postgres/internal/scope-execution";
+import { ApplicationQuerySnapshotError } from
+  "@flarex/persistence-postgres/internal/application-query-snapshot";
 import { Effect, Result } from "effect";
 import {
   ScopeSyncQueryModelSha256,
@@ -413,7 +415,7 @@ describe("Application query system", () => {
     }
   });
 
-  it("composes the active target, Source Artifact, snapshot capability, and fresh host request", async () => {
+  it("composes the fresh host request without returning accessor-bearing revalidation metadata", async () => {
     const manifest = applicationManifest();
     const selection = Object.freeze({}) as ApplicationActiveSelection;
     const basis = activeBasis(manifest);
@@ -435,7 +437,14 @@ describe("Application query system", () => {
       budget: queryBudget(),
     });
     operations.open.mockReturnValue(Effect.succeed({ snapshot, metadata }));
-    operations.revalidate.mockReturnValue(Effect.succeed(metadata));
+    let digestReads = 0;
+    const revalidated = Object.freeze({ ...metadata, basis: Object.freeze({ ...basis,
+      physicalRequirements: Object.freeze({ get manifestSha256() {
+        digestReads += 1;
+        return new Uint8Array(32);
+      } }),
+    }) });
+    operations.revalidate.mockReturnValue(Effect.succeed(revalidated));
     operations.readPoint.mockReturnValue(Effect.succeed({ kind: "missing" }));
     operations.readIndex.mockReturnValue(Effect.succeed({
       documents: [],
@@ -476,7 +485,8 @@ describe("Application query system", () => {
       });
       expect(input.capability).toEqual(expect.objectContaining({}));
       return Effect.promise(async () => {
-        await input.capability.revalidate();
+        expect(await input.capability.revalidate()).toBeUndefined();
+        expect(digestReads).toBe(0);
         await input.capability.readPointDocument(
           "users",
           "1:00000000-0000-0000-0000-000000000001",
@@ -513,6 +523,7 @@ describe("Application query system", () => {
     ));
 
     expect(result).toEqual({ ok: true });
+    expect(digestReads).toBe(0);
     expect(readActive).toHaveBeenCalledOnce();
     expect(operations.open).toHaveBeenCalledWith(
       selection,
@@ -610,7 +621,7 @@ describe("Application query system", () => {
     expect(hostRun).toHaveBeenCalledOnce();
   });
 
-  it("exposes rejected Worker read capabilities through the host boundary", async () => {
+  it("exposes failed revalidation through the host boundary before Worker business reads", async () => {
     const manifest = applicationManifest();
     const selection = Object.freeze({}) as ApplicationActiveSelection;
     const basis = activeBasis(manifest);
@@ -637,6 +648,12 @@ describe("Application query system", () => {
       operation: "transaction",
       reason: "readBoundaryFailed",
     });
+    const snapshotError = new ApplicationQuerySnapshotError({
+      operation: "revalidate", reason: "historyUnavailable", retryable: false,
+    });
+    operations.revalidate.mockReturnValue(Effect.fail(snapshotError));
+    operations.readPoint.mockClear();
+    let businessReads = 0;
     const live = {
       activation: { readActive: () => Effect.succeed({
         selection,
@@ -659,7 +676,21 @@ describe("Application query system", () => {
         }]),
       }) },
       host: {
-        runTransaction: () => Effect.fail(readBoundaryError),
+        runTransaction: input => Effect.tryPromise({
+          try: async () => {
+            const revalidate = Reflect.get(input.capability, "revalidate");
+            const readPoint = Reflect.get(input.capability, "readPointDocument");
+            if (typeof revalidate !== "function" || typeof readPoint !== "function")
+              throw new Error("Expected Application query RPC capability.");
+            await Reflect.apply(revalidate, input.capability, []);
+            businessReads += 1;
+            await Reflect.apply(readPoint, input.capability, [
+              "users", "1:00000000-0000-0000-0000-000000000001",
+            ]);
+            return { ok: true };
+          },
+          catch: cause => { expect(cause).toBe(snapshotError); return readBoundaryError; },
+        }),
       },
       executionContextFactory: () => ({
         executionId: "execution-query-read-boundary",
@@ -675,6 +706,8 @@ describe("Application query system", () => {
     )));
 
     expect(Result.isFailure(result)).toBe(true);
+    expect(businessReads).toBe(0);
+    expect(operations.readPoint).not.toHaveBeenCalled();
     if (Result.isFailure(result)) {
       expect(result.failure).toBe(readBoundaryError);
       expect(result.failure).toMatchObject({

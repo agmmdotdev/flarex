@@ -5,7 +5,7 @@ import type { AdmittedParticipantOperation, SourceContribution } from "flarex-pr
 import type { CommitSeq, ScopeId } from "flarex-protocol/storage-authority";
 import type { TransactionAttemptFence, TransactionSessionIdV1 } from "flarex-protocol/transaction-session";
 import type { CanonicalFlarexValueV1 } from "flarex-protocol/value";
-import type { ApplicationBindingInput } from "../applicationActivation";
+import type { AcceptedApplicationBinding, ApplicationBindingInput } from "../applicationActivation";
 import type { LocatedAppIndexDefinitionV1 } from "../appIndexDefinitions";
 import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstraintDefinitions";
 import type { DataBindingHeadToken } from "../frameworkSchema/binding/model";
@@ -47,7 +47,8 @@ export interface LogicalParticipantSelection {
   readonly bindAttemptEffect: (application: ApplicationBindingInput, attempt: SessionJournalAttempt,
     root: LogicalParticipantAttemptRoot, readTransaction: LogicalParticipantAttemptReadTransaction,
     methods: readonly string[],
-    entry?: Readonly<{ tx: FlarexMetadataTransaction; authority: TrustedScopeAuthority; clock: ScopeClockRecord }>) =>
+    entry?: Readonly<{ tx: FlarexMetadataTransaction; authority: TrustedScopeAuthority; clock: ScopeClockRecord;
+      applicationBinding?: Readonly<{ selection: LogicalParticipantSelection; binding: AcceptedApplicationBinding }> }>) =>
       Effect.Effect<LogicalParticipantAttemptAdmission, LogicalParticipantAdmissionError>;
 }
 

@@ -174,6 +174,9 @@ function verifyWorkflowGraph(value: unknown, productId: string, tagId: string,
 }
 
 const measuredSourcePaths = [
+  "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
+  "packages/persistence-postgres/src/exactRunningAttemptTail.ts",
+  "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
   "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts",
   "packages/flarex-backend/test/support/mixedMutationProductFixture.ts",
   "packages/flarex-backend/test/support/mixedMutationCpuProfile.ts",
@@ -299,7 +302,8 @@ async function environment(target: PostgresFlarexPersistence): Promise<Readonly<
     settings.synchronousCommit !== "on") throw new Error("Non-comparable PostgreSQL performance host");
   const sourceHashes = Object.fromEntries(await Promise.all(measuredSourcePaths.map(async path =>
     [path, createHash("sha256").update(await readFile(join(root, path))).digest("hex")])));
-  const driver = createRequire(import.meta.url)("pg/package.json") as Readonly<{ version: string }>;
+  const driver = createRequire(new URL("../../persistence-postgres/package.json", import.meta.url))(
+    "pg/package.json") as Readonly<{ version: string }>;
   return { postgres: settings, node: process.version, pgDriver: driver.version,
     platform: process.platform, architecture: process.arch,
     cpu: cpus()[0]?.model ?? "unknown", logicalCpus: cpus().length,

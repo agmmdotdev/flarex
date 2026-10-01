@@ -36,7 +36,7 @@ function lifecycleFixture(failure?: Error) {
   preparedFiniteEntries.set(entry, state);
   const run = () => Effect.runPromise(runPreparedFiniteSessionJournalEntryEffect(entry,
     {} as RunArguments[0], {} as RunArguments[1], {} as RunArguments[2],
-    {} as RunArguments[3], undefined, Effect.void));
+    {} as RunArguments[3], {} as RunArguments[4], undefined, Effect.void));
   return { entry, state, capture, install, discard, release, run };
 }
 
@@ -149,7 +149,7 @@ describe("finite entry confirmed installation", () => {
     const fixture = lifecycleFixture(failure);
     const exit = await Effect.runPromiseExit(runPreparedFiniteSessionJournalEntryEffect(fixture.entry,
       {} as RunArguments[0], {} as RunArguments[1], {} as RunArguments[2],
-      {} as RunArguments[3], undefined, Effect.void));
+      {} as RunArguments[3], {} as RunArguments[4], undefined, Effect.void));
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain(failure.message);
     abandonPreparedFiniteSessionJournalEntry(fixture.entry);

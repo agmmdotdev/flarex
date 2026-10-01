@@ -175,7 +175,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (admission: LogicalDocumentSourceAdmission) => Effect.Effect<Value, Failure, Requirements>,
   ) {
-    return yield* selected.withBinding(application, tx, authority, clock, binding => Effect.gen(function* () {
+    return yield* selected.withTransactionBinding(application, tx, authority, clock, binding => Effect.gen(function* () {
       // The source-bound scalar participant has no V3 preference cleanup or
       // embedded-content owner. Refuse mixed selected frames before token issue.
       if (binding.frame.payloadContent !== null || binding.frame.payloadLifecycle !== null)
@@ -196,6 +196,8 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
     readTransaction: LogicalParticipantAttemptReadTransaction, methods: readonly string[],
     entry?: Parameters<LogicalParticipantSelection["bindAttemptEffect"]>[5],
   ) {
+    if (entry?.applicationBinding !== undefined && entry.applicationBinding.selection !== prepared)
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     if (root.scopeId !== capturedInput.scopeId || root.principalDigest.length === 0 || methods.length === 0 ||
       methods.some(method => method.length === 0) || new Set(methods).size !== methods.length)
       return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
@@ -206,7 +208,7 @@ export const prepareLogicalDocumentSourceAdmission = Effect.fn("LogicalDocumentS
           binding.frame.payloadContent !== null || binding.frame.payloadLifecycle !== null)
           return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         return Effect.succeed(Object.freeze({ head: binding.head, clock, frame: binding.frame }));
-      }).pipe(Effect.mapError(projectAttemptFailure));
+      }, entry?.applicationBinding?.binding).pipe(Effect.mapError(projectAttemptFailure));
     const pinned = yield* (entry === undefined ? readTransaction(pin) : pin(entry.tx, entry.authority, entry.clock));
     const verifyPinnedBinding = (binding: LogicalSourceBindingState, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
         binding.schemaVersionId === capturedInput.schemaVersionId &&

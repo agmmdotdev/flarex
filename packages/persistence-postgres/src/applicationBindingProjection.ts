@@ -5,6 +5,8 @@ import { Effect } from "effect";
 import {
   validateApplicationBindingBasisInTransaction,
   withValidatedApplicationBindingBasisInTransaction,
+  withPreparedApplicationBindingBasisInTransaction,
+  type PreparedApplicationBinding,
   type ApplicationBindingInput,
   type AcceptedApplicationBinding,
   readAcceptedApplicationBinding,
@@ -72,24 +74,43 @@ export const readApplicationBindingEvidenceInTransaction = Effect.fn(
     Effect.succeed(Object.freeze({ projection: evidence.projection, analysis: evidence.analysis })));
 });
 
+export type ApplicationBindingEvidence = Readonly<{ projection: ApplicationBindingReference;
+  analysis: Readonly<{ candidateId: string; analysisId: string; manifestSha256: string; sourceArtifactRootSha256: string }>;
+  checkedActive: CheckedApplicationActiveHead | undefined }>;
+
 /** The checked active observation is valid only while this accepting callback runs. */
 export const withApplicationBindingEvidenceInTransaction = Effect.fn(
   "ApplicationBindingProjection.withEvidenceInTransaction",
 )(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
   clock: ScopeClockRecord,
-  work: (evidence: Readonly<{ projection: ApplicationBindingReference;
-    analysis: Readonly<{ candidateId: string; analysisId: string; manifestSha256: string; sourceArtifactRootSha256: string }>;
-    checkedActive: CheckedApplicationActiveHead | undefined }>) => Effect.Effect<Value, Failure, Requirements>) {
+  work: (evidence: ApplicationBindingEvidence) => Effect.Effect<Value, Failure, Requirements>,
+  borrowed?: AcceptedApplicationBinding) {
   return yield* withValidatedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive) =>
-    Effect.gen(function* () {
+    projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
+      Effect.flatMap(evidence => Effect.suspend(() => work(evidence)))), borrowed);
+});
+
+/** Only the standalone trusted owner completes business work in this callback. */
+export const withPreparedApplicationBindingEvidenceInTransaction = Effect.fn(
+  "ApplicationBindingProjection.withPreparedEvidenceInTransaction",
+)(function* <Value, Failure, Requirements>(selection: PreparedApplicationBinding, tx: AppRowTransaction,
+  clock: ScopeClockRecord, work: (evidence: ApplicationBindingEvidence) => Effect.Effect<Value, Failure, Requirements>) {
+  return yield* withPreparedApplicationBindingBasisInTransaction(selection, tx, clock, (validated, checkedActive) =>
+    projectApplicationBindingEvidence(validated, checkedActive, tx, clock).pipe(
+      Effect.flatMap(evidence => Effect.suspend(() => work(evidence)))));
+});
+
+const projectApplicationBindingEvidence = Effect.fn("ApplicationBindingProjection.projectEvidence")(
+  function* (validated: Effect.Success<ReturnType<typeof validateApplicationBindingBasisInTransaction>>,
+    checkedActive: CheckedApplicationActiveHead | undefined, tx: AppRowTransaction, clock: ScopeClockRecord) {
     const projection = yield* projectApplicationBindingInTransaction(validated, tx, clock);
     const basis = validated.basis;
     const evidence = Object.freeze({ projection, analysis: Object.freeze({ candidateId: basis.candidateId,
       analysisId: basis.analysisId, manifestSha256: hex(basis.manifestSha256),
       sourceArtifactRootSha256: hex(basis.sourceArtifactRootSha256) }), checkedActive });
-    return yield* Effect.suspend(() => work(evidence));
-  }));
-});
+    return evidence;
+  },
+);
 
 export const readAcceptedApplicationBindingProjection = Effect.fn("ApplicationBindingProjection.readAccepted")(
   function* (binding: AcceptedApplicationBinding, tx: AppRowTransaction, clock: ScopeClockRecord) {

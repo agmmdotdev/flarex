@@ -190,6 +190,9 @@ export interface ApplicationNativeMutationFixtureOptions {
     readonly manifests: ReadonlyArray<CanonicalTaskManifestV1>;
   }>;
   readonly analysis?: Readonly<ApplicationNativeMutationAnalysis>;
+  /** Synthetic published metadata growth for accepting-owner measurements.
+   * Extra functions are actual source exports; existing business functions stay fixed. */
+  readonly acceptanceScale?: Readonly<{ extraFunctions: 1 | 32; functionPaddingBytes: 0 | 32_768 }>;
 }
 
 export interface ApplicationNativeMutationSourceBundle {
@@ -451,7 +454,17 @@ async function createApplicationNativeMutationFixture<
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
   });
-  const source = options.analysis?.source ?? await mutationSourceBundle(options.includeProductLaunch === true);
+  if (options.analysis !== undefined && options.acceptanceScale !== undefined)
+    throw new Error("Acceptance scaling requires the fixture-owned source analysis");
+  const extraFunctions = Array.from({ length: options.acceptanceScale?.extraFunctions ?? 0 }, (_, index) => ({
+    path: `users:scale${index.toString().padStart(3, "0")}`, moduleName: "users",
+    exportName: `scale${index.toString().padStart(3, "0")}`, kind: "query", visibility: "public",
+    args: { type: "object", value: { padding: {
+      fieldType: { type: "literal", value: "p".repeat(options.acceptanceScale?.functionPaddingBytes ?? 0) }, optional: true,
+    } } }, returns: { type: "null" }, partition: null,
+  } as const));
+  const source = options.analysis?.source ?? await mutationSourceBundle(options.includeProductLaunch === true,
+    options.acceptanceScale?.extraFunctions ?? 0, options.acceptanceScale?.functionPaddingBytes ?? 0);
   const fixtureManifest = {
       format: "flarex.application-manifest",
       version: 1,
@@ -540,7 +553,7 @@ async function createApplicationNativeMutationFixture<
         args: { type: "any" },
         returns: { type: "any" },
         partition: null,
-      }],
+      }, ...extraFunctions],
     } as const;
   const analyses = makeApplicationAnalysisRepository(target.drizzle, {
     randomUuid: fixtureUuidSequence(11, 12, 13),
@@ -1204,12 +1217,14 @@ function resolveTaskPublication(
       });
 }
 
-async function mutationSourceBundle(includeProductLaunch = false): Promise<ApplicationNativeMutationSourceBundle> {
+async function mutationSourceBundle(includeProductLaunch = false, extraFunctionCount = 0,
+  functionPaddingBytes = 0): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
     'import { internalMutation } from "flarex/server";',
     'import { action } from "flarex/server";',
+    ...(extraFunctionCount > 0 ? ['import { v } from "flarex/values";'] : []),
     'import * as users from "../functions/users.js";',
     ...(includeProductLaunch ? ['import * as productLaunch from "../functions/productLaunch.js";'] : []),
     "export default { users: {",
@@ -1217,6 +1232,10 @@ async function mutationSourceBundle(includeProductLaunch = false): Promise<Appli
     "  create: mutation({ handler: users.create }),",
     "  createInternal: internalMutation({ handler: users.createInternal }),",
     "  notify: action({ handler: users.notify }),",
+    ...Array.from({ length: extraFunctionCount }, (_, index) => {
+      const name = `scale${index.toString().padStart(3, "0")}`;
+      return `  ${name}: query({ args: { padding: v.optional(v.literal(${JSON.stringify("p".repeat(functionPaddingBytes))})) }, returns: v.null(), handler: users.${name} }),`;
+    }),
     ...(includeProductLaunch ? [
       "}, productLaunch: {",
       "  launch: mutation({ handler: productLaunch.launch }),",
@@ -1253,6 +1272,8 @@ async function mutationSourceBundle(includeProductLaunch = false): Promise<Appli
     "  return { accepted: payload };",
     "}",
     "",
+    ...Array.from({ length: extraFunctionCount }, (_, index) =>
+      `export async function scale${index.toString().padStart(3, "0")}(_ctx, _args) { return null; }`),
   ].join("\n");
   const schema = "export default {};\n";
   const launchHandler = [

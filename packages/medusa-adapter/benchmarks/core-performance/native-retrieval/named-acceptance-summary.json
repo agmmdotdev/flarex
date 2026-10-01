@@ -1,0 +1,94 @@
+{
+  "status": "componentAndCompleteRequestQuietPassed; bounded connected correctness established; original full mixed regression retained; whole goals open",
+  "profile": "Protected standalone native Product scalar and collection retrieval through the existing CommerceHost.read; complete fresh proof and request preparation charged",
+  "methods": {
+    "samples": "5 warmups and 30 retained samples per demand and lane",
+    "median": "Mean of the two central samples",
+    "p95": "Nearest rank",
+    "acceptance": "Sample-level interval union of initial readiness validation, complete initial snapshot attestation and final guard; overlap merged before distribution; no sum of medians or P95",
+    "quiet": "Separate complete-request run without component or protocol instrumentation"
+  },
+  "acceptanceUnionMs": {
+    "scalar": { "baselineMedian": 8.03275, "baselineP95": 12.8889, "namedMedian": 4.3112, "namedP95": 6.8804, "gate": "passed" },
+    "collection": { "baselineMedian": 7.34905, "baselineP95": 11.749, "namedMedian": 4.18135, "namedP95": 7.4727, "gate": "passed" }
+  },
+  "completeRequestMs": {
+    "scalar": { "baselineMedian": 56.2086, "baselineP95": 68.1748, "namedMedian": 52.98275, "namedP95": 66.3527 },
+    "collection": { "baselineMedian": 54.91225, "baselineP95": 89.1993, "namedMedian": 47.83545, "namedP95": 53.2059 }
+  },
+  "pairedNativeMs": {
+    "scalar": { "baselineMedian": 1.3711, "baselineP95": 1.7307, "currentMedian": 1.5369, "currentP95": 2.1463 },
+    "collection": { "baselineMedian": 1.60005, "baselineP95": 2.0401, "currentMedian": 1.6499, "currentP95": 2.134 }
+  },
+  "coldPoolClientMs": {
+    "profile": "Complete unchanged CommerceHost.read; connection/authentication and first Parse inside interval; existing native fixture lifetime stays separate",
+    "scalar": { "flarexMedian": 177.5451, "flarexP95": 211.7458, "nativeMedian": 1.4323, "nativeP95": 1.8189, "poolResetMedianOutsideRequest": 0.1204 },
+    "collection": { "flarexMedian": 178.4756, "flarexP95": 185.6469, "nativeMedian": 1.7454, "nativeP95": 2.1442, "poolResetMedianOutsideRequest": 0.11305 },
+    "comparison": "No pre-change complete cold request baseline was captured; this is charged cold profile evidence, not a comparative improvement claim"
+  },
+  "protocol": {
+    "kind": "Connection method submissions; not completed server messages, wire bytes or roundtrips",
+    "warm": {
+      "scalar": { "sql": 63, "transactions": 3, "parse": 51, "bind": 55, "describe": 55, "execute": 55, "sync": 55, "simpleQuery": 8, "identityBinds": 4, "identityParses": 0 },
+      "collection": { "sql": 65, "transactions": 3, "parse": 53, "bind": 57, "describe": 57, "execute": 57, "sync": 57, "simpleQuery": 8, "identityBinds": 4, "identityParses": 0 }
+    },
+    "coldPoolClient": {
+      "destroyedTargetControlIdleClients": [1, 1],
+      "scalar": { "sql": 63, "transactions": 3, "parse": 53, "bind": 55, "describe": 55, "execute": 55, "sync": 55, "simpleQuery": 8, "identityBinds": 4, "identityParses": 2 },
+      "collection": { "sql": 65, "transactions": 3, "parse": 55, "bind": 57, "describe": 57, "execute": 57, "sync": 57, "simpleQuery": 8, "identityBinds": 4, "identityParses": 2 }
+    },
+    "native": "One simple Query per selected retrieval, existing fixture lifetime",
+    "names": "Both fx_pm_ names are the compiled SQL SHA-256 prefix; four fresh proof executions per complete request"
+  },
+  "server": {
+    "profile": "Separate warmed diagnostic; top-level statement deltas only, nested durations not added",
+    "scalar": { "topLevelCalls": 63, "topLevelPlanningMs": 4.8085, "topLevelExecutionMs": 3.5571, "identityCalls": 4, "identityPlanningMs": 0, "identityExecutionMs": 2.1958 },
+    "collection": { "topLevelCalls": 65, "topLevelPlanningMs": 4.8105, "topLevelExecutionMs": 3.3585, "identityCalls": 4, "identityPlanningMs": 0, "identityExecutionMs": 2.0086 },
+    "limit": "First cold Parse/planning is not part of this warmed server interval; charged cold complete-request evidence is separate",
+    "artifact": "server-named-acceptance-candidate.json.gz",
+    "sha256": "c027f4bee679422075767b6a4dc3977df26306f81f109b9ee072c382a6a89dd0",
+    "uncompressedSha256": "f8e0652a2eedd16e0367747e25a9b04b499c6764e04896032958b18a1130897e",
+    "originalSha256": "9cc036aaf24afd47150c4a96c5fcd34b100ec4031eed8183f831d7c1f6acd0ca",
+    "credentialLiteralRedactions": 48
+  },
+  "structuralScaling": {
+    "profile": "One diagnostic complete native Currency retrieval through the same protected legacy Application owner per variant; not quiet Product scaling or a decoder/CPU counter",
+    "executingSourceFiles": 15,
+    "variants": ["baseline", "functionCount", "functionBody", "coldBody", "taskMembership", "sourceWidth", "definitionCount"],
+    "capturedBodyBytes": [10674, 59594, 108980, 14146, 11202, 10674, 10794],
+    "eachVariant": { "sql": 63, "canonicalAcceptingQueries": 0, "canonicalAcceptingBodyBytes": 0, "acceptingExactImmutableDigests": 0, "finalGuards": 1 },
+    "sourceBreadth": { "baseline": { "sources": 3, "ordered": 3, "search": 1, "unique": 2 }, "sourceWidth": { "sources": 4, "ordered": 63, "search": 8, "unique": 26 }, "definitionCount": { "sources": 3, "ordered": 4, "search": 1, "unique": 2 } },
+    "taskRows": { "baseline": 0, "taskMembership": 1 },
+    "raw": "scaling-named-acceptance.json"
+  },
+  "pgliteOwnerProof": "The genuine migrated PGlite superuser fails prepareProtectedMetadata with typed unprotectedRuntime; no protected capability is minted and the PGlite adapter supplies no positive named-plan proof",
+  "connectedMilestone": {
+    "ledger": "packages/flarex-backend/benchmarks/core-performance/fresh-application-acceptance/ledger.json",
+    "status": "Complete quiet/traced milestone and affected correctness established; original mixed quiet regression does not recur in targeted repeat, cause unestablished",
+    "sourceCounts": { "baseline": 107, "finalQuietTraceRepeat": 110 },
+    "limit": "Healthy repeat does not replace original regression, establish cause or close whole goals"
+  },
+  "limits": [
+    "The remaining complete-request gap to native Medusa is substantial; native parity is not established",
+    "Earlier baseline inventories omitted the executing Application-native mutation fixture; original artifacts remain immutable and their inventory limitation stays explicit",
+    "Budget and full quiet reports capture the exact observer source before the mechanical Describe portal/type labeling correction; that helper never executes in quiet/component modes and production sources remain unchanged",
+    "Cold physical Pool measurements do not establish actual request-scoped Client host or cache-disabled Hyperdrive latency; the native lane retains its existing lifetime",
+    "Named statements reuse protocol preparation, never proof results, mutable verdicts or captured epoch rebasing"
+  ],
+  "artifacts": [
+    "quiet-acceptance-component-baseline.json",
+    "quiet-acceptance-baseline.json",
+    "quiet-named-acceptance-component-candidate.json",
+    "quiet-named-acceptance-full-request.json",
+    "quiet-named-acceptance-cold-request.json",
+    "trace-named-acceptance-warm-protocol.json",
+    "trace-named-acceptance-cold-protocol.json",
+    "server-named-acceptance-candidate.json.gz",
+    "scaling-named-acceptance.json",
+    "fresh-acceptance-candidate-summary.json"
+  ],
+  "remainingGates": [
+    "Disposition of original full mixed latency regression and whole-goal latency acceptance",
+    "Actual cache-disabled Hyperdrive activation evidence remains unavailable"
+  ]
+}

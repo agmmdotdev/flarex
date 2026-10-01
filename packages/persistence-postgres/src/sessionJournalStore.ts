@@ -2415,7 +2415,7 @@ export function createSessionJournalStorePersistence(
         const release = () => { if (reserved) { reserved = false; reservedFiniteEntries -= 1; } };
         preparedFiniteEntries.set(preparation, {
           issuer: ports, handle, status: "prepared", release,
-          run: (tx, context, resolved, application, control, verifyFinalRows) => withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
+          run: (tx, context, resolved, application, binding, control, verifyFinalRows) => withSharedLogicalSourceBindingChecks(tx, () => Effect.gen(function* () {
             const state = yield* Effect.fromResult(captureAttemptStateResult({ selector: context.anchor,
               snapshotToken: context.anchor.snapshotToken, schemaVersionId: context.executionPin.schemaVersionId,
               executionClaim: context.executionClaim, executionProfile: "finiteRoot" }));
@@ -2431,7 +2431,8 @@ export function createSessionJournalStorePersistence(
                   scopeId: state.selector.scopeId, sessionId: state.selector.sessionId, attemptFence: state.selector.attemptFence,
                   principalDigest: context.principalDigest, executionProfile: state.executionProfile,
                   snapshotCommitSeq: state.snapshotToken.commitSeq, schemaVersionId: state.schemaVersionId,
-                }, readTransaction, source.methods, { tx, authority: resolved.authority, clock: context.scopeClock });
+                }, readTransaction, source.methods, { tx, authority: resolved.authority, clock: context.scopeClock,
+                  applicationBinding: { selection: source.selection, binding } });
                 sources.push(Object.freeze({ admission, methods: source.methods }));
               }
               const acceptedSelection = Object.freeze({ ...selection,

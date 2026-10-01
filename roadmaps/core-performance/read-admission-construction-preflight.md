@@ -5,8 +5,9 @@ uses request-owned capture and detached immutable preparation at the existing ow
 Full readiness, live acceptance and current protection remain mandatory. The
 approved standalone physical refusal-frontier amendment below changes diagnostic
 timing and precedence while preserving full proof before business execution. Demand
-narrowing, cross-request reuse, cheaper attestation and the proposed one-final
-settlement graph remain unapproved.
+narrowing, cross-request reuse and the proposed one-final settlement graph remain
+unapproved. The successor fresh-acceptance preflight approves predicate-equivalent
+query-local attestation composition; every existing proof predicate remains required.
 
 The [performance roadmap](./README.md), [orchestration reassessment](./orchestration-simplification-preflight.md)
 and [proposed finite target](./orchestration-target-design.md) own the broader
@@ -325,11 +326,15 @@ belongs to `applicationActivation.ts` accepting composition and
 `applicationReadiness.ts` `validateStoredIssuedReadiness`, with the actual registered
 guard/full-proof contract traced before selecting any removal. Its measured region
 includes session setup and framework binding work; not every dispatch belongs to
-the canonical validator. The proposed
+the canonical validator. The approved
 [fresh Application acceptance preflight](./fresh-application-acceptance-preflight.md)
 records the complete statement/owner graph, actual protected guard eligibility,
-alternatives and connected caller gates. Its runtime mechanism remains pending;
-no cheaper accepting proof is approved here.
+alternatives and connected caller gates. It selects Application-only initial
+snapshot attestation/direct final tail and same-entry finite immutable-observation
+composition; that accepting refinement is implemented with bounded connected
+correctness and a passing selected component gate. The full mixed milestone retains an unresolved original latency regression
+despite a healthy targeted repeat. Its owner is the successor preflight; this
+delivered construction slice does not claim whole-goal acceptance.
 
 Full logical-source readiness is the largest metadata-row region, traversing
 ordered, unique and search definitions plus table frontiers before the selected

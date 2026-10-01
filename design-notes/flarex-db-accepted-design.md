@@ -89,6 +89,52 @@ owner or superuser repair must quiesce protected preparation. The protected
 epoch does not certify privileged edits, other tables, or a joint control and
 target database snapshot.
 
+The approved [fresh Application acceptance refinement](../roadmaps/core-performance/fresh-application-acceptance-preflight.md)
+extends bounded immutable reuse to existing standalone Commerce/CMS accepting
+transactions through Application-only admission. It authenticates the actual
+issued detached readiness evidence and its original protected installation/epoch
+with complete nonlocking snapshot attestation before local business work, then
+performs the direct complete NOWAIT epoch guard as the last metadata acquisition
+before successful SQL COMMIT and result release. Nominal issuer/evidence identity,
+exact database/transaction/scope/clock/fence/revocation and any actual retained
+lease remain part of that admission. Live framework and Application heads,
+Application activation, revision-schema, physical/build/lifecycle, full source
+and revocation checks remain mandatory. Standalone does not open the finite
+global guard scope or gain uncaptured framework/activation/control reuse.
+
+The precheck authenticates the accepting snapshot, not latest state before each
+operation. A prior snapshot mismatch refuses before local business work; later
+in-flight change can refuse at final guard after tentative local work, with no
+successful result, durable contribution or event released. Only the existing
+trusted Commerce/CMS outer attempt owns this tail through the existing relational
+session; success early returns for initialization, commands and durable replay
+must pass it too. After successful guard there is no further metadata acquisition;
+failure retains rollback and cleanup. A command that writes epoch-covered rows
+cannot rebase the admission epoch to make its own tail pass. Preserve body-first
+Cause and established cleanup, cancellation and uncertain-outcome recovery.
+Unprotected callers retain full canonical proof. Finite execution retains its
+existing protected contract and may compose the exact accepted immutable
+Application observation into its same-entry source union, with every actual
+mutable/source proof still fresh. This refinement is implemented with its covered
+write inventory and bounded connected correctness established. The focused preflight preserves unresolved full mixed latency
+regression and whole-goal limits separately from the passing component.
+
+The approved bounded attestation correction may materialize the exact bounded
+namespace relation/function/trigger inputs inside each SQL statement to avoid
+repeated catalog planning. Complete role/login/catalog, function signature/body/
+grant, all 23 protected-table invalidation and exact-running-tail predicates,
+original epoch comparison and initial/tail timing remain unchanged. This adds no
+cross-statement cache or persistent SQL migration and does not relax the failed
+component performance gate.
+
+The independently committed atomic Commerce host prepares retained catalog sources
+and performs full-live canonical proof; it opens no journal-backed finite global
+guard scope. Its public Product mutation/events therefore do not acquire the
+standalone direct tail or finite global guard merely because a test helper calls
+the operation "standalone". Epoch-only invalidation with unchanged canonical bodies
+can succeed under that existing profile. Preserve actual ordinary-profile atomic
+rollback, cancellation and uncertain-outcome behavior without expanding admission.
+
 For the private finite mixed root, the [approved attempt-local slice](../roadmaps/mixed-mutation-core/11-attempt-admission-preflight.md)
 permits bounded **tentative local** handle, pending-write, cached-result and
 close work after authenticated entry without a fresh SQL transaction for
@@ -125,8 +171,11 @@ function/task/schema/readiness/activation/write-ownership and framework binding
 candidate/lane/activation tables, retaining the ten legacy tables for actual
 callers. All columns and complete membership predicates receive same-transaction
 statement invalidation, including zero-row DML and TRUNCATE. Canonical preparation
-is bracketed by before/after epoch proof; reuse requires the exact accepting
-transaction's registered tail guard and full authenticated restricted-login,
+is bracketed by before/after epoch proof; finite reuse requires the exact accepting
+transaction's registered tail guard. The approved standalone Application-only
+refinement above instead requires its direct initial snapshot attestation and
+final tail guard; this refinement is implemented with bounded connected proof. Both
+profiles require full authenticated restricted-login,
 role/catalog/installation, database/schema/incarnation attestation at capture
 and tail. Privileged repair still requires quiescence; this accepts no backend
 certificate, generation-only guard or implemented maintenance barrier. Live

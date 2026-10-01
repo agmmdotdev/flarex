@@ -158,7 +158,7 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
     application: ApplicationBindingInput, tx: FlarexMetadataTransaction, authority: TrustedScopeAuthority, clock: ScopeClockRecord,
     work: (admission: LogicalRelationalAdmission) => Effect.Effect<Value, Failure, Requirements>,
   ) {
-    return yield* selected.withBinding(application, tx, authority, clock, binding => {
+    return yield* selected.withTransactionBinding(application, tx, authority, clock, binding => {
       // SAFETY: only callback lifetime membership authenticates this inert token.
       const admission = Object.freeze({}) as LogicalRelationalAdmission;
       admissions.set(admission, Object.freeze({ tx, authority, clock, schemaVersionId: binding.schemaVersionId,
@@ -174,6 +174,8 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
     readTransaction: LogicalParticipantAttemptReadTransaction, methods: readonly string[],
     entry?: Parameters<LogicalParticipantSelection["bindAttemptEffect"]>[5],
   ) {
+    if (entry?.applicationBinding !== undefined && entry.applicationBinding.selection !== prepared)
+      return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     if (root.scopeId !== capturedInput.scopeId ||
       root.principalDigest.length === 0 || methods.length === 0 ||
       methods.some(method => method.length === 0) || new Set(methods).size !== methods.length)
@@ -184,7 +186,7 @@ export const prepareLogicalRelationalAdmission = Effect.fn("LogicalRelationalAdm
           clock.lastCommitSeq < root.snapshotCommitSeq || binding.schemaVersionId !== capturedInput.schemaVersionId)
           return Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
         return Effect.succeed(Object.freeze({ head: binding.head, clock }));
-      }).pipe(Effect.mapError(projectParticipantBindingFailure));
+      }, entry?.applicationBinding?.binding).pipe(Effect.mapError(projectParticipantBindingFailure));
     const pinned = yield* (entry === undefined ? readTransaction(pin) : pin(entry.tx, entry.authority, entry.clock));
     const verifyPinnedBinding = (binding: LogicalSourceBindingState, authority: TrustedScopeAuthority, clock: ScopeClockRecord) =>
         binding.schemaVersionId === capturedInput.schemaVersionId &&

@@ -1,0 +1,502 @@
+{
+  "status": "Selected component and bounded connected correctness passed; original mixed quiet regression retained; whole goals open",
+  "sampling": {
+    "full": "3 warmups + 20 warm + 3 cold per workload; 104 total",
+    "targetedRepeat": "same plan for mixedWorkflow only; 26 total",
+    "ordering": "Product, ProductPayload, MixedWorkflow, StandaloneWorkflow; warm series then three independently prepared cold series per workload",
+    "median": "Mean of central pair for even n",
+    "p95": "Nearest rank",
+    "filtering": "No outlier removal or replacement of original full run"
+  },
+  "baselineWarm": {
+    "product": {
+      "wallMs": {
+        "n": 20,
+        "median": 579.9226000000017,
+        "p95": 589.6373999999996
+      },
+      "workerConstructionMs": {
+        "n": 20,
+        "median": 86.68839999999909,
+        "p95": 90.19830000000366
+      }
+    },
+    "productPayload": {
+      "wallMs": {
+        "n": 20,
+        "median": 629.5938999999926,
+        "p95": 655.9537999999884
+      },
+      "workerConstructionMs": {
+        "n": 20,
+        "median": 84.74099999999453,
+        "p95": 88.36600000000908
+      }
+    },
+    "mixedWorkflow": {
+      "wallMs": {
+        "n": 20,
+        "median": 1041.3589999999967,
+        "p95": 1219.6634000000195
+      },
+      "workerConstructionMs": {
+        "n": 20,
+        "median": 84.91635000002861,
+        "p95": 94.86920000001555
+      }
+    },
+    "standaloneWorkflow": {
+      "wallMs": {
+        "n": 20,
+        "median": 276.991399999999,
+        "p95": 298.03979999996955
+      },
+      "workerConstructionMs": null
+    }
+  },
+  "finalWarm": {
+    "product": {
+      "wallMs": {
+        "n": 20,
+        "median": 540.6720999999998,
+        "p95": 599.9263999999966
+      },
+      "workerConstructionMs": {
+        "n": 20,
+        "median": 86.3130999999994,
+        "p95": 88.81210000000283
+      }
+    },
+    "productPayload": {
+      "wallMs": {
+        "n": 20,
+        "median": 573.7183999999834,
+        "p95": 622.9598000000115
+      },
+      "workerConstructionMs": {
+        "n": 20,
+        "median": 84.24565000001166,
+        "p95": 88.52059999998892
+      }
+    },
+    "mixedWorkflow": {
+      "wallMs": {
+        "n": 20,
+        "median": 1111.2239000000118,
+        "p95": 2100.9614
+      },
+      "workerConstructionMs": {
+        "n": 20,
+        "median": 193.81320000000414,
+        "p95": 814.99549999999
+      }
+    },
+    "standaloneWorkflow": {
+      "wallMs": {
+        "n": 20,
+        "median": 266.6903999999922,
+        "p95": 271.3022999999812
+      },
+      "workerConstructionMs": null
+    }
+  },
+  "targetedRepeatWarm": {
+    "mixedWorkflow": {
+      "wallMs": {
+        "n": 20,
+        "median": 972.4431500000028,
+        "p95": 1095.7869000000064
+      },
+      "workerConstructionMs": {
+        "n": 20,
+        "median": 86.82264999999461,
+        "p95": 94.72329999999783
+      }
+    }
+  },
+  "originalMixedDisposition": "Regression observed in original full quiet; targeted repeat does not recur. Startup slowdown is observed, but root cause is not established and original is not superseded.",
+  "standaloneGate": {
+    "ceilingMs": 400,
+    "maximumRegressionPercent": 10,
+    "measuredMedianMs": 266.6903999999922,
+    "passed": true
+  },
+  "structural": {
+    "baselineSmoke": {
+      "product": {
+        "samples": 2,
+        "SQL": [
+          478
+        ],
+        "transactions": [
+          20
+        ],
+        "phaseSQL": {
+          "invocation / request admission": [
+            96
+          ],
+          "invocation / Worker execution / Worker dispatch": [
+            12
+          ],
+          "invocation / Worker execution / Worker dispatch / Application point": [
+            21
+          ],
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": [
+            180
+          ],
+          "invocation / journal seal and OCC verification": [
+            66
+          ],
+          "invocation / authoritative publication": [
+            103
+          ]
+        }
+      },
+      "productPayload": {
+        "samples": 2,
+        "SQL": [
+          499
+        ],
+        "transactions": [
+          21
+        ],
+        "phaseSQL": {
+          "invocation / request admission": [
+            96
+          ],
+          "invocation / Worker execution / Worker dispatch": [
+            12
+          ],
+          "invocation / Worker execution / Worker dispatch / Application point": [
+            21
+          ],
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": [
+            180
+          ],
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create": [
+            16
+          ],
+          "invocation / journal seal and OCC verification": [
+            66
+          ],
+          "invocation / authoritative publication": [
+            108
+          ]
+        }
+      },
+      "mixedWorkflow": {
+        "samples": 2,
+        "SQL": [
+          763
+        ],
+        "transactions": [
+          34
+        ],
+        "phaseSQL": {
+          "invocation / request admission": [
+            96
+          ],
+          "invocation / Worker execution / Worker dispatch": [
+            12
+          ],
+          "invocation / Worker execution / Worker dispatch / Application point": [
+            21
+          ],
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": [
+            179
+          ],
+          "invocation / Worker execution / Worker dispatch / medusa.workflow:run": [
+            226
+          ],
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create": [
+            17
+          ],
+          "invocation / journal seal and OCC verification": [
+            66
+          ],
+          "invocation / authoritative publication": [
+            146
+          ]
+        }
+      },
+      "standaloneWorkflow": {
+        "samples": 2,
+        "SQL": [
+          270
+        ],
+        "transactions": [
+          3
+        ],
+        "phaseSQL": {
+          "invocation / standalone native workflow": [
+            270
+          ]
+        }
+      }
+    },
+    "finalTrace": {
+      "product": {
+        "samples": 20,
+        "SQL": [
+          477
+        ],
+        "transactions": [
+          20
+        ],
+        "phaseSQL": {
+          "invocation / request admission": [
+            95
+          ],
+          "invocation / Worker execution / Worker dispatch": [
+            12
+          ],
+          "invocation / Worker execution / Worker dispatch / Application point": [
+            21
+          ],
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": [
+            180
+          ],
+          "invocation / journal seal and OCC verification": [
+            66
+          ],
+          "invocation / authoritative publication": [
+            103
+          ]
+        }
+      },
+      "productPayload": {
+        "samples": 20,
+        "SQL": [
+          498
+        ],
+        "transactions": [
+          21
+        ],
+        "phaseSQL": {
+          "invocation / request admission": [
+            95
+          ],
+          "invocation / Worker execution / Worker dispatch": [
+            12
+          ],
+          "invocation / Worker execution / Worker dispatch / Application point": [
+            21
+          ],
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": [
+            180
+          ],
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create": [
+            16
+          ],
+          "invocation / journal seal and OCC verification": [
+            66
+          ],
+          "invocation / authoritative publication": [
+            108
+          ]
+        }
+      },
+      "mixedWorkflow": {
+        "samples": 20,
+        "SQL": [
+          762
+        ],
+        "transactions": [
+          34
+        ],
+        "phaseSQL": {
+          "invocation / request admission": [
+            95
+          ],
+          "invocation / Worker execution / Worker dispatch": [
+            12
+          ],
+          "invocation / Worker execution / Worker dispatch / Application point": [
+            21
+          ],
+          "invocation / Worker execution / Worker dispatch / medusa.product:update": [
+            179
+          ],
+          "invocation / Worker execution / Worker dispatch / medusa.workflow:run": [
+            226
+          ],
+          "invocation / Worker execution / Worker dispatch / payload.posts.0b4edceefb42629ee482a9c2b07fac8215b5259781761b11d0d2370e56ab1d3b:payload-create": [
+            17
+          ],
+          "invocation / journal seal and OCC verification": [
+            66
+          ],
+          "invocation / authoritative publication": [
+            146
+          ]
+        }
+      },
+      "standaloneWorkflow": {
+        "samples": 20,
+        "SQL": [
+          270
+        ],
+        "transactions": [
+          3
+        ],
+        "phaseSQL": {
+          "invocation / standalone native workflow": [
+            270
+          ]
+        }
+      }
+    },
+    "all104": {
+      "SQL": 52238,
+      "transactions": 2028,
+      "queryErrors": 0,
+      "unknown": 0,
+      "unobserved": 0,
+      "lostContext": 0,
+      "incompleteSpans": 0
+    }
+  },
+  "provenance": {
+    "baselineSources": 107,
+    "finalSources": 110,
+    "added": [
+      "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
+      "packages/persistence-postgres/src/exactRunningAttemptTail.ts",
+      "packages/medusa-adapter/test/support/logical-currency-fixture.ts"
+    ],
+    "removed": [],
+    "changed": [
+      "packages/flarex-backend/test/mixedMutationPerformance.postgres.test.ts",
+      "packages/flarex-backend/test/support/mixedMutationProductFixture.ts",
+      "packages/persistence-postgres/src/applicationActivation.ts",
+      "packages/persistence-postgres/src/applicationBindingProjection.ts",
+      "packages/persistence-postgres/src/applicationReadiness.ts",
+      "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
+      "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+      "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+      "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+      "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+      "packages/persistence-postgres/src/sessionJournalStore.ts",
+      "packages/persistence-postgres/src/transactionSessionActivation.ts",
+      "packages/persistence-postgres/src/applicationMutationAdmission.ts",
+      "packages/persistence-postgres/src/sessionJournalFiniteEntry.ts"
+    ],
+    "finalQuietTraceRepeatSnapshotsIdentical": true,
+    "finalCurrentByteMatches": 110,
+    "method": "One initial inventory capture in harness plus root external freeze and current-byte comparison; no per-sample/end-of-run built-in rehash; baseline end-proof not inferred",
+    "matchingDemand": "Plans, selected profile revisions/resourceCalls and environment settings excluding generated role match; fixed signed benchmark source parses arguments inside invocation",
+    "separatePoolHelpers": "Corrected standalone Payload/Product/Link helper branches are not invoked by measured workloads; mixed runAttempt uses runWorkerd, standalone uses AtomicWorkflow host.run",
+    "queryRpc": "Private Query RPC output owner is not in actual measured graph/inventory"
+  },
+  "limits": [
+    "Traced inclusive phases and awaited driver times include their actual work/transport/scheduling; do not add nested phases or call them pure overhead.",
+    "Baseline traced smoke has only two measured warm samples/workload; structural comparison only.",
+    "Cold samples prepare fresh workload series and include their recorded obligations; not native ORM or Hyperdrive parity.",
+    "Publication is a future exact-source-attribution hypothesis at existing pointCommitTransaction owner, not an activated optimization or regression remedy.",
+    "Actual Hyperdrive and post-native finite Product event global-tail proof remain absent."
+  ],
+  "artifacts": [
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/fresh-application-acceptance/baseline-initial-failure.json",
+      "original": "work/validation/fresh-application-acceptance/mixed-baseline-untraced/raw.json",
+      "label": "preserved failed initial metadata-resolution attempt",
+      "bytes": 2633,
+      "sha256": "b74ac1d5c3c6c77cdb634496ee3707da0ade4d378a2ad6b8120a20cfd6470094",
+      "uncompressedBytes": 2633,
+      "uncompressedSha256": "b74ac1d5c3c6c77cdb634496ee3707da0ade4d378a2ad6b8120a20cfd6470094",
+      "lossless": "exact original bytes copied",
+      "mode": "full",
+      "observationMode": "untraced",
+      "sampleCount": 0,
+      "setupFailures": 0,
+      "sourceCount": 0,
+      "capturedRevision": "f5187eebe367b46e25105a04106d3ab4ca8d0945",
+      "workingDiffSha256": "633f55dea2541396cc0eca128d7100b0b613bf1bf3839549d721cf583a4f14ea"
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/fresh-application-acceptance/baseline-full-quiet.json",
+      "original": "work/validation/fresh-application-acceptance/mixed-baseline-untraced-corrected/raw.json",
+      "label": "original full quiet baseline; 107 captured sources",
+      "bytes": 314512,
+      "sha256": "2c41e47bee7d9c7faae2033012d9f63b0801c9fcf02748311edb6afc99138001",
+      "uncompressedBytes": 314512,
+      "uncompressedSha256": "2c41e47bee7d9c7faae2033012d9f63b0801c9fcf02748311edb6afc99138001",
+      "lossless": "exact original bytes copied",
+      "mode": "full",
+      "observationMode": "untraced",
+      "sampleCount": 104,
+      "setupFailures": 0,
+      "sourceCount": 107,
+      "capturedRevision": "f5187eebe367b46e25105a04106d3ab4ca8d0945",
+      "workingDiffSha256": "44acf29b3336f9a8591851633916f4cb070ac20ad69afa7fef6dd8149ff4feec"
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/fresh-application-acceptance/baseline-smoke-trace.json.gz",
+      "original": "work/validation/fresh-application-acceptance/mixed-baseline-traced-smoke/raw.json",
+      "label": "structural SQL smoke only; not a quiet latency distribution",
+      "bytes": 298228,
+      "sha256": "3041d34b4a0ad38d0a00104d84d372587ec089787492c51d92ef8effda0f3a06",
+      "uncompressedBytes": 4521211,
+      "uncompressedSha256": "ffc7290fd5acde387e5d1da91fe41c6d281e5ec089171e646351cf800e4fdca1",
+      "lossless": "gunzip equals exact original bytes",
+      "mode": "smoke",
+      "observationMode": "traced",
+      "sampleCount": 16,
+      "setupFailures": 0,
+      "sourceCount": 107,
+      "capturedRevision": "f5187eebe367b46e25105a04106d3ab4ca8d0945",
+      "workingDiffSha256": "f3dd887b2514ba4e5f7985eacc229a9740d4521da6b72a5a7b8b525433d99f1d"
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/fresh-application-acceptance/final-full-quiet.json",
+      "original": "work/validation/fresh-application-acceptance/mixed-named-final-untraced/raw.json",
+      "label": "complete final quiet; original mixed regression retained",
+      "bytes": 314917,
+      "sha256": "1d45f7a791e1e16233979ea3a78d7508895aae629d51ed8d3f9e0f2213dcc687",
+      "uncompressedBytes": 314917,
+      "uncompressedSha256": "1d45f7a791e1e16233979ea3a78d7508895aae629d51ed8d3f9e0f2213dcc687",
+      "lossless": "exact original bytes copied",
+      "mode": "full",
+      "observationMode": "untraced",
+      "sampleCount": 104,
+      "setupFailures": 0,
+      "sourceCount": 110,
+      "capturedRevision": "f5187eebe367b46e25105a04106d3ab4ca8d0945",
+      "workingDiffSha256": "f2a6f329d247d66f25545d9ad8883aba6f5655f4d1ee4b2bb48fb2098877b4d2"
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/fresh-application-acceptance/final-full-trace.json.gz",
+      "original": "work/validation/fresh-application-acceptance/mixed-named-final-traced/raw.json",
+      "label": "complete final traced structural attribution; observer timings separate",
+      "bytes": 1375969,
+      "sha256": "6055f3a38ac26ad24068de41ef5bbabdbd9e73cd98443c6a8004ab70054bb638",
+      "uncompressedBytes": 15618869,
+      "uncompressedSha256": "f3f58258c6855039f9066dbc74d632182a185e088ba774c9113d8738be726979",
+      "lossless": "gunzip equals exact original bytes",
+      "mode": "full",
+      "observationMode": "traced",
+      "sampleCount": 104,
+      "setupFailures": 0,
+      "sourceCount": 110,
+      "capturedRevision": "f5187eebe367b46e25105a04106d3ab4ca8d0945",
+      "workingDiffSha256": "f2a6f329d247d66f25545d9ad8883aba6f5655f4d1ee4b2bb48fb2098877b4d2"
+    },
+    {
+      "path": "packages/flarex-backend/benchmarks/core-performance/fresh-application-acceptance/targeted-mixed-repeat-quiet.json",
+      "original": "work/validation/fresh-application-acceptance/mixed-named-repeat-untraced/raw.json",
+      "label": "targeted repeat; does not replace original regression or establish cause",
+      "bytes": 109218,
+      "sha256": "ba5cdcdd93e64cb2b7a31ab7e0d34ddc1d6c7966fd1d25ba51a7ee2849c42e13",
+      "uncompressedBytes": 109218,
+      "uncompressedSha256": "ba5cdcdd93e64cb2b7a31ab7e0d34ddc1d6c7966fd1d25ba51a7ee2849c42e13",
+      "lossless": "exact original bytes copied",
+      "mode": "full",
+      "observationMode": "untraced",
+      "sampleCount": 26,
+      "setupFailures": 0,
+      "sourceCount": 110,
+      "capturedRevision": "f5187eebe367b46e25105a04106d3ab4ca8d0945",
+      "workingDiffSha256": "f2a6f329d247d66f25545d9ad8883aba6f5655f4d1ee4b2bb48fb2098877b4d2"
+    }
+  ]
+}

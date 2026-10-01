@@ -1,7 +1,7 @@
 /** Package-internal finite entry lifecycle. Only the activation owner confirms these facts. */
 import { Effect } from "effect";
 import type { AppRowTransaction } from "./appRows";
-import type { ApplicationActiveSelection } from "./applicationActivation";
+import type { AcceptedApplicationBinding, ApplicationActiveSelection } from "./applicationActivation";
 import { LogicalParticipantAdmissionError, type LogicalParticipantAdmissionBundle } from "./logicalDocuments/participantAdmission";
 import type { TrustedScopeAuthority } from "./scopeAuthorityResolution";
 import type { ExactRunningAttemptKernelContextV1 } from "./transactionSessionAttemptKernel";
@@ -35,7 +35,7 @@ interface PreparedFiniteEntryState {
   status: "prepared" | "running" | "confirmed" | "abandoned";
   capture?: FiniteEntryTransactionCapture;
   readonly run: (tx: AppRowTransaction, context: ExactRunningAttemptKernelContextV1,
-    resolved: ResolvedJournalTargetV1, application: ApplicationActiveSelection,
+    resolved: ResolvedJournalTargetV1, application: ApplicationActiveSelection, binding: AcceptedApplicationBinding,
     control: PreparedTerminalControl | undefined, verifyFinalRows: Effect.Effect<void, SessionJournalPersistenceV1Error>) =>
     Effect.Effect<FiniteEntryTransactionCapture, FiniteEntryFailure>;
   readonly install: (capture: FiniteEntryTransactionCapture) => void;
@@ -76,12 +76,12 @@ export const prepareFiniteSessionJournalEntryControlEffect = Effect.fn("SessionJ
 export const runPreparedFiniteSessionJournalEntryEffect = Effect.fn("SessionJournalStore.enterFiniteInActivation")(
   function* (entry: PreparedFiniteSessionJournalEntry, tx: AppRowTransaction,
     context: ExactRunningAttemptKernelContextV1, resolved: ResolvedJournalTargetV1,
-    application: ApplicationActiveSelection, control: PreparedTerminalControl | undefined,
+    application: ApplicationActiveSelection, binding: AcceptedApplicationBinding, control: PreparedTerminalControl | undefined,
     verifyFinalRows: Effect.Effect<void, SessionJournalPersistenceV1Error>) {
     const state = preparedFiniteEntries.get(entry);
     if (state?.status !== "prepared") return yield* Effect.fail(new LogicalParticipantAdmissionError({ reason: "invalidAuthority" }));
     state.status = "running";
-    const capture = yield* state.run(tx, context, resolved, application, control, verifyFinalRows);
+    const capture = yield* state.run(tx, context, resolved, application, binding, control, verifyFinalRows);
     state.capture = capture;
     return capture;
   });

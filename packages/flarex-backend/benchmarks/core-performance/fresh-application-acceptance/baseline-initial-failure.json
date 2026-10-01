@@ -1,0 +1,44 @@
+{
+  "format": "flarex.mixed-mutation-performance",
+  "revision": "f5187eebe367b46e25105a04106d3ab4ca8d0945",
+  "workingDiffSha256": "633f55dea2541396cc0eca128d7100b0b613bf1bf3839549d721cf583a4f14ea",
+  "mode": "full",
+  "observationMode": "untraced",
+  "planned": {
+    "warmups": 3,
+    "warm": 20,
+    "cold": 3
+  },
+  "plannedWorkloads": [
+    "product",
+    "productPayload",
+    "mixedWorkflow",
+    "standaloneWorkflow"
+  ],
+  "environment": {
+    "profileSelections": {}
+  },
+  "interpretation": [
+    "Standalone workflow includes the same selected Product/Pricing/Link/Tag graph but has no Application, Payload, journal or OCC obligations.",
+    "The first warmup is excluded from warm distributions.",
+    "Per-request test grant issuer/signing and private bridge overhead are included in mixed request admission and Worker intervals.",
+    "Warm mixed samples reuse prepared modules, scope, and pools; every request creates, readies, invokes once, and disposes a fresh Worker under the exact runtime one-invocation guard.",
+    "Signed business arguments are parsed by the fixed benchmark Worker source inside the measured request; that private test-harness cost is included.",
+    "Workflow tags are unique: each graph is seeded immediately before its invocation and its launched tag is renamed outside measurement before the next seed. Product/Payload graphs are preseeded.",
+    "No SQL or phase observer is installed. Outer invocation wall time uses the same workload boundaries and business checks as the traced series.",
+    "Sealed attempt bytes come from the canonical journal at successful seal through a delegating test store port; the capture adds no database query."
+  ],
+  "unavailable": [
+    "PostgreSQL server execution time (driver await includes transport and scheduling).",
+    "Exact native workflow child inclusive/exclusive spans; native steps are not instrumented, so SQL owner mapping is used instead.",
+    "Exact inner OCC/materialization phase duration where the existing owner has no test observation hook.",
+    "Exact scope-clock lock acquisition wait and lock-hold interval; transaction duration is only a BEGIN-to-settlement envelope.",
+    "Sealed attempt bytes for failed attempts and standalone workflow; settled journal rows are removed, so inventory separately records only remaining live journal bytes.",
+    "SQL dispatches, awaited time, phase spans, transaction intervals and trace coverage in untraced mode.",
+    "Hosted Cloudflare transport, native ORM parity, and production capacity."
+  ],
+  "sqlTemplates": [],
+  "ownerMappings": [],
+  "setupFailures": [],
+  "samples": []
+}

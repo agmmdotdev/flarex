@@ -2,7 +2,7 @@ import { appUniqueConstraintEligibilityFrame } from "./appUniqueConstraintSetBui
 import { readUniqueMaintenanceRequirements } from "./appUniqueConstraintSetBuildV1";
 import { UniqueMaintenanceError } from "./uniqueMaintenanceEvidence";
 import { hasLocatedReadCommittedTargetDatabaseV1 } from "./transactionSessionAttemptKernel";
-import { captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
+import { captureProtectedMetadataEpoch, authenticateProtectedTargetMetadataSnapshot, guardProtectedMetadataEpoch, hasProtectedMetadataFinalGuardScope, registerProtectedMetadataFinalGuard,
   type ProtectedMetadataEpochIdentity, type ProtectedMetadataPreparation } from "./preparedMetadataEpoch";
 import {
   canonicalizeApplicationManifestV1,
@@ -1132,6 +1132,37 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
     },
   );
 
+/** Only the Application request owner calls this after its live head/activation
+ * read. The original issuer's canonical projection stays inside this callback;
+ * all physical checks are fresh and successful work must pass the final guard. */
+export const withStoredApplicationReadinessForBindingInTransaction = Effect.fn(
+  "ApplicationReadiness.withStoredForBindingInTransaction",
+)(function* <Value, Failure, Requirements>(
+  repository: unknown, issued: ApplicationReadinessResult, tx: AppRowTransaction,
+  currentClock: ScopeClockRecord, checkedActive: CheckedApplicationActiveHead | undefined,
+  work: (validated: StoredApplicationReadinessActivationValidation) => Effect.Effect<Value, Failure, Requirements>,
+) {
+  if (typeof repository !== "object" || repository === null || issued.status !== "ready")
+    return yield* readinessFailure("invalidComposition");
+  const repositoryState = readinessRepositoryStates.get(repository);
+  const issuedState = issuedReadinessStates.get(issued);
+  if (repositoryState === undefined || issuedState === undefined || issuedState.kind !== "stored" ||
+    issuedState.issuer !== repositoryState.issuer || issuedState.stored.bundle.authority.scopeId !== currentClock.scopeId ||
+    hasProtectedMetadataFinalGuardScope(tx)) return yield* readinessFailure("invalidComposition");
+  const protection = issuedState.stored.protectedMetadata;
+  if (protection !== undefined) yield* authenticateProtectedTargetMetadataSnapshot(protection, tx).pipe(
+    Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  const validated = yield* validateStoredIssuedReadiness(repositoryState, issuedState, tx, currentClock,
+    checkedActive, protection);
+  const value = yield* Effect.suspend(() => work(validated));
+  // This remains the last metadata acquisition. Body failures, defects and
+  // interruption bypass this success tail and retain the owning rollback Cause.
+  if (protection !== undefined) yield* guardProtectedMetadataEpoch(
+    protection.token, protection.database, protection.epoch, tx,
+  ).pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+  return value;
+});
+
 const validateStoredIssuedReadiness = Effect.fn(
   "ApplicationReadiness.validateStoredIssuedReadiness",
 )(function* (
@@ -1140,6 +1171,7 @@ const validateStoredIssuedReadiness = Effect.fn(
   tx: AppRowTransaction,
   clock: ScopeClockRecord,
   checkedActive?: CheckedApplicationActiveHead,
+  requestProjection?: StoredReadinessAuthority["protectedMetadata"],
 ): Effect.fn.Return<
   StoredApplicationReadinessActivationValidation,
   | ApplicationReadinessError
@@ -1148,11 +1180,15 @@ const validateStoredIssuedReadiness = Effect.fn(
   | LockScopeClockForShareError
 > {
   const protection = issuedState.stored.protectedMetadata;
+  if (requestProjection !== undefined && requestProjection !== protection)
+    return yield* readinessFailure("invalidComposition");
   let currentBundle: StoredBundle;
-  const useProtectedProjection = protection !== undefined && hasProtectedMetadataFinalGuardScope(tx);
+  const useProtectedProjection = requestProjection !== undefined ||
+    (protection !== undefined && hasProtectedMetadataFinalGuardScope(tx));
   if (useProtectedProjection) {
-    yield* registerProtectedMetadataFinalGuard(tx, protection.token, protection.database, protection.epoch)
-      .pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
+    if (requestProjection === undefined && protection !== undefined)
+      yield* registerProtectedMetadataFinalGuard(tx, protection.token, protection.database, protection.epoch)
+        .pipe(Effect.mapError(cause => readinessFailureValue("resourceFailure", false, cause)));
     currentBundle = issuedState.stored.bundle;
   } else {
     const loaded = yield* reserveBundle(

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { Cause, Effect, Exit } from "effect";
 
 import { createPGlitePersistence } from "../src/pglite";
+import { prepareProtectedMetadata, PreparedMetadataEpochError } from "../src/preparedMetadataEpoch";
 import { newTestPGlite } from "./pgliteSearchExtensions";
 
 const currentImmutableTables = [
@@ -14,6 +16,26 @@ const currentImmutableTables = [
 ] as const;
 
 describe("prepared metadata epoch PGlite migration", () => {
+  it("refuses to mint protected metadata from the genuine migrated PGlite owner", async () => {
+    const db = newTestPGlite();
+    const persistence = await createPGlitePersistence({ db });
+    try {
+      await persistence.migrate();
+      const owner = (await persistence.query<{ superuser: boolean }>(
+        "select rolsuper as superuser from pg_roles where rolname = session_user")).rows[0];
+      expect(owner?.superuser).toBe(true);
+      const outcome = await Effect.runPromiseExit(prepareProtectedMetadata(persistence.drizzle));
+      if (!Exit.isFailure(outcome)) throw new Error("PGlite owner minted protected metadata");
+      expect(outcome.cause.reasons).toHaveLength(1);
+      const failure = outcome.cause.reasons[0];
+      if (failure === undefined || !Cause.isFailReason(failure)) throw new Error("Expected typed PGlite owner refusal");
+      expect(failure.error).toBeInstanceOf(PreparedMetadataEpochError);
+      expect(failure.error.reason).toBe("unprotectedRuntime");
+      // The PGlite prepared-query adapter ignores names; this is a real owner
+      // refusal and ordinary full-proof lane, not positive named-plan evidence.
+    } finally { await db.close(); }
+  }, 180_000);
+
   it("invalidates only in the writer transaction and rolls back with it", async () => {
     const db = newTestPGlite();
     const persistence = await createPGlitePersistence({ db });

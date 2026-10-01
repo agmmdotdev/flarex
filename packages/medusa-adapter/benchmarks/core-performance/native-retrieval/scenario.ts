@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { Effect, Schema } from "effect";
+import { Pool } from "pg";
 import ts from "@typescript/typescript6";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ProductStatus } from "@medusajs/framework/utils/portable";
@@ -14,13 +15,22 @@ import { moduleIntegrationTestRunner as nativeRunner } from "../../../../../thir
 import { mikroOrmModuleTestPersistenceAdapter } from "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter";
 import { productIntegrationTestRunner, getLogicalProductRunnerFixture } from "../../../test/support/logical-product-runner";
 import { observeNativeRetrievalService, observePromotedRetrievalPrototype,
-  observeRetrievalPgClients, type RetrievalObservation } from "./observation";
+  observeRetrievalPgClients, observeRetrievalAcceptingComponents,
+  observeRetrievalPgProtocol, destroyIdleRetrievalPoolClients,
+  type RetrievalComponentSpan, type RetrievalObservation, type RetrievalProtocolObservation } from "./observation";
 import { openRetrievalServerObserver, readRetrievalRuntimeSettings, retrievalServerDifference,
   requireRetrievalServerObservedCalls, selectRetrievalServerDatabases, type RetrievalDatabaseIdentity } from "./server";
 
 const root = new URL("../../../../../", import.meta.url);
 const output = new URL("./", import.meta.url);
 const mode = Schema.decodeUnknownSync(Schema.Literals(["quiet", "trace", "server"]))(process.env.NATIVE_RETRIEVAL_MODE ?? "quiet");
+const componentSpans = Schema.decodeUnknownSync(Schema.Literals(["0", "1"]))(
+  process.env.NATIVE_RETRIEVAL_COMPONENT_SPANS ?? "0") === "1";
+const coldPoolClient = Schema.decodeUnknownSync(Schema.Literals(["0", "1"]))(
+  process.env.NATIVE_RETRIEVAL_COLD_POOL_CLIENT ?? "0") === "1";
+const protocolTracing = Schema.decodeUnknownSync(Schema.Literals(["0", "1"]))(
+  process.env.NATIVE_RETRIEVAL_PROTOCOL ?? "0") === "1";
+if (protocolTracing && mode !== "trace") throw new Error("Protocol observation requires separate trace mode");
 const decodeCount = Schema.decodeUnknownSync(Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 10_000 })));
 const warmups = decodeCount(process.env.NATIVE_RETRIEVAL_WARMUPS ?? "5");
 const sampleCount = decodeCount(process.env.NATIVE_RETRIEVAL_SAMPLES ?? (mode === "quiet" ? "30" : "1"));
@@ -55,6 +65,10 @@ interface Sample {
   result?: unknown;
   error?: { name: string; message: string; type?: string };
   observations?: readonly RetrievalObservation[];
+  protocol?: readonly RetrievalProtocolObservation[];
+  coldPoolReset?: { readonly destroyedConnections: readonly number[]; readonly elapsedMs: number };
+  acceptingComponents?: readonly RetrievalComponentSpan[];
+  acceptingComponentObservationError?: ReturnType<typeof errorSummary>;
   server?: ReturnType<typeof retrievalServerDifference>;
   serverSnapshots?: {
     before: Awaited<ReturnType<Awaited<ReturnType<typeof openRetrievalServerObserver>>["snapshot"]>>;
@@ -99,6 +113,7 @@ async function sourceEvidence() {
     "packages/medusa-adapter/src/product-commands/reads.ts", "packages/medusa-adapter/src/product-module.ts",
     "packages/medusa-adapter/test/support/logical-product-runner.ts",
     "packages/medusa-adapter/test/support/logical-currency-fixture.ts",
+    "packages/persistence-postgres/test/fixtures/applicationNativeMutationTestFixture.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts", "packages/medusa-adapter/vitest.native-retrieval.config.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
     "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
@@ -121,6 +136,7 @@ async function sourceEvidence() {
     "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
     "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
     "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+    "packages/persistence-postgres/src/logicalDocuments/documentAdmission.ts",
     "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
     "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
     "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
@@ -134,6 +150,7 @@ async function sourceEvidence() {
     "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts",
     "packages/persistence-postgres/src/preparedHostRuntime.ts",
     "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+    "packages/persistence-postgres/src/exactRunningAttemptTail.ts",
     "packages/persistence-postgres/src/commerceTransaction/admission.ts",
     "packages/persistence-postgres/src/frameworkSchema/binding/repository.ts",
     "packages/persistence-postgres/src/frameworkSchema/installation/runtime.ts",
@@ -198,11 +215,13 @@ describe("paired genuine native Product retrieval", () => {
           try {
             const sourcesAfter = await sourceEvidence();
             const sourceStable = sourcesBefore !== undefined && JSON.stringify(sourcesAfter) === JSON.stringify(sourcesBefore);
-            const settings = { mode, warmups, sampleCount, concurrency: 1, nativeDatabase,
+            const settings = { mode, componentSpans, coldPoolClient, protocolTracing, warmups, sampleCount, concurrency: 1, nativeDatabase,
               logicalDatabase: runtimeSettings.flarex?.database ?? "unavailable", selectedDatabaseIdentities,
               node: process.version, platform: process.platform, architecture: process.arch,
               nativeLifetime: "existing MikroORM module and per-call injected manager; no benchmark-owned context",
               flarexLifetime: "existing standalone CommerceHost.read with actual fresh request lifetime",
+              flarexPhysicalConnectionProfile: coldPoolClient ? "coldPoolClient; target/control idle clients destroyed outside request, connect/authentication and first Parse inside request" : "existing retained pools",
+              protocolCoverage: protocolTracing ? "actual pg Connection method submissions; values and SQL bodies omitted; not server completion or wire bytes" : "unavailable; protocol observation disabled",
               diagnosticConnectionSettings: server?.settings ?? "unavailable in this mode", runtimeSettings, runtimeSettingsAfter,
               diagnosticObserverIdentity: server?.observerIdentity ?? "unavailable in this mode",
               serverStatementCoverage: server?.coverage ?? "unavailable in this mode",
@@ -219,6 +238,7 @@ describe("paired genuine native Product retrieval", () => {
               settings, settingsSha256: hash(JSON.stringify(settings)), seed, collection,
               cases, setup, parityResults, missingErrors, samples,
               notes: ["All raw samples retained; assertions and diagnostic encoding are outside quiet intervals.",
+                "Optional component spans include tracer overhead; nested inclusive span distributions are not additive and unobserved spans are not zero-duration proof.",
                 "Server diagnostics include instrumentation overhead and are separate from quiet latency.",
                 "Query JSON bytes are not network wire bytes. Inclusive call or parent/nested server times are not additive."] }, null, 2), { flag: "wx" });
             if (sourcesBefore !== undefined) expect(sourcesAfter).toStrictEqual(sourcesBefore);
@@ -282,10 +302,12 @@ describe("paired genuine native Product retrieval", () => {
           await flarex.createProducts({ ...seed, collection_id: collection.id });
           setup.flarexPublicSeedMs = performance.now() - flarexSeedStarted;
           const { product, reader } = getLogicalProductRunnerFixture();
-          const retrieve = (lane: Lane, id: string, config: FindConfig<ProductTypes.ProductDTO>) => lane === "native"
+          const retrieve = (lane: Lane, id: string, config: FindConfig<ProductTypes.ProductDTO>,
+            components?: ReturnType<typeof observeRetrievalAcceptingComponents>) => lane === "native"
             ? native.retrieveProduct(id, structuredClone(config))
             : Effect.runPromise(reader.read(product.runtime.commands.retrieve,
-              { id, config: { select: [...(config.select ?? [])], relations: [...(config.relations ?? [])] } }));
+              { id, config: { select: [...(config.select ?? [])], relations: [...(config.relations ?? [])] } }).pipe(
+                components === undefined ? effect => effect : Effect.withTracer(components.tracer)));
           activeStage = "parity";
           for (const demand of cases) {
             const nativeResult = await retrieve("native", seed.id, demand.config);
@@ -308,11 +330,25 @@ describe("paired genuine native Product retrieval", () => {
             const order: readonly Lane[] = index % 2 === 0 ? ["native", "flarex"] : ["flarex", "native"];
             for (const lane of order) {
               const observations: RetrievalObservation[] = [];
+              const protocol: RetrievalProtocolObservation[] = [];
+              let coldPoolReset: Sample["coldPoolReset"];
+              if (coldPoolClient && lane === "flarex") {
+                const resetStarted = performance.now();
+                const pools = [fixture.currency.persistence, fixture.currency.control].map(owner => {
+                  if (!("pool" in owner) || !(owner.pool instanceof Pool)) throw new Error("Cold retrieval requires actual PostgreSQL fixture pools");
+                  return owner.pool;
+                });
+                const destroyedConnections: number[] = [];
+                for (const pool of new Set(pools)) destroyedConnections.push(await destroyIdleRetrievalPoolClients(pool));
+                coldPoolReset = { destroyedConnections, elapsedMs: performance.now() - resetStarted };
+              }
+              const components = componentSpans && lane === "flarex" ? observeRetrievalAcceptingComponents() : undefined;
               const cleanups: Array<() => void> = [];
               const before = server === undefined || index < 0 ? undefined : await server.snapshot();
               try {
                 if (mode === "trace" && index >= 0) {
                   cleanups.push(observeRetrievalPgClients(observations));
+                  if (protocolTracing) cleanups.push(observeRetrievalPgProtocol(protocol));
                   if (nativeInstance === undefined) throw new Error("Missing actual native Product instance for observation");
                   cleanups.push(lane === "native" ? observeNativeRetrievalService(nativeInstance, observations)
                     : observePromotedRetrievalPrototype(ProductModuleService.prototype, observations));
@@ -320,18 +356,52 @@ describe("paired genuine native Product retrieval", () => {
                 const started = performance.now();
                 let result: unknown;
                 try {
-                  result = await retrieve(lane, seed.id, demand.config);
-                  samples.push({ lane, demand: demand.name, sample: index, warmup: index < 0,
-                    elapsedMs: performance.now() - started, outcome: "success", result,
-                    ...(mode === "trace" && index >= 0 ? { observations } : {}) });
+                  result = await retrieve(lane, seed.id, demand.config, components);
                 } catch (cause) {
-                  samples.push({ lane, demand: demand.name, sample: index, warmup: index < 0,
-                    elapsedMs: performance.now() - started, outcome: "failure", error: errorSummary(cause),
-                    ...(mode === "trace" && index >= 0 ? { observations } : {}) });
+                  const elapsedMs = performance.now() - started;
+                  const sample: Sample = { lane, demand: demand.name, sample: index, warmup: index < 0,
+                    elapsedMs, outcome: "failure", error: errorSummary(cause),
+                    ...(mode === "trace" && index >= 0 ? { observations, ...(protocolTracing ? { protocol } : {}) } : {}),
+                    ...(coldPoolReset === undefined ? {} : { coldPoolReset }) };
+                  samples.push(sample);
+                  if (components !== undefined) {
+                    try { sample.acceptingComponents = components.snapshot(); }
+                    catch (observationError) { sample.acceptingComponentObservationError = errorSummary(observationError); }
+                  }
                   throw cause;
+                }
+                const sample: Sample = { lane, demand: demand.name, sample: index, warmup: index < 0,
+                  elapsedMs: performance.now() - started, outcome: "success", result,
+                  ...(mode === "trace" && index >= 0 ? { observations, ...(protocolTracing ? { protocol } : {}) } : {}),
+                  ...(coldPoolReset === undefined ? {} : { coldPoolReset }) };
+                samples.push(sample);
+                if (components !== undefined) {
+                  try { sample.acceptingComponents = components.snapshot(); }
+                  catch (observationError) {
+                    sample.acceptingComponentObservationError = errorSummary(observationError);
+                    throw observationError;
+                  }
+                  const observed = sample.acceptingComponents;
+                  expect(observed.filter(span => (span.name === "ApplicationActivation.validateBindingBasisOwned" ||
+                    span.name === "ApplicationActivation.withPreparedBindingBasis") && span.outcome === "success")).toHaveLength(1);
+                  expect(observed.filter(span => span.name === "ApplicationReadiness.validateStoredIssuedReadiness" &&
+                    span.outcome === "success")).toHaveLength(1);
                 }
                 // Preserve the complete DTO after EVERY invocation. No post-hoc projection.
                 expect(result).toStrictEqual(demand.expected);
+                if (protocolTracing && index >= 0) {
+                  expect(protocol.filter(entry => entry.method === "query" || entry.method === "execute"))
+                    .toHaveLength(observations.filter(entry => entry.kind === "sql").length);
+                  expect(protocol.every(entry => entry.outcome === "returned")).toBe(true);
+                  if (lane === "flarex") {
+                    const names = new Set(protocol.filter(entry => entry.method === "bind" &&
+                      entry.statementName?.startsWith("fx_pm_")).map(entry => entry.statementName));
+                    expect(names.size).toBe(2);
+                    const parsed = protocol.filter(entry => entry.method === "parse" && entry.statementName?.startsWith("fx_pm_"));
+                    for (const entry of parsed) expect(entry.statementName).toBe(`fx_pm_${entry.sqlSha256?.slice(0, 56)}`);
+                    if (coldPoolClient) expect(parsed).toHaveLength(2);
+                  }
+                }
               } finally {
                 for (const close of cleanups.toReversed()) close();
                 if (before !== undefined && server !== undefined) {

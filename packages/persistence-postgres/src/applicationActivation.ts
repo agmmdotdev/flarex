@@ -33,6 +33,7 @@ import {
   readApplicationActiveHeadForShareInTransactionEffect,
   readCoherentApplicationActiveHeadForShareInTransactionEffect,
   readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect,
+  readCheckedApplicationActiveHead,
   releaseCheckedApplicationActiveHead,
   type ApplicationActiveHeadStateError,
   type CheckedApplicationActiveHead,
@@ -71,6 +72,7 @@ import {
   hasApplicationReadinessPlanningComposition,
   validateApplicationReadinessForActivationInTransaction,
   validateStoredApplicationReadinessForActivationInTransaction,
+  withStoredApplicationReadinessForBindingInTransaction,
   captureApplicationReadinessInTransaction,
   prepareCapturedApplicationReadiness,
   ApplicationReadinessError,
@@ -370,15 +372,21 @@ export function readPreparedFiniteActiveApplication(prepared: PreparedFiniteActi
   );
 }
 
-export const validatePreparedFiniteActiveApplicationInTransaction = Effect.fn(
-  "ApplicationActivation.validatePreparedFiniteActive",
-)(function* (prepared: PreparedFiniteActiveApplication, tx: AppRowTransaction, clock: ScopeClockRecord) {
+export const withPreparedFiniteActiveApplicationInTransaction = Effect.fn(
+  "ApplicationActivation.withPreparedFiniteActive",
+)(function* <Value, Failure, Requirements>(prepared: PreparedFiniteActiveApplication, tx: AppRowTransaction,
+  clock: ScopeClockRecord,
+  work: (accepted: Readonly<{ selection: ApplicationActiveSelection; basis: ApplicationActiveSelectionBasis }>,
+    binding: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>) {
   const state = finiteActivePreparations.get(prepared);
   if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
-  yield* Effect.fromResult(readPreparedFiniteActiveApplication(prepared));
-  const validated = yield* validateApplicationBindingBasisInTransaction(state.selection, tx, clock);
-  if (validated.kind !== "legacy") return yield* activationFailure("validateSelection", "invalidComposition");
-  return Object.freeze({ selection: state.selection, basis: validated.basis, schema: structuredClone(state.schema) });
+  yield* Effect.fromResult((state.lifetime?.checkOpen() ?? Result.succeed(undefined)).pipe(
+    Result.mapError(cause => activationError("validateSelection", "invalidComposition", undefined, false, cause))));
+  return yield* withValidatedApplicationBindingBasisInTransaction(state.selection, tx, clock,
+    (validated, _checked, binding) => Effect.gen(function* () {
+      if (validated.kind !== "legacy") return yield* activationFailure("validateSelection", "invalidComposition");
+      return yield* work(Object.freeze({ selection: state.selection, basis: validated.basis }), binding);
+    }));
 });
 
 const bindingPreparationBrand: unique symbol = Symbol("ApplicationBindingPreparation");
@@ -397,6 +405,10 @@ const bindingPreparationReaders = new WeakMap<object, () => Effect.Effect<Applic
 
 export function isApplicationBindingPreparation(input: ApplicationBindingInput): input is ApplicationBindingPreparation {
   return bindingPreparations.has(input);
+}
+
+export function isPreparedApplicationBinding(input: ApplicationBindingInput): input is PreparedApplicationBinding {
+  return legacyBindingPreparations.has(input);
 }
 
 /** Binding-only consumers construct request evidence; acceptance remains with the business transaction. */
@@ -421,8 +433,10 @@ declare const acceptedBindingBrand: unique symbol;
 /** Only valid inside the accepting callback; deliberately not an executable selection. */
 export interface AcceptedApplicationBinding { readonly [acceptedBindingBrand]: true }
 const acceptedBindings = new WeakMap<object, Readonly<{
-  tx: AppRowTransaction; clock: ScopeClockRecord; basis: ApplicationRelationActiveSelectionBasis;
-  readiness: PreparedApplicationRelationActiveRead;
+  selection: ApplicationBindingInput; tx: AppRowTransaction; clock: ScopeClockRecord;
+  validated: ApplicationExecutableActiveSelection;
+  checkedActive: CheckedApplicationActiveHead | undefined;
+  readiness: PreparedApplicationRelationActiveRead | undefined;
 }>>();
 
 export const withAcceptedApplicationBinding = Effect.fn("ApplicationActivation.withAcceptedBinding")(
@@ -432,17 +446,16 @@ export const withAcceptedApplicationBinding = Effect.fn("ApplicationActivation.w
     if (prepared === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
     if (borrowed !== undefined) {
       yield* Effect.fromResult(readAcceptedApplicationBinding(borrowed, tx, clock));
-      if (acceptedBindings.get(borrowed)?.readiness !== prepared.readiness) return yield* activationFailure("validateSelection", "invalidComposition");
+      if (acceptedBindings.get(borrowed)?.selection !== input ||
+        acceptedBindings.get(borrowed)?.readiness !== prepared.readiness)
+        return yield* activationFailure("validateSelection", "invalidComposition");
       return yield* Effect.suspend(() => work(borrowed));
     }
-    const validated = yield* validateApplicationBindingBasisInTransaction(input, tx, clock);
-    if (validated.kind !== "relation") return yield* activationFailure("validateSelection", "invalidComposition");
-    return yield* Effect.acquireUseRelease(Effect.sync(() => {
-      // SAFETY: an inert handle; the callback-local registry owns transaction authority.
-      const binding = Object.freeze({}) as AcceptedApplicationBinding;
-      acceptedBindings.set(binding, { tx, clock: { ...clock }, basis: validated.basis, readiness: prepared.readiness });
-      return binding;
-    }), binding => Effect.suspend(() => work(binding)), binding => Effect.sync(() => { acceptedBindings.delete(binding); }));
+    return yield* withValidatedApplicationBindingBasisInTransaction(input, tx, clock,
+      (validated, _checked, binding) => Effect.gen(function* () {
+        if (validated.kind !== "relation") return yield* activationFailure("validateSelection", "invalidComposition");
+        return yield* work(binding);
+      }));
   },
 );
 
@@ -450,12 +463,27 @@ export function readAcceptedApplicationBinding(binding: AcceptedApplicationBindi
   clock: ScopeClockRecord, repository?: ApplicationRelationReadinessFoldRepository): Result.Result<
     ApplicationRelationActiveSelectionBasis, ApplicationActivationError> {
   const state = acceptedBindings.get(binding);
-  if (state === undefined || state.tx !== tx || !clockMatches(state.basis.authority, clock) ||
+  if (state === undefined || state.validated.kind !== "relation" || state.tx !== tx ||
+    !clockMatches(state.validated.basis.authority, clock) ||
     state.clock.lastCommitSeq !== clock.lastCommitSeq ||
-    (repository !== undefined && !hasPreparedApplicationRelationReadRepository(state.readiness, repository))) {
+    (repository !== undefined && (state.readiness === undefined ||
+      !hasPreparedApplicationRelationReadRepository(state.readiness, repository)))) {
     return Result.fail(new ApplicationActivationError({ operation: "validateSelection", reason: "invalidComposition", retryable: false }));
   }
-  return Result.succeed(copyRelationSelectionBasis(state.basis));
+  return Result.succeed(copyRelationSelectionBasis(state.validated.basis));
+}
+
+/** The entry/source owner supplies its genuine captured source membership.
+ * This verifies only the borrowed Application observation, never source proof. */
+export function requireAcceptedApplicationBindingObservation(binding: AcceptedApplicationBinding,
+  selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord) {
+  const state = acceptedBindings.get(binding);
+  if (state === undefined || state.selection !== selection || state.tx !== tx ||
+    !clockMatches(state.validated.basis.authority, clock) || state.checkedActive === undefined)
+    return Result.fail(activationError("validateSelection", "invalidComposition"));
+  const checked = state.checkedActive;
+  return readApplicationBindingTargetProtection(selection).pipe(Result.flatMap(() =>
+    readCheckedApplicationActiveHead(checked, tx, clock).pipe(Result.map(() => undefined))));
 }
 
 /** Private identity check for read-only binding composition, including both readiness contracts. */
@@ -881,7 +909,6 @@ function issueLegacyBindingPreparation(prepared: ActivePreparation): PreparedApp
   const token = Object.freeze({}) as PreparedApplicationBinding;
   legacyBindingPreparations.set(token, Object.freeze({ kind: "legacy", basis: copySelectionBasis(prepared.basis),
     readinessRepository: prepared.readinessRepository, readiness: prepared.readiness, lifetime: undefined }));
-  installBindingHeadPreparation(token, prepared);
   return token;
 }
 
@@ -1198,14 +1225,67 @@ export const withValidatedApplicationBindingBasisInTransaction = Effect.fn(
 )(function* <Value, Failure, Requirements>(selection: ApplicationBindingInput, tx: AppRowTransaction,
   currentClock: ScopeClockRecord,
   work: (validated: Effect.Success<ReturnType<typeof validateApplicationBindingBasisOwned>>,
-    checked: CheckedApplicationActiveHead | undefined) => Effect.Effect<Value, Failure, Requirements>) {
+    checked: CheckedApplicationActiveHead | undefined, binding: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+  borrowed?: AcceptedApplicationBinding) {
   let checked: CheckedApplicationActiveHead | undefined;
   return yield* Effect.gen(function* () {
     const validated = yield* validateApplicationBindingBasisOwned(selection, tx, currentClock,
-      issued => { checked = issued; });
-    return yield* Effect.suspend(() => work(validated, checked));
+      issued => { checked = issued; }, borrowed);
+    const observed = checked ?? (borrowed === undefined ? undefined : acceptedBindings.get(borrowed)?.checkedActive);
+    return yield* withApplicationBindingObservation(selection, tx, currentClock, validated, observed,
+      binding => work(validated, observed, binding), borrowed);
   }).pipe(Effect.ensuring(Effect.sync(() => releaseCheckedApplicationActiveHead(checked))));
 });
+
+/** The standalone outer SQL owner must finish all source/native/settlement
+ * work in this callback, with no metadata acquisition after successful return. */
+export const withPreparedApplicationBindingBasisInTransaction = Effect.fn(
+  "ApplicationActivation.withPreparedBindingBasis",
+)(function* <Value, Failure, Requirements>(selection: PreparedApplicationBinding, tx: AppRowTransaction,
+  currentClock: ScopeClockRecord,
+  work: (validated: Extract<ApplicationExecutableActiveSelection, { readonly kind: "legacy" }>,
+    checked: CheckedApplicationActiveHead | undefined, binding: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>) {
+  const state = legacyBindingPreparations.get(selection);
+  if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+  yield* Effect.fromResult(readApplicationBindingTargetProtection(selection));
+  if (!clockMatches(state.basis.authority, currentClock))
+    return yield* activationFailure("validateSelection", "scopeAuthority", state.basis.revisionId);
+  let checked: CheckedApplicationActiveHead | undefined;
+  return yield* Effect.gen(function* () {
+    // The request capture authenticated readiness, not the activation/schema
+    // rows. Keep the actual live row proofs, without a retained head template.
+    const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock,
+      issued => { checked = issued; });
+    return yield* withStoredApplicationReadinessForBindingInTransaction(state.readinessRepository,
+      state.readiness, tx, currentClock, checked, ready => Effect.gen(function* () {
+        if (observed === null || !headMatchesBasis(observed.active.head, state.basis) ||
+          !headMatchesValidatedReadiness(observed.active.head, { kind: "legacy", basis: ready.basis }))
+          return yield* activationFailure("validateSelection", "concurrentHead", state.basis.revisionId);
+        const validated = Object.freeze({ kind: "legacy" as const, basis: copySelectionBasis(state.basis) });
+        return yield* withApplicationBindingObservation(selection, tx, currentClock, validated, checked,
+          binding => work(validated, checked, binding));
+      }));
+  }).pipe(Effect.ensuring(Effect.sync(() => releaseCheckedApplicationActiveHead(checked))));
+});
+
+function withApplicationBindingObservation<Value, Failure, Requirements>(selection: ApplicationBindingInput,
+  tx: AppRowTransaction, clock: ScopeClockRecord, validated: ApplicationExecutableActiveSelection,
+  checkedActive: CheckedApplicationActiveHead | undefined,
+  work: (binding: AcceptedApplicationBinding) => Effect.Effect<Value, Failure, Requirements>,
+  borrowed?: AcceptedApplicationBinding): Effect.Effect<Value, Failure, Requirements> {
+  if (borrowed !== undefined) return Effect.suspend(() => work(borrowed));
+  return Effect.acquireUseRelease(Effect.sync(() => {
+    // SAFETY: this existing issuer owns the inert callback-local observation;
+    // neither its basis nor its checked handle grants executable authority.
+    const binding = Object.freeze({}) as AcceptedApplicationBinding;
+    const detached = validated.kind === "legacy"
+      ? Object.freeze({ kind: "legacy" as const, basis: copySelectionBasis(validated.basis) })
+      : Object.freeze({ kind: "relation" as const, basis: copyRelationSelectionBasis(validated.basis) });
+    acceptedBindings.set(binding, { selection, tx, clock: { ...clock, updatedAt: new Date(clock.updatedAt.getTime()) },
+      validated: detached, checkedActive, readiness: bindingPreparations.get(selection)?.readiness });
+    return binding;
+  }), binding => Effect.suspend(() => work(binding)), binding => Effect.sync(() => { acceptedBindings.delete(binding); }));
+}
 
 /** Read-only composition for ordinary callers; no checked observation leaves this method. */
 export const validateApplicationBindingBasisInTransaction = Effect.fn(
@@ -1216,11 +1296,12 @@ export const validateApplicationBindingBasisInTransaction = Effect.fn(
 const validateApplicationBindingBasisOwned = Effect.fn(
   "ApplicationActivation.validateBindingBasisOwned",
 )(function* (selection: ApplicationBindingInput, tx: AppRowTransaction, currentClock: ScopeClockRecord,
-  issued: (checked: CheckedApplicationActiveHead | undefined) => void) {
+  issued: (checked: CheckedApplicationActiveHead | undefined) => void, borrowed?: AcceptedApplicationBinding) {
+  const readActive = () => readApplicationBindingActiveHead(selection, tx, currentClock, issued, borrowed);
   const preparation = bindingPreparations.get(selection);
   if (preparation !== undefined) {
     if (!clockMatches(preparation.authority, currentClock)) return yield* activationFailure("validateSelection", "scopeAuthority", preparation.revisionId);
-    const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock, issued);
+    const observed = yield* readActive();
     const active = observed?.active ?? null;
     if (active === null || active.head.revisionId !== preparation.revisionId || active.head.readinessKind === "legacy") {
       return yield* activationFailure("validateSelection", "concurrentHead", preparation.revisionId);
@@ -1240,7 +1321,7 @@ const validateApplicationBindingBasisOwned = Effect.fn(
   if (state === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
     if (state.kind === "relation") {
       // Binding admission locks the Application head before restoring its readiness dependencies.
-      const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock, issued);
+      const observed = yield* readActive();
       const active = observed?.active ?? null;
       if (active === null || !relationHeadMatchesBasis(active.head, state.basis)) {
         return yield* activationFailure("validateSelection", "concurrentHead", state.basis.revisionId);
@@ -1253,8 +1334,7 @@ const validateApplicationBindingBasisOwned = Effect.fn(
   if (!clockMatches(state.basis.authority, currentClock)) {
     return yield* activationFailure("validateSelection", "scopeAuthority", state.basis.revisionId);
   }
-  const observed = yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, currentClock, issued,
-    bindingHeadPreparations.get(selection));
+  const observed = yield* readActive();
   const active = observed?.active ?? null;
   const validated = yield* validateStoredApplicationReadinessForActivationInTransaction(
     state.readinessRepository, state.readiness, tx, currentClock, observed?.checked,
@@ -1265,6 +1345,21 @@ const validateApplicationBindingBasisOwned = Effect.fn(
   }
   return Object.freeze({ kind: "legacy" as const, basis: copySelectionBasis(state.basis) });
 });
+
+const readApplicationBindingActiveHead = Effect.fn("ApplicationActivation.readBindingActiveHead")(
+  function* (selection: ApplicationBindingInput, tx: AppRowTransaction, clock: ScopeClockRecord,
+    issued: (checked: CheckedApplicationActiveHead | undefined) => void, borrowed?: AcceptedApplicationBinding) {
+    if (borrowed !== undefined) {
+      yield* Effect.fromResult(requireAcceptedApplicationBindingObservation(borrowed, selection, tx, clock));
+      const checked = acceptedBindings.get(borrowed)?.checkedActive;
+      if (checked === undefined) return yield* activationFailure("validateSelection", "invalidComposition");
+      const active = yield* Effect.fromResult(readCheckedApplicationActiveHead(checked, tx, clock));
+      if (active !== "refresh") return Object.freeze({ active, checked });
+    }
+    return yield* readCheckedCoherentApplicationActiveHeadForShareInTransactionEffect(tx, clock, issued,
+      bindingHeadPreparations.get(selection));
+  },
+);
 
 export const validateApplicationActiveSelectionInTransaction = Effect.fn(
   "ApplicationActivation.validateSelectionInTransaction",

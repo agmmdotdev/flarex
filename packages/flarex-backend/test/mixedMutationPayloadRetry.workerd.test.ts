@@ -19,6 +19,33 @@ import { createMixedMutationProductFixture } from "./support/mixedMutationProduc
 const drivers = process.env.FLAREX_POSTGRES_DATABASE_URL === undefined
   ? ["pglite" as const] : ["pglite" as const, "postgres" as const];
 
+describe.skipIf(process.env.FLAREX_POSTGRES_DATABASE_URL === undefined)("standalone Payload credential ownership", () => {
+  it("refuses the schema owner's credentials before business work and closes the separate connection", async () => {
+    const fixture = await createMixedMutationProductFixture({ driver: "postgres",
+      suffix: "payload-standalone-owner-credentials", payloadProfile: "success",
+      hooks: { standaloneOwnerCredentialFault: true } });
+    try {
+      if (fixture.currency.resource.kind !== "postgres") throw new Error("Missing PostgreSQL fixture");
+      const target = fixture.currency.resource.target;
+      const rowsBefore = await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions);
+      const standaloneBackends = async () => (await target.query<{ count: number }>(
+        `select count(*)::int as count from pg_stat_activity
+          where datname = current_database() and application_name = 'flarex_payload_standalone'`)).rows[0]?.count;
+      expect(await standaloneBackends()).toBe(0);
+      const leasedConnectionsBefore = target.pool.totalCount - target.pool.idleCount;
+      await expect(fixture.runStandalonePayloadCreate("wrong-credentials-must-not-create"))
+        .rejects.toThrow("Standalone Payload credential identity mismatch");
+      expect(await fixture.currency.persistence.drizzle.select().from(fxAppRowRevisions)).toEqual(rowsBefore);
+      expect(fixture.standalonePayloadPgConnections).toHaveLength(0);
+      expect(fixture.payload?.runtimeHistory).toHaveLength(0);
+      expect(fixture.nativeInvokeCount.size).toBe(0);
+      expect(await standaloneBackends()).toBe(0);
+      expect(target.pool.waitingCount).toBe(0);
+      expect(target.pool.totalCount - target.pool.idleCount).toBe(leasedConnectionsBefore);
+    } finally { await fixture.close(); }
+  }, 180_000);
+});
+
 describe.each(drivers)("mixed Payload whole-root retry on %s", driver => {
   it("reexecutes Product, the native Payload hook and Application on a fresh attempt", async () => {
     const fixture = await createMixedMutationProductFixture({ driver,
