@@ -1,11 +1,22 @@
 # Orchestration simplification: architectural reassessment
 
-Status: **mandatory next research and design gate after the delivered checked-read
-slice; runtime choices and numerical ceilings remain evidence-pending.** The
+Status: **active research and design gate; bounded native retrieval ledger available,
+read-admission construction recommended, runtime choices and ceilings pending.** The
 checked-read slice delivers structural transport composition, with latency acceptance open.
 Before publication or another minor performance iteration, compare the whole
 orchestration with native demand and select a coherent replacement graph. This
 direction does not itself amend an accepted authority or transaction contract.
+
+The [proposed finite target](./orchestration-target-design.md) records a candidate
+graph, the readiness-scope and terminal-durability decisions, data disposition
+and connected delivery groups. The [paired native retrieval measurement
+preflight](./native-retrieval-measurement-preflight.md) has a genuine pinned
+MikroORM versus protected standalone Flarex scalar/collection control, with full
+DTO and missing-error parity. The [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#final-measured-result)
+owns timings, complete work and measurement limits. It directs the next proposed
+group to [read-admission construction](./read-admission-construction-preflight.md)
+across binding, readiness, protected preparation and source demand. These proposals
+authorize no runtime cutover or private retrieval admission extension.
 
 The [accepted DB design](../../design-notes/flarex-db-accepted-design.md),
 [mixed mutation design](../../design-notes/flarexdb-mixed-mutation-execution.md),
@@ -183,15 +194,38 @@ exists. Acceptance requires all-server-work, checking-transaction, round-trip,
 latency and scaling gates. Existing whole-request latency goals remain. Report
 unavailable server instrumentation as unavailable, never zero.
 
-## Evidence gaps and runtime decision gate
+## Native attribution and remaining runtime decision gate
 
-- Executable native retrieval repository/bootstrap and populated seed/config
-  equivalence are still required. Executing promoted service identity is known;
-  full native comparison and retrieval cost are not established.
+The selected native scalar and collection cases each issue one autocommit query.
+Protected standalone Flarex retains six transactions and extensive proof
+construction before its native method. Owner tracing places the first five
+transactions in binding selection and ordinary Application activation/readiness
+construction and acceptance; the final transaction obtains the fresh business
+snapshot, revalidates binding/Application and protection, accepts logical source
+readiness, then probes/hydrates the selected data. Candidate/analysis/publication
+and readiness projections are reconstructed repeatedly. The artifact ledger owns
+the exact dispatch/row/byte and quiet/trace/server observations. Those independent
+measurement modes do not provide additive CPU/latency causation.
+
+The private finite path already uses `prepareFiniteActiveApplication` and
+`captureFiniteApplicationReadinessInTransaction` with issuer-owned preparation
+under the host lifetime and fresh accepting transactions. It does not repeat
+the standalone first-five-transaction sequence on every finite retrieval. The
+standalone ledger therefore selects the next owner group; it does not replace
+the finite checked-read baseline or justify importing standalone costs into it.
+The proposed improvement is coherent read admission and proof construction,
+not Product CRUD microbatching.
+
+- The native MikroORM control, deterministic native seed/config and complete
+  scalar/collection DTO plus missing-error parity are established for the bounded
+  measured cases. Method bodies match; constructors and request lifetimes differ.
+  Broader populated relations, variant-image demands and all Product behavior
+  remain unproved.
 - Private ID-only retrieve admission has not widened. Specify scalar/relation
   config, affected grants/callbacks and source proofs before changing it.
-- Complete full-retrieval query/row/server-trigger and scaling attribution is
-  missing from point/handle component observations.
+- Client query/row/JSON-byte and separate server-statistics ledgers exist for those
+  cases. Function/trigger coverage is not proven absent by missing nested rows.
+  Scaling, full setup SQL/CPU and complete mixed-profile attribution remain open.
 - The inspected current scalar Product trace selects 73 ordered-build rows and
   repeats physical/live metadata checks. Attribute each to actual query, pending,
   constraint or authentication requirements; do not mark it necessary merely
@@ -202,9 +236,10 @@ unavailable server instrumentation as unavailable, never zero.
   Its structural transport composition is delivered. Miss medians are higher; no causal latency gain
   or architectural acceptance is established, and the initial outlier's cause
   remains unknown.
-- Minimal correct proof timing, source closure granularity, reuse lifetime and
-  terminal topology are alternatives. Select them against a concrete native graph
-  before runtime changes, timing amendments or numeric ceilings.
+- The measured graph recommends reusing issued immutable preparation with fresh
+  authoritative acceptance at existing owners. Demand-versus-full readiness,
+  reuse/protection lifetime and terminal recovery semantics still require explicit
+  selection before runtime changes, timing amendments or numeric ceilings.
 
 ## Breaks, data disposition, cutover and removal
 

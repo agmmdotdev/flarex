@@ -1,0 +1,3393 @@
+{
+  "sourcesBefore": {
+    "files": [
+      {
+        "path": "third_party/medusa/SOURCE.json",
+        "sha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893"
+      },
+      {
+        "path": "packages/medusa-adapter/package.json",
+        "sha256": "606c5ca8c062b44a71edf8a2653ccf2b897bc63f1e24bff9f83e77b78eebb516"
+      },
+      {
+        "path": "third_party/medusa/upstream/pnpm-lock.yaml",
+        "sha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe"
+      },
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "sha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "sha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+        "sha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-commands/reads.ts",
+        "sha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "e89a73224a54a1617f38eba6f6d71737fe0654afb991297c862c7337c8545afc"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+        "sha256": "be6215397eb77fc61b060ab350290b4c6ad406b8e40ee315341dce7375405f27"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+        "sha256": "f0c8d142ab4b6678dd97b264498b477e146a4f6e07ead8b780f05b1b64c4f93d"
+      },
+      {
+        "path": "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+        "sha256": "fe11658d3ad5c18258731795aafd093289bf970f3296f22098e2d7c7e20369d8"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
+        "sha256": "1acb99c137d55325a11d37f1793d560cdc9baa91002704aec68e17156dcd0c7f"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
+        "sha256": "3cc05ef4622431fc217511bace226788237af01d3a0d65638732e98184b7e0f6"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
+        "sha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+        "sha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+        "sha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+        "sha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+        "sha256": "6e1c8bb58ca066733316daff749bbf03aec4fe334812bd3de5a536400de52db1"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+        "sha256": "40c6fe7385b325e157bb543ee63d1611a4dbd629d24615ec28719b9a88e9a6f4"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+        "sha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+        "sha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+        "sha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54"
+      },
+      {
+        "path": "packages/medusa-product/dist/services/product-module-service.js",
+        "sha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40"
+      },
+      {
+        "path": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      },
+      {
+        "path": "packages/medusa-utils/package.json",
+        "sha256": "5cc5ade0fcf9275642f4cb81a8ae25cbd5f7ef129d2734420c570e6aed9c6180"
+      },
+      {
+        "path": "packages/medusa-utils/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "packages/medusa-product/package.json",
+        "sha256": "72f5f7005ef0ddafa2eade1ccf812daf852cf5e02c8b591d3f076839d7461af3"
+      },
+      {
+        "path": "packages/medusa-product/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "tools/medusa/tsconfig.fork.json",
+        "sha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
+        "sha256": "84df36bfcbbdfdbea006f78f150e70655d4801a402dc56a8e466806fe018e585"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
+        "sha256": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+        "sha256": "6e28fab0436728864e115788e8671d9b74ee5817d146dbd05c69676cc3683625"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+        "sha256": "06619934ee043446926819905fa71b93d948ee1ba89c85d2ceae2c5c65904f1c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+        "sha256": "1dce90c3fd5ddaa1f466a8894d6cdb0acbf2a71605ba9f17be4d2fdd745e5fcf"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+        "sha256": "7ca6a353ce4ec1944b64527cd21f29f3e38483914ca507e7beb815abc2b22573"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
+        "sha256": "03ad76f6132899e7eff5adb4dd84b1fa3e67d646fb364cc9cda9160a4b3054a4"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+        "sha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+        "sha256": "b0378f42e9dddf9387ac3eeb6dac875f7dd81b6d37ea02a9a0dee71bdf61a92c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+        "sha256": "5b95615efae1eecbde114c4af01a6ba0ab9c2367f20013638760af31472683cc"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/host.ts",
+        "sha256": "c5662613fcf5e4d871c7cb8401c9af450a07e8d73bb8610b1778202c19f4e0ad"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+        "sha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23"
+      },
+      {
+        "path": "packages/medusa-adapter/src/query/read.ts",
+        "sha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-relations.ts",
+        "sha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      {
+        "path": "packages/persistence-postgres/src/appRows.ts",
+        "sha256": "a13b09122311ae7d7d8e56ca124b35a9cdcc66db9e56b219a0ddd18c83899a61"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgres.ts",
+        "sha256": "ef60f726bdb0569d5773d6fc22dbe2bb344494939931b250322873ddcc2941f0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+        "sha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad"
+      },
+      {
+        "path": "packages/persistence-postgres/drizzle/meta/_journal.json",
+        "sha256": "a0c7e9b94d0889d4accc4b9df7cf11e6fe0530d59ea3c01ea24092641228800b"
+      }
+    ],
+    "drivers": [
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\packages\\core\\framework\\dist\\deps\\pg.js",
+        "sha256": "6caf9bfd771731a2725bd663246207baefe1c243adb44bdab7b3b8f2a017bd14"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\packages\\deps\\dist\\pg.js",
+        "sha256": "f6c20a70f5180a5178b315fb3ee63a105c1e0cac6a00c31693229059643cb2cf"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\node_modules\\pg\\lib\\index.js",
+        "sha256": "a012ecbe7fdefed8d2b36c3658e33dc4c291d0bb60df18d382300061211052b7"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\node_modules\\.pnpm\\pg@8.22.0\\node_modules\\pg\\lib\\index.js",
+        "sha256": "3fad6e6d3d976edbabe0cbc9e1d39f4340bcb719bbbb186a0d3a24f3dbd4a94c"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\packages\\medusa-product\\dist\\services\\index.js",
+        "sha256": "53efd54a25103037d8132dff96e98e6c36400173f9008c098acee46a4ecc33b3"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\packages\\medusa-utils\\dist\\modules-sdk\\medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      }
+    ],
+    "methodHashes": [
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      }
+    ],
+    "construction": "pinned native MikroORM constructor versus promoted Flarex constructor; selected method-body parity"
+  },
+  "sourcesAfter": {
+    "files": [
+      {
+        "path": "third_party/medusa/SOURCE.json",
+        "sha256": "9f97efb20da45f0995866e325c6372dc0d9aa4be835437d28b164325e703b5b1"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "41355e0a9754a32aad4bcf4fd9eeff2e294c2614f60dd0e292be3cb823b36893"
+      },
+      {
+        "path": "packages/medusa-adapter/package.json",
+        "sha256": "606c5ca8c062b44a71edf8a2653ccf2b897bc63f1e24bff9f83e77b78eebb516"
+      },
+      {
+        "path": "third_party/medusa/upstream/pnpm-lock.yaml",
+        "sha256": "2c9390dce87526e7f8ecef2c808f57ec2659befa0387bf88fb772c877c5204fe"
+      },
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "sha256": "0baea69c2a481b5f3467bf4c630a433dd82065d62a84e5463ecc4a59a24754dd"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "sha256": "eec1a1e378ad1bfc845bceb1fdcf2741d570f353d795ecb000c934ed330773ea"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+        "sha256": "7efb5c40aac138afa15c9f55b09e85ea307fe4bf1130b826a6d4a6df0b73906a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-commands/reads.ts",
+        "sha256": "4cb78d3ddc810e433844db76d6b2fde209a572ccf7a7446877753a2a0de0bd3b"
+      },
+      {
+        "path": "packages/medusa-adapter/src/product-module.ts",
+        "sha256": "e89a73224a54a1617f38eba6f6d71737fe0654afb991297c862c7337c8545afc"
+      },
+      {
+        "path": "packages/medusa-adapter/test/support/logical-product-runner.ts",
+        "sha256": "be6215397eb77fc61b060ab350290b4c6ad406b8e40ee315341dce7375405f27"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts",
+        "sha256": "f0c8d142ab4b6678dd97b264498b477e146a4f6e07ead8b780f05b1b64c4f93d"
+      },
+      {
+        "path": "packages/medusa-adapter/vitest.native-retrieval.config.ts",
+        "sha256": "fe11658d3ad5c18258731795aafd093289bf970f3296f22098e2d7c7e20369d8"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts",
+        "sha256": "1acb99c137d55325a11d37f1793d560cdc9baa91002704aec68e17156dcd0c7f"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/server.ts",
+        "sha256": "3cc05ef4622431fc217511bace226788237af01d3a0d65638732e98184b7e0f6"
+      },
+      {
+        "path": "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/tsconfig.json",
+        "sha256": "c03d287f2c399905a521a2a7c5b331c163e5da761fddd31b46a7ec5169b7279a"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+        "sha256": "704e5b9b69125fcab452aedf687c2648c2bd924365a3dcdd78afa4a873dcbe69"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+        "sha256": "b5ef8a9648016f4ffec9bc3c783591e050aedcbacb65ac888a42a505093af2e7"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+        "sha256": "84d74f3fe2b3e29ad3d26512f5b01374e1eed7f4e18f8cd179d786350f9e002b"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+        "sha256": "6e1c8bb58ca066733316daff749bbf03aec4fe334812bd3de5a536400de52db1"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+        "sha256": "40c6fe7385b325e157bb543ee63d1611a4dbd629d24615ec28719b9a88e9a6f4"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+        "sha256": "c7c2090ec7c64366528b54aad2b43c80b41291e06245c58bf9a6f00b68f34166"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+        "sha256": "0f8adeed3439ccddbba73c0209ddc538d952eb04a0bb9d30ad1bd23391ad25f0"
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+        "sha256": "7d79f52ab3b4437d408f1231917087a9850607a0b5d8b1b10e04442193121b54"
+      },
+      {
+        "path": "packages/medusa-product/dist/services/product-module-service.js",
+        "sha256": "f71240360c0c0279090e752f8d83d411bfd31510f87dad39306de9b33eadaf40"
+      },
+      {
+        "path": "packages/medusa-utils/src/modules-sdk/medusa-internal-service.ts",
+        "sha256": "d6bff4df9e3adc56ef8317dface9206710a81523bcbd1536186c291c18662e47"
+      },
+      {
+        "path": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      },
+      {
+        "path": "packages/medusa-utils/package.json",
+        "sha256": "5cc5ade0fcf9275642f4cb81a8ae25cbd5f7ef129d2734420c570e6aed9c6180"
+      },
+      {
+        "path": "packages/medusa-utils/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "packages/medusa-product/package.json",
+        "sha256": "72f5f7005ef0ddafa2eade1ccf812daf852cf5e02c8b591d3f076839d7461af3"
+      },
+      {
+        "path": "packages/medusa-product/tsconfig.json",
+        "sha256": "3285f36a3f6446b5654662bd7b3a4d83721b2ebfb9cd4e1d18714b68ae726a1b"
+      },
+      {
+        "path": "tools/medusa/tsconfig.fork.json",
+        "sha256": "813ea05628b446f78c2bcf52b34da4938134be2813aea3c4bc9b3205f2ccf392"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
+        "sha256": "84df36bfcbbdfdbea006f78f150e70655d4801a402dc56a8e466806fe018e585"
+      },
+      {
+        "path": "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
+        "sha256": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/participantAdmission.ts",
+        "sha256": "6e28fab0436728864e115788e8671d9b74ee5817d146dbd05c69676cc3683625"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalAdmission.ts",
+        "sha256": "06619934ee043446926819905fa71b93d948ee1ba89c85d2ceae2c5c65904f1c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/sourceAdmission.ts",
+        "sha256": "1dce90c3fd5ddaa1f466a8894d6cdb0acbf2a71605ba9f17be4d2fdd745e5fcf"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/workingSet.ts",
+        "sha256": "7ca6a353ce4ec1944b64527cd21f29f3e38483914ca507e7beb815abc2b22573"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/relationalQuery.ts",
+        "sha256": "03ad76f6132899e7eff5adb4dd84b1fa3e67d646fb364cc9cda9160a4b3054a4"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalDocuments/indexReads.ts",
+        "sha256": "fd6dbee36ad878edf096fd9cd42c5df3b3d975b38c92ba22d613d3150686002b"
+      },
+      {
+        "path": "packages/persistence-postgres/src/logicalStorageReadiness.ts",
+        "sha256": "b0378f42e9dddf9387ac3eeb6dac875f7dd81b6d37ea02a9a0dee71bdf61a92c"
+      },
+      {
+        "path": "packages/persistence-postgres/src/preparedMetadataEpoch.ts",
+        "sha256": "5b95615efae1eecbde114c4af01a6ba0ab9c2367f20013638760af31472683cc"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/host.ts",
+        "sha256": "c5662613fcf5e4d871c7cb8401c9af450a07e8d73bb8610b1778202c19f4e0ad"
+      },
+      {
+        "path": "packages/persistence-postgres/src/commerceTransaction/borrowedLogicalAttempt.ts",
+        "sha256": "b90961ab1411be55673115d3e9c678c8c8d7a3c32e5ac24b4c482be7a6714c23"
+      },
+      {
+        "path": "packages/medusa-adapter/src/query/read.ts",
+        "sha256": "6233ea1d62ebea8a388ba80d043aca8bb1f4548aabb8c4563bb81a158740564a"
+      },
+      {
+        "path": "packages/medusa-adapter/src/commerce-relations.ts",
+        "sha256": "5bf35f142597d0cc77bded7ba9e3588ac80a06ded314998ebd35d42d1a8c1efd"
+      },
+      {
+        "path": "packages/persistence-postgres/src/appRows.ts",
+        "sha256": "a13b09122311ae7d7d8e56ca124b35a9cdcc66db9e56b219a0ddd18c83899a61"
+      },
+      {
+        "path": "packages/persistence-postgres/src/postgres.ts",
+        "sha256": "ef60f726bdb0569d5773d6fc22dbe2bb344494939931b250322873ddcc2941f0"
+      },
+      {
+        "path": "packages/persistence-postgres/src/transactionSessionAttemptKernel.ts",
+        "sha256": "dde413833778386bc5f2dbd1d8c896f7955a5df9b76e441027a4b2f342ad51ad"
+      },
+      {
+        "path": "packages/persistence-postgres/drizzle/meta/_journal.json",
+        "sha256": "a0c7e9b94d0889d4accc4b9df7cf11e6fe0530d59ea3c01ea24092641228800b"
+      }
+    ],
+    "drivers": [
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\packages\\core\\framework\\dist\\deps\\pg.js",
+        "sha256": "6caf9bfd771731a2725bd663246207baefe1c243adb44bdab7b3b8f2a017bd14"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\packages\\deps\\dist\\pg.js",
+        "sha256": "f6c20a70f5180a5178b315fb3ee63a105c1e0cac6a00c31693229059643cb2cf"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\node_modules\\pg\\lib\\index.js",
+        "sha256": "a012ecbe7fdefed8d2b36c3658e33dc4c291d0bb60df18d382300061211052b7"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\node_modules\\.pnpm\\pg@8.22.0\\node_modules\\pg\\lib\\index.js",
+        "sha256": "3fad6e6d3d976edbabe0cbc9e1d39f4340bcb719bbbb186a0d3a24f3dbd4a94c"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\packages\\medusa-product\\dist\\services\\index.js",
+        "sha256": "53efd54a25103037d8132dff96e98e6c36400173f9008c098acee46a4ecc33b3"
+      },
+      {
+        "path": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\packages\\medusa-utils\\dist\\modules-sdk\\medusa-internal-service.js",
+        "sha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132"
+      }
+    ],
+    "methodHashes": [
+      {
+        "path": "packages/medusa-product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      },
+      {
+        "path": "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+        "methods": {
+          "retrieveProduct": "eae1c7fa8372bbee2f2588c66a92e65ebae81b8485c24a05109ee92aaaddd87e",
+          "getProductFindConfig_": "18a10c8a4092c495b70ad12b534d3ec58f513fd743f0fb509bc22292deabe745",
+          "buildVariantImagesFromProduct": "38e6c2b9aeeae20a9f53bc9f7820162c5098051891a59db82215d170d5b00ed4"
+        }
+      }
+    ],
+    "construction": "pinned native MikroORM constructor versus promoted Flarex constructor; selected method-body parity"
+  },
+  "checkpoint": "f3258681a",
+  "status": "measurementPassed",
+  "activeStage": "runtimeSettingsAfter",
+  "runtimeStable": true,
+  "parityPassed": true,
+  "observedSuccessfulRetrievals": 144,
+  "settings": {
+    "mode": "quiet",
+    "warmups": 5,
+    "sampleCount": 30,
+    "concurrency": 1,
+    "nativeDatabase": "flarex_orchestration_native_20261001",
+    "logicalDatabase": "flarex_orchestration_logical_20261001",
+    "node": "v24.16.0",
+    "platform": "win32",
+    "architecture": "x64",
+    "nativeLifetime": "existing MikroORM module and per-call injected manager; no benchmark-owned context",
+    "flarexLifetime": "existing standalone CommerceHost.read with actual fresh request lifetime",
+    "diagnosticConnectionSettings": "unavailable in this mode",
+    "runtimeSettings": {
+      "native": {
+        "database": "flarex_orchestration_native_20261001",
+        "role": "flarex_orchestration_native_20261001",
+        "dbid": 16389,
+        "userid": 16388,
+        "pid": 9384,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "native_retrieval"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarex": {
+        "database": "flarex_orchestration_logical_20261001",
+        "role": "flarex_runtime_1790866619003_ukfm8miatpp",
+        "dbid": 16391,
+        "userid": 69853,
+        "pid": 20736,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790866617230_hhp4dvjvbub"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarexControl": {
+        "database": "flarex_orchestration_logical_20261001",
+        "role": "flarex_orchestration_logical_20261001",
+        "dbid": 16391,
+        "userid": 16390,
+        "pid": 19412,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790866615400_gudsxn1ia9p"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      }
+    },
+    "runtimeSettingsAfter": {
+      "native": {
+        "database": "flarex_orchestration_native_20261001",
+        "role": "flarex_orchestration_native_20261001",
+        "dbid": 16389,
+        "userid": 16388,
+        "pid": 9384,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "native_retrieval"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarex": {
+        "database": "flarex_orchestration_logical_20261001",
+        "role": "flarex_runtime_1790866619003_ukfm8miatpp",
+        "dbid": 16391,
+        "userid": 69853,
+        "pid": 20736,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790866617230_hhp4dvjvbub"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      },
+      "flarexControl": {
+        "database": "flarex_orchestration_logical_20261001",
+        "role": "flarex_orchestration_logical_20261001",
+        "dbid": 16391,
+        "userid": 16390,
+        "pid": 19412,
+        "settings": {
+          "auto_explain.log_analyze": {
+            "status": "observed",
+            "value": "off"
+          },
+          "auto_explain.log_min_duration": {
+            "status": "observed",
+            "value": "-1"
+          },
+          "auto_explain.log_nested_statements": {
+            "status": "observed",
+            "value": "off"
+          },
+          "fsync": {
+            "status": "observed",
+            "value": "on"
+          },
+          "full_page_writes": {
+            "status": "observed",
+            "value": "on"
+          },
+          "pg_stat_statements.track": {
+            "status": "observed",
+            "value": "none"
+          },
+          "pg_stat_statements.track_planning": {
+            "status": "observed",
+            "value": "off"
+          },
+          "search_path": {
+            "status": "observed",
+            "value": "flarex_file_test_1790866615400_gudsxn1ia9p"
+          },
+          "server_version": {
+            "status": "observed",
+            "value": "18.3"
+          },
+          "synchronous_commit": {
+            "status": "observed",
+            "value": "on"
+          },
+          "track_functions": {
+            "status": "observed",
+            "value": "none"
+          },
+          "shared_preload_libraries": {
+            "status": "unavailable",
+            "reason": "restrictedOrUnknownSetting"
+          }
+        }
+      }
+    },
+    "diagnosticObserverIdentity": "unavailable in this mode",
+    "serverStatementCoverage": "unavailable in this mode",
+    "nestedServerCoverage": "unavailable",
+    "functionTriggerCoverage": "unavailable unless separate server logs observe it"
+  },
+  "settingsSha256": "01fc12a7b24b88ac283d5fd0ee1e53287d187b68fc1dd98c52c130f53c765d4d",
+  "seed": {
+    "id": "prod_native_compare",
+    "title": "Native retrieval",
+    "handle": "native-retrieval",
+    "status": "published",
+    "discountable": true,
+    "is_giftcard": false
+  },
+  "collection": {
+    "id": "pcol_native_compare",
+    "title": "Native collection",
+    "handle": "native-collection"
+  },
+  "cases": [
+    {
+      "name": "scalar",
+      "config": {
+        "select": [
+          "id",
+          "title",
+          "handle",
+          "status",
+          "discountable",
+          "is_giftcard"
+        ],
+        "relations": []
+      },
+      "expected": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "name": "collection",
+      "config": {
+        "select": [
+          "id",
+          "title",
+          "handle",
+          "collection.id",
+          "collection.title"
+        ],
+        "relations": [
+          "collection"
+        ]
+      },
+      "expected": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    }
+  ],
+  "setup": {
+    "flarexFixtureAndHostConstructionMs": 12432.0549,
+    "nativeSchemaPreparationMs": 226.35719999999856,
+    "nativeSchemaAndModuleConstructionMs": 340.9305999999997,
+    "nativePublicSeedMs": 33.810600000000704,
+    "flarexPublicSeedMs": 302.254399999998
+  },
+  "parityResults": [
+    {
+      "demand": "scalar",
+      "lane": "native",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "demand": "scalar",
+      "lane": "flarex",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "native",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "demand": "collection",
+      "lane": "flarex",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    }
+  ],
+  "missingErrors": {
+    "native": {
+      "name": "Error",
+      "message": "Product with id: prod_native_missing was not found",
+      "type": "not_found"
+    },
+    "flarex": {
+      "name": "Error",
+      "message": "Product with id: prod_native_missing was not found",
+      "type": "not_found"
+    }
+  },
+  "samples": [
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": -5,
+      "warmup": true,
+      "elapsedMs": 82.73489999999947,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": -5,
+      "warmup": true,
+      "elapsedMs": 1.80370000000039,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": -4,
+      "warmup": true,
+      "elapsedMs": 1.5413000000007742,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": -4,
+      "warmup": true,
+      "elapsedMs": 83.33380000000034,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": -3,
+      "warmup": true,
+      "elapsedMs": 86.68920000000071,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": -3,
+      "warmup": true,
+      "elapsedMs": 2.1674000000020897,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": -2,
+      "warmup": true,
+      "elapsedMs": 1.4541000000026543,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": -2,
+      "warmup": true,
+      "elapsedMs": 80.39229999999952,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 85.61330000000089,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 2.485900000003312,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 1.6948999999985972,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 78.72819999999774,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 1,
+      "warmup": false,
+      "elapsedMs": 80.41460000000006,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 1,
+      "warmup": false,
+      "elapsedMs": 1.8117000000020198,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 2,
+      "warmup": false,
+      "elapsedMs": 0.9927999999999884,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 2,
+      "warmup": false,
+      "elapsedMs": 89.92429999999877,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 3,
+      "warmup": false,
+      "elapsedMs": 76.93949999999677,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 3,
+      "warmup": false,
+      "elapsedMs": 1.734599999999773,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 4,
+      "warmup": false,
+      "elapsedMs": 1.4490000000005239,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 4,
+      "warmup": false,
+      "elapsedMs": 83.26480000000083,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 5,
+      "warmup": false,
+      "elapsedMs": 83.13539999999921,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 5,
+      "warmup": false,
+      "elapsedMs": 1.7633999999998196,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 6,
+      "warmup": false,
+      "elapsedMs": 1.2640000000028522,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 6,
+      "warmup": false,
+      "elapsedMs": 86.17629999999917,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 7,
+      "warmup": false,
+      "elapsedMs": 93.24469999999928,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 7,
+      "warmup": false,
+      "elapsedMs": 2.9099999999998545,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 8,
+      "warmup": false,
+      "elapsedMs": 2.5852000000013504,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 8,
+      "warmup": false,
+      "elapsedMs": 95.71060000000216,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 9,
+      "warmup": false,
+      "elapsedMs": 80.50370000000112,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 9,
+      "warmup": false,
+      "elapsedMs": 1.6538999999975204,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 10,
+      "warmup": false,
+      "elapsedMs": 0.9488000000019383,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 10,
+      "warmup": false,
+      "elapsedMs": 97.8566000000028,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 11,
+      "warmup": false,
+      "elapsedMs": 141.77079999999842,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 11,
+      "warmup": false,
+      "elapsedMs": 2.7589000000007218,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 12,
+      "warmup": false,
+      "elapsedMs": 2.7230000000017753,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 12,
+      "warmup": false,
+      "elapsedMs": 115.93760000000111,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 13,
+      "warmup": false,
+      "elapsedMs": 103.55959999999686,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 13,
+      "warmup": false,
+      "elapsedMs": 2.09059999999954,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 14,
+      "warmup": false,
+      "elapsedMs": 1.3015999999988708,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 14,
+      "warmup": false,
+      "elapsedMs": 99.85620000000199,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 15,
+      "warmup": false,
+      "elapsedMs": 90.13899999999921,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 15,
+      "warmup": false,
+      "elapsedMs": 1.595099999998638,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 16,
+      "warmup": false,
+      "elapsedMs": 1.006600000000617,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 16,
+      "warmup": false,
+      "elapsedMs": 77.21740000000136,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 17,
+      "warmup": false,
+      "elapsedMs": 80.28299999999945,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 17,
+      "warmup": false,
+      "elapsedMs": 2.0825000000004366,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 18,
+      "warmup": false,
+      "elapsedMs": 1.2861999999986438,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 18,
+      "warmup": false,
+      "elapsedMs": 78.25720000000001,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 19,
+      "warmup": false,
+      "elapsedMs": 78.19249999999738,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 19,
+      "warmup": false,
+      "elapsedMs": 1.5895000000018626,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 20,
+      "warmup": false,
+      "elapsedMs": 1.0957999999991443,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 20,
+      "warmup": false,
+      "elapsedMs": 83.57099999999991,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 21,
+      "warmup": false,
+      "elapsedMs": 83.824099999998,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 21,
+      "warmup": false,
+      "elapsedMs": 1.7559000000001106,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 22,
+      "warmup": false,
+      "elapsedMs": 1.0882999999994354,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 22,
+      "warmup": false,
+      "elapsedMs": 82.0779999999977,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 23,
+      "warmup": false,
+      "elapsedMs": 78.03540000000066,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 23,
+      "warmup": false,
+      "elapsedMs": 1.931799999998475,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 24,
+      "warmup": false,
+      "elapsedMs": 1.2009999999972933,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 24,
+      "warmup": false,
+      "elapsedMs": 78.3946999999971,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 25,
+      "warmup": false,
+      "elapsedMs": 85.95759999999791,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 25,
+      "warmup": false,
+      "elapsedMs": 1.7223999999987427,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 26,
+      "warmup": false,
+      "elapsedMs": 1.4097000000001572,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 26,
+      "warmup": false,
+      "elapsedMs": 85.42339999999967,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 27,
+      "warmup": false,
+      "elapsedMs": 78.38320000000022,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 27,
+      "warmup": false,
+      "elapsedMs": 1.475399999999354,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 28,
+      "warmup": false,
+      "elapsedMs": 0.8977000000013504,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 28,
+      "warmup": false,
+      "elapsedMs": 73.1762000000017,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "scalar",
+      "sample": 29,
+      "warmup": false,
+      "elapsedMs": 72.61219999999958,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "status": "published",
+        "discountable": true,
+        "is_giftcard": false
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "scalar",
+      "sample": 29,
+      "warmup": false,
+      "elapsedMs": 1.4787999999971362,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "is_giftcard": false,
+        "status": "published",
+        "discountable": true
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": -5,
+      "warmup": true,
+      "elapsedMs": 80.63409999999931,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": -5,
+      "warmup": true,
+      "elapsedMs": 2.360899999999674,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": -4,
+      "warmup": true,
+      "elapsedMs": 1.7048999999969965,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": -4,
+      "warmup": true,
+      "elapsedMs": 75.01850000000195,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": -3,
+      "warmup": true,
+      "elapsedMs": 80.80680000000211,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": -3,
+      "warmup": true,
+      "elapsedMs": 2.145199999999022,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": -2,
+      "warmup": true,
+      "elapsedMs": 1.4864999999990687,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": -2,
+      "warmup": true,
+      "elapsedMs": 73.13340000000244,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 82.3057000000008,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": -1,
+      "warmup": true,
+      "elapsedMs": 2.2955999999976484,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 1.544499999999971,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 0,
+      "warmup": false,
+      "elapsedMs": 79.26810000000114,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 1,
+      "warmup": false,
+      "elapsedMs": 75.05059999999867,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 1,
+      "warmup": false,
+      "elapsedMs": 2.1715000000003783,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 2,
+      "warmup": false,
+      "elapsedMs": 1.6520999999993364,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 2,
+      "warmup": false,
+      "elapsedMs": 82.98389999999927,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 3,
+      "warmup": false,
+      "elapsedMs": 78.6226999999999,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 3,
+      "warmup": false,
+      "elapsedMs": 2.097300000001269,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 4,
+      "warmup": false,
+      "elapsedMs": 1.142200000002049,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 4,
+      "warmup": false,
+      "elapsedMs": 77.87129999999888,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 5,
+      "warmup": false,
+      "elapsedMs": 73.18600000000151,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 5,
+      "warmup": false,
+      "elapsedMs": 1.913700000000972,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 6,
+      "warmup": false,
+      "elapsedMs": 1.2335999999995693,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 6,
+      "warmup": false,
+      "elapsedMs": 75.66159999999945,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 7,
+      "warmup": false,
+      "elapsedMs": 79.43050000000221,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 7,
+      "warmup": false,
+      "elapsedMs": 2.004499999999098,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 8,
+      "warmup": false,
+      "elapsedMs": 1.4688999999998487,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 8,
+      "warmup": false,
+      "elapsedMs": 71.92669999999998,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 9,
+      "warmup": false,
+      "elapsedMs": 79.09320000000298,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 9,
+      "warmup": false,
+      "elapsedMs": 2.3593000000000757,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 10,
+      "warmup": false,
+      "elapsedMs": 1.3123999999988882,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 10,
+      "warmup": false,
+      "elapsedMs": 72.62540000000081,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 11,
+      "warmup": false,
+      "elapsedMs": 71.45129999999699,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 11,
+      "warmup": false,
+      "elapsedMs": 2.0478000000002794,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 12,
+      "warmup": false,
+      "elapsedMs": 1.2074999999967986,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 12,
+      "warmup": false,
+      "elapsedMs": 78.1284999999989,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 13,
+      "warmup": false,
+      "elapsedMs": 73.3156999999992,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 13,
+      "warmup": false,
+      "elapsedMs": 2.2314000000005763,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 14,
+      "warmup": false,
+      "elapsedMs": 1.3976000000002387,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 14,
+      "warmup": false,
+      "elapsedMs": 77.46279999999751,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 15,
+      "warmup": false,
+      "elapsedMs": 78.9320000000007,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 15,
+      "warmup": false,
+      "elapsedMs": 2.176499999997759,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 16,
+      "warmup": false,
+      "elapsedMs": 1.4135999999998603,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 16,
+      "warmup": false,
+      "elapsedMs": 74.05359999999928,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 17,
+      "warmup": false,
+      "elapsedMs": 77.19090000000142,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 17,
+      "warmup": false,
+      "elapsedMs": 1.9566000000013446,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 18,
+      "warmup": false,
+      "elapsedMs": 1.2147000000004482,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 18,
+      "warmup": false,
+      "elapsedMs": 74.34950000000026,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 19,
+      "warmup": false,
+      "elapsedMs": 79.82010000000082,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 19,
+      "warmup": false,
+      "elapsedMs": 1.9743000000016764,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 20,
+      "warmup": false,
+      "elapsedMs": 1.2108999999982188,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 20,
+      "warmup": false,
+      "elapsedMs": 73.01680000000124,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 21,
+      "warmup": false,
+      "elapsedMs": 75.30299999999988,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 21,
+      "warmup": false,
+      "elapsedMs": 1.978000000002794,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 22,
+      "warmup": false,
+      "elapsedMs": 1.08719999999812,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 22,
+      "warmup": false,
+      "elapsedMs": 71.77000000000044,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 23,
+      "warmup": false,
+      "elapsedMs": 74.73110000000088,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 23,
+      "warmup": false,
+      "elapsedMs": 1.9760000000023865,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 24,
+      "warmup": false,
+      "elapsedMs": 1.2669999999998254,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 24,
+      "warmup": false,
+      "elapsedMs": 77.25119999999879,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 25,
+      "warmup": false,
+      "elapsedMs": 142.9177000000018,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 25,
+      "warmup": false,
+      "elapsedMs": 2.102200000001176,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 26,
+      "warmup": false,
+      "elapsedMs": 1.1580999999969208,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 26,
+      "warmup": false,
+      "elapsedMs": 79.12940000000162,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 27,
+      "warmup": false,
+      "elapsedMs": 73.6221000000005,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 27,
+      "warmup": false,
+      "elapsedMs": 1.855600000002596,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 28,
+      "warmup": false,
+      "elapsedMs": 1.2155000000020664,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 28,
+      "warmup": false,
+      "elapsedMs": 72.92250000000058,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "flarex",
+      "demand": "collection",
+      "sample": 29,
+      "warmup": false,
+      "elapsedMs": 76.21809999999823,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    },
+    {
+      "lane": "native",
+      "demand": "collection",
+      "sample": 29,
+      "warmup": false,
+      "elapsedMs": 1.8225000000020373,
+      "outcome": "success",
+      "result": {
+        "id": "prod_native_compare",
+        "title": "Native retrieval",
+        "handle": "native-retrieval",
+        "collection_id": "pcol_native_compare",
+        "collection": {
+          "id": "pcol_native_compare",
+          "title": "Native collection"
+        }
+      }
+    }
+  ],
+  "notes": [
+    "All raw samples retained; assertions and diagnostic encoding are outside quiet intervals.",
+    "Server diagnostics include instrumentation overhead and are separate from quiet latency.",
+    "Query JSON bytes are not network wire bytes. Inclusive call or parent/nested server times are not additive."
+  ]
+}

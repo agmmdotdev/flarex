@@ -1,0 +1,12 @@
+{
+  "status": "runtimeSettingsFailed",
+  "evidence": "quiet-parity-smoke-configured.json",
+  "observedRetrievals": 0,
+  "parityPassed": false,
+  "measurementPassed": false,
+  "owner": "measurement settings capture",
+  "scenario": "Native schema and module bootstrap completed. Measurement current_setting(shared_preload_libraries) failed for the ordinary role before public seeding or retrieval.",
+  "disposition": "Requested settings now left join pg_settings and explicitly report observed values or unavailable restricted/unknown settings. Runtime roles gain no extra privileges. Effective tracking remains required; admin observation captures instance settings separately.",
+  "additionalBootstrapGap": "Pinned Link Modules output was absent during native bootstrap; its owning package output was built without source edits.",
+  "preservation": "The original configured smoke report remains unchanged with empty parity, native error and timing samples."
+}

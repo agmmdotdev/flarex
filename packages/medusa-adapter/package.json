@@ -34,7 +34,9 @@
     "@medusajs/deps": "workspace:*",
     "@medusajs/framework": "workspace:*",
     "@medusajs/types": "workspace:*",
-    "@medusajs/test-utils": "workspace:*"
+    "@medusajs/test-utils": "workspace:*",
+    "@types/pg": "8.20.0",
+    "pg": "8.22.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.compatibility.json && tsc -p tsconfig.composite.json && tsc -p ../medusa-product/integration-tests/tsconfig.json && tsc -p ../medusa-sales-channel/integration-tests/tsconfig.json",

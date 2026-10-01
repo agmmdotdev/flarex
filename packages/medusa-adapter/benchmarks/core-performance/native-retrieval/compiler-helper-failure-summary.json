@@ -1,0 +1,12 @@
+{
+  "status": "publicSeedFailed",
+  "evidence": "quiet-parity-smoke-visible-settings.json",
+  "observedRetrievals": 0,
+  "parityPassed": false,
+  "measurementPassed": false,
+  "owner": "dedicated benchmark CommonJS loading configuration",
+  "scenario": "Native bootstrap, observable runtime settings and native public seed completed. Flarex public Collection seeding failed when a modern private-method WeakSet was passed to pinned pg-god's tslib 1.14.1 two-argument WeakMap helper.",
+  "sourceEvidence": "tslib's exporter writes legacy helpers globally. Promoted generated CommonJS selects (this && this.__classPrivateFieldGet) before its inline modern fallback. Vitest's inlined arrow evaluator gives top-level this a different receiver from Node CommonJS.",
+  "disposition": "The dedicated config explicitly externalizes promoted Medusa built CommonJS modules to their normal Node loader and per-tree helpers. Workspace Utils and Product outputs were rebuilt from current sources. No global helper shim, package override, production source or DTO assertion changes.",
+  "preservation": "The original failed report remains unchanged. No retrieval timing or parity was observed."
+}

@@ -1,0 +1,262 @@
+{
+  "status": "boundedNativeRetrievalMeasurementPassed",
+  "checkpoint": "f3258681a",
+  "node": "v24.16.0",
+  "platform": "win32",
+  "architecture": "x64",
+  "sourceEvidenceSha256": "58024526264fd85307226054bf0083400bb64548fc37f61d743b66252f766a7c",
+  "scope": "Pinned native Product/MikroORM PostgreSQL versus promoted Product protected standalone CommerceHost.read; scalar and populated collection, exact complete DTO and missing-error parity",
+  "methods": {
+    "quiet": "serial alternating paired order, five warmups and thirty samples per case/lane; median middle-pair arithmetic mean; P95 nearest-rank ceil(n*0.95); no trace or server logging",
+    "trace": "one diagnostic sample per case/lane; exact SQL dispatch/BEGIN counts and returned driver-row JSON bytes; inclusive native method timing is not additive",
+    "server": "one separate diagnostic sample per case/lane; authenticated name/OID identities verified against observer catalog; pg_stat_statements.track=all, selected root-exclusive database/all-role coverage from separate observer database; positive observed calls required for each successful lane, top-level planning/execution summed within isolated intervals, nested entries separately retained"
+  },
+  "quiet": {
+    "warmupsPerCaseLane": 5,
+    "settingsSha256": "a7cd5b7682d833bbd9762188bb2ffe717d40610e2dd41b37d9cb92d24da2a5cd",
+    "metrics": {
+      "scalar/native": {
+        "samples": 30,
+        "medianMs": 1.5474500000000262,
+        "p95Ms": 2.8431999999993423,
+        "minMs": 0.8953000000001339,
+        "maxMs": 3.1239999999997963,
+        "failures": 0
+      },
+      "scalar/flarex": {
+        "samples": 30,
+        "medianMs": 80.3406500000001,
+        "p95Ms": 141.20939999999973,
+        "minMs": 70.18409999999858,
+        "maxMs": 146.51310000000012,
+        "failures": 0
+      },
+      "collection/native": {
+        "samples": 30,
+        "medianMs": 1.8731000000007043,
+        "p95Ms": 2.2175999999999476,
+        "minMs": 1.1013999999995576,
+        "maxMs": 2.2543000000005122,
+        "failures": 0
+      },
+      "collection/flarex": {
+        "samples": 30,
+        "medianMs": 76.81550000000061,
+        "p95Ms": 84.22459999999774,
+        "minMs": 69.88419999999678,
+        "maxMs": 84.26219999999739,
+        "failures": 0
+      }
+    }
+  },
+  "trace": {
+    "settingsSha256": "9a59a73043e78e079ff2bfd987ce3596705e5ea0fda43e8721ce9c50cf282127",
+    "metrics": {
+      "scalar/native": {
+        "samples": 1,
+        "clientDispatches": 1,
+        "explicitTransactions": 0,
+        "rows": 1,
+        "resultJsonBytes": 146,
+        "unavailableRowObservations": 0,
+        "unavailableJsonByteObservations": 0,
+        "inclusiveProductMethodMs": 5.2400999999990745
+      },
+      "scalar/flarex": {
+        "samples": 1,
+        "clientDispatches": 106,
+        "explicitTransactions": 6,
+        "rows": 222,
+        "resultJsonBytes": 248281,
+        "unavailableRowObservations": 0,
+        "unavailableJsonByteObservations": 0,
+        "inclusiveProductMethodMs": 5.25879999999961
+      },
+      "collection/native": {
+        "samples": 1,
+        "clientDispatches": 1,
+        "explicitTransactions": 0,
+        "rows": 1,
+        "resultJsonBytes": 186,
+        "unavailableRowObservations": 0,
+        "unavailableJsonByteObservations": 0,
+        "inclusiveProductMethodMs": 3.1366999999991094
+      },
+      "collection/flarex": {
+        "samples": 1,
+        "clientDispatches": 108,
+        "explicitTransactions": 6,
+        "rows": 224,
+        "resultJsonBytes": 250399,
+        "unavailableRowObservations": 0,
+        "unavailableJsonByteObservations": 0,
+        "inclusiveProductMethodMs": 8.545100000003004
+      }
+    }
+  },
+  "server": {
+    "settingsSha256": "4c54065b3bfa16ccefdb75c22d4d951cfb7d870ef900a38e1a24da21f05fd4ba",
+    "metrics": {
+      "scalar/native": {
+        "samples": 1,
+        "authenticatedDbid": 144862,
+        "positiveObservedLaneCalls": true,
+        "topLevelCalls": 1,
+        "topLevelPlanMs": 0.1073,
+        "topLevelExecutionMs": 0.017599999999999998,
+        "independentlyObservedNestedEntries": 0,
+        "topLevelSharedDiskBlockReads": 0
+      },
+      "scalar/flarex": {
+        "samples": 1,
+        "authenticatedDbid": 144863,
+        "positiveObservedLaneCalls": true,
+        "topLevelCalls": 106,
+        "topLevelPlanMs": 11.058400000000006,
+        "topLevelExecutionMs": 2.9974999999999965,
+        "independentlyObservedNestedEntries": 0,
+        "topLevelSharedDiskBlockReads": 0
+      },
+      "collection/native": {
+        "samples": 1,
+        "authenticatedDbid": 144862,
+        "positiveObservedLaneCalls": true,
+        "topLevelCalls": 1,
+        "topLevelPlanMs": 0.18519999999999998,
+        "topLevelExecutionMs": 0.03499999999999999,
+        "independentlyObservedNestedEntries": 0,
+        "topLevelSharedDiskBlockReads": 0
+      },
+      "collection/flarex": {
+        "samples": 1,
+        "authenticatedDbid": 144863,
+        "positiveObservedLaneCalls": true,
+        "topLevelCalls": 108,
+        "topLevelPlanMs": 11.75190000000001,
+        "topLevelExecutionMs": 3.160700000000006,
+        "independentlyObservedNestedEntries": 0,
+        "topLevelSharedDiskBlockReads": 0
+      }
+    },
+    "logSegment": "server-verified-coverage.log.gz",
+    "logStartOffsetBytes": 127529385
+  },
+  "setupOutsideRetrievalIntervals": {
+    "quiet": {
+      "flarexFixtureAndHostConstructionMs": 12809.757,
+      "nativeSchemaPreparationMs": 248.35670000000027,
+      "nativeSchemaAndModuleConstructionMs": 364.7250000000022,
+      "nativePublicSeedMs": 30.569499999997788,
+      "flarexPublicSeedMs": 272.83020000000033
+    },
+    "trace": {
+      "flarexFixtureAndHostConstructionMs": 12493.6558,
+      "nativeSchemaPreparationMs": 217.31169999999838,
+      "nativeSchemaAndModuleConstructionMs": 328.6788000000015,
+      "nativePublicSeedMs": 31.62699999999677,
+      "flarexPublicSeedMs": 257.8253000000004
+    },
+    "server": {
+      "flarexFixtureAndHostConstructionMs": 15378.831,
+      "nativeSchemaPreparationMs": 274.0672000000013,
+      "nativeSchemaAndModuleConstructionMs": 384.28930000000037,
+      "nativePublicSeedMs": 33.99799999999959,
+      "flarexPublicSeedMs": 332.45100000000093
+    },
+    "interpretation": "Fixture/schema/module construction and public seeding are setup diagnostics, not production admission cost"
+  },
+  "failedStages": [
+    {
+      "file": "quiet-parity-smoke.json",
+      "stage": "native schema bootstrap",
+      "observedRetrievals": 0
+    },
+    {
+      "file": "quiet-parity-smoke-configured.json",
+      "stage": "ordinary role restricted preload setting capture",
+      "observedRetrievals": 0
+    },
+    {
+      "file": "quiet-parity-smoke-visible-settings.json",
+      "stage": "public seed compiler-helper loading collision",
+      "observedRetrievals": 0
+    },
+    {
+      "file": "quiet-matched-native-control.json",
+      "stage": "harness expected collection DTO omitted retained collection_id",
+      "observedRetrievals": 4
+    },
+    {
+      "file": "trace-matched-complete-dto.json",
+      "stage": "dynamic native repository wrapper instrumentation recursion"
+    }
+  ],
+  "limits": [
+    "Selected unchanged method bodies establish source parity, not identical constructors or all native Product behavior.",
+    "Raw samples, outliers, before/after source/settings and server counters remain in their original reports.",
+    "Returned row JSON bytes are diagnostic serialization size, not network wire bytes.",
+    "Client SQL counts do not establish all server work. No independent nested pg_stat_statements entries were observed in these intervals, despite track=all; function/trigger work is not proven absent.",
+    "Inclusive call and parent/nested server times cannot be summed. Server instrumentation overhead differs from quiet latency.",
+    "Setup is outside retrieval intervals; authentication, liveness and every actual fresh check within the request remain included.",
+    "This is local ordinary-role PostgreSQL evidence, not Cloudflare, deployment, arbitrary-framework, scale or whole-performance-goal acceptance.",
+    "Source-boundary tests are a syntactic ownership check, not a JavaScript sandbox."
+  ],
+  "sourceCheckpoint": "verified observer catalog coverage and successful-lane observed-work gates; raw before/after source hashes match all three modes",
+  "reports": {
+    "quiet": "quiet-verified-coverage.json",
+    "trace": "trace-verified-coverage.json",
+    "server": "server-verified-coverage.json.gz"
+  },
+  "previousSupportedCheckpoints": [
+    {
+      "sourceEvidenceSha256": "7bf114f5a18d03805b903798d94b1c5ac254889ea1726ede9468d0ec69188b3f",
+      "summary": "authenticated-coverage-summary.json",
+      "manifest": "authenticated-coverage-manifest.json",
+      "reports": [
+        "quiet-authenticated-coverage.json",
+        "trace-authenticated-coverage.json",
+        "server-authenticated-coverage.json.gz"
+      ],
+      "disposition": "Valid earlier retained source checkpoint; final observer catalog/work gates were added afterward"
+    },
+    {
+      "sourceEvidenceSha256": "36cc4eed9255bb408dfb9e3365b6b7111f2b8023ecd9d2a8497a4033f6dd2adb",
+      "summary": "descriptor-observer-summary.json",
+      "manifest": "descriptor-observer-manifest.json",
+      "reports": [
+        "quiet-descriptor-observer.json",
+        "trace-descriptor-observer.json",
+        "server-descriptor-observer.json.gz"
+      ],
+      "disposition": "Valid earlier source checkpoint; retained unchanged, not substituted for current source results"
+    }
+  ],
+  "authenticatedSelectedDatabaseIdentities": [
+    {
+      "database": "flarex_orchestration_native_20261001",
+      "dbid": 144862
+    },
+    {
+      "database": "flarex_orchestration_logical_20261001",
+      "dbid": 144863
+    }
+  ],
+  "observerCatalogCoverage": {
+    "databases": [
+      {
+        "database": "flarex_orchestration_logical_20261001",
+        "dbid": 144863
+      },
+      {
+        "database": "flarex_orchestration_native_20261001",
+        "dbid": 144862
+      }
+    ],
+    "executingRoles": "all roles in root-exclusive isolated databases"
+  },
+  "artifactNames": {
+    "suppliedRunLabel": "verified-coverage",
+    "automaticModePrefix": true,
+    "filenameNormalization": false
+  }
+}

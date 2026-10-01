@@ -1,0 +1,10 @@
+{
+  "kind": "pure compiler-helper loader witness; no business/database measurement",
+  "legacyPath": "C:\\Users\\Admin\\Documents\\github\\convex-backend\\custom\\cloudflare-executor\\third_party\\medusa\\upstream\\node_modules\\pg-god\\node_modules\\tslib\\tslib.js",
+  "legacyVersion": "1.14.1",
+  "builtPath": "packages/medusa-utils/dist/modules-sdk/medusa-internal-service.js",
+  "builtSha256": "f6d72dca703487aad3e5bca301e02f9e29213bfae42d4dee2049056a1ef0b132",
+  "helperSha256": "73298ed7a1b9b43112a4aa1e6378e0cc27baee7540b9ee21aa27c88fe1627a06",
+  "inlineFailure": "privateMap.get is not a function",
+  "nativePreservedPrivateMethod": true
+}

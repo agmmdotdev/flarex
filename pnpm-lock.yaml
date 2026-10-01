@@ -904,6 +904,12 @@ importers:
       '@medusajs/types':
         specifier: workspace:*
         version: link:../medusa-types
+      '@types/pg':
+        specifier: 8.20.0
+        version: 8.20.0
+      pg:
+        specifier: 8.22.0
+        version: 8.22.0
 
   packages/medusa-core-flows:
     dependencies:

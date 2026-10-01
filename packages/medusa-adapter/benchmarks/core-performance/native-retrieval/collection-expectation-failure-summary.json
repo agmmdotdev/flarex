@@ -1,0 +1,11 @@
+{
+  "status": "parityFailed",
+  "evidence": "quiet-matched-native-control.json",
+  "observedRetrievals": 4,
+  "parityPassed": false,
+  "measurementPassed": false,
+  "owner": "benchmark complete native DTO expectation",
+  "scenario": "Both scalar and populated collection retrievals returned equal complete DTOs between the native and Flarex lanes. The populated native result retained collection_id, which the expected harness literal omitted.",
+  "disposition": "Include collection_id: pcol_native_compare in the populated expected DTO, preserving the exact native relation-join result without projection or normalization.",
+  "preservation": "The original failed parity report remains unchanged. Missing-error parity and timed samples were not reached."
+}

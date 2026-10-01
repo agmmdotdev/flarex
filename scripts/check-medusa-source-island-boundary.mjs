@@ -51,15 +51,159 @@ const mixedPerformanceTestImports = new Map([
   ["../../medusa-adapter/test/support/product-launch-performance-fixture",
     "packages/medusa-adapter/test/support/product-launch-performance-fixture.ts"],
 ]);
+const mixedProductWorkerdTest = "packages/flarex-backend/test/mixedMutationProduct.workerd.test.ts";
+const mixedProductWorkerdTestImports = new Map([
+  ["../../medusa-adapter/src/product-attempt", "packages/medusa-adapter/src/product-attempt.ts"],
+]);
+const preparedTargetMetadataTest = "packages/flarex-backend/test/preparedTargetMetadata.postgres.test.ts";
+const preparedTargetMetadataTestImports = new Map([
+  ["../../medusa-adapter/test/support/logical-currency-fixture", "packages/medusa-adapter/test/support/logical-currency-fixture.ts"],
+]);
+const nativeRetrievalScenario = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts";
+const nativeRetrievalObservation = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts";
+const nativeRetrievalConfig = "packages/medusa-adapter/vitest.native-retrieval.config.ts";
+const nativeRetrievalImports = new Set([
+  "../../../../../third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service",
+  "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner",
+  "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter",
+]);
+// Exact forensic inputs and the pinned bootstrap path are data allowances, not
+// module import permissions. In particular the source .ts paths stay forbidden.
+const nativeRetrievalScenarioPaths = new Set([
+  "third_party/medusa/SOURCE.json",
+  "third_party/medusa/upstream/pnpm-lock.yaml",
+  "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+  "third_party/medusa/upstream/packages/core/utils/src/modules-sdk/medusa-internal-service.ts",
+  "third_party/medusa/upstream/packages/core/utils/src/dal/mikro-orm/mikro-orm-repository.ts",
+  "third_party/medusa/upstream/packages/modules/product/dist/index.js",
+  "third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service.js",
+  "third_party/medusa/upstream/packages/modules/product/dist/repositories/product.js",
+  "third_party/medusa/upstream/packages/modules/link-modules/dist/index.js",
+  "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner.js",
+  "third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter.js",
+  "third_party/medusa/upstream/packages/medusa-test-utils/dist/init-modules.js",
+  "third_party/medusa/upstream/packages/medusa-test-utils/dist/database.js",
+  "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/tslib.js",
+  "third_party/medusa/upstream/node_modules/pg-god/node_modules/tslib/package.json",
+  "third_party/medusa/upstream/packages/medusa-test-utils/package.json",
+  "third_party/medusa/upstream/packages/modules/product",
+]);
 
-/** Only the two named private tests may cross to their exact authored Medusa
+/** The verified promotion manifest pins the authored optional scenario,
+ * observer and dedicated config. No neighboring benchmark or runtime inherits
+ * these native control permissions.
+ * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion */
+function admitsNativeRetrievalOwner(promotion) {
+  return promotion?.packages.some(pkg => pkg.path === "packages/medusa-adapter" && pkg.name === "@flarex/medusa-adapter") === true
+    && [nativeRetrievalScenario, nativeRetrievalObservation, nativeRetrievalConfig].every(target =>
+      promotion.files.some(file => file.target === target && file.classification === "authored"));
+}
+
+/** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
+ * @param {string} relativePath @param {ts.StringLiteralLike} node */
+function admitsNativeRetrievalPath(promotion, relativePath, node) {
+  if (!admitsNativeRetrievalOwner(promotion)) return false;
+  const parent = node.parent;
+  if (relativePath === nativeRetrievalScenario && nativeRetrievalScenarioPaths.has(node.text)) {
+    if (ts.isArrayLiteralExpression(parent) && ts.isVariableDeclaration(parent.parent)
+      && ts.isIdentifier(parent.parent.name) && parent.parent.name.text === "paths") {
+      /** @type {ts.Node | undefined} */
+      let ancestor = parent.parent.parent;
+      while (ancestor && !ts.isFunctionLike(ancestor)) ancestor = ancestor.parent;
+      return ancestor !== undefined && ts.isFunctionDeclaration(ancestor) && ancestor.name?.text === "sourceEvidence";
+    }
+    if (node.text === "third_party/medusa/upstream/packages/medusa-test-utils/package.json")
+      return ts.isNewExpression(parent) && parent.arguments?.[0] === node && ts.isCallExpression(parent.parent)
+        && ts.isIdentifier(parent.parent.expression) && parent.parent.expression.text === "createRequire";
+    if (node.text === "third_party/medusa/upstream/packages/modules/product")
+      return ts.isNewExpression(parent) && parent.arguments?.[0] === node
+        && parent.arguments?.length === 2 && parent.arguments[1]?.getText() === "root"
+        && ts.isCallExpression(parent.parent) && ts.isIdentifier(parent.parent.expression)
+        && parent.parent.expression.text === "fileURLToPath"
+        && ts.isPropertyAssignment(parent.parent.parent) && parent.parent.parent.name.getText() === "resolve"
+        && ts.isObjectLiteralExpression(parent.parent.parent.parent)
+        && ts.isCallExpression(parent.parent.parent.parent.parent)
+        && ts.isIdentifier(parent.parent.parent.parent.parent.expression)
+        && parent.parent.parent.parent.parent.expression.text === "nativeRunner";
+  }
+  return relativePath === nativeRetrievalObservation
+    && node.text === "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/package.json"
+    && ts.isNewExpression(parent) && parent.arguments?.[0] === node && ts.isCallExpression(parent.parent)
+    && ts.isIdentifier(parent.parent.expression) && parent.parent.expression.text === "createRequire";
+}
+
+/** Seal the two named controls' small loader surface, rather than tracking
+ * arbitrary data flow. Loader references may not escape into aliases, and only
+ * the existing literal package keys may be resolved/loaded.
+ * @param {ts.Node} node @param {string} relativePath */
+function invalidNativeRetrievalLoader(node, relativePath) {
+  if (relativePath !== nativeRetrievalScenario && relativePath !== nativeRetrievalObservation) return false;
+  if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)
+    && ["node:module", "module"].includes(node.moduleSpecifier.text)) {
+    const bindings = node.importClause?.namedBindings;
+    return node.moduleSpecifier.text !== "node:module" || node.importClause?.name !== undefined
+      || bindings === undefined || !ts.isNamedImports(bindings) || bindings.elements.length !== 1
+      || bindings.elements[0]?.name.text !== "createRequire" || bindings.elements[0]?.propertyName !== undefined;
+  }
+  if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)
+    && node.moduleReference.expression && ts.isStringLiteralLike(node.moduleReference.expression)
+    && ["node:module", "module"].includes(node.moduleReference.expression.text)) return true;
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) return true;
+  if (!ts.isIdentifier(node) || !["createRequire", "requirePinned", "requirePromoted", "require"].includes(node.text)) return false;
+  const parent = node.parent;
+  if (node.text === "createRequire") {
+    if (ts.isImportSpecifier(parent)) return parent.name !== node || parent.propertyName !== undefined;
+    if (!ts.isCallExpression(parent) || parent.expression !== node || parent.arguments.length !== 1) return true;
+    const argument = parent.arguments[0];
+    if (ts.isVariableDeclaration(parent.parent) && ts.isIdentifier(parent.parent.name)) {
+      if (parent.parent.name.text === "requirePromoted")
+        return relativePath !== nativeRetrievalScenario || argument?.getText() !== "import.meta.url";
+      if (parent.parent.name.text === "requirePinned" && argument && ts.isNewExpression(argument)
+        && ts.isIdentifier(argument.expression) && argument.expression.text === "URL") {
+        const first = argument.arguments?.[0];
+        const base = argument.arguments?.[1]?.getText();
+        return argument.arguments?.length !== 2 || first === undefined || !ts.isStringLiteralLike(first)
+          || (relativePath === nativeRetrievalScenario
+            ? first.text !== "third_party/medusa/upstream/packages/medusa-test-utils/package.json" || base !== "root"
+            : first.text !== "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/package.json" || base !== "import.meta.url");
+      }
+    }
+    const access = parent.parent;
+    const resolve = access.parent;
+    if (relativePath === nativeRetrievalScenario && ts.isPropertyAccessExpression(access) && access.name.text === "resolve"
+      && ts.isCallExpression(resolve) && resolve.expression === access && resolve.arguments.length === 1
+      && argument && ts.isIdentifier(argument) && resolve.arguments[0] && ts.isStringLiteralLike(resolve.arguments[0]))
+      return !((argument.text === "nativePgExport" && resolve.arguments[0].text === "@medusajs/deps/pg")
+        || (argument.text === "nativeDepsPg" && resolve.arguments[0].text === "pg"));
+    return true;
+  }
+  if (ts.isVariableDeclaration(parent) && parent.name === node)
+    return parent.initializer === undefined || !ts.isCallExpression(parent.initializer)
+      || !ts.isIdentifier(parent.initializer.expression) || parent.initializer.expression.text !== "createRequire";
+  if (node.text === "requirePinned" && relativePath === nativeRetrievalObservation && ts.isCallExpression(parent)
+    && parent.expression === node && parent.arguments.length === 1 && parent.arguments[0] && ts.isStringLiteralLike(parent.arguments[0]))
+    return parent.arguments[0].text !== "@medusajs/framework/pg";
+  if (relativePath === nativeRetrievalScenario && ts.isPropertyAccessExpression(parent) && parent.expression === node
+    && parent.name.text === "resolve" && ts.isCallExpression(parent.parent) && parent.parent.expression === parent
+    && parent.parent.arguments.length === 1) {
+    const key = parent.parent.arguments[0];
+    return key === undefined || !ts.isStringLiteralLike(key) || !(node.text === "requirePinned"
+      ? key.text === "@medusajs/framework/pg"
+      : node.text === "requirePromoted" && ["pg", "@medusajs/product/services", "@medusajs/utils/modules-sdk/medusa-internal-service"].includes(key.text));
+  }
+  return true;
+}
+
+/** Only the named private tests may cross to their exact authored Medusa
  * support. Backend runtime has no authority. */
 /** @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion
  * @param {string} relativePath
  * @param {string} specifier */
 function admitsSelectedMixedTestImport(promotion, relativePath, specifier) {
   const permitted = relativePath === mixedProductTestFixture ? mixedProductTestImports
-    : relativePath === mixedPerformanceTest ? mixedPerformanceTestImports : undefined;
+    : relativePath === mixedPerformanceTest ? mixedPerformanceTestImports
+      : relativePath === mixedProductWorkerdTest ? mixedProductWorkerdTestImports
+        : relativePath === preparedTargetMetadataTest ? preparedTargetMetadataTestImports : undefined;
   const target = permitted?.get(specifier);
   return target !== undefined && promotion?.files.some(file =>
     file.target === target && file.classification === "authored") === true;
@@ -234,6 +378,8 @@ export function analyzeMedusaSourceIslandBoundary(input) {
 
   analyzeSources(input.rootSources, errors, (specifier, relativePath) => {
     if (admitsSelectedMixedTestImport(promotion, relativePath, specifier)) return undefined;
+    if (relativePath === nativeRetrievalScenario && admitsNativeRetrievalOwner(promotion)
+      && nativeRetrievalImports.has(specifier)) return undefined;
     if ((specifier.toLowerCase().startsWith("file:") || isPortableAbsolutePath(specifier)) && normalized(specifier).toLowerCase().includes("/packages/medusa-")) {
       return `must not bypass Currency exports through "${specifier}"`;
     }
@@ -251,7 +397,7 @@ export function analyzeMedusaSourceIslandBoundary(input) {
     }
     return undefined;
   });
-  analyzeRootSourceAliases(input.rootSources, errors);
+  analyzeRootSourceAliases(input.rootSources, errors, promotion);
   for (const toolSource of input.rootToolSources ?? []) {
     if (
       referencesIsland(toolSource.text)
@@ -666,8 +812,9 @@ function analyzeSources(sources, errors, classify) {
   }
 }
 
-/** @param {readonly SourceInput[]} sources @param {string[]} errors */
-function analyzeRootSourceAliases(sources, errors) {
+/** @param {readonly SourceInput[]} sources @param {string[]} errors
+ * @param {import("./check-medusa-currency-promotion.mjs").Promotion | undefined} promotion */
+function analyzeRootSourceAliases(sources, errors, promotion) {
   for (const source of sources) {
     const sourceFile = ts.createSourceFile(
       source.relativePath,
@@ -680,9 +827,14 @@ function analyzeRootSourceAliases(sources, errors) {
 
     /** @param {ts.Node} node */
     function visit(node) {
+      if (invalidNativeRetrievalLoader(node, source.relativePath)) {
+        const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+        errors.push(`${source.relativePath}:${line} must not compute or alias native control module loading.`);
+      }
       if (
         ts.isStringLiteralLike(node)
         && referencesIsland(node.text)
+        && !admitsNativeRetrievalPath(promotion, source.relativePath, node)
         && (node.parent === undefined
           || moduleSpecifierForNode(node.parent) !== node.text)
       ) {

@@ -181,16 +181,20 @@ const service = new Proxy<object>({}, {
   },
 }) as ProductTestService; // Test-only compatibility boundary for the original full-service callback.
 
-export function productIntegrationTestRunner(options: ProductRunnerOptions) {
+export function productIntegrationTestRunner(options: ProductRunnerOptions,
+  fixtureOptions?: Readonly<{ protectedRuntime?: boolean }>) {
   describe(options.injectedDependencies ? "Product injected event bus" : "Product service", () => {
     let cleanup: Array<() => Promise<void>> = [];
     beforeAll(async () => {
       if (options.moduleName !== "product") throw new Error("Only Product is admitted");
       const driver = process.env.FLAREX_TEST_DRIVER ?? "pglite";
       if (driver !== "pglite" && driver !== "postgres") throw new Error("Invalid Product driver");
+      if (fixtureOptions?.protectedRuntime === true && driver !== "postgres")
+        throw new Error("Protected Product runtime requires PostgreSQL");
       cleanup = [];
       try {
-        const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true });
+        const fixture = await logicalCurrencyFixture(driver, close => cleanup.push(close), { includeProduct: true,
+          ...(fixtureOptions?.protectedRuntime === true ? { protectedRuntime: true } : {}) });
         const product = await prepareLogicalProductHost(fixture);
         cleanup.push(() => Effect.runPromise(product.host.close));
         await Effect.runPromise(product.host.initialize([]));

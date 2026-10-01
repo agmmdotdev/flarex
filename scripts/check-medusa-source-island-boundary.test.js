@@ -16,8 +16,146 @@ const emptyInput = {
   rootWorkspaceText: "packages:\n  - packages/*\n  - apps/*\n",
   rootScripts: {},
 };
+const nativeScenario = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/scenario.ts";
+const nativeObserver = "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/observation.ts";
+const nativeConfig = "packages/medusa-adapter/vitest.native-retrieval.config.ts";
+const nativeControlImports = [
+  "../../../../../third_party/medusa/upstream/packages/modules/product/dist/services/product-module-service",
+  "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-runner",
+  "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/module-test-persistence-adapter",
+];
+const nativeControlPromotion = {
+  sourceCommit: "test", buildFiles: [], testAliases: [],
+  packages: [{ path: "packages/medusa-adapter", name: "@flarex/medusa-adapter", dependencies: {}, exports: [] }],
+  files: [nativeScenario, nativeObserver, nativeConfig].map(target =>
+    ({ target, targetSha256: "pinned", classification: "authored" })),
+};
 
 describe("Medusa source-island boundary checker", () => {
+  it("admits the exact authored native built control separately from forensic source data", () => {
+    const control = nativeControlImports.map(specifier => `import type Native from ${JSON.stringify(specifier)};`).join("\n");
+    expect(analyzeMedusaSourceIslandBoundary({
+      ...emptyInput, currencyPromotion: nativeControlPromotion,
+      rootSources: [{ relativePath: nativeScenario, text: `${control}\n
+        import { createRequire } from "node:module";
+        async function sourceEvidence() { const paths = ["third_party/medusa/SOURCE.json",
+          "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts"];
+          const requirePinned = createRequire(new URL("third_party/medusa/upstream/packages/medusa-test-utils/package.json", root));
+          const nativePgExport = requirePinned.resolve("@medusajs/framework/pg");
+          const nativeDepsPg = createRequire(nativePgExport).resolve("@medusajs/deps/pg");
+          const nativeDriver = createRequire(nativeDepsPg).resolve("pg");
+          const requirePromoted = createRequire(import.meta.url);
+          requirePromoted.resolve("pg"); requirePromoted.resolve("@medusajs/product/services");
+          requirePromoted.resolve("@medusajs/utils/modules-sdk/medusa-internal-service"); }
+        nativeRunner({ resolve: fileURLToPath(new URL("third_party/medusa/upstream/packages/modules/product", root)) });` },
+      { relativePath: nativeObserver, text: `import { createRequire } from "node:module";
+        const requirePinned = createRequire(new URL("../../../../../third_party/medusa/upstream/packages/medusa-test-utils/package.json", import.meta.url));
+        requirePinned("@medusajs/framework/pg");` }],
+    }).errors).toEqual([]);
+
+    for (const relativePath of [
+      "packages/medusa-adapter/benchmarks/core-performance/native-retrieval/adjacent.ts",
+      "packages/medusa-adapter/src/native-control.ts",
+      "packages/other/src/native-control.ts",
+    ]) {
+      expect(analyzeMedusaSourceIslandBoundary({
+        ...emptyInput, currencyPromotion: nativeControlPromotion,
+        rootSources: [{ relativePath, text: `import Native from ${JSON.stringify(nativeControlImports[0])};` }],
+      }).errors.some(error => error.includes("must not import Medusa source-island module"))).toBe(true);
+    }
+  });
+
+  it("refuses computed imports and aliases of the native control loader", () => {
+    const computedSource = `async function sourceEvidence() {
+      const paths = ["third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts"];
+      await import(paths[0]); }`;
+    expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: nativeControlPromotion,
+      rootSources: [{ relativePath: nativeScenario, text: computedSource }] }).errors)
+      .toContain(`${nativeScenario}:3 must not compute or alias native control module loading.`);
+    for (const tail of [
+      'const load = requirePinned; load(repository);',
+      'const load = createRequire; load(import.meta.url)(repository);',
+      'requirePinned(repository);',
+      'requirePinned.resolve(repository);',
+      'requirePinned["resolve"](repository);',
+      'Reflect.apply(requirePinned, undefined, [repository]);',
+    ]) {
+      const text = `import { createRequire } from "node:module";
+        const requirePinned = createRequire(new URL("../../../../../third_party/medusa/upstream/packages/medusa-test-utils/package.json", import.meta.url));
+        const repository = "./dist/repositories/product.js"; ${tail}`;
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: nativeControlPromotion,
+        rootSources: [{ relativePath: nativeObserver, text }] }).errors.some(error =>
+          error.includes("must not compute or alias native control module loading"))).toBe(true);
+    }
+    for (const text of [
+      'import * as mod from "node:module"; mod["createRequire"](import.meta.url)(repository);',
+      'import mod from "node:module"; mod["createRequire"](import.meta.url)(repository);',
+      'import { createRequire as load } from "node:module"; load(import.meta.url)(repository);',
+      'import * as mod from "module"; mod["createRequire"](import.meta.url)(repository);',
+    ]) {
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: nativeControlPromotion,
+        rootSources: [{ relativePath: nativeObserver, text }] }).errors.some(error =>
+          error.includes("must not compute or alias native control module loading"))).toBe(true);
+    }
+    expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: nativeControlPromotion,
+      rootSources: [{ relativePath: nativeScenario,
+        text: 'const outside = "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts";' }] }).errors)
+      .toContain(`${nativeScenario}:1 must not alias the Medusa source island.`);
+  });
+
+  it("refuses unlisted native paths, source imports and missing authored benchmark configuration", () => {
+    for (const specifier of [
+      "../../../../../third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+      "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts",
+      "../../../../../third_party/medusa/upstream/packages/medusa-test-utils/dist/unlisted-runner",
+    ]) {
+      expect(analyzeMedusaSourceIslandBoundary({
+        ...emptyInput, currencyPromotion: nativeControlPromotion,
+        rootSources: [{ relativePath: nativeScenario, text: `import Native from ${JSON.stringify(specifier)};` }],
+      }).errors.some(error => error.includes("must not import Medusa source-island module"))).toBe(true);
+    }
+    for (const relativePath of [nativeScenario, nativeObserver]) {
+      expect(analyzeMedusaSourceIslandBoundary({
+        ...emptyInput, currencyPromotion: nativeControlPromotion,
+        rootSources: [{ relativePath, text: 'const path = "third_party/medusa/upstream/packages/modules/product/dist/unlisted.js";' }],
+      }).errors.some(error => error.includes("must not alias the Medusa source island"))).toBe(true);
+    }
+    for (const files of [nativeControlPromotion.files.filter(file => file.target !== nativeConfig),
+      nativeControlPromotion.files.map(file => file.target === nativeScenario ? { ...file, classification: "preserved" } : file)]) {
+      const errors = analyzeMedusaSourceIslandBoundary({
+        ...emptyInput, currencyPromotion: { ...nativeControlPromotion, files },
+        rootSources: [{ relativePath: nativeScenario, text: `import Native from ${JSON.stringify(nativeControlImports[0])};
+          const path = "third_party/medusa/upstream/packages/modules/product/src/services/product-module-service.ts";` }],
+      }).errors;
+      expect(errors.some(error => error.includes("must not import Medusa source-island module"))).toBe(true);
+      expect(errors.some(error => error.includes("must not alias the Medusa source island"))).toBe(true);
+    }
+  });
+
+  it("admits only the two committed baseline backend test edges and exact authored targets", () => {
+    const edges = [
+      { importer: "packages/flarex-backend/test/mixedMutationProduct.workerd.test.ts",
+        specifier: "../../medusa-adapter/src/product-attempt", target: "packages/medusa-adapter/src/product-attempt.ts" },
+      { importer: "packages/flarex-backend/test/preparedTargetMetadata.postgres.test.ts",
+        specifier: "../../medusa-adapter/test/support/logical-currency-fixture", target: "packages/medusa-adapter/test/support/logical-currency-fixture.ts" },
+    ];
+    const promotion = { ...nativeControlPromotion, files: edges.map(edge =>
+      ({ target: edge.target, targetSha256: "pinned", classification: "authored" })) };
+    for (const edge of edges) {
+      const text = `import { operation } from ${JSON.stringify(edge.specifier)};`;
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
+        rootSources: [{ relativePath: edge.importer, text }] }).errors).toEqual([]);
+      for (const relativePath of ["packages/flarex-backend/test/adjacent.test.ts", "packages/flarex-backend/src/runtime.ts"]) {
+        expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
+          rootSources: [{ relativePath, text }] }).errors.some(error => error.includes("must not cross Currency package ownership"))).toBe(true);
+      }
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput,
+        currencyPromotion: { ...promotion, files: [] }, rootSources: [{ relativePath: edge.importer, text }] }).errors.length).toBeGreaterThan(0);
+      expect(analyzeMedusaSourceIslandBoundary({ ...emptyInput, currencyPromotion: promotion,
+        rootSources: [{ relativePath: edge.importer, text: 'import "../../medusa-adapter/src/product-module";' }] }).errors.length).toBeGreaterThan(0);
+    }
+  });
+
   it("admits only the pinned backend Product, Pricing and Link proof fixture and test dependency", () => {
     const promotion = {
       sourceCommit: "test", buildFiles: [], testAliases: [],
