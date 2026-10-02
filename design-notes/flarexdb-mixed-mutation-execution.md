@@ -551,21 +551,21 @@ does not establish arbitrary Payload hooks or Medusa workflow compatibility.
 
 ## Performance Evidence And Optimization Sequence
 
-The completed bounded cost correction and 104-sample private PostgreSQL series
-are recorded in the [core query cost preflight](../roadmaps/mixed-mutation-core/05-core-query-cost-preflight.md).
-The further [low latency execution preflight](../roadmaps/mixed-mutation-core/06-low-latency-execution-preflight.md)
-has completed its first connected package, retaining fresh selected dependency
-verification while making the physical-search catalog query cheaper and
-removing redundant empty checked-read admission transactions. The
-[full traced and untraced candidate series](../packages/flarex-backend/benchmarks/mixed-mutation-core/admission-cost/README.md)
-show lower cost against the prior optimized series under the same traced
-observer contract, while the candidate calibration remains above the proposed
-mixed warm latency budgets. The next measured direction is bounded selected
-Application evidence reuse inside one checked transaction, subject to exact
-hash, first-failure and callback-lifetime proof. Wider protected-writer/integrity, attempt-lifetime,
-durability and host options depend on further evidence and any required
-contract approval. The accepted immediate selected-dependency checks remain
-authoritative unless the accepted database design is deliberately amended.
+The [mixed execution foundation plan](../roadmaps/mixed-mutation-core/14-execution-redesign-roadmap.md#selected-foundation-replacement)
+owns the selected successor: query-required mixed read execution, then finite
+contribution/settlement/recovery, followed by connected acceptance. The first
+[read preflight](../roadmaps/mixed-mutation-core/20-query-required-read-execution-preflight.md)
+defines the concrete scope and prerequisite handoff from the active standalone
+read and framework-organization work. Existing mixed measurements and their
+limits remain with the [benchmark owner](../packages/flarex-backend/benchmarks/mixed-mutation-core/aggregate-entry/README.md).
+
+The replacement separates installation integrity, bounded immutable preparation,
+fresh operation authority, actual query demand and terminal settlement. It must
+remove source-size and repeated-proof amplification while preserving native
+behavior, exact observations and atomic outcomes. The selected read direction
+requires the accepted-design amendment recorded in its preflight; current finite
+read checks remain authoritative until that amendment and cutover. Removing
+durable seal is a distinct unresolved recovery decision in the successor package.
 
 The owner wants representative workflows to approach native Medusa performance
 where practical. This is an engineering target, not a measured result or a

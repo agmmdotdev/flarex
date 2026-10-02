@@ -12,32 +12,106 @@ one prepared source graph and exact-transaction coverage reuse, including comple
 initial authentication and renewal. New attestation/maintenance and host
 contracts remain gated.
 
-The active successor is [core component performance](../core-performance/README.md).
-The prior owner direction selected a component-first loop: checked reads,
-publication, initial admission and seal verification, then conditional host
-investigation. It replaces automatic full end-to-end measurement after every
-local performance iteration with real component baselines, attribution and
-focused validation; full mixed integration measurements remain milestone gates.
-The first checked-read iteration delivers immutable singleton projection reuse
-and a real component baseline with unchanged SQL; no causal latency improvement
-is established. The second checked-read iteration delivers structural kernel/search
-frontier transport composition; miss medians are higher and latency acceptance
-remains open. Group 1 remains active at the mandatory orchestration reassessment,
-with the prior later-group order provisional, groups
-inactive and host changes conditional.
+The owner selected a foundation replacement, with roadmaps first and runtime
+work after the overlapping standalone-read and framework-organization handoff.
+The earlier component sequence in [core performance](../core-performance/README.md)
+is superseded for this mixed successor by the connected packages below. Its
+measurement and proportional-validation method remains useful. Current mixed
+runtime contracts are still authoritative; this plan does not claim cutover.
 
-The latest owner direction makes
-[orchestration simplification](../core-performance/orchestration-simplification-preflight.md)
-the mandatory next architectural gate after the delivered checked-read slice,
-before publication or another minor iteration. Compare real native Product
-retrieval and connected Product/Application/Payload/workflow graphs against
-proof boundaries, lifetimes, read transactions, native batching/joins, journal
-merge and terminal choreography. High counts require actual native demand or
-demonstrated necessary correctness work; avoidable platform amplification is a
-redesign failure. Runtime decisions and small-overhead ceilings remain
-evidence-pending, with accepted authority/transaction contracts unchanged.
-Component improvements cannot close this broader gate without all-server-work,
-latency and scaling evidence.
+## Selected Foundation Replacement
+
+The target is the native business operation plus small, explicit Flarex overhead
+and the actual cost of snapshot/history, constraints, atomic publication and
+recovery. Native Medusa services and Payload Local API behavior remain owners of
+business semantics; their Flarex storage bindings must also preserve efficient
+bounded data demands. Reusing native business code alone does not establish
+native database performance.
+
+### Responsibility And Lifetime
+
+| Owner | Responsibility and cost boundary |
+| --- | --- |
+| Installation and maintenance | Prove protected structure and credentials at controlled installation changes; interlock maintenance with every affected runtime user. |
+| Bounded host preparation | Authenticate and compile immutable query/schema metadata once per supported lifetime; charge misses, invalidation and memory explicitly. |
+| Outer execution | Own principal, scope, snapshot, attempt/fence, pending state, budgets, cancellation and final completion. |
+| Shared storage read | Check fresh authority and query-required serving state at actual storage access; group compatible captured demands and record exact dependencies. |
+| Settlement and recovery | Validate final authority/OCC/constraints and publish data, history, indexes, outcome and events through one trusted owner and the selected durability contract. |
+| Framework adapter | Preserve native services, Local API access/validation/hooks and workflow sequencing; bind direct or borrowed capabilities without owning settlement. |
+
+Direct reads, independently settling commands, mixed attempts and durable
+workflows retain explicit profiles. They share correct lower owners without
+using a direct host inside a borrowed attempt or introducing a universal
+transaction interpreter. Folder moves alone do not establish this replacement.
+
+### Evidence And Design Problems
+
+- Actual finite storage access still enters the complete running-attempt kernel
+  and source verification. Purely local method calls and borrowed construction
+  already avoid SQL admission; do not diagnose them as repeated root starts.
+- Intermediate readiness selects source tables and connected source definitions,
+  so proof work can grow with unrelated indexes and relationships. Pending seed
+  hydration likewise selects more than the specific read may need.
+- The retained full-proof profile checks installation catalogs and protection
+  structures at runtime. The managed standalone replacement must prove its
+  coverage of mixed callers before supplying a cheaper guard here.
+- The evaluator already shares global pending state. Child completion, journal
+  projection, freeze and verification still create multiple representations and
+  canonical encodings. Source proves repetition, not its CPU share or quadratic
+  growth.
+- Healthy finite completion retains durable seal, finishing and publication.
+  These three transactions preserve finish-only recovery; changing them is a
+  durability decision, not SQL concatenation.
+
+The [existing source analysis and terminal proposal](../core-performance/orchestration-target-design.md#deferred-recommended-finite-graph)
+remain supporting evidence. This roadmap owns package order; numbered preflights
+own selected contracts. The standalone draft's measurements do not establish
+mixed performance or complete installation correctness.
+
+### Connected Packages
+
+| Order | Coherent outcome | Start and completion gate |
+| --- | --- | --- |
+| 1. [Query-required mixed read execution](./20-query-required-read-execution-preflight.md) | Reuse proved installation/preparation owners, derive read requirements from real queries, batch relevant snapshot hydration and retain fresh attempt authority through the existing evaluator. | Verify the predecessor handoff, reconcile the accepted finite-read contract and fix the matched native budget before runtime changes. Complete actual Application/Product/Payload/workflow consumers, scaling and failure proofs, both reviews, removal and one scoped commit. |
+| 2. Finite contribution, settlement and recovery | Project global settlement state once at freeze; remove duplicate finite representations and repeated healthy canonical reconstruction; connect final acceptance and recovery through the chosen terminal graph. | Record the focused preflight and explicit terminal durability decision below. Include real consumer migration, inventoried durable-data disposition, correctness/performance gates, both reviews, cleanup and one scoped commit. |
+| 3. Integrated acceptance and retirement | Prove complete mixed latency and actual native demand at the final graph, including concurrency/retry cost and retained direct/durable profiles. | Meet the declared package and whole-request gates, audit displaced APIs/formats/readers and their real remaining obligations, and reconcile capability status. This is final acceptance, not permission to defer package cleanup. |
+
+Each package includes its implementation choices, measurements and tests. A helper,
+benchmark harness, documentation patch or small SQL reduction is not a separate
+runtime package. Full integration measurements belong at these connected gates;
+ordinary local edits retain focused checks.
+
+### Terminal Decision For Package 2
+
+The recommended candidate is one final finite SQL transaction after local freeze
+and outside-SQL verification/planning. It moves callback-free recovery from
+confirmed seal to final COMMIT: a proven precommit abort may require replay-safe
+finite callbacks to run again. The alternative retains durable seal and finish-only
+recovery while simplifying contribution and proof construction.
+
+The owner has requested the roadmap and subsequent work, but has not separately
+selected removal of the current durable-seal guarantee. Keep that exact decision
+visible before dependent runtime changes. The existing
+[terminal decision and recovery matrix](../core-performance/orchestration-target-design.md#deferred-finite-decisions-required-before-runtime-selection)
+owns the detailed proposal. Missing COMMIT acknowledgement or an unsuccessful
+outcome lookup never proves rollback or permits a second execution.
+
+Package 2 must define the issuer and lifetime of the single canonical contribution,
+preserve operation identity/results/events/accounting and operation-close failure
+order, and keep recovery authentication of stored evidence complete. Inventory
+running, sealed, finishing and conflicted attempts plus retained outcomes/events;
+select drain or a reviewed migration before retiring formats or recovery readers.
+Ordinary durable-operation checkpoints remain for their real callers.
+
+### Implementation Ownership
+
+The active standalone read/installation and framework runtime/participant refactor
+owns overlapping persistence and adapter files. Its owner must finish the active
+slice, validate/review/commit it and provide a clean pause or explicit path handoff.
+Audit that baseline and the remaining installation obligations before package 1.
+Do not absorb its dirty draft or resume the archived failed publication experiment.
+The remaining organization, composed-query and storage backlog stays with its
+owner; whole-goal completion is not required to hand off a bounded slice.
 
 ## Outcome and current evidence
 
@@ -128,7 +202,8 @@ after validation; documents and profiling alone do not deliver runtime behavior.
 One aggregate seal transaction returns detached authenticated body, authority
 and candidate planning head after COMMIT. Existing executor crypto, schema,
 signed-grant and input verification runs outside SQL, followed by a separate
-fresh finishing transition. Seal and finishing cannot fuse: the current seal
+fresh finishing transition. Under this delivered slice-17 contract, seal and
+finishing cannot fuse: the current seal
 candidate does not prove those grant/schema/input obligations. The seal captures
 the candidate planning head, allowing candidate-guard compilation outside SQL
 and removal of the separate planning-head preparation transaction. Publication
@@ -252,7 +327,7 @@ The final latency targets govern whole-successor acceptance.
 
 Functional delivery and whole-goal performance acceptance are separate: green
 correctness checks and lower SQL counts do not satisfy the latency goal.
-For the active [component program](../core-performance/README.md), each iteration
+Within the connected foundation packages, the [component method](../core-performance/README.md)
 compares real component structure under its declared construction and demand
 policy, with pre-existing setup separately reported and complete authentication/
 fresh checks preserved. The first checked-read iteration compares first and

@@ -19,16 +19,23 @@ structural stage cost gates passed. Delivered
 passes its stage gates, including atomic creation-plus-entry and complete initial
 authentication. It precedes reserved
 [host lifecycle](./18-host-lifecycle-preflight.md), which remains conditional on
-attributable evidence. The active successor is
-[core component performance](../core-performance/README.md): checked reads first,
-then publication, initial admission and seal verification, with host investigation
-last and conditional. Component iterations use genuine operation baselines and
-focused correctness/measurements; full mixed measurements are integration
-milestone gates rather than a requirement after every local iteration.
-The first checked-read iteration delivers immutable singleton projection reuse
-and a real component baseline, with unchanged SQL and no established causal
-latency improvement. Checked-read group 1 remains active; its next investigation
-owns ordered attempt-kernel and source/readiness dispatch composition.
+attributable evidence. The selected successor is the
+[execution foundation plan](./14-execution-redesign-roadmap.md#selected-foundation-replacement):
+complete [query-required mixed reads](./20-query-required-read-execution-preflight.md)
+first, then finite contribution/settlement/recovery under an explicit terminal
+durability decision, and connected whole-request acceptance. The owner requested
+this roadmap update before implementation. Runtime work starts from a verified
+handoff of the overlapping standalone-read and framework-organization slice;
+their active draft is not an accepted mixed baseline.
+
+[Core performance](../core-performance/README.md) owns the standalone native-read
+replacement and reusable measurement rules. Its earlier small checked-read,
+publication, admission and seal sequence is historical for this mixed successor.
+Local checks remain proportional; cross-component changes and package completion
+require the connected mixed measurement. The new plan targets native demand plus
+small, explicit platform overhead, rather than accepting fewer SQL submissions
+alone. Current mixed authority and recovery contracts remain in force until their
+named replacement and validation gates pass.
 Slice 15 extends immutable target protection under existing full
 attestation and privileged quiescence. Slice 16 accepts tentative finite native
 construction after full root entry and fresh live checks at actual storage
@@ -299,16 +306,17 @@ subagent, including workers, explorers and both standing reviewers, with model
 `gpt-6.1-sol` and `reasoning_effort: high`. Reviewers remain read-only.
 The relevant numbered preflights own their implemented private scopes.
 
-The owner-authorized [component-first program](../core-performance/README.md)
-supersedes automatic full end-to-end measurement after every performance
-iteration. Each iteration still delivers an evidenced real owner change with
+The [foundation plan](./14-execution-redesign-roadmap.md#selected-foundation-replacement)
+owns the next mixed packages. The [component-first method](../core-performance/README.md)
+still avoids automatic full end-to-end measurement after every local edit.
+Each package delivers an evidenced real owner change with
 affected consumer correctness, proportional PGlite/ordinary-role PostgreSQL,
 both reviews, cleanup and commit. Setup/authentication costs remain reported and
 every actual fresh check remains included. Declared group milestones,
 cross-component/lifecycle contract changes and whole-goal acceptance retain full
 mixed performance integration measurements; an owner improvement does not
 automatically trigger the full graph benchmark. Bounded connected correctness
-remains required each iteration. Component groups are serial; inactive documents and
+remains required during implementation. Connected packages are serial; inactive documents and
 conditional host work do not approve a fixed runtime remedy.
 
 The design note owns architecture; this README owns domain status, package order
