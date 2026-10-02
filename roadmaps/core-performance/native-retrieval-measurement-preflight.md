@@ -8,8 +8,14 @@ The [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/
 owns the matched quiet, trace and server observations, complete DTO/missing-error
 parity, runtime/build identities, setup and limits. The selected native demands
 expose extensive protected standalone admission/proof work before native Product
-execution. The [read-admission construction proposal](./read-admission-construction-preflight.md)
-owns the next recommended core group. This measurement establishes no private
+execution. [Read-admission construction](./read-admission-construction-preflight.md)
+and fresh Application acceptance are delivered under their separate contracts.
+The owner-selected next goal is the
+[complete standalone read refactor](./orchestration-target-design.md#next-goal-complete-standalone-read-refactor),
+after this session's clean handoff and pause. Query-specific readiness and reusable
+immutable preparation need explicit accepted-design amendments; no larger runtime
+work or new measurement is active. Matched full native latency and unrelated-schema
+scaling are required future gates. This historical measurement establishes no private
 finite-profile equivalence, scaling/whole-mixed acceptance or approved runtime
 contract change; numerical redesign ceilings remain unselected.
 

@@ -1,9 +1,13 @@
 # Publication: Component Attribution Preflight
 
 Status: **bounded attribution implemented, with a usable historical observed-source
-paired owner baseline. Final phase-boundary transparency correction is unmeasured.
+paired owner baseline that predates its phase-boundary transparency correction.
 The separate server matrix is invalid/partial after bounded artifact refusal.
-Runtime/profile remedies remain inactive.**
+The linked accepting source/participant slice has a correctness-reviewed candidate
+that fails its matched latency gate and is uncommitted/paused for handoff;
+cutover and performance acceptance remain open. The additional correction
+experiment is withdrawn. Other runtime/profile remedies remain
+inactive.**
 This existing document owns preparation, handoff and locked publisher attribution.
 The [component roadmap](./README.md), [reassessment](./orchestration-simplification-preflight.md)
 and [target proposal](./orchestration-target-design.md) retain their separate gates.
@@ -13,9 +17,10 @@ owns original inputs, actual batches, per-sample owner timing, all attempted
 samples and provenance. Its complete paired baseline distinguishes boundary-only
 timing from detailed SQL/demand observation; neither is fully uninstrumented.
 The final OCC/lowering/clock phase markers preserve original async owners and
-awaits, replacing diagnostic callback grouping. Those final core bytes have no
-new measurement; the historical interval/latency evidence remains attached to
-its measured source. A focused point-publication witness combines a throwing
+awaits, replacing diagnostic callback grouping. The historical attribution matrix
+does not measure that correction; the approved source-proof slice owns its
+separate matched current-source baseline. Historical interval/latency evidence
+remains attached to its measured source. A focused point-publication witness combines a throwing
 phase observer with forwarded COMMIT, held/lost acknowledgement, interruption
 and replay through a fresh publisher while checking one durable outcome and
 phase completion. Its scope remains distinct from arbitrary native lifecycle
@@ -28,13 +33,22 @@ receipt now preserves future diagnostic metadata after authentic settlement;
 it does not supply the lost evidence. Core correctness and observer transparency
 are distinct from complete server attribution or whole latency acceptance.
 
-## Next Owner Hypothesis: Inactive
+## Source And Participant Candidate: Paused, Latency Acceptance Open
 
 The concrete [publication source and participant proof capture preflight](./publication-source-proof-preflight.md)
 owns the proposed composition, caller/cleanup inventory, acquisition-frontier
-decision and validation gates. It is **proposed / inactive**; runtime composition
-is not approved. This attribution document supplies its historical evidence,
-not implementation authority or a new measured baseline.
+decision and validation gates. Its bounded accepting-only composition and
+acquisition-precedence amendment are approved. The correctness-reviewed candidate
+reduces actual source/participant dispatches but **fails the matched participant
+and publisher latency gate**. It is paused and uncommitted; cutover and
+performance acceptance remain open. The next owner-selected goal is the
+[complete standalone read refactor](./orchestration-target-design.md#next-goal-complete-standalone-read-refactor),
+with explicit design amendments and next-session scope required before runtime work.
+The [matched evidence ledger](../../packages/flarex-backend/benchmarks/core-performance/publication-source-proof/README.md)
+retains both complete matrices, original sample order, query costs and provenance.
+This attribution document supplies historical
+evidence; the selected preflight owns implementation scope and its matched
+current-source baseline, not a claim of new performance acceptance.
 
 The observed participant-proof graph contains one journal read, historical
 participant correlation, one shared full-live source proof and already batched
@@ -46,21 +60,31 @@ and search catalog 1.
 The cold-readiness group includes the repeated parent acquisition. Historical
 participant reads are a participant-proof batching seam, not lowering work.
 
-A possible next focused slice would compose bounded fresh captures through
-existing accepting source/readiness/task owners and hydrate historical
-participant evidence together. A conditional 12-frontier source capture plus
-one historical batch would yield participant graphs of 16/18/24 dispatches in
-these three plans, if exact owner/data contracts support it. This is an inactive
-cost hypothesis, not an approved cut, removable-read promise or latency ceiling.
+The approved focused slice composes bounded fresh captures through
+existing accepting source/readiness/task owners and hydrates historical
+participant evidence together. Its actual source graph is 15 dispatches and
+participant graphs are 19/21/27 for these three plans, with existing dynamic
+frontier/unique lock and coverage cuts retained. Counts establish the selected
+graph, not latency acceptance or eliminated contained database work.
+The bounded capture statements add SQL text/parameters and retain rejoin and
+aggregate projections. A bounded correction through the same canonical/task/cold
+owners was approved, but its experiment and additional matrix are now withdrawn
+for handoff. Its partial draft is unapplied, recoverable and unvalidated; the
+active runtime remains the exact reviewed failed candidate. No further matrix,
+server retry, cap increase or profile change is selected. Resumption requires
+a future explicit decision. Independent capture/construction/authentication costs
+and server planning/execution remain unavailable. Workflow Worker construction
+variation is separately observed context, without an established cause or a
+selected host remedy. No unchanged rerun or relaxed gate is selected.
 No protection epoch, construction-profile reuse, guard or certificate is implied.
 
-Such a composition requires an explicit acquisition-frontier decision: a later
+The selected preflight records the approved acquisition-frontier decision: a later
 SQL failure or interruption could precede an earlier canonical domain refusal
 when captures are composed, even if domain verdicts are consumed in original
 order. Preserve framework head locking and the separate post-wait selection
 statement, actual Application activation, fresh mutable physical/logical and
 role/catalog verdicts, original bounds and all first-failure/cleanup obligations.
-Examine that ordering and connected recovery before selecting implementation.
+Validate that ordering and connected recovery through the selected owner cutover.
 Lowering remains a separate measured owner with useful history/index/coverage
 writes; phase size does not prove removable overhead. Complete server/lock/CPU
 attribution is still limited, and the original mixed regression cause remains

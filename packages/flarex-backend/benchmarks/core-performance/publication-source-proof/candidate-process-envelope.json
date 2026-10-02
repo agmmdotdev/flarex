@@ -1,0 +1,8 @@
+{
+  "externalProcessEnvelopeSeconds": 152.3251705,
+  "completedAtUtc": "2026-10-02T03:59:22.9384250Z",
+  "startedAtUtc": "2026-10-02T03:56:50.6042136Z",
+  "serverLane": "disabled",
+  "exitCode": 0,
+  "includes": "pnpm/vitest process, genuine fixture/setup, all36 attempts, diagnostics/finalization/cleanup"
+}

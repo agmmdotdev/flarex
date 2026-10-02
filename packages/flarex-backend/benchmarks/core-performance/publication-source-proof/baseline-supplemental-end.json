@@ -1,0 +1,13 @@
+{
+  "sourceDiff": null,
+  "supplementalEnvelopeCoverage": "root hash/Git/directory diagnostic tool during baseline, not isolated hashing; true RSS peak unavailable",
+  "supplementalToolEnvelopeSeconds": 0.5255788,
+  "externalProcessEnvelopeSeconds": 135.6665718,
+  "scope": "Supplemental raw filesystem baseline source capture during the running paired matrix, before any optimization edits; tracked source unchanged from committed baseline",
+  "sourceHashes": {
+    "packages/persistence-postgres/src/commitPublication/strongReferenceValidation.ts": "86a497b4185a238c87eed8329be130b744baca5edb39afabc8b13beb5a192331",
+    "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts": "bd6a1b5543d271437062779514c663a463a00893bc006d65c36dfd86475fa2d2"
+  },
+  "capturedAtUtc": "2026-10-02T02:32:34.6742857Z",
+  "sourceStable": true
+}

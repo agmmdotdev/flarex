@@ -2,25 +2,39 @@
 
 ## Status And Scope
 
-Status: **active; the first checked-read iteration and the second structural
-transport composition iteration are delivered. Latency acceptance remains open;
-group 1 remains active; request-owned read-admission construction is implemented
+Status: **paused for clean handoff; the owner-selected next goal is a complete
+standalone-read refactor in the next session, after explicit design amendments
+and a focused scope. No further implementation or measurement is active.
+The first checked-read iteration and the second structural
+transport composition iteration are delivered. Group 1 latency acceptance remains
+open; request-owned read-admission construction is implemented
 under the approved focused contract within the orchestration reassessment.** The owner authorized this
 component-first performance program after the delivered mixed entry stage. The
 prior prepared order was checked reads, publication, initial
 request admission, seal verification, then conditional host investigation.
 That later order is provisional and subject to the mandatory reassessment below.
 Group 2 has implemented bounded publication attribution with a usable historical paired
-owner baseline and invalid/partial server evidence; runtime remedies remain
-inactive. Its final phase-boundary transparency correction is unmeasured; no
-final-source latency reproduction is claimed. Groups 3–4 remain prepared and inactive. Host changes
+owner baseline and invalid/partial server evidence. The linked accepting-only
+source/participant composition has a correctness-reviewed implementation candidate
+whose matched participant/publisher latency gate failed; cutover and performance
+acceptance remain open, and the uncommitted candidate is paused. Other runtime/profile remedies remain gated. The historical
+attribution matrix predates its phase-boundary transparency correction; the
+source-proof slice owns a separate matched current-source baseline. No candidate
+performance acceptance is claimed. Groups 3–4 remain prepared and inactive. Host changes
 remain conditional and unapproved.
 
-The latest owner direction requires the
+The next owner-selected goal is the
+[complete standalone read refactor](./orchestration-target-design.md#next-goal-complete-standalone-read-refactor):
+query-specific readiness, reusable authenticated immutable preparation and compact
+fresh authority checks through the complete native read. Its required
+accepted-design amendments and owning standalone profile/preflight inventory are
+explicit; they are proposals for the next session, not runtime permission.
+Native-comparison latency and unrelated-schema scaling are necessary gates;
+SQL reductions do not close the goal. The
 [orchestration simplification reassessment](./orchestration-simplification-preflight.md)
-immediately after the delivered checked-read slice, before publication or another
-minor performance iteration. Its [proposed finite target](./orchestration-target-design.md)
-records the candidate graph, semantic decisions and connected delivery groups.
+continues to govern semantic and owner decisions. Its [refactor targets](./orchestration-target-design.md)
+distinguish the next standalone goal from the deferred finite graph, semantic
+decisions and connected delivery groups.
 The [paired native retrieval measurement](./native-retrieval-measurement-preflight.md)
 establishes bounded scalar/collection DTO and missing-error parity against the
 genuine pinned native control. Its [artifact ledger](../../packages/medusa-adapter/benchmarks/core-performance/native-retrieval/README.md#read-construction-comparison)
@@ -39,8 +53,9 @@ the active head, matching activation without weakening locks. Missing/corrupt cl
 can therefore precede missing head; well-formed foreign authority still checks
 after the head. The focused preflight inventories this diagnostic consequence.
 Standalone and private finite profiles retain their actual lifetimes.
-Demand narrowing, cross-request reuse, reduced attestation, terminal/recovery and
-host changes remain deferred. Other runtime choices and numeric overhead ceilings
+Query-demand narrowing and reusable preparation are proposals in the selected
+next-session goal, awaiting explicit amendments. Reduced attestation, terminal/
+recovery and host changes remain deferred. Other runtime choices and numeric overhead ceilings
 remain pending; the focused fresh-acceptance proof and refusal-timing amendment
 is approved below;
 scaling, full setup SQL/CPU attribution and whole mixed acceptance remain open.
@@ -70,11 +85,20 @@ at the existing `pointCommitTransaction` owner now has a complete historical obs
 for three genuine finishing profiles, with detailed and boundary-only observation
 distinguished. Its [evidence ledger](../../packages/flarex-backend/benchmarks/core-performance/publication-attribution/ledger.md)
 preserves all incomplete server lanes and unavailable final-cap metadata; no
-server retry or reconstruction is selected. Runtime/profile remedies remain
-inactive. The next [publication source and participant proof capture proposal](./publication-source-proof-preflight.md)
-is proposed / inactive: fresh full-live composition through existing owners,
-conditional on its acquisition-frontier and refusal-order decision. Runtime
-composition is not approved; no guard or immutable proof reuse is implied.
+server retry or reconstruction is selected. The
+[publication source and participant proof capture slice](./publication-source-proof-preflight.md)
+has a correctness-reviewed bounded accepting-only candidate through existing owners,
+including its explicit acquisition-frontier/refusal-order decision. Its matched
+matrix retains fewer source/participant dispatches but fails the existing latency
+gate; cutover and performance acceptance remain open. The
+[matched evidence ledger](../../packages/flarex-backend/benchmarks/core-performance/publication-source-proof/README.md)
+preserves the failed matrix and exact SQL shape/provenance limits. An in-scope
+capture-query correction was approved but its experiment and additional matrix
+are now withdrawn for handoff. An unapplied recoverable partial draft is not a
+validated candidate; any resumption needs a future explicit decision. Worker
+variation is separate future diagnostic context and selects no
+host change. No guard
+or immutable proof reuse is selected. Other runtime/profile remedies remain gated.
 Its current
 seal/finishing/publication graph is the attribution baseline, not an immutable
 requirement for later separately examined redesign. Full logical-source definition
@@ -192,15 +216,16 @@ this performance program introduces no new developer behavior or divergence.
 
 ## Group Order And Gates
 
-The numbered groups preserve the prior prepared order. The mandatory next gate
-after the delivered checked-read slice governs later remedies. Publication
-attribution is approved; other later groups remain inactive and provisional.
+The numbered groups preserve the prior prepared order. Current work is paused;
+the next session must select the complete standalone-read amendments and scope.
+Delivered publication attribution remains evidence; further publication remedies
+and other later groups remain inactive and provisional.
 
 | Group | Status | Focused preflight |
 | --- | --- | --- |
-| 1. Checked reads | Active; immutable singleton projection and structural kernel/search frontier composition delivered; latency acceptance and orchestration work remain | [01](./01-checked-reads-preflight.md) |
-| Orchestration reassessment | Active; construction and Application acceptance implemented with bounded connected proof; original mixed latency regression unresolved and whole goals open | [Orchestration](./orchestration-simplification-preflight.md), [target](./orchestration-target-design.md), [measurement](./native-retrieval-measurement-preflight.md), [construction](./read-admission-construction-preflight.md), [acceptance](./fresh-application-acceptance-preflight.md) |
-| 2. Publication | Attribution implemented; usable paired owner baseline, server matrix invalid/partial; next owner hypothesis inactive | [02](./02-publication-preflight.md) |
+| 1. Checked reads | Paused for handoff; structural improvements delivered; next goal is the complete standalone read, with latency and scaling gates open | [01](./01-checked-reads-preflight.md), [next goal](./orchestration-target-design.md#next-goal-complete-standalone-read-refactor) |
+| Orchestration reassessment | Paused; standalone next-goal amendments/scope require next-session selection; original mixed regression unresolved and whole goals open | [Orchestration](./orchestration-simplification-preflight.md), [target](./orchestration-target-design.md), [measurement](./native-retrieval-measurement-preflight.md), [construction](./read-admission-construction-preflight.md), [acceptance](./fresh-application-acceptance-preflight.md) |
+| 2. Publication | Attribution implemented; server matrix invalid/partial; uncommitted source/participant candidate fails latency and is paused; correction experiment withdrawn | [02](./02-publication-preflight.md), [source proof](./publication-source-proof-preflight.md) |
 | 3. Initial request admission | Prepared, inactive; provisional after reassessment | [03](./03-request-admission-preflight.md) |
 | 4. Seal verification | Prepared, inactive; provisional after reassessment | [04](./04-seal-verification-preflight.md) |
 | 5. Host lifecycle | Provisional and conditional; runtime unapproved | [05](./05-host-lifecycle-preflight.md) |

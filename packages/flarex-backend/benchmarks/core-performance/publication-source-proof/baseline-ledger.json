@@ -1,0 +1,393 @@
+{
+  "format": "flarex.publication-source-proof-baseline-costs",
+  "privateDirectory": "work/validation/publication-source-proof-baseline-20261002/",
+  "baselineOnly": true,
+  "candidateAcceptance": "failed matched participant/publisher latency gates; baseline remains immutable comparator",
+  "originalRawSha256": "b206498ec7e4b6dad1c16b02f8f409407d46674beb0658a48ca690b056aef271",
+  "complete": true,
+  "sourceStable": true,
+  "sourceCount": 119,
+  "sampleCount": 36,
+  "planned": {
+    "profiles": [
+      "product",
+      "productPayload",
+      "workflow"
+    ],
+    "warmupPairs": 1,
+    "retainedPairs": 5,
+    "attemptCap": 36,
+    "timeoutMs": 1800000,
+    "rawByteCap": 262144000,
+    "reportByteCap": 52428800,
+    "serverLogByteCap": 536870912
+  },
+  "profiles": [
+    {
+      "profile": "product",
+      "attempt": {
+        "n": 5,
+        "median": 539.7259999999951,
+        "p95": 551.4933999999994
+      },
+      "participantProof": {
+        "n": 5,
+        "median": 31.093400000005204,
+        "p95": 33.982499999998254
+      },
+      "publisher": {
+        "n": 5,
+        "median": 80.78979999999865,
+        "p95": 81.52700000000186
+      },
+      "perAttemptPreparation": {
+        "n": 5,
+        "median": 0.008500000003550667,
+        "p95": 0.011299999998300336
+      },
+      "perAttemptEvidence": {
+        "n": 5,
+        "median": 2.6909000000014203,
+        "p95": 5.387199999997392
+      },
+      "perAttemptTraceFinalization": {
+        "n": 5,
+        "median": 0.002300000000104774,
+        "p95": 0.0023999999975785613
+      }
+    },
+    {
+      "profile": "productPayload",
+      "attempt": {
+        "n": 5,
+        "median": 593.1445999999996,
+        "p95": 833.582699999999
+      },
+      "participantProof": {
+        "n": 5,
+        "median": 36.637999999991735,
+        "p95": 37.19770000000426
+      },
+      "publisher": {
+        "n": 5,
+        "median": 86.36939999999595,
+        "p95": 94.636599999998
+      },
+      "perAttemptPreparation": {
+        "n": 5,
+        "median": 0.012199999997392297,
+        "p95": 0.013000000006286427
+      },
+      "perAttemptEvidence": {
+        "n": 5,
+        "median": 3.6494999999995343,
+        "p95": 4.084399999992456
+      },
+      "perAttemptTraceFinalization": {
+        "n": 5,
+        "median": 0.0015999999886844307,
+        "p95": 0.001799999998183921
+      }
+    },
+    {
+      "profile": "workflow",
+      "attempt": {
+        "n": 5,
+        "median": 949.270399999994,
+        "p95": 989.8775000000023
+      },
+      "participantProof": {
+        "n": 5,
+        "median": 55.72200000000885,
+        "p95": 60.80550000000221
+      },
+      "publisher": {
+        "n": 5,
+        "median": 151.93339999999444,
+        "p95": 154.11200000000827
+      },
+      "perAttemptPreparation": {
+        "n": 5,
+        "median": 1787.449999999997,
+        "p95": 1839.8424999999988
+      },
+      "perAttemptEvidence": {
+        "n": 5,
+        "median": 5.769200000009732,
+        "p95": 9.018899999995483
+      },
+      "perAttemptTraceFinalization": {
+        "n": 5,
+        "median": 0.0013000000035390258,
+        "p95": 0.0013000000035390258
+      }
+    }
+  ],
+  "setup": [
+    {
+      "profile": "product",
+      "completeSetupMs": 27241.8214,
+      "provisioningMs": 10385.1924,
+      "preparedModuleMs": 531.2642999999953,
+      "initialSeedingMs": 1428.4924000000028,
+      "additionalSetupSeedingMs": 14896.0441
+    },
+    {
+      "profile": "productPayload",
+      "completeSetupMs": 26313.145800000006,
+      "provisioningMs": 10321.894200000002,
+      "preparedModuleMs": 508.3194999999978,
+      "initialSeedingMs": 1342.5103999999992,
+      "additionalSetupSeedingMs": 14140.066599999998
+    },
+    {
+      "profile": "workflow",
+      "completeSetupMs": 16568.4908,
+      "provisioningMs": 13927.238499999992,
+      "preparedModuleMs": 1235.6872000000149,
+      "initialSeedingMs": 1405.3950999999943,
+      "additionalSetupSeedingMs": 0.0008000000088941306
+    }
+  ],
+  "sourceAndArtifactWork": {
+    "directoryCreationMs": 0.8231999999989057,
+    "sourceHashStartMs": 7.723499999998239,
+    "sourceHashEndMs": 9.767300000006799,
+    "runElapsedCoverage": "excludes directory/start hashing and final serialization/write; includes end hashing; external finalization receipt records remainder",
+    "runElapsedMs": 122506.0068,
+    "rawBytesWritten": 67959340,
+    "artifactTimings": [
+      {
+        "id": "product-0-boundaryOnly",
+        "bytes": 23504,
+        "serializationAndWriteMs": 1.314299999998184
+      },
+      {
+        "id": "product-0-detailed",
+        "bytes": 3068566,
+        "serializationAndWriteMs": 12.460400000003574
+      },
+      {
+        "id": "product-1-detailed",
+        "bytes": 3068853,
+        "serializationAndWriteMs": 12.201399999998102
+      },
+      {
+        "id": "product-1-boundaryOnly",
+        "bytes": 23435,
+        "serializationAndWriteMs": 1.0705999999991036
+      },
+      {
+        "id": "product-2-boundaryOnly",
+        "bytes": 23455,
+        "serializationAndWriteMs": 1.3894000000000233
+      },
+      {
+        "id": "product-2-detailed",
+        "bytes": 3068926,
+        "serializationAndWriteMs": 12.880599999996775
+      },
+      {
+        "id": "product-3-detailed",
+        "bytes": 3068778,
+        "serializationAndWriteMs": 12.65679999999702
+      },
+      {
+        "id": "product-3-boundaryOnly",
+        "bytes": 23409,
+        "serializationAndWriteMs": 0.9850999999980559
+      },
+      {
+        "id": "product-4-boundaryOnly",
+        "bytes": 23440,
+        "serializationAndWriteMs": 1.0367000000042026
+      },
+      {
+        "id": "product-4-detailed",
+        "bytes": 3068902,
+        "serializationAndWriteMs": 12.553099999997357
+      },
+      {
+        "id": "product-5-detailed",
+        "bytes": 3069192,
+        "serializationAndWriteMs": 12.281000000002678
+      },
+      {
+        "id": "product-5-boundaryOnly",
+        "bytes": 23425,
+        "serializationAndWriteMs": 1.0005999999993946
+      },
+      {
+        "id": "productPayload-0-boundaryOnly",
+        "bytes": 23862,
+        "serializationAndWriteMs": 1.061199999996461
+      },
+      {
+        "id": "productPayload-0-detailed",
+        "bytes": 3332125,
+        "serializationAndWriteMs": 14.00470000000496
+      },
+      {
+        "id": "productPayload-1-detailed",
+        "bytes": 3332199,
+        "serializationAndWriteMs": 13.634100000010221
+      },
+      {
+        "id": "productPayload-1-boundaryOnly",
+        "bytes": 23837,
+        "serializationAndWriteMs": 1.0050999999948544
+      },
+      {
+        "id": "productPayload-2-boundaryOnly",
+        "bytes": 23857,
+        "serializationAndWriteMs": 0.9818999999988591
+      },
+      {
+        "id": "productPayload-2-detailed",
+        "bytes": 3332191,
+        "serializationAndWriteMs": 13.807800000009593
+      },
+      {
+        "id": "productPayload-3-detailed",
+        "bytes": 3332194,
+        "serializationAndWriteMs": 12.989399999991292
+      },
+      {
+        "id": "productPayload-3-boundaryOnly",
+        "bytes": 23918,
+        "serializationAndWriteMs": 0.9587999999930616
+      },
+      {
+        "id": "productPayload-4-boundaryOnly",
+        "bytes": 23866,
+        "serializationAndWriteMs": 0.944100000007893
+      },
+      {
+        "id": "productPayload-4-detailed",
+        "bytes": 3332167,
+        "serializationAndWriteMs": 14.267700000011246
+      },
+      {
+        "id": "productPayload-5-detailed",
+        "bytes": 3332126,
+        "serializationAndWriteMs": 13.302800000004936
+      },
+      {
+        "id": "productPayload-5-boundaryOnly",
+        "bytes": 23880,
+        "serializationAndWriteMs": 0.9277000000001863
+      },
+      {
+        "id": "workflow-0-boundaryOnly",
+        "bytes": 26612,
+        "serializationAndWriteMs": 1.0635000000038417
+      },
+      {
+        "id": "workflow-0-detailed",
+        "bytes": 4851681,
+        "serializationAndWriteMs": 19.60010000001057
+      },
+      {
+        "id": "workflow-1-detailed",
+        "bytes": 4851928,
+        "serializationAndWriteMs": 18.853100000007544
+      },
+      {
+        "id": "workflow-1-boundaryOnly",
+        "bytes": 26549,
+        "serializationAndWriteMs": 1.3543999999965308
+      },
+      {
+        "id": "workflow-2-boundaryOnly",
+        "bytes": 26544,
+        "serializationAndWriteMs": 0.9920000000129221
+      },
+      {
+        "id": "workflow-2-detailed",
+        "bytes": 4851327,
+        "serializationAndWriteMs": 19.057700000004843
+      },
+      {
+        "id": "workflow-3-detailed",
+        "bytes": 4851888,
+        "serializationAndWriteMs": 19.111000000004424
+      },
+      {
+        "id": "workflow-3-boundaryOnly",
+        "bytes": 26565,
+        "serializationAndWriteMs": 1.0132999999914318
+      },
+      {
+        "id": "workflow-4-boundaryOnly",
+        "bytes": 26567,
+        "serializationAndWriteMs": 1.1292000000103144
+      },
+      {
+        "id": "workflow-4-detailed",
+        "bytes": 4851508,
+        "serializationAndWriteMs": 18.874599999995553
+      },
+      {
+        "id": "workflow-5-detailed",
+        "bytes": 4851561,
+        "serializationAndWriteMs": 18.58729999999923
+      },
+      {
+        "id": "workflow-5-boundaryOnly",
+        "bytes": 26503,
+        "serializationAndWriteMs": 1.4809999999997672
+      }
+    ],
+    "finalization": {
+      "directoryCreationMs": 0.8231999999989057,
+      "sourceHashStartMs": 7.723499999998239,
+      "sourceHashEndMs": 9.767300000006799,
+      "finalSerializationMs": 120.6583999999857,
+      "finalWriteMs": 83.74829999997746,
+      "finalArtifactHashMs": 54.624500000005355,
+      "artifactHashes": {
+        "raw": "b206498ec7e4b6dad1c16b02f8f409407d46674beb0658a48ca690b056aef271",
+        "report": "0f22d887fa18f330f35da04a7028eae680c7ce0981b862d19d30d8a019bc7603"
+      },
+      "diagnosticSecondaryFailures": [],
+      "failure": null,
+      "harnessElapsedBeforeReceiptWriteMs": 122794.0535,
+      "receiptOwnSerializationAndWriteMs": "unavailable within this receipt; external process envelope retained by root"
+    }
+  },
+  "supplementalSource": {
+    "start": {
+      "scope": "Supplemental raw filesystem baseline source capture during the running paired matrix, before any optimization edits; tracked source unchanged from committed baseline",
+      "endHashes": "pending after matrix drain",
+      "sourceDiff": null,
+      "capturedAtUtc": "2026-10-02T02:30:45.3593795Z",
+      "sourceHashes": {
+        "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts": "bd6a1b5543d271437062779514c663a463a00893bc006d65c36dfd86475fa2d2",
+        "packages/persistence-postgres/src/commitPublication/strongReferenceValidation.ts": "86a497b4185a238c87eed8329be130b744baca5edb39afabc8b13beb5a192331"
+      },
+      "baselineCommit": "1676a2947b2a940e0b82423ca1b3e87c2ea79c95"
+    },
+    "end": {
+      "sourceDiff": null,
+      "supplementalEnvelopeCoverage": "root hash/Git/directory diagnostic tool during baseline, not isolated hashing; true RSS peak unavailable",
+      "supplementalToolEnvelopeSeconds": 0.5255788,
+      "externalProcessEnvelopeSeconds": 135.6665718,
+      "scope": "Supplemental raw filesystem baseline source capture during the running paired matrix, before any optimization edits; tracked source unchanged from committed baseline",
+      "sourceHashes": {
+        "packages/persistence-postgres/src/commitPublication/strongReferenceValidation.ts": "86a497b4185a238c87eed8329be130b744baca5edb39afabc8b13beb5a192331",
+        "packages/persistence-postgres/src/physicalDefinitionLifecycle.ts": "bd6a1b5543d271437062779514c663a463a00893bc006d65c36dfd86475fa2d2"
+      },
+      "capturedAtUtc": "2026-10-02T02:32:34.6742857Z",
+      "sourceStable": true
+    }
+  },
+  "limits": [
+    "No candidate measurement or acceptance",
+    "Five retained boundary-only samples per profile; P95 is observed maximum",
+    "All original36 sample modes/order and raw identities remain private and immutable pending lossless packaging",
+    "wallMs excludes per-attempt preparation and initial setup/evidence/hashing/artifacts; those are separately charged",
+    "Nested phase intervals and setup components overlap; do not sum medians/P95s",
+    "Supplemental capture occurred during run; diagnostic tool envelope is not isolated hash cost",
+    "No server retry; nested function/trigger/planning/lock/CPU candidate work unavailable"
+  ]
+}

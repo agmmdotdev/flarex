@@ -1,9 +1,12 @@
 # Orchestration simplification: architectural reassessment
 
-Status: **active research and design gate; bounded native retrieval ledger available,
+Status: **paused for handoff; the next goal is the complete standalone-read
+refactor linked below, requiring explicit accepted-design amendments and focused
+next-session selection before runtime work. Bounded native retrieval ledger available,
 focused request-owned construction and Application acceptance implemented with
 bounded connected correctness;
-broader runtime choices and ceilings pending.** The
+broader runtime choices and ceilings pending. No further current optimization or
+measurement is active.** The
 checked-read slice delivers structural transport composition, with latency acceptance open.
 Before publication or another minor performance iteration, compare the whole
 orchestration with native demand and select a coherent replacement graph. This
@@ -26,9 +29,9 @@ retained finite and relation profiles keep their physical-refusal contracts.
 Shared request/retained capture acquires clock before head with original lock
 strengths, matching activation. Missing/corrupt clock now precedes missing head;
 well-formed foreign authority remains checked after the head. The focused preflight
-owns the correction and diagnostic inventory. Demand narrowing,
-cross-request reuse, cheaper attestation and
-terminal/recovery changes remain deferred. The broader proposals authorize no
+owns the correction and diagnostic inventory. Demand narrowing and reusable
+preparation are next-goal proposals awaiting explicit amendments; cheaper
+attestation and terminal/recovery changes remain deferred. The broader proposals authorize no
 runtime cutover or private retrieval admission extension.
 
 The [accepted DB design](../../design-notes/flarex-db-accepted-design.md),
@@ -38,6 +41,25 @@ integration skills govern this work. Private interfaces may break when required
 by the selected design. Preserve supported behavior and inventoried durable data.
 
 ## Outcome and acceptance question
+
+The owner selects the next larger goal in
+[complete standalone read refactor](./orchestration-target-design.md#next-goal-complete-standalone-read-refactor):
+query-specific readiness, reusable immutable preparation keyed by authenticated
+source/revision/schema/query demand, and compact fresh authority checks. The
+target inventories the actual accepted-design sections and standalone preflights
+that need amendment. Full-source-wide serving readiness and the preparation
+lifetime do not change merely because this direction is recorded. Native query
+demand completeness, matched full native latency and independent unrelated-schema
+scaling are required; fresh authority/protection/fence/deadline/method/storage
+verdicts cannot be cached. No public API or host change is selected.
+
+The correctness-reviewed publication source/participant candidate remains
+uncommitted, fails its original latency gate and is paused. Its formerly approved
+bounded capture correction and additional matrix are withdrawn for handoff;
+the partial draft is recoverable but unapplied and unvalidated. Preserve all
+baseline/failed evidence and invalid server gaps. Resume only through a future
+explicit decision; whole mixed regression and workflow startup causes remain
+unestablished. This pause does not accept or abandon the frozen candidate.
 
 Explain and remove avoidable platform amplification in real native Product
 retrieval, then the existing Product update plus Application graph, Product plus
@@ -224,7 +246,7 @@ The current private finite path uses `prepareFiniteActiveApplication` and the
 generalized `captureApplicationReadinessInTransaction` with issuer-owned preparation
 under the host lifetime and fresh accepting transactions. It does not repeat
 the standalone first-five-transaction sequence on every finite retrieval. The
-standalone ledger therefore selects the next owner group; it does not replace
+standalone ledger therefore grounds the selected complete standalone-read goal; it does not replace
 the finite checked-read baseline or justify importing standalone costs into it.
 The implemented focused slice removes repeated standalone healthy construction
 through request-owned capture and detached preparation; native Product data demand
@@ -243,8 +265,9 @@ requests, cold connection/protocol evidence, covered-write validation and bounde
 connected correctness are established. The full mixed milestone retains an
 original quiet regression and nonreproducing targeted repeat; cause is unestablished.
 Whole goals remain open. Exact source attribution
-of publication at existing `pointCommitTransaction` is a next hypothesis, requiring
-its own preflight before activation. Counts, distributions and limits remain in
+of publication at existing `pointCommitTransaction` has a bounded attribution
+baseline and a failed source/participant candidate now paused for handoff.
+The next selected goal is the complete standalone read above. Counts, distributions and limits remain in
 the artifact ledgers.
 
 - The native MikroORM control, deterministic native seed/config and complete
@@ -273,9 +296,10 @@ the artifact ledgers.
   The selected construction is implemented under the approved focused contract;
   whole-goal performance acceptance remains open. Connected validation, reviews
   and cleanup remain mandatory slice gates.
-  It retains full readiness and current protection. Demand narrowing, cross-request
-  reuse, cheaper attestation and terminal recovery semantics remain deferred;
-  broader runtime changes, timing amendments and numeric ceilings require selection.
+  It retains full readiness and current protection. Demand narrowing and reusable
+  preparation belong to the next-goal amendment discussion; cheaper attestation
+  and terminal recovery remain deferred. Runtime changes, timing amendments and
+  numeric ceilings require selection.
 
 ## Breaks, data disposition, cutover and removal
 
