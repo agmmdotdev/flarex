@@ -30,6 +30,12 @@ are distinct from complete server attribution or whole latency acceptance.
 
 ## Next Owner Hypothesis: Inactive
 
+The concrete [publication source and participant proof capture preflight](./publication-source-proof-preflight.md)
+owns the proposed composition, caller/cleanup inventory, acquisition-frontier
+decision and validation gates. It is **proposed / inactive**; runtime composition
+is not approved. This attribution document supplies its historical evidence,
+not implementation authority or a new measured baseline.
+
 The observed participant-proof graph contains one journal read, historical
 participant correlation, one shared full-live source proof and already batched
 range/unique evidence. Full-live proof runs once per transaction, not once per

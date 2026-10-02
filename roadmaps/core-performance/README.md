@@ -71,9 +71,10 @@ for three genuine finishing profiles, with detailed and boundary-only observatio
 distinguished. Its [evidence ledger](../../packages/flarex-backend/benchmarks/core-performance/publication-attribution/ledger.md)
 preserves all incomplete server lanes and unavailable final-cap metadata; no
 server retry or reconstruction is selected. Runtime/profile remedies remain
-inactive. The next hypothesis is fresh full-live source/participant capture
-composition through existing owners, conditional on an explicit acquisition-
-frontier and refusal-order decision; no guard or immutable proof reuse is implied.
+inactive. The next [publication source and participant proof capture proposal](./publication-source-proof-preflight.md)
+is proposed / inactive: fresh full-live composition through existing owners,
+conditional on its acquisition-frontier and refusal-order decision. Runtime
+composition is not approved; no guard or immutable proof reuse is implied.
 Its current
 seal/finishing/publication graph is the attribution baseline, not an immutable
 requirement for later separately examined redesign. Full logical-source definition
