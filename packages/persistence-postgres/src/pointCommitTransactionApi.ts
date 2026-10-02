@@ -1,4 +1,6 @@
 /** Stable package surface. CMS commit participation remains source-private. */
+export { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
+export type { PointCommitPublicationEvent, PointCommitPublicationPhase, PointCommitPublicationOwner, PointCommitPublicationMetric } from "./pointCommitPublicationObservation";
 export {
   PointMutationAttemptReplacementCommittedOutcomeV1Error,
   PointMutationAttemptReplacementConflictNoLongerPresentV1Error,

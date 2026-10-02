@@ -29,6 +29,10 @@ export interface TraceDispatchRecord {
   readonly statementCount: number | null;
   readonly transactionAction: "begin" | "commit" | "rollback" | null;
   readonly delegatedPoolQuery: boolean;
+  readonly parameterCount: number | null;
+  readonly scalarParameterBytes: number | null;
+  readonly unknownEncodingParameters: number | null;
+  readonly sqlUtf8Bytes: number | null;
 }
 
 export interface TraceCheckoutRecord {
@@ -84,6 +88,7 @@ export interface TraceTransactionGroup {
 }
 
 export interface TraceInvocationRecord {
+  readonly startedAtMs: number;
   readonly id: string;
   readonly mode: TraceMode;
   readonly durationMs: number;
@@ -433,6 +438,34 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Diagnostic input sizes, without running pg converters or retaining values.
+ * Arrays/objects/custom serializers remain unknown, not estimated wire bytes. */
+function dispatchInputSizes(args: readonly unknown[]): Pick<TraceDispatchRecord,
+  "parameterCount" | "scalarParameterBytes" | "unknownEncodingParameters" | "sqlUtf8Bytes"> {
+  const input = args[0];
+  const textDescriptor = isRecord(input) ? Object.getOwnPropertyDescriptor(input, "text") : undefined;
+  const text: unknown = typeof input === "string" ? input : textDescriptor !== undefined && "value" in textDescriptor ? textDescriptor.value : undefined;
+  const valuesDescriptor = isRecord(input) ? Object.getOwnPropertyDescriptor(input, "values") : undefined;
+  const values: unknown = Array.isArray(args[1]) ? args[1] : valuesDescriptor !== undefined && "value" in valuesDescriptor ? valuesDescriptor.value : undefined;
+  const sqlUtf8Bytes = typeof text === "string" ? new TextEncoder().encode(text).byteLength : null;
+  if (values === undefined && (typeof input === "string" || isRecord(input) && valuesDescriptor === undefined && typeof text === "string"))
+    return { parameterCount: 0, scalarParameterBytes: 0, unknownEncodingParameters: 0, sqlUtf8Bytes };
+  if (!Array.isArray(values)) return { parameterCount: null, scalarParameterBytes: null, unknownEncodingParameters: null, sqlUtf8Bytes };
+  let scalarParameterBytes = 0;
+  let unknownEncodingParameters = 0;
+  for (let ordinal = 0; ordinal < values.length; ordinal++) {
+    const descriptor = Object.getOwnPropertyDescriptor(values, ordinal);
+    if (descriptor === undefined || !("value" in descriptor)) { unknownEncodingParameters++; continue; }
+    const value: unknown = descriptor.value;
+    if (value instanceof Uint8Array) scalarParameterBytes += value.byteLength;
+    else if (typeof value === "string") scalarParameterBytes += new TextEncoder().encode(value).byteLength;
+    else if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint")
+      scalarParameterBytes += new TextEncoder().encode(String(value)).byteLength;
+    else if (value !== null) unknownEncodingParameters++;
+  }
+  return { parameterCount: values.length, scalarParameterBytes, unknownEncodingParameters, sqlUtf8Bytes };
+}
+
 function stackFrames(): readonly string[] {
   return (new Error().stack ?? "").split("\n").slice(1)
     .map(line => line.trim()).filter(line => !/[\\/]mixedMutationPerformanceTrace\.ts[:)]/.test(line)
@@ -504,6 +537,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
           outcome: "unobserved", fingerprint: sql?.fingerprint ?? null, template: sql?.template ?? null,
           statementCount: sql?.statementCount ?? null, transactionAction: sql?.transactionAction ?? null,
           delegatedPoolQuery: context.delegatedPoolQuery,
+          ...dispatchInputSizes(args),
         };
         invocation.dispatches.push(record);
         if (context.delegatedPoolQuery) invocation.delegatedPoolQueryDispatches++;
@@ -669,7 +703,7 @@ export function createMixedMutationPerformanceTrace(input: Readonly<{ controlPoo
         const checkoutAwaitedUnionMs = intervalUnion(invocation.checkouts.map(checkout => ({
           start: checkout.atMs, end: checkout.atMs + checkout.awaitedMs,
         })));
-        records.push({ id: invocation.id, mode: invocation.mode, durationMs: elapsed(start, root.end), outcome,
+        records.push({ id: invocation.id, mode: invocation.mode, startedAtMs: invocation.start, durationMs: elapsed(start, root.end), outcome,
           spans, dispatchGroups: dispatchGroups(invocation.dispatches), checkoutGroups: checkoutGroups(invocation.checkouts),
           transactionGroups: transactionGroups(invocation.transactions),
           dispatches: invocation.mode === "recon" ? [...invocation.dispatches] : [],

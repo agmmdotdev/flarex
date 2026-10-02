@@ -19,8 +19,12 @@ export const requireStrongReferencePublication = Effect.fn("ScopePublication.req
       cause.reason === "resourceFailure"
         ? new ScopePublicationSqlFailure({ operation: "readBindingHead", cause })
         : new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid", cause })));
-    if (Option.isNone(head)) return;
+    if (Option.isNone(head)) {
+      if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "counts", owner: "references", counts: { endpoints: 0, affectedRows: 0 } });
+      return;
+    }
     const endpoints = head.value.frame.strongReferenceTableIds.map(id => CatalogTableIdSchema.make(id));
+    if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "counts", owner: "references", counts: { endpoints: endpoints.length } });
     if (endpoints.length === 0) return;
     // The committed fact prefix is the publisher's authenticated row set.
     // Commerce appends these facts in pages while its contribution has no row
@@ -36,7 +40,10 @@ export const requireStrongReferencePublication = Effect.fn("ScopePublication.req
       try: () => query,
       catch: cause => new ScopePublicationSqlFailure({ operation: "readStrongReferenceFacts", cause }),
     });
-    if (rows.length === 0) return;
+    if (rows.length === 0) {
+      if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "counts", owner: "references", counts: { affectedRows: 0 } });
+      return;
+    }
     const references = yield* readBindingActiveReferenceProjection(tx, clock.record, head.value)
       .pipe(Effect.mapError(cause => cause.reason === "resourceFailure"
         ? new ScopePublicationSqlFailure({ operation: "readStrongReferenceProjection", cause })
@@ -55,6 +62,7 @@ export const requireStrongReferencePublication = Effect.fn("ScopePublication.req
     if (affected.length > 16_000) return yield* Effect.fail(new ScopePublicationCorruptionError({
       reason: "publicationInvariantInvalid", cause: "reference fact prefix exceeds the commit limit",
     }));
+    if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "counts", owner: "references", counts: { affectedRows: affected.length } });
     const changes = yield* Effect.forEach(affected, fact => Effect.fromResult(
       appRowIdHexV1FromBytesResult(fact.rowId).pipe(Result.mapError(cause =>
         new ScopePublicationCorruptionError({ reason: "publicationInvariantInvalid", cause })))).pipe(

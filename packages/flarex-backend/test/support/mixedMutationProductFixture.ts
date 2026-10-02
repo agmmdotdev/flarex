@@ -39,6 +39,7 @@ import { createSessionJournalStorePersistence, readConfirmedFiniteRootSealCaptur
 import type { LogicalParticipantBorrow } from
   "@flarex/persistence-postgres/session-journal-store";
 import type { PerformanceSettlementLedger } from "./mixedMutationPerformanceReport";
+import type { PublicationPerformanceServer } from "./publicationPerformanceServer";
 import { createStoredAttemptEvidenceLoaderV1 } from
   "../../../persistence-postgres/src/storedAttemptEvidence";
 import { createStoredCommitAuthorityEvidenceLoaderV1 } from
@@ -46,6 +47,8 @@ import { createStoredCommitAuthorityEvidenceLoaderV1 } from
 import { createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1, createPointMutationAttemptReplacementPortV1 } from
   "../../../persistence-postgres/src/pointCommitTransaction";
+import type { PointCommitPublicationObservation } from
+  "@flarex/persistence-postgres/point-commit-transaction";
 import { makeCommerceHost } from "../../../persistence-postgres/src/commerceTransaction/host";
 import { makeCmsHost } from "@flarex/persistence-postgres/internal/cms-adapter";
 import { createPostgresPersistence } from "../../../persistence-postgres/src/postgres";
@@ -564,14 +567,16 @@ export interface MixedMutationPerformanceSeries {
   readonly preparedModuleMilliseconds: number;
   readonly initialSeedingMilliseconds: number;
   readonly additionalSetupSeedingMilliseconds: number;
-  readonly setTrace: (trace: MixedMutationPerformanceTrace) => void;
+  readonly setTrace: (trace: MixedMutationPerformanceTrace | undefined) => void;
   readonly prepareAttempt: (index: number) => Promise<void>;
-  readonly runAttempt: (index: number) => Promise<Readonly<{
+  readonly runAttempt: (index: number, publicationObservation?: PointCommitPublicationObservation,
+    publicationServer?: PublicationPerformanceServer, cleanupFailures?: unknown[]) => Promise<Readonly<{
     fixture: MixedMutationProductFixture;
     seed: ProductSeed["seed"];
     returnedValue: unknown;
     workerConstructionMilliseconds: number;
     sealedJournalBytes: number;
+    attemptPhases: readonly Readonly<{ phase: string; startMs: number; endMs: number }>[];
     publication: Effect.Success<ReturnType<ReturnType<typeof createStoredPointCommitExecutorV1>["publishPointCommit"]>>;
   }>>;
   readonly close: () => Promise<void>;
@@ -633,13 +638,23 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
       seeded.set(index, await seedNativeProductAttemptGraph(context.currency, context.product,
         `${input.suffix}-${index}`, "launch"));
     };
-    const runAttempt = async (index: number) => {
+    const runAttempt = async (index: number, publicationObservation?: PointCommitPublicationObservation,
+      publicationServer?: PublicationPerformanceServer, cleanupFailures?: unknown[]) => {
       if (closed || attempted.has(index)) throw new Error("Mixed performance attempt already used or closed");
       const seedGraph = seeded.get(index);
       if (seedGraph === undefined) throw new Error("Prepare the disjoint graph before measurement");
       attempted.add(index);
-      const runPhase = <T>(name: string, run: () => Promise<T>): Promise<T> =>
-        trace === undefined ? run() : trace.withPhase(name, run);
+      const attemptPhases: { phase: string; startMs: number; endMs: number }[] = [];
+      const runPhase = <T>(name: string, run: () => Promise<T>): Promise<T> => {
+        const invoke = () => trace === undefined ? run() : trace.withPhase(name, run);
+        if (publicationObservation === undefined) return invoke();
+        const timed = async () => {
+          const startMs = globalThis.performance.now();
+          try { return await invoke(); }
+          finally { attemptPhases.push({ phase: name, startMs, endMs: globalThis.performance.now() }); }
+        };
+        return timed();
+      };
       const seed = seedGraph.seed;
       const validatedArgsJson = Object.freeze({ body: JSON.stringify(input.profile === "workflow"
         ? { productId: seed.productId, tagId: seed.tagId,
@@ -654,6 +669,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
           workerConstructionCount++;
           workerConstructionMilliseconds = milliseconds;
         }, onSealBytes: bytes => { sealedJournalBytes = bytes; },
+        ...(publicationObservation === undefined ? {} : { publicationObservation }),
         ...(trace === undefined ? {} : { trace }) }));
       openFixtures.add(fixture);
       try {
@@ -663,19 +679,37 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
           result: Schema.Struct({ kind: Schema.Literal("success"), result: Schema.Unknown }) }))(raw);
         const returnedValue = (await Effect.runPromise(decodePointMutationExactRuntimeResultV1Effect(
           success.result.result))).value;
+        const preparePublication = async () => {
+          if (publicationServer === undefined) return fixture.preparePublication(returnedValue);
+          await publicationServer.begin("preparationAndFinishing");
+          try { return await fixture.preparePublication(returnedValue); }
+          finally { await publicationServer.end("preparationAndFinishing"); }
+        };
         const publicationEffect = await runPhase("journal seal and OCC verification",
-          () => fixture.preparePublication(returnedValue));
+          publicationServer === undefined ? () => fixture.preparePublication(returnedValue) : preparePublication);
+        const publish = async () => {
+          if (publicationServer === undefined) return Effect.runPromise(publicationEffect);
+          await publicationServer.beginPublication();
+          try { return await Effect.runPromise(publicationEffect); }
+          finally { await publicationServer.endPublication(); }
+        };
         const publication = await runPhase("authoritative publication",
-          () => Effect.runPromise(publicationEffect));
+          publicationServer === undefined ? () => Effect.runPromise(publicationEffect) : publish);
         if (publication.kind !== "published") throw new Error("Missing first committed outcome");
         if (sealedJournalBytes === null || sealedJournalBytes < 1)
           throw new Error("Missing canonical sealed journal byte count");
         completed.add(index);
         return Object.freeze({ fixture, seed, returnedValue,
-          workerConstructionMilliseconds, sealedJournalBytes, publication });
+          workerConstructionMilliseconds, sealedJournalBytes, publication,
+          attemptPhases: Object.freeze(attemptPhases.map(phase => Object.freeze(phase))) });
       } finally {
-        await fixture.close();
-        openFixtures.delete(fixture);
+        try { await fixture.close(); }
+        catch (cause) {
+          if (cleanupFailures === undefined) throw cause;
+          // Only the opted-in benchmark retains disposal failure separately;
+          // the exact business failure continues through its original boundary.
+          cleanupFailures.push(cause);
+        } finally { openFixtures.delete(fixture); }
       }
     };
     return Object.freeze({ currency: context.currency,
@@ -687,7 +721,7 @@ export async function prepareMixedMutationPerformanceSeries(input: Readonly<{
       preparedModuleMilliseconds: context.preparedModuleMilliseconds,
       initialSeedingMilliseconds: context.initialSeedingMilliseconds,
       additionalSetupSeedingMilliseconds,
-      setTrace: (next: MixedMutationPerformanceTrace) => { trace = next; },
+      setTrace: (next: MixedMutationPerformanceTrace | undefined) => { trace = next; },
       prepareAttempt, runAttempt,
       close: async () => {
         if (closed) return;
@@ -708,6 +742,7 @@ async function createMixedMutationAttemptFixture(input: MixedMutationProductFixt
     onWorkerReady: (milliseconds: number) => void;
     onSealBytes: (bytes: number) => void;
     trace?: MixedMutationPerformanceTrace;
+    publicationObservation?: PointCommitPublicationObservation;
   }>): Promise<MixedMutationProductFixture> {
   const { cleanup, currency, product, pricing, link, application,
     schemaVersionId, logicalSchemaVersionId, prepared,
@@ -1210,6 +1245,9 @@ export default { async fetch(_request, env) {
   const publicationQueries = new Map<string, { ownerQuery: string; dispatches: number;
     parameterCount: number; scalarParameterBytes: number; unknownEncodingParameters: number }>();
   const publisherOptions = Object.freeze({
+    ...(performance?.publicationObservation === undefined ? {} : {
+      publicationObservation: performance.publicationObservation,
+    }),
     ...(performance?.trace === undefined ? {} : { observeQuery: (query: { name: string; params: readonly unknown[] }) => {
       const observation = publicationQueries.get(query.name) ?? { ownerQuery: query.name,
         dispatches: 0, parameterCount: 0, scalarParameterBytes: 0, unknownEncodingParameters: 0 };

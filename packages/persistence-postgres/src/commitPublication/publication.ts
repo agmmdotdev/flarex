@@ -15,6 +15,7 @@ import { observeDrizzleQuery as observeCompiledDrizzleQuery } from "../drizzleQu
 import { fxSystemCommitAppRowChanges, fxSystemCommitRelationAdjacencyChanges, fxSystemCommits, fxSystemIdempotency, fxSystemCommitWakes, fxSystemScopeClocks } from "../schema";
 import { ScopePublicationCorruptionError, ScopePublicationResourceError, ScopePublicationSqlFailure, type ScopePublicationClock, type ScopePublicationContribution, type ScopePublicationKernel, type ScopePublicationOptions, type ScopePublicationSqlOperation, type ScopePublicationStep } from "./scopePublicationModel";
 import { requireStrongReferencePublication } from "./strongReferenceAdmission";
+import { observePointCommitPublicationEffect } from "../pointCommitPublicationObservation";
 
 export async function writeScopePublicationPrefix(
   tx: AppRowTransaction,
@@ -69,6 +70,7 @@ export async function beginScopePublicationPrefix(
     requireSinglePublicationWriteResult(header, commitSeq, "commitSeq"),
   );
   await emitTransactionStep(options, command, "commitHeaderWritten");
+  if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "commitHeaders", counts: { rows: header.length } });
   let phase: "ready" | "failed" | "complete" = "ready";
   let appendedRows = 0;
   return Object.freeze({
@@ -138,6 +140,7 @@ async function appendScopePublicationRowChanges(
       ),
     );
     await emitTransactionStep(options, command, "commitChangeWritten");
+    if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "rowFacts", counts: { rows: batch.length } });
   }
 }
 
@@ -216,6 +219,7 @@ async function finishScopePublicationPrefix(
       command,
       "commitRelationAdjacencyChangeWritten",
     );
+    if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "relationFacts", counts: { rows: batch.length } });
   }
 
   signal?.throwIfAborted();
@@ -225,6 +229,7 @@ async function finishScopePublicationPrefix(
     }))).returning({ ordinal: fxSystemCommitRelationalChanges.changeOrdinal });
     if (facts.length !== command.relationalFacts.length || new Set(facts.map(fact => fact.ordinal)).size !== facts.length ||
       facts.some(fact => fact.ordinal < 0 || fact.ordinal >= (command.relationalFacts?.length ?? 0))) throw corruption("publicationInvariantInvalid");
+    if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "relationalFacts", counts: { rows: facts.length } });
   }
 
   signal?.throwIfAborted();
@@ -251,6 +256,10 @@ async function finishScopePublicationPrefix(
     if (delivered.length !== deliveries.length ||
       delivered.some(row => !expected.delete(`${row.ordinal}:${row.subscriber}`)) || expected.size !== 0)
       throw corruption("publicationInvariantInvalid");
+    if (options.publicationObservation?.detail) {
+      options.publicationObservation.record({ kind: "batch", owner: "events", counts: { rows: batch.length } });
+      options.publicationObservation.record({ kind: "batch", owner: "deliveries", counts: { rows: deliveries.length } });
+    }
   }
   signal?.throwIfAborted();
   const outcome = await sqlCall("writeOutcome", () =>
@@ -280,6 +289,7 @@ async function finishScopePublicationPrefix(
     requireSinglePublicationWriteResult(outcome, commitSeq, "commitSeq"),
   );
   await emitTransactionStep(options, command, "outcomeWritten");
+  if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "outcomes", counts: { rows: outcome.length, resultBytes: command.successfulResult.canonicalBytes.byteLength } });
 
   signal?.throwIfAborted();
   const wake = await sqlCall("writeWake", () =>
@@ -304,6 +314,7 @@ async function finishScopePublicationPrefix(
     requireSinglePublicationWriteResult(wake, commitSeq, "commitSeq"),
   );
   await emitTransactionStep(options, command, "wakeWritten");
+  if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "wakes", counts: { rows: wake.length } });
 
 }
 
@@ -313,8 +324,8 @@ export async function advanceScopePublicationClock(
   kernel: ScopePublicationKernel,
   options: ScopePublicationOptions,
 ): Promise<void> {
-  const admission = await Effect.runPromise(requireStrongReferencePublication(tx, kernel.clock,
-    kernel.commitSeq, options).pipe(Effect.match({
+  const admission = await Effect.runPromise(observePointCommitPublicationEffect(options.publicationObservation, "finalReferences", requireStrongReferencePublication(tx, kernel.clock,
+    kernel.commitSeq, options)).pipe(Effect.match({
     onFailure: cause => ({ kind: "failure" as const, cause }),
     onSuccess: () => ({ kind: "success" as const }),
   })));
@@ -323,23 +334,29 @@ export async function advanceScopePublicationClock(
   const commitSeq = kernel.commitSeq;
   const publicationTime = new Date(kernel.publicationTimeMilliseconds);
   closeExactAttemptScopeClockObservation(tx);
-  const clock = await sqlCall("advanceScopeClock", () =>
-    tx.update(fxSystemScopeClocks).set({
-      lastCommitSeq: commitSeq,
-      updatedAt: publicationTime,
-    }).where(and(
-      eq(fxSystemScopeClocks.scopeUuid, scopeUuid),
-      eq(
-        fxSystemScopeClocks.lastCommitSeq,
-        kernel.clock.record.lastCommitSeq,
-      ),
-    )).returning({
-      lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
-    }));
-  projectScopePublicationResult(
-    requirePointCommitClockPublicationResult(clock, commitSeq),
-  );
-  await emitTransactionStep(options, command, "clockAdvanced");
+  options.publicationObservation?.record({ kind: "phase", phase: "clockAdvance", edge: "begin" });
+  try {
+    const clock = await sqlCall("advanceScopeClock", () =>
+      tx.update(fxSystemScopeClocks).set({
+        lastCommitSeq: commitSeq,
+        updatedAt: publicationTime,
+      }).where(and(
+        eq(fxSystemScopeClocks.scopeUuid, scopeUuid),
+        eq(
+          fxSystemScopeClocks.lastCommitSeq,
+          kernel.clock.record.lastCommitSeq,
+        ),
+      )).returning({
+        lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
+      }));
+    projectScopePublicationResult(
+      requirePointCommitClockPublicationResult(clock, commitSeq),
+    );
+    await emitTransactionStep(options, command, "clockAdvanced");
+    if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "clockAdvances", counts: { rows: clock.length } });
+  } finally {
+    options.publicationObservation?.record({ kind: "phase", phase: "clockAdvance", edge: "end" });
+  }
 }
 
 export function allocateScopePublicationResult(

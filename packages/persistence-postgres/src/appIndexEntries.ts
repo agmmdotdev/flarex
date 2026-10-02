@@ -1,4 +1,5 @@
 import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation, exactScopeWriteClockObservationIdentity } from "./scopeClock";
+import type { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 import { bytesEqualFullScan, isUint8Array } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
@@ -399,9 +400,10 @@ export const appendAppIndexEntryRevisionsInTransactionEffect = Effect.fn(
 )(function* (
   tx: AppIndexEntryTransaction,
   inputs: ReadonlyArray<AppendAppIndexEntryRevisionV1Input>,
+  publicationObservation?: PointCommitPublicationObservation,
 ) {
   const revisions = yield* decodeAppendInputsEffect(tx, inputs);
-  return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions, inputs.map(input => input.membershipHeadEvidence));
+  return yield* appendDecodedAppIndexEntryRevisionsEffect(tx, revisions, inputs.map(input => input.membershipHeadEvidence), publicationObservation);
 }, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
 
 /** The common publisher supplies only a reference read from its authenticated
@@ -713,6 +715,7 @@ const appendDecodedAppIndexEntryRevisionsEffect = Effect.fn(
   tx: AppIndexEntryTransaction,
   revisions: ReadonlyArray<DecodedAppendAppIndexEntryRevisionV1>,
   evidence?: readonly (AppIndexMembershipHeadEvidence | undefined)[],
+  publicationObservation?: PointCommitPublicationObservation,
 ): Effect.fn.Return<
   ReadonlyArray<AppIndexEntryRevisionV1>,
   AppendAppIndexEntryRevisionV1Error
@@ -801,6 +804,8 @@ const appendDecodedAppIndexEntryRevisionsEffect = Effect.fn(
         "revision",
       ),
     );
+    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "indexRevisions",
+      counts: { rows: batch.length, canonicalBytes: batch.reduce((total, entry) => total + entry.revision.keyBytes.byteLength, 0) } });
     const creates = batch.filter((entry) => entry.revision.kind === "live");
     if (creates.length > 0) {
       const created = yield* appendQueryEffect(
@@ -829,6 +834,7 @@ const appendDecodedAppIndexEntryRevisionsEffect = Effect.fn(
         ),
       );
     }
+    if (publicationObservation?.detail && creates.length > 0) publicationObservation.record({ kind: "batch", owner: "indexCreates", counts: { rows: creates.length } });
     const deletes = batch.filter(
       (entry) => entry.revision.kind === "tombstone",
     );
@@ -868,6 +874,7 @@ const appendDecodedAppIndexEntryRevisionsEffect = Effect.fn(
       yield* Effect.fromResult(
         verifyIndexWritesResult(expected, deleted, "current"),
       );
+      if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "indexDeletes", counts: { rows: deletes.length } });
     }
   }
   return revisions.map(projectRevision);

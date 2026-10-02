@@ -1,0 +1,1185 @@
+{
+  "format": "flarex.publication-attribution-evidence",
+  "runs": [
+    {
+      "id": "paired-initial",
+      "privateDirectory": "work/validation/publication-attribution-paired-20261002",
+      "disposition": "invalid harness naming; 13 attempts",
+      "complete": false,
+      "sampleCount": 13,
+      "sampleOrder": [
+        {
+          "id": "product-0-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 0,
+          "warmup": true,
+          "order": 0,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-0-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 0,
+          "warmup": true,
+          "order": 1,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-1-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 1,
+          "warmup": false,
+          "order": 2,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-1-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 1,
+          "warmup": false,
+          "order": 3,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-2-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 2,
+          "warmup": false,
+          "order": 4,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-2-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 2,
+          "warmup": false,
+          "order": 5,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-3-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 3,
+          "warmup": false,
+          "order": 6,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-3-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 3,
+          "warmup": false,
+          "order": 7,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-4-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 4,
+          "warmup": false,
+          "order": 8,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-4-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 4,
+          "warmup": false,
+          "order": 9,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-5-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 5,
+          "warmup": false,
+          "order": 10,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-5-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 5,
+          "warmup": false,
+          "order": 11,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-0-boundaryOnly",
+          "profile": "productPayload",
+          "mode": "boundaryOnly",
+          "pair": 0,
+          "warmup": true,
+          "order": 12,
+          "status": "businessFailure",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        }
+      ],
+      "sourceStable": true,
+      "sourceCount": 119,
+      "currentSourceDifferences": [
+        {
+          "path": "packages/persistence-postgres/src/commitPublication/publication.ts",
+          "measuredSha256": "2a469678e4e1b46423f3b533037d6da03eea8e6462b08cb9a9797d0a286eee85",
+          "currentSha256": "01178488aa2215c7731ebf41781916e8051d57d16ce928238ba4d31148293ed5"
+        },
+        {
+          "path": "packages/persistence-postgres/src/pointCommitTransaction.ts",
+          "measuredSha256": "45577581017d746294059221788dd659832f587a88539259220841ba1336a568",
+          "currentSha256": "fb524ac2e21ad204293c1e47cdb0a6a75c5b2aed8aae61fcea8460894f7e3da9"
+        },
+        {
+          "path": "packages/flarex-backend/test/publicationPerformance.postgres.test.ts",
+          "measuredSha256": "9fdad3dec5e636f4a0bd44648e12b0d983c38500f8e4985be467d9900731a50a",
+          "currentSha256": "93cd0aa94976d1806e82a3e36d4b4c46d69c1359a759883c0acc1b1e924e7b29"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceReport.ts",
+          "measuredSha256": "3a5a9701907f645f33b29fda2ea19475e003f531368946e7ad9e86d23e836b4a",
+          "currentSha256": "1a68e880bf489227efc12f1e6e957dacf1787581302e0e4b0d18d3339c9f15d9"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceServer.ts",
+          "measuredSha256": "4abf0d95702ad4ac6e1e1f33c2d51192b4a43a6a9f45842ba311a78f3ebcb900",
+          "currentSha256": "53ff2a0cab130bec5b4c7baa6e41c47aa1ced219483788d9d5dc71b6f3119ae4"
+        }
+      ],
+      "externalRootEnvelopeSeconds": null,
+      "privateRunLog": {
+        "path": "work\\validation\\publication-attribution-paired-20261002-run.log",
+        "sha256": "043fc92b139405568399afaf6aed41e65d61302ee14a85c18303dda1447cfcdb"
+      },
+      "unavailable": []
+    },
+    {
+      "id": "paired-corrected",
+      "privateDirectory": "work/validation/publication-attribution-paired-corrected-20261002",
+      "disposition": "complete historical observed-source paired baseline; 36 attempts; final phase-boundary correction unmeasured",
+      "complete": true,
+      "sampleCount": 36,
+      "sampleOrder": [
+        {
+          "id": "product-0-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 0,
+          "warmup": true,
+          "order": 0,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-0-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 0,
+          "warmup": true,
+          "order": 1,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-1-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 1,
+          "warmup": false,
+          "order": 2,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-1-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 1,
+          "warmup": false,
+          "order": 3,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-2-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 2,
+          "warmup": false,
+          "order": 4,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-2-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 2,
+          "warmup": false,
+          "order": 5,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-3-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 3,
+          "warmup": false,
+          "order": 6,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-3-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 3,
+          "warmup": false,
+          "order": 7,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-4-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 4,
+          "warmup": false,
+          "order": 8,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-4-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 4,
+          "warmup": false,
+          "order": 9,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-5-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 5,
+          "warmup": false,
+          "order": 10,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-5-boundaryOnly",
+          "profile": "product",
+          "mode": "boundaryOnly",
+          "pair": 5,
+          "warmup": false,
+          "order": 11,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-0-boundaryOnly",
+          "profile": "productPayload",
+          "mode": "boundaryOnly",
+          "pair": 0,
+          "warmup": true,
+          "order": 12,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-0-detailed",
+          "profile": "productPayload",
+          "mode": "detailed",
+          "pair": 0,
+          "warmup": true,
+          "order": 13,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-1-detailed",
+          "profile": "productPayload",
+          "mode": "detailed",
+          "pair": 1,
+          "warmup": false,
+          "order": 14,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-1-boundaryOnly",
+          "profile": "productPayload",
+          "mode": "boundaryOnly",
+          "pair": 1,
+          "warmup": false,
+          "order": 15,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-2-boundaryOnly",
+          "profile": "productPayload",
+          "mode": "boundaryOnly",
+          "pair": 2,
+          "warmup": false,
+          "order": 16,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-2-detailed",
+          "profile": "productPayload",
+          "mode": "detailed",
+          "pair": 2,
+          "warmup": false,
+          "order": 17,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-3-detailed",
+          "profile": "productPayload",
+          "mode": "detailed",
+          "pair": 3,
+          "warmup": false,
+          "order": 18,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-3-boundaryOnly",
+          "profile": "productPayload",
+          "mode": "boundaryOnly",
+          "pair": 3,
+          "warmup": false,
+          "order": 19,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-4-boundaryOnly",
+          "profile": "productPayload",
+          "mode": "boundaryOnly",
+          "pair": 4,
+          "warmup": false,
+          "order": 20,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-4-detailed",
+          "profile": "productPayload",
+          "mode": "detailed",
+          "pair": 4,
+          "warmup": false,
+          "order": 21,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-5-detailed",
+          "profile": "productPayload",
+          "mode": "detailed",
+          "pair": 5,
+          "warmup": false,
+          "order": 22,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-5-boundaryOnly",
+          "profile": "productPayload",
+          "mode": "boundaryOnly",
+          "pair": 5,
+          "warmup": false,
+          "order": 23,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-0-boundaryOnly",
+          "profile": "workflow",
+          "mode": "boundaryOnly",
+          "pair": 0,
+          "warmup": true,
+          "order": 24,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-0-detailed",
+          "profile": "workflow",
+          "mode": "detailed",
+          "pair": 0,
+          "warmup": true,
+          "order": 25,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-1-detailed",
+          "profile": "workflow",
+          "mode": "detailed",
+          "pair": 1,
+          "warmup": false,
+          "order": 26,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-1-boundaryOnly",
+          "profile": "workflow",
+          "mode": "boundaryOnly",
+          "pair": 1,
+          "warmup": false,
+          "order": 27,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-2-boundaryOnly",
+          "profile": "workflow",
+          "mode": "boundaryOnly",
+          "pair": 2,
+          "warmup": false,
+          "order": 28,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-2-detailed",
+          "profile": "workflow",
+          "mode": "detailed",
+          "pair": 2,
+          "warmup": false,
+          "order": 29,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-3-detailed",
+          "profile": "workflow",
+          "mode": "detailed",
+          "pair": 3,
+          "warmup": false,
+          "order": 30,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-3-boundaryOnly",
+          "profile": "workflow",
+          "mode": "boundaryOnly",
+          "pair": 3,
+          "warmup": false,
+          "order": 31,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-4-boundaryOnly",
+          "profile": "workflow",
+          "mode": "boundaryOnly",
+          "pair": 4,
+          "warmup": false,
+          "order": 32,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-4-detailed",
+          "profile": "workflow",
+          "mode": "detailed",
+          "pair": 4,
+          "warmup": false,
+          "order": 33,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-5-detailed",
+          "profile": "workflow",
+          "mode": "detailed",
+          "pair": 5,
+          "warmup": false,
+          "order": 34,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-5-boundaryOnly",
+          "profile": "workflow",
+          "mode": "boundaryOnly",
+          "pair": 5,
+          "warmup": false,
+          "order": 35,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        }
+      ],
+      "sourceStable": true,
+      "sourceCount": 119,
+      "currentSourceDifferences": [
+        {
+          "path": "packages/persistence-postgres/src/commitPublication/publication.ts",
+          "measuredSha256": "2a469678e4e1b46423f3b533037d6da03eea8e6462b08cb9a9797d0a286eee85",
+          "currentSha256": "01178488aa2215c7731ebf41781916e8051d57d16ce928238ba4d31148293ed5"
+        },
+        {
+          "path": "packages/persistence-postgres/src/pointCommitTransaction.ts",
+          "measuredSha256": "45577581017d746294059221788dd659832f587a88539259220841ba1336a568",
+          "currentSha256": "fb524ac2e21ad204293c1e47cdb0a6a75c5b2aed8aae61fcea8460894f7e3da9"
+        },
+        {
+          "path": "packages/flarex-backend/test/publicationPerformance.postgres.test.ts",
+          "measuredSha256": "92d62b752faf96a9a8179841634c474a351aafcf6c989163aa47ef9c2a39c024",
+          "currentSha256": "93cd0aa94976d1806e82a3e36d4b4c46d69c1359a759883c0acc1b1e924e7b29"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceReport.ts",
+          "measuredSha256": "3a5a9701907f645f33b29fda2ea19475e003f531368946e7ad9e86d23e836b4a",
+          "currentSha256": "1a68e880bf489227efc12f1e6e957dacf1787581302e0e4b0d18d3339c9f15d9"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceServer.ts",
+          "measuredSha256": "4abf0d95702ad4ac6e1e1f33c2d51192b4a43a6a9f45842ba311a78f3ebcb900",
+          "currentSha256": "53ff2a0cab130bec5b4c7baa6e41c47aa1ced219483788d9d5dc71b6f3119ae4"
+        }
+      ],
+      "externalRootEnvelopeSeconds": 130.7807811,
+      "privateRunLog": {
+        "path": "work\\validation\\publication-attribution-paired-corrected-20261002-run.log",
+        "sha256": "0bb0e6908f43257e70ef9e8abab5227d70e520f5b34acfc97793fa3628fe4952"
+      },
+      "unavailable": []
+    },
+    {
+      "id": "server-initial",
+      "privateDirectory": "work/validation/publication-attribution-server-20261002",
+      "disposition": "invalid settings; zero samples",
+      "complete": false,
+      "sampleCount": 0,
+      "sampleOrder": [],
+      "sourceStable": true,
+      "sourceCount": 119,
+      "currentSourceDifferences": [
+        {
+          "path": "packages/persistence-postgres/src/commitPublication/publication.ts",
+          "measuredSha256": "2a469678e4e1b46423f3b533037d6da03eea8e6462b08cb9a9797d0a286eee85",
+          "currentSha256": "01178488aa2215c7731ebf41781916e8051d57d16ce928238ba4d31148293ed5"
+        },
+        {
+          "path": "packages/persistence-postgres/src/pointCommitTransaction.ts",
+          "measuredSha256": "45577581017d746294059221788dd659832f587a88539259220841ba1336a568",
+          "currentSha256": "fb524ac2e21ad204293c1e47cdb0a6a75c5b2aed8aae61fcea8460894f7e3da9"
+        },
+        {
+          "path": "packages/flarex-backend/test/publicationPerformance.postgres.test.ts",
+          "measuredSha256": "92d62b752faf96a9a8179841634c474a351aafcf6c989163aa47ef9c2a39c024",
+          "currentSha256": "93cd0aa94976d1806e82a3e36d4b4c46d69c1359a759883c0acc1b1e924e7b29"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceReport.ts",
+          "measuredSha256": "3a5a9701907f645f33b29fda2ea19475e003f531368946e7ad9e86d23e836b4a",
+          "currentSha256": "1a68e880bf489227efc12f1e6e957dacf1787581302e0e4b0d18d3339c9f15d9"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceServer.ts",
+          "measuredSha256": "4abf0d95702ad4ac6e1e1f33c2d51192b4a43a6a9f45842ba311a78f3ebcb900",
+          "currentSha256": "53ff2a0cab130bec5b4c7baa6e41c47aa1ced219483788d9d5dc71b6f3119ae4"
+        }
+      ],
+      "externalRootEnvelopeSeconds": 27.031622,
+      "privateRunLog": {
+        "path": "work\\validation\\publication-attribution-server-20261002-run.log",
+        "sha256": "1d1cb7ef45546244fd6d8470925276278f7b8f8b50988b4081d4a785731f7b45"
+      },
+      "unavailable": []
+    },
+    {
+      "id": "server-partial",
+      "privateDirectory": "work/validation/publication-attribution-server-corrected-20261002",
+      "disposition": "invalid statistics comparison; two healthy Product samples",
+      "complete": false,
+      "sampleCount": 2,
+      "sampleOrder": [
+        {
+          "id": "product-0-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 0,
+          "warmup": true,
+          "order": 0,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-1-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 1,
+          "warmup": false,
+          "order": 1,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        }
+      ],
+      "sourceStable": true,
+      "sourceCount": 119,
+      "currentSourceDifferences": [
+        {
+          "path": "packages/persistence-postgres/src/commitPublication/publication.ts",
+          "measuredSha256": "2a469678e4e1b46423f3b533037d6da03eea8e6462b08cb9a9797d0a286eee85",
+          "currentSha256": "01178488aa2215c7731ebf41781916e8051d57d16ce928238ba4d31148293ed5"
+        },
+        {
+          "path": "packages/persistence-postgres/src/pointCommitTransaction.ts",
+          "measuredSha256": "45577581017d746294059221788dd659832f587a88539259220841ba1336a568",
+          "currentSha256": "fb524ac2e21ad204293c1e47cdb0a6a75c5b2aed8aae61fcea8460894f7e3da9"
+        },
+        {
+          "path": "packages/flarex-backend/test/publicationPerformance.postgres.test.ts",
+          "measuredSha256": "92d62b752faf96a9a8179841634c474a351aafcf6c989163aa47ef9c2a39c024",
+          "currentSha256": "93cd0aa94976d1806e82a3e36d4b4c46d69c1359a759883c0acc1b1e924e7b29"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceReport.ts",
+          "measuredSha256": "3a5a9701907f645f33b29fda2ea19475e003f531368946e7ad9e86d23e836b4a",
+          "currentSha256": "1a68e880bf489227efc12f1e6e957dacf1787581302e0e4b0d18d3339c9f15d9"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceServer.ts",
+          "measuredSha256": "4abf0d95702ad4ac6e1e1f33c2d51192b4a43a6a9f45842ba311a78f3ebcb900",
+          "currentSha256": "53ff2a0cab130bec5b4c7baa6e41c47aa1ced219483788d9d5dc71b6f3119ae4"
+        }
+      ],
+      "externalRootEnvelopeSeconds": 75.0858045,
+      "privateRunLog": {
+        "path": "work\\validation\\publication-attribution-server-corrected-20261002-run.log",
+        "sha256": "4a88c66a2090775b746ac638d6458bcf14a9110f4dd7e2a09303d56b82ea739a"
+      },
+      "unavailable": []
+    },
+    {
+      "id": "server-final",
+      "privateDirectory": "work/validation/publication-attribution-server-final-20261002",
+      "disposition": "invalid final artifact cap; six healthy business samples only",
+      "complete": false,
+      "sampleCount": 6,
+      "sampleOrder": [
+        {
+          "id": "product-0-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 0,
+          "warmup": true,
+          "order": 0,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "product-1-detailed",
+          "profile": "product",
+          "mode": "detailed",
+          "pair": 1,
+          "warmup": false,
+          "order": 1,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-0-detailed",
+          "profile": "productPayload",
+          "mode": "detailed",
+          "pair": 0,
+          "warmup": true,
+          "order": 2,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "productPayload-1-detailed",
+          "profile": "productPayload",
+          "mode": "detailed",
+          "pair": 1,
+          "warmup": false,
+          "order": 3,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-0-detailed",
+          "profile": "workflow",
+          "mode": "detailed",
+          "pair": 0,
+          "warmup": true,
+          "order": 4,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        },
+        {
+          "id": "workflow-1-detailed",
+          "profile": "workflow",
+          "mode": "detailed",
+          "pair": 1,
+          "warmup": false,
+          "order": 5,
+          "status": "ok",
+          "observationFailures": 0,
+          "unmatchedEdges": 0
+        }
+      ],
+      "sourceStable": true,
+      "sourceCount": 119,
+      "currentSourceDifferences": [
+        {
+          "path": "packages/persistence-postgres/src/commitPublication/publication.ts",
+          "measuredSha256": "2a469678e4e1b46423f3b533037d6da03eea8e6462b08cb9a9797d0a286eee85",
+          "currentSha256": "01178488aa2215c7731ebf41781916e8051d57d16ce928238ba4d31148293ed5"
+        },
+        {
+          "path": "packages/persistence-postgres/src/pointCommitTransaction.ts",
+          "measuredSha256": "45577581017d746294059221788dd659832f587a88539259220841ba1336a568",
+          "currentSha256": "fb524ac2e21ad204293c1e47cdb0a6a75c5b2aed8aae61fcea8460894f7e3da9"
+        },
+        {
+          "path": "packages/flarex-backend/test/publicationPerformance.postgres.test.ts",
+          "measuredSha256": "2b10d39a458b04d175bbc2f4caf57bbafc54c7e21521a7451a10a40c4313b2be",
+          "currentSha256": "93cd0aa94976d1806e82a3e36d4b4c46d69c1359a759883c0acc1b1e924e7b29"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceReport.ts",
+          "measuredSha256": "5fefe85ddb1e86ba371af55fc61089741bc126b34430854b14cebdc486d0c710",
+          "currentSha256": "1a68e880bf489227efc12f1e6e957dacf1787581302e0e4b0d18d3339c9f15d9"
+        },
+        {
+          "path": "packages/flarex-backend/test/support/publicationPerformanceServer.ts",
+          "measuredSha256": "153053da7301979d4b2782f51d3d7de83f58eebd1f268bf865a503b022cfce1b",
+          "currentSha256": "53ff2a0cab130bec5b4c7baa6e41c47aa1ced219483788d9d5dc71b6f3119ae4"
+        }
+      ],
+      "externalRootEnvelopeSeconds": 81.1666689,
+      "privateRunLog": {
+        "path": "work\\validation\\publication-attribution-server-final-20261002-run.log",
+        "sha256": "804239f5de827a9385f2b97d8c43769304451e6c93b76e3717976e101b207130"
+      },
+      "unavailable": [
+        "full raw/report/finalization",
+        "per-window server snapshots",
+        "exact final log offsets and admission accounting",
+        "complete server reconciliation"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "paired-initial.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-paired-20261002/raw.json",
+      "originalBytes": 19581592,
+      "originalSha256": "8f383af767ba2db562baafbc853c151f8bade0ba5f0b3e1d71a6b2ba6ec7af34",
+      "derivativeBytes": 19581592,
+      "derivativeSha256": "8f383af767ba2db562baafbc853c151f8bade0ba5f0b3e1d71a6b2ba6ec7af34",
+      "compressedBytes": 1670094,
+      "compressedSha256": "f444bc6c5db5c4fb0d064432432a94aedab389d37307d463f9518058a2598351",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 252.3032,
+      "verificationMs": 43.88229999999999,
+      "totalMs": 491.09030000000007,
+      "readAndTokenTransformMs": 149.93900000000002
+    },
+    {
+      "path": "paired-initial-report.md",
+      "originalPrivatePath": "work\\validation\\publication-attribution-paired-20261002/report.md",
+      "originalBytes": 6344,
+      "originalSha256": "f02d9e52ddda9573b2d15bc4d0afb09e7f8f3aafb26e066c9659e112115add1a",
+      "packagedSha256": "f02d9e52ddda9573b2d15bc4d0afb09e7f8f3aafb26e066c9659e112115add1a",
+      "transformation": "unchanged receipt; hashes refer to original private artifacts"
+    },
+    {
+      "path": "paired-initial-finalization.json",
+      "originalPrivatePath": "work\\validation\\publication-attribution-paired-20261002/finalization.json",
+      "originalBytes": 730,
+      "originalSha256": "98549f342197e4bc9d2b234890124d3cb2b389456a52eb00581c9a09d3756562",
+      "packagedSha256": "98549f342197e4bc9d2b234890124d3cb2b389456a52eb00581c9a09d3756562",
+      "transformation": "unchanged receipt; hashes refer to original private artifacts"
+    },
+    {
+      "path": "paired-corrected.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-paired-corrected-20261002/raw.json",
+      "originalBytes": 71464309,
+      "originalSha256": "225e9f4198726d8b453689413c3d2c5ebc75232d6b83e43e09e2d8b28a2c7f82",
+      "derivativeBytes": 71464309,
+      "derivativeSha256": "225e9f4198726d8b453689413c3d2c5ebc75232d6b83e43e09e2d8b28a2c7f82",
+      "compressedBytes": 5984799,
+      "compressedSha256": "6783b3ef05e4dc5160f77124939d2db40c7f48e5d737e56b17b84b4a3188b6a2",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 857.1015000000002,
+      "verificationMs": 159.27959999999985,
+      "totalMs": 1836.5230000000001,
+      "readAndTokenTransformMs": 632.0742
+    },
+    {
+      "path": "paired-corrected-report.md",
+      "originalPrivatePath": "work\\validation\\publication-attribution-paired-corrected-20261002/report.md",
+      "originalBytes": 14433,
+      "originalSha256": "bf43faa101444b1cff02afffc5bb2042a1898be8126931c632a470e84a493809",
+      "packagedSha256": "bf43faa101444b1cff02afffc5bb2042a1898be8126931c632a470e84a493809",
+      "transformation": "unchanged receipt; hashes refer to original private artifacts"
+    },
+    {
+      "path": "paired-corrected-finalization.json",
+      "originalPrivatePath": "work\\validation\\publication-attribution-paired-corrected-20261002/finalization.json",
+      "originalBytes": 669,
+      "originalSha256": "88b7bada09caec59c45c53fc6ff7537aa7c2b3fa093f22ab7b26d81ed3c23d2b",
+      "packagedSha256": "88b7bada09caec59c45c53fc6ff7537aa7c2b3fa093f22ab7b26d81ed3c23d2b",
+      "transformation": "unchanged receipt; hashes refer to original private artifacts"
+    },
+    {
+      "path": "server-initial.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-20261002/raw.json",
+      "originalBytes": 36504,
+      "originalSha256": "84dafda01304de0f610f8b441e6fbeecb6c0387e5ae66506e3b6f51358bb9709",
+      "derivativeBytes": 36504,
+      "derivativeSha256": "84dafda01304de0f610f8b441e6fbeecb6c0387e5ae66506e3b6f51358bb9709",
+      "compressedBytes": 7453,
+      "compressedSha256": "3daf994ad145ea830a59b8fbd7118422a8456218f17c2fecf370571a9aa86ae9",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 0.680699999999888,
+      "verificationMs": 0.16280000000006112,
+      "totalMs": 2.31230000000005,
+      "readAndTokenTransformMs": 0.8441000000002532
+    },
+    {
+      "path": "server-initial-report.md",
+      "originalPrivatePath": "work\\validation\\publication-attribution-server-20261002/report.md",
+      "originalBytes": 2562,
+      "originalSha256": "c0b2da6c0ff84c1ac6b20b02235d41eb65c90e7564de786b23e689bbb8c762bb",
+      "packagedSha256": "c0b2da6c0ff84c1ac6b20b02235d41eb65c90e7564de786b23e689bbb8c762bb",
+      "transformation": "unchanged receipt; hashes refer to original private artifacts"
+    },
+    {
+      "path": "server-initial-finalization.json",
+      "originalPrivatePath": "work\\validation\\publication-attribution-server-20261002/finalization.json",
+      "originalBytes": 747,
+      "originalSha256": "e4b20635c05cd6b0388a261d49ec614a9b63e34234cd64f0ee1b04982c7274de",
+      "packagedSha256": "e4b20635c05cd6b0388a261d49ec614a9b63e34234cd64f0ee1b04982c7274de",
+      "transformation": "unchanged receipt; hashes refer to original private artifacts"
+    },
+    {
+      "path": "server-partial.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-corrected-20261002/raw.json",
+      "originalBytes": 47738513,
+      "originalSha256": "914b12b9bacdb68da766c97fe0c5c214f4ff6bfd2a03be9dbef4e30f0c90f89a",
+      "derivativeBytes": 47738117,
+      "derivativeSha256": "c494dc4cc95dfe0f6f406b617c59253f26dd1d87640fdb7ff157a4e03b256969",
+      "compressedBytes": 4596217,
+      "compressedSha256": "3249157b70d51d9b6687e0dbfbc5d8749531e1199f48230e46cc2ce72b912386",
+      "credentialLiteralRedactions": 18,
+      "transformation": "credential-sanitized JSON derivative",
+      "gzipMs": 738.9466000000002,
+      "verificationMs": 119.2773000000002,
+      "totalMs": 1294.7814999999996,
+      "readAndTokenTransformMs": 325.9887999999996
+    },
+    {
+      "path": "server-partial-report.md",
+      "originalPrivatePath": "work\\validation\\publication-attribution-server-corrected-20261002/report.md",
+      "originalBytes": 4397,
+      "originalSha256": "d717b8ab02cb0175f8147400d674325cff54c97e2aac30f583ce78ecdf8f7c72",
+      "packagedSha256": "d717b8ab02cb0175f8147400d674325cff54c97e2aac30f583ce78ecdf8f7c72",
+      "transformation": "unchanged receipt; hashes refer to original private artifacts"
+    },
+    {
+      "path": "server-partial-finalization.json",
+      "originalPrivatePath": "work\\validation\\publication-attribution-server-corrected-20261002/finalization.json",
+      "originalBytes": 735,
+      "originalSha256": "68a660cef7a32261516230736239cc630e7e7fd5cb799402b662f6b79ba27bf1",
+      "packagedSha256": "68a660cef7a32261516230736239cc630e7e7fd5cb799402b662f6b79ba27bf1",
+      "transformation": "unchanged receipt; hashes refer to original private artifacts"
+    },
+    {
+      "path": "server-final.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-final-20261002/final-artifact-cap-failure.json",
+      "originalBytes": 33812,
+      "originalSha256": "dc78cd0993163e1628c22d7eb36b73fc244ddf35f4569d06e27fa71770c0cdf4",
+      "derivativeBytes": 33812,
+      "derivativeSha256": "dc78cd0993163e1628c22d7eb36b73fc244ddf35f4569d06e27fa71770c0cdf4",
+      "compressedBytes": 6322,
+      "compressedSha256": "a4caee788b2f99ae422c7505272b72f161334964f3d34bf1c839ce2020d798f9",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 0.5054000000000087,
+      "verificationMs": 0.17550000000028376,
+      "totalMs": 1.6093000000000757,
+      "readAndTokenTransformMs": 0.3688999999999396
+    },
+    {
+      "path": "server-final-sample-00.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-final-20261002/sample-00.json",
+      "originalBytes": 3082711,
+      "originalSha256": "3d47639a9dc59222d54fea0346d841e926092a5bbc6e553a603a150b9e734577",
+      "derivativeBytes": 3082711,
+      "derivativeSha256": "3d47639a9dc59222d54fea0346d841e926092a5bbc6e553a603a150b9e734577",
+      "compressedBytes": 270333,
+      "compressedSha256": "27d418611b3863bb64dd48dc949cbe8886459091a07af354413ab3de32314441",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 37.20470000000023,
+      "verificationMs": 6.551000000000386,
+      "totalMs": 70.43299999999999,
+      "readAndTokenTransformMs": 19.242099999999937
+    },
+    {
+      "path": "server-final-sample-01.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-final-20261002/sample-01.json",
+      "originalBytes": 3068273,
+      "originalSha256": "0298a27bd9b838fdd72bdbb1e2c34c482a2e2a232416bf9ed372580592344ced",
+      "derivativeBytes": 3068273,
+      "derivativeSha256": "0298a27bd9b838fdd72bdbb1e2c34c482a2e2a232416bf9ed372580592344ced",
+      "compressedBytes": 269406,
+      "compressedSha256": "8189842781ae87dceb94834e0d04bd5a30bda80c9d9d89da683d09580f13ff87",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 37.186500000000706,
+      "verificationMs": 6.371299999999792,
+      "totalMs": 74.50570000000062,
+      "readAndTokenTransformMs": 17.962400000000343
+    },
+    {
+      "path": "server-final-sample-02.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-final-20261002/sample-02.json",
+      "originalBytes": 3359352,
+      "originalSha256": "001aef8c6d3ff07c7b818e566d831df5f0012bb7a007b9e2ae5485fd813a3b48",
+      "derivativeBytes": 3359352,
+      "derivativeSha256": "001aef8c6d3ff07c7b818e566d831df5f0012bb7a007b9e2ae5485fd813a3b48",
+      "compressedBytes": 286181,
+      "compressedSha256": "86222315d2988b12d4b9a9da3a504a550754ab90967e8f4848918cfafaac7486",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 39.369400000000496,
+      "verificationMs": 7.314300000000003,
+      "totalMs": 74.35780000000068,
+      "readAndTokenTransformMs": 19.21140000000014
+    },
+    {
+      "path": "server-final-sample-03.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-final-20261002/sample-03.json",
+      "originalBytes": 3331454,
+      "originalSha256": "3f3424985544de95ba673e59ee7f1af7216059d2395914f1459cac127c13d909",
+      "derivativeBytes": 3331454,
+      "derivativeSha256": "3f3424985544de95ba673e59ee7f1af7216059d2395914f1459cac127c13d909",
+      "compressedBytes": 283785,
+      "compressedSha256": "40e310dec88745b2753d803cd033d1632926331756595774d7307c1bb598d36b",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 39.01089999999931,
+      "verificationMs": 6.957699999999932,
+      "totalMs": 73.33550000000014,
+      "readAndTokenTransformMs": 19.105499999999665
+    },
+    {
+      "path": "server-final-sample-04.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-final-20261002/sample-04.json",
+      "originalBytes": 4872169,
+      "originalSha256": "efb41ad16f787c3c3daad15d11f38201cdef7f48d2f19c390c86431cd2481619",
+      "derivativeBytes": 4872169,
+      "derivativeSha256": "efb41ad16f787c3c3daad15d11f38201cdef7f48d2f19c390c86431cd2481619",
+      "compressedBytes": 413568,
+      "compressedSha256": "7c2439ed34d36300fce41e2bfefe04ed1a92de7b26da5cb96832a58d1297da02",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 54.70669999999973,
+      "verificationMs": 10.399800000000141,
+      "totalMs": 103.7475999999997,
+      "readAndTokenTransformMs": 26.89719999999943
+    },
+    {
+      "path": "server-final-sample-05.json.gz",
+      "originalPrivatePath": "work/validation/publication-attribution-server-final-20261002/sample-05.json",
+      "originalBytes": 4851194,
+      "originalSha256": "728f84fd3e0211cd974fe567ea7a86ac4dd2a3b74e4af07e56ff67efc4412f94",
+      "derivativeBytes": 4851194,
+      "derivativeSha256": "728f84fd3e0211cd974fe567ea7a86ac4dd2a3b74e4af07e56ff67efc4412f94",
+      "compressedBytes": 413096,
+      "compressedSha256": "833dc0a5a7708743bce43a1b1dcc7cc8c4a4c1df1b2ebb07601ca52c9904320a",
+      "credentialLiteralRedactions": 0,
+      "transformation": "original bytes unchanged",
+      "gzipMs": 54.72870000000057,
+      "verificationMs": 9.94880000000012,
+      "totalMs": 109.17439999999988,
+      "readAndTokenTransformMs": 32.9412999999995
+    },
+    {
+      "path": "owner-ledger.json.gz",
+      "originalBytes": 2993030,
+      "originalSha256": "8310e06d970c5430c7b99c3bb841753fd653c3be726bfe16cd0739c020d6f2e8",
+      "compressedBytes": 226451,
+      "compressedSha256": "b1e5271abe1305914e735b0f76b06cb1ab4c72a615ab366619a882301a89eb1a",
+      "derivativeSha256": "8310e06d970c5430c7b99c3bb841753fd653c3be726bfe16cd0739c020d6f2e8",
+      "transformation": "verified lossless gzip of offline owner projection; full source sites remain in paired raw"
+    },
+    {
+      "path": "summary.json",
+      "packagedBytes": 509866,
+      "packagedSha256": "8d6f60d8f4ba00b76b35edd82db2ab33c930e1225112cc7a5596f8971cebc5a1",
+      "transformation": "offline compact scalar projection; no query text or values"
+    },
+    {
+      "path": "partial-server-summary.json",
+      "packagedBytes": 14402,
+      "packagedSha256": "d3993dc1f76bf1a990771d00c7096696e1efed5f861516168bbcc3decc1667c3",
+      "transformation": "offline compact scalar projection; no query text or values"
+    },
+    {
+      "path": "README.md",
+      "packagedBytes": 9814,
+      "packagedSha256": "0646afe533e694b80488600eab2236114be7fe0a4a1ee5f7697e0e8db643f801",
+      "transformation": "readable scope/provenance/limits"
+    },
+    {
+      "path": "ledger.md",
+      "packagedBytes": 11099,
+      "packagedSha256": "46867b54187ef8cc896591219fe8f2b7270f86b0de46175018ad3f30f62da661",
+      "transformation": "readable scope/provenance/limits"
+    },
+    {
+      "path": "source-after-receipt-fix.json",
+      "packagedBytes": 17659,
+      "packagedSha256": "bbad7aea6738397f9d44377820fcf4cc8a85a80f56a7dbbce20a9df7ae65ca35",
+      "transformation": "unmeasured current source after compact-cap and phase-boundary corrections"
+    }
+  ],
+  "packaging": {
+    "startedAt": "2026-10-02T01:28:33.008Z",
+    "process": "v24.16.0",
+    "rawInputCap": 262144000,
+    "reportCap": 52428800,
+    "serverLogCap": 536870912,
+    "credentialTransformation": "Only actual CREATE/ALTER ROLE/USER PASSWORD quoted credential literals in JSON string tokens are replaced with [REDACTED]. Other tokens and all numeric counters remain byte-identical. Private originals are not modified.",
+    "gzipVerification": "Each decompressed artifact SHA256 must equal the packaged derivative SHA256.",
+    "memory": "Sequential whole-file buffers and decoded JSON; peak RSS unavailable. No cluster log history read.",
+    "rawInputBytes": 161419883,
+    "compressedBytes": 14427705,
+    "elapsedBeforeManifestMs": 4752.0551000000005,
+    "manifestOwnSerializationWriteMs": "unavailable: self-referential",
+    "priorFullPackagingPass": {
+      "elapsedBeforeManifestMs": 4734.859399999999,
+      "rawInputBytes": 161419883,
+      "compressedBytes": 14201254,
+      "reason": "source-site repetition removed from derivative owner ledger; original raw unchanged"
+    },
+    "ledgerCompressionAndSummaryMs": 169.12619999999998,
+    "finalVerification": {
+      "verifiedArtifacts": 22,
+      "credentialRedactions": 18,
+      "sourcePathsVerified": 119,
+      "futureHarnessDifferences": 3,
+      "elapsedMs": 759.3661000000001,
+      "matchedMeasuredSourcePaths": 114,
+      "currentCoreDifferences": 2
+    },
+    "provenanceRefresh": {
+      "sourcePaths": 119,
+      "matches": 114,
+      "differences": 5,
+      "elapsedMs": 454.90599999999995
+    }
+  },
+  "sourceDisposition": {
+    "baseline": "historical measured source; all 36 corrected paired samples retained",
+    "finalCorePhaseCorrection": "unmeasured; OCC/lowering/clockAdvance guarded phase markers moved into original async owners, preserving original awaits",
+    "noFinalSourceLatencyReproduction": true,
+    "noRerunSelected": true,
+    "combinedObserverWitness": {
+      "path": "packages/persistence-postgres/test/pointCommitTransaction.postgres.test.ts",
+      "test": "holds interruption until a forwarded COMMIT response settles",
+      "implementedScope": "throwing phase observer + actually forwarded COMMIT + held/lost response + Fiber interruption + fresh publisher replay; phase edges/retained diagnostic failure/one durable header,outcome,wake and sequence one",
+      "limits": "not arbitrary native lifecycle/server-observer combinations or final-source performance"
+    }
+  }
+}

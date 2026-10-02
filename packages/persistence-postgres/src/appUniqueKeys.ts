@@ -1,4 +1,5 @@
 import { closeExactAttemptScopeClockObservation, readExactScopeWriteClockObservation } from "./scopeClock";
+import type { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 import {
   bytesEqualFullScan,
   isUint8Array,
@@ -407,6 +408,7 @@ export const applyAppUniqueKeyMutationsInTransactionEffect = Effect.fn(
   tx: AppUniqueKeyTransaction,
   inputs: readonly ApplyAppUniqueKeyMutationV1Input[],
   sha256: AppUniqueKeySha256V1 = liveSha256,
+  publicationObservation?: PointCommitPublicationObservation,
 ) {
   const captured: CapturedMutationV1[] = [];
   const owners = new Set<string>();
@@ -641,6 +643,8 @@ export const applyAppUniqueKeyMutationsInTransactionEffect = Effect.fn(
         .returning(),
     );
     yield* Effect.fromResult(verifyUniqueWritesResult(batch, returned));
+    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "uniqueReleases",
+      counts: { rows: batch.length, canonicalBytes: batch.reduce((total, row) => total + row.encodedKey.byteLength, 0) } });
   }
   for (let offset = 0; offset < claims.length; offset += 32) {
     const batch = claims.slice(offset, offset + 32);
@@ -648,6 +652,8 @@ export const applyAppUniqueKeyMutationsInTransactionEffect = Effect.fn(
       tx.insert(fxAppUniqueKeys).values(batch).returning(),
     );
     yield* Effect.fromResult(verifyUniqueWritesResult(batch, returned));
+    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "uniqueClaims",
+      counts: { rows: batch.length, canonicalBytes: batch.reduce((total, row) => total + row.encodedKey.byteLength, 0) } });
   }
   return results;
 }, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));

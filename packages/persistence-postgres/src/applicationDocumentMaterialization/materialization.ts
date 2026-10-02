@@ -1,4 +1,5 @@
 import { IndexMaintenanceError } from "../indexMaintenanceEvidence";
+import { observePointCommitPublicationEffect, type PointCommitPublicationObservation } from "../pointCommitPublicationObservation";
 import { ExactDecimalError } from "flarex-protocol/internal/exact-decimal";
 import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from "flarex-protocol/commit-protocol";
 import {
@@ -238,11 +239,11 @@ export const prepareIntrinsicIndexDefinitions = Effect.fn(
   for (const intent of command.rowIntents) {
     if (intent.tableId === previousTableId) continue;
     previousTableId = intent.tableId;
-    const definition = yield* port.locate({
+    const definition = yield* observePointCommitPublicationEffect(options.publicationObservation, "intrinsicDefinition", port.locate({
       deploymentId: command.authorityPins.deploymentId,
       scopeId: command.authorityPins.scopeId,
       tableId: intent.tableId,
-    });
+    }));
     if (definition === null) {
       return yield* Effect.fail(
         new PointCommitIntrinsicIndexDefinitionUnavailableV1Error({
@@ -645,12 +646,12 @@ export async function materializeApplicationDocumentRows(
     await emitTransactionStep(options, command, "intrinsicMembershipPreparing");
   const intrinsicActions = projectPointCommitTransactionResult(
     await runPointCommitInTransactionEffect(
-      prepareIntrinsicIndexActionsEffect(
+      observePointCommitPublicationEffect(options.publicationObservation, "intrinsicMembership", prepareIntrinsicIndexActionsEffect(
         tx,
         command.authorityPins.scopeId,
         rowRevisions,
         intrinsicBuilds,
-      ),
+      )),
     ),
   );
   if (rowRevisions.length > 0 && intrinsicBuilds.length > 0)
@@ -658,11 +659,11 @@ export async function materializeApplicationDocumentRows(
   if (rowRevisions.length > 0) await emitTransactionStep(options, command, "rowBatchWriting");
   projectPointCommitTransactionResult(
     await runPointCommitInTransactionEffect(
-      appendPreparedAppRowRevisionsInTransactionEffect(tx, rowRevisions).pipe(
+      observePointCommitPublicationEffect(options.publicationObservation, "rowWrites", appendPreparedAppRowRevisionsInTransactionEffect(tx, rowRevisions, options.publicationObservation).pipe(
         Effect.mapError(cause => cause instanceof AppRowWritePersistenceError
           ? new PointCommitSqlFailureMarkerV1("writeTentativeRow", cause.cause)
           : cause),
-      ),
+      )),
     ),
   );
   if (rowRevisions.length > 0) await emitTransactionStep(options, command, "rowBatchWritten");
@@ -679,10 +680,10 @@ export async function materializeApplicationDocumentRows(
   if (indexActions.length > 0) {
     await emitTransactionStep(options, command, "indexBatchWriting");
     projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-      appendAppIndexEntryRevisionsInTransactionEffect(tx, indexActions).pipe(
+      observePointCommitPublicationEffect(options.publicationObservation, "indexWrites", appendAppIndexEntryRevisionsInTransactionEffect(tx, indexActions, options.publicationObservation).pipe(
         Effect.mapError(cause => cause instanceof AppIndexEntryWritePersistenceError || cause instanceof AppIndexEntryReadPersistenceError
           ? new PointCommitSqlFailureMarkerV1("writeIndexEntries", cause.cause) : cause),
-      ),
+      )),
     ));
     await emitTransactionStep(options, command, "indexBatchWritten");
     for (let i = 0; i < intrinsicActions.size; i++)
@@ -690,7 +691,7 @@ export async function materializeApplicationDocumentRows(
     for (let i = 0; i < developerIndexActions.length; i++)
       await emitTransactionStep(options, command, "developerIndexEntryWritten");
   }
-  await resetPointCommitIndexValidations(tx, intrinsicBuilds.map(intrinsic => intrinsic.build), "intrinsic");
+  await resetPointCommitIndexValidations(tx, intrinsicBuilds.map(intrinsic => intrinsic.build), "intrinsic", options.publicationObservation);
   await writePointCommitUniqueKeyActions(
     tx,
     command,
@@ -737,13 +738,14 @@ export async function materializeApplicationDocumentRows(
           row.storageGenerationFence === build.storageGenerationFence))
           return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
       if (updated.length !== batch.length) return yield* Effect.fail(corruption("developerIndexBuildInvalid"));
+      if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "indexCoverage", counts: { rows: batch.length } });
     }
 
     const selectedUnique: Array<Readonly<{ state: (typeof uniqueBuilds)[number];
       schemaVersionId: (typeof uniqueDefinitions)[number]["schemaVersionId"] }>> = [];
     const flushUnique = Effect.gen(function* () {
       if (selectedUnique.length === 0) return;
-      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx, selectedUnique, commitSeq)
+      yield* advanceUnboundUniqueCoverageInTransactionEffect(tx, selectedUnique, commitSeq, options.publicationObservation)
         .pipe(Effect.mapError(projectUniqueCoverageFailure));
       selectedUnique.length = 0;
     });
@@ -762,7 +764,7 @@ export async function materializeApplicationDocumentRows(
   // Drizzle's deferred Promise callback owns the sole runtime projection for
   // the complete coverage graph. The proof hook retains its original boundary.
   const completeCoverage = async () => {
-    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(completeCoverageEffect()));
+    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(observePointCommitPublicationEffect(options.publicationObservation, "coverage", completeCoverageEffect())));
     if (uniqueBuilds.length > 0)
       await emitTransactionStep(
         options,
@@ -2063,7 +2065,7 @@ async function writePointCommitUniqueKeyActions(
         }) satisfies ApplyAppUniqueKeyMutationV1Input,
     );
     const settled = await runPointCommitInTransactionEffect(
-      applyAppUniqueKeyMutationsInTransactionEffect(tx, inputs),
+      observePointCommitPublicationEffect(options.publicationObservation, "uniqueWrites", applyAppUniqueKeyMutationsInTransactionEffect(tx, inputs, undefined, options.publicationObservation)),
     );
     projectPointCommitTransactionResult(
       settled.pipe(Result.mapError(mapPointCommitUniqueKeyFailure)),
@@ -2131,12 +2133,14 @@ export const runCandidateSchemaWriteGuard = Effect.fn(
 
 export async function resetPointCommitDeveloperIndexValidations(
   tx: AppRowTransaction, builds: readonly IndexBuildStateRecord[],
+  publicationObservation?: PointCommitPublicationObservation,
 ): Promise<void> {
-  await resetPointCommitIndexValidations(tx, builds, "developer");
+  await resetPointCommitIndexValidations(tx, builds, "developer", publicationObservation);
 }
 
 async function resetPointCommitIndexValidations(
   tx: AppRowTransaction, builds: readonly IndexBuildStateRecord[], family: "intrinsic" | "developer",
+  publicationObservation?: PointCommitPublicationObservation,
 ): Promise<void> {
   const selected = builds.filter(build => build.lifecycle === "validating");
   for (let offset = 0; offset < selected.length; offset += 32) {
@@ -2154,6 +2158,7 @@ async function resetPointCommitIndexValidations(
     if (updated.length !== batch.length || batch.some(build => updated.filter(row =>
       row.scopeId === build.scopeId && row.indexDefinitionId === build.indexDefinitionId).length !== 1))
       throw corruption(family === "intrinsic" ? "intrinsicIndexBuildInvalid" : "developerIndexBuildInvalid");
+    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "indexValidation", counts: { rows: batch.length } });
   }
 }
 

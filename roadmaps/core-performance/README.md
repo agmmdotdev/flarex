@@ -10,8 +10,11 @@ component-first performance program after the delivered mixed entry stage. The
 prior prepared order was checked reads, publication, initial
 request admission, seal verification, then conditional host investigation.
 That later order is provisional and subject to the mandatory reassessment below.
-Groups 2–4 remain prepared and inactive; their documents do not select or approve
-a runtime remedy. Host changes remain conditional and unapproved.
+Group 2 has implemented bounded publication attribution with a usable historical paired
+owner baseline and invalid/partial server evidence; runtime remedies remain
+inactive. Its final phase-boundary transparency correction is unmeasured; no
+final-source latency reproduction is claimed. Groups 3–4 remain prepared and inactive. Host changes
+remain conditional and unapproved.
 
 The latest owner direction requires the
 [orchestration simplification reassessment](./orchestration-simplification-preflight.md)
@@ -63,8 +66,15 @@ correctness are established. The declared full mixed measurement retains an
 original quiet regression and a healthy targeted repeat with no established
 cause; the repeat does not replace the original. The
 [publication preparation/handoff/locked-publisher attribution proposal](./02-publication-preflight.md)
-at the existing `pointCommitTransaction` owner is prepared; measurement implementation
-and runtime/profile remedies remain inactive pending examination. Its current
+at the existing `pointCommitTransaction` owner now has a complete historical observed-source paired baseline
+for three genuine finishing profiles, with detailed and boundary-only observation
+distinguished. Its [evidence ledger](../../packages/flarex-backend/benchmarks/core-performance/publication-attribution/ledger.md)
+preserves all incomplete server lanes and unavailable final-cap metadata; no
+server retry or reconstruction is selected. Runtime/profile remedies remain
+inactive. The next hypothesis is fresh full-live source/participant capture
+composition through existing owners, conditional on an explicit acquisition-
+frontier and refusal-order decision; no guard or immutable proof reuse is implied.
+Its current
 seal/finishing/publication graph is the attribution baseline, not an immutable
 requirement for later separately examined redesign. Full logical-source definition
 breadth is the largest metadata-row region and retains a separate readiness-scope
@@ -182,14 +192,14 @@ this performance program introduces no new developer behavior or divergence.
 ## Group Order And Gates
 
 The numbered groups preserve the prior prepared order. The mandatory next gate
-after the delivered checked-read slice determines whether and how later groups
-proceed; those groups remain inactive and provisional.
+after the delivered checked-read slice governs later remedies. Publication
+attribution is approved; other later groups remain inactive and provisional.
 
 | Group | Status | Focused preflight |
 | --- | --- | --- |
 | 1. Checked reads | Active; immutable singleton projection and structural kernel/search frontier composition delivered; latency acceptance and orchestration work remain | [01](./01-checked-reads-preflight.md) |
 | Orchestration reassessment | Active; construction and Application acceptance implemented with bounded connected proof; original mixed latency regression unresolved and whole goals open | [Orchestration](./orchestration-simplification-preflight.md), [target](./orchestration-target-design.md), [measurement](./native-retrieval-measurement-preflight.md), [construction](./read-admission-construction-preflight.md), [acceptance](./fresh-application-acceptance-preflight.md) |
-| 2. Publication | Preparation/handoff/locked-publisher attribution preflight proposed; investigation authorized, measurement implementation and runtime/profile remedy inactive pending examination | [02](./02-publication-preflight.md) |
+| 2. Publication | Attribution implemented; usable paired owner baseline, server matrix invalid/partial; next owner hypothesis inactive | [02](./02-publication-preflight.md) |
 | 3. Initial request admission | Prepared, inactive; provisional after reassessment | [03](./03-request-admission-preflight.md) |
 | 4. Seal verification | Prepared, inactive; provisional after reassessment | [04](./04-seal-verification-preflight.md) |
 | 5. Host lifecycle | Provisional and conditional; runtime unapproved | [05](./05-host-lifecycle-preflight.md) |

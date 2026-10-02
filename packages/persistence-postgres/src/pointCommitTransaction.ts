@@ -1,6 +1,7 @@
 import { closeExactAttemptScopeClockObservation, lockScopeClockRowsForOrdinaryWriteInTransactionEffect, ScopeAuthorizationRevocationEpochPersistenceError } from "./scopeClock";
 import type { AppSchemaCandidateWriteGuardPlanningHead } from "./appSchemaCandidateValidation";
 import { sqlCall } from "./pointCommitErrors";
+import { PointCommitPublicationObservation, observePointCommitPublicationEffect, observePointCommitPublicationPromise } from "./pointCommitPublicationObservation";
 import { prepareAppUniqueConstraintSet, acceptPreparedAppUniqueConstraintSet, type AppUniqueConstraintSetPreparation } from "./appUniqueConstraintSetBuildV1";
 import { hasApplicationDocumentOrderedIndexComposition } from "./applicationDocumentMaterialization/indexComposition";
 import { MAX_POINT_COMMIT_DEVELOPER_INDEX_ENTRY_REVISIONS_V1, MAX_POINT_COMMIT_UNIQUE_KEY_TRANSITIONS_V1 } from "./applicationDocumentMaterialization/materialization";
@@ -852,6 +853,7 @@ export type PointCommitTransactionProofStepV1 =
   | "beforeRollback";
 
 export interface PointCommitTransactionProofOptionsV1 {
+  readonly publicationObservation?: PointCommitPublicationObservation;
   /** Trusted selector profiles authenticate whole ordered source bundles,
    * including zero-effect sources and the pinned producer revision. */
   readonly logicalOperationProfiles?: readonly Readonly<{
@@ -927,6 +929,7 @@ function capturePointCommitTransactionProofOptionsV1(
   const candidateSchemaWriteGuard = options.candidateSchemaWriteGuard;
   const afterTransactionStep = options.afterTransactionStep;
   const observeQuery = options.observeQuery;
+  const publicationObservation = options.publicationObservation;
   const logicalParticipantEvents = options.logicalParticipantEvents;
   const logicalOperationProfiles = options.logicalOperationProfiles;
   return Object.freeze({
@@ -955,6 +958,7 @@ function capturePointCommitTransactionProofOptionsV1(
       : { candidateSchemaWriteGuard }),
     ...(afterTransactionStep === undefined ? {} : { afterTransactionStep }),
     ...(observeQuery === undefined ? {} : { observeQuery }),
+    ...(publicationObservation === undefined ? {} : { publicationObservation }),
   });
 }
 
@@ -1498,7 +1502,7 @@ export function createPointCommitRollbackProofPortV1(
       command,
       capturedOptions,
     );
-    const mixedDefinitions = yield* preparePointCommitMixedDefinitions(command, capturedOptions);
+    const mixedDefinitions = yield* observePointCommitPublicationEffect(capturedOptions.publicationObservation, "mixedDefinitions", preparePointCommitMixedDefinitions(command, capturedOptions));
     const developerDefinitions = mixedDefinitions.developerDefinitions;
     const uniqueDefinitions = mixedDefinitions.uniqueDefinitions;
     const mixedCommand = Object.freeze({ ...command,
@@ -1567,11 +1571,33 @@ export function createPointCommitPublisherPortV1(
   const publish: PointCommitPublisherPortV1["publish"] = Effect.fn(
     "PointCommitTransaction.publish",
   )(function* (input) {
-    const command = yield* preparePointCommitPublicationCommand(input);
-    const located = yield* resolvePointCommitAuthority(
+    const observation = capturedOptions.publicationObservation;
+    const command = yield* observePointCommitPublicationEffect(observation, "commandPreparation",
+      preparePointCommitPublicationCommand(input));
+    if (observation?.detail) {
+      observation.record({ kind: "counts", owner: "plan", counts: {
+        rows: command.rowIntents.length,
+        liveRows: command.rowIntents.filter(row => row.kind === "live").length,
+        tombstones: command.rowIntents.filter(row => row.kind === "deleted").length,
+        tables: new Set(command.rowIntents.map(row => row.tableId)).size,
+        canonicalBytes: command.rowIntents.reduce((sum, row) => sum + (row.kind === "live" ? row.document.canonicalBytes.byteLength : 0), 0),
+        semanticBytes: command.rowIntents.reduce((sum, row) => sum + (row.kind === "live" ? row.document.semanticSizeBytes : 0), 0),
+        journalBytes: command.journalBytes?.byteLength ?? 0,
+        resultBytes: command.successfulResult.canonicalBytes.byteLength,
+        pointDependencies: command.dependencies.length,
+        rangeDependencies: command.indexRangeDependencies.length,
+        relationDependencies: command.relationDependencies.length,
+        writeOperations: command.sealIdentity.writeOperations,
+        participantOperations: command.participantOperations.length,
+        sourceContributions: command.participantOperations.reduce((sum, operation) => sum + operation.sourceContributions.length, 0),
+        effectOccurrences: command.participantOperations.reduce((sum, operation) => sum + operation.sourceContributions.reduce((sourceSum, source) => sourceSum + source.effects.length, 0), 0),
+        eventIntents: command.participantEventIntents.length,
+      } });
+    }
+    const located = yield* observePointCommitPublicationEffect(observation, "authorityResolution", resolvePointCommitAuthority(
       command.authorityPins,
       ports,
-    );
+    ));
     const target = isLocatedPointCommitPublicationTargetV1(located.target)
       ? located.target
       : null;
@@ -1581,7 +1607,7 @@ export function createPointCommitPublisherPortV1(
       ));
     }
     const lookup = captureCommittedOutcomeLookup(command);
-    const existing = yield* resolveOutcome(target, lookup);
+    const existing = yield* observePointCommitPublicationEffect(observation, "initialOutcome", resolveOutcome(target, lookup));
     if (existing.kind !== "missing") {
       return yield* publicationResultFromOutcomeEffect(existing, "replayed");
     }
@@ -1598,11 +1624,12 @@ export function createPointCommitPublisherPortV1(
       command.rowIntents.length > 0 && !hasOrderedIndexes) {
       return yield* Effect.fail(corruption("orderedIndexCompositionInvalid"));
     }
+    const definitions = yield* observePointCommitPublicationEffect(observation, "definitionPreparation", Effect.gen(function* () {
     const intrinsicDefinitions = yield* prepareIntrinsicIndexDefinitions(
       command,
       capturedOptions,
     );
-    const mixedDefinitions = yield* preparePointCommitMixedDefinitions(command, capturedOptions);
+    const mixedDefinitions = yield* observePointCommitPublicationEffect(observation, "mixedDefinitions", preparePointCommitMixedDefinitions(command, capturedOptions));
     const developerDefinitions = mixedDefinitions.developerDefinitions;
     const uniqueDefinitions = mixedDefinitions.uniqueDefinitions;
     const mixedCommand = Object.freeze({ ...command,
@@ -1617,6 +1644,13 @@ export function createPointCommitPublisherPortV1(
       { hasRelationAuthority: port => hasApplicationRelationCommitAuthorityForPointCommit(port, ports), hasCandidateGuardAuthority: port => hasAppSchemaCandidateWriteGuardComposition(port, ports) },
       capturedOptions,
     );
+    return { intrinsicDefinitions, developerDefinitions, uniqueDefinitions, mixedCommand, applicationRelations, candidateSchemaWriteGuard };
+    }));
+    const { intrinsicDefinitions, developerDefinitions, uniqueDefinitions, mixedCommand, applicationRelations, candidateSchemaWriteGuard } = definitions;
+    if (observation?.detail) observation.record({ kind: "counts", owner: "definitions", counts: {
+      intrinsicDefinitions: intrinsicDefinitions.length, developerDefinitions: developerDefinitions.length,
+      uniqueDefinitions: uniqueDefinitions.length,
+    } });
 
     const runPublication = awaitPointCommitPublicationSettlement(
       runPointCommitPublication(
@@ -1636,7 +1670,7 @@ export function createPointCommitPublisherPortV1(
         Effect.catchTag(
           "PointCommitTransactionDecisionUncertainV1Error",
           (uncertainty) =>
-          resolveOutcome(target, lookup).pipe(
+          observePointCommitPublicationEffect(observation, "finalOutcome", resolveOutcome(target, lookup)).pipe(
               Effect.catchTag(
                 "CommittedPointOutcomeSqlErrorV1",
                 (error) => Effect.fail(decisionUncertain(
@@ -1666,7 +1700,7 @@ export function createPointCommitPublisherPortV1(
       );
     }
 
-    const resolved = yield* resolveOutcome(target, lookup);
+    const resolved = yield* observePointCommitPublicationEffect(observation, "finalOutcome", resolveOutcome(target, lookup));
     if (decision.kind === "existing") {
       return yield* publicationResultFromOutcomeEffect(resolved, "replayed");
     }
@@ -1675,7 +1709,7 @@ export function createPointCommitPublisherPortV1(
       "published",
       decision.token,
     );
-  });
+  }, effect => observePointCommitPublicationEffect(capturedOptions.publicationObservation, "publisher", effect));
 
   const resolvePointCommitOutcome: PointCommitOutcomeResolutionPortV1[
     typeof RESOLVE_POINT_COMMIT_OUTCOME_V1
@@ -4863,7 +4897,8 @@ async function runPointCommitPublication(
     PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitPublicationDecisionV1> {
-  return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+  return observePointCommitPublicationPromise(options.publicationObservation, "transaction", () =>
+    target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
     try {
     const kernel = await runPointCommitTransactionKernel(
       tx,
@@ -4881,12 +4916,12 @@ async function runPointCommitPublication(
     const ready = projectPointCommitTransactionResult(
       requirePointCommitReadyForPublicationResult(kernel),
     );
-    await publishPointCommitInTransaction(
+    await observePointCommitPublicationPromise(options.publicationObservation, "durablePublication", () => publishPointCommitInTransaction(
       tx,
       command,
       ready,
       options,
-    );
+    ));
     await emitTransactionStep(options, command, "beforeCommit");
     return Object.freeze({
       kind: "published",
@@ -4897,7 +4932,7 @@ async function runPointCommitPublication(
       }),
     });
     } finally { closeExactAttemptScopeClockObservation(tx); }
-  });
+  }));
 }
 
 /**
@@ -4921,9 +4956,9 @@ async function runPointCommitTransactionKernel(
 ): Promise<PointCommitKernelResultV1> {
   // Only lifecycle-stable metadata may be read before publication exclusion.
   // Session/build locks stay below the upgrade: their other owners are clock-first.
-  const admissionClock = await lockPointCommitClock(
+  const admissionClock = await observePointCommitPublicationPromise(options.publicationObservation, "lifecycleAcceptance", () => lockPointCommitClock(
     tx, command, options, "key share",
-  );
+  ));
   await emitTransactionStep(options, command, "lifecycleProtected");
   if (
     mode === "publish" &&
@@ -4948,16 +4983,16 @@ async function runPointCommitTransactionKernel(
     ),
   );
   projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-    validateApplicationWriteOwnershipForCommit(tx, { scopeId: command.authorityPins.scopeId,
+    observePointCommitPublicationEffect(options.publicationObservation, "lifecycleAcceptance", validateApplicationWriteOwnershipForCommit(tx, { scopeId: command.authorityPins.scopeId,
       generation: command.authorityPins.executionAuthorityGeneration,
       authenticatedAttemptedTables: command.attemptedTableIds,
       materialTables: command.rowIntents.filter(row => !command.participantMaterialDocumentIds.has(row.documentId))
         .map(row => row.tableId) }, options.uniqueConstraints).pipe(
       Effect.mapError(error => error.reason === "resourceFailure"
         ? new PointCommitSqlFailureMarkerV1("validateActiveApplicationSchema", error.cause ?? error)
-        : corruption(error.reason === "writeDenied" ? "applicationWritePolicyDenied" : "applicationWritePolicyEvidenceInvalid"))),
+        : corruption(error.reason === "writeDenied" ? "applicationWritePolicyDenied" : "applicationWritePolicyEvidenceInvalid")))),
   ));
-  await validateActiveRelationSelectionForPointCommit(tx, command);
+  await observePointCommitPublicationPromise(options.publicationObservation, "lifecycleAcceptance", () => validateActiveRelationSelectionForPointCommit(tx, command));
   if (command.relationDependencies.length > 0) {
     await emitTransactionStep(
       options,
@@ -4966,12 +5001,12 @@ async function runPointCommitTransactionKernel(
     );
   }
   const validatedApplicationRelations =
-    await validateActiveApplicationSchemaForPointCommit(
+    await observePointCommitPublicationPromise(options.publicationObservation, "lifecycleAcceptance", () => validateActiveApplicationSchemaForPointCommit(
     tx,
     command,
     applicationRelations,
     options,
-  );
+  ));
   if (
     validatedApplicationRelations !== null &&
     command.authorityPins.executionAuthorityGeneration === "application_v1"
@@ -4985,7 +5020,7 @@ async function runPointCommitTransactionKernel(
       "activeApplicationSchemaValidated",
     );
   }
-  const clock = await lockPointCommitClock(tx, command, options);
+  const clock = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => lockPointCommitClock(tx, command, options));
   await emitTransactionStep(options, command, "clockLocked");
   if (
     mode === "publish" &&
@@ -4997,71 +5032,78 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
   );
-  const intrinsicBuilds = await lockPointCommitIntrinsicIndexBuilds(
+  const intrinsicBuilds = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => lockPointCommitIntrinsicIndexBuilds(
     tx,
     clock,
     intrinsicDefinitions,
     command,
-  );
+  ));
   if (intrinsicBuilds.length > 0) {
     await emitTransactionStep(options, command, "intrinsicIndexBuildLocked");
   }
-  const developerBuilds = await lockPointCommitDeveloperIndexBuilds(
+  const developerBuilds = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => lockPointCommitDeveloperIndexBuilds(
     tx,
     clock,
     developerDefinitions,
     command,
-  );
+  ));
   if (developerBuilds.length > 0) {
     await emitTransactionStep(options, command, "developerIndexBuildLocked");
   }
 
-  const session = await lockPointCommitSession(
+  const session = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => lockPointCommitSession(
     tx,
     command,
     options,
     mode,
-  );
+  ));
   await emitTransactionStep(options, command, "sessionLocked");
-  const lease = await lockPointCommitLease(tx, command, options);
+  const lease = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => lockPointCommitLease(tx, command, options));
   await emitTransactionStep(options, command, "leaseLocked");
-  await lockPointCommitJournalRoot(tx, command, options);
+  await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => lockPointCommitJournalRoot(tx, command, options));
   await emitTransactionStep(options, command, "journalRootLocked");
 
-  const databaseNowMilliseconds = await readPointCommitDatabaseTime(
+  const databaseNowMilliseconds = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => readPointCommitDatabaseTime(
     tx,
     command.authorityPins.scopeId,
     options,
-  );
+  ));
   projectPointCommitTransactionResult(
     requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
   );
 
-  const admittedParticipants = await validateAdmittedParticipantOperations(tx, preliminaryAuthority, command, clock.record,
-    developerDefinitions, uniqueDefinitions, options);
+  const admittedParticipants = await observePointCommitPublicationPromise(options.publicationObservation, "participantProof", () =>
+    validateAdmittedParticipantOperations(tx, preliminaryAuthority, command, clock.record,
+      developerDefinitions, uniqueDefinitions, options));
 
-  const loadedHeads = await loadPointCommitHeads(
-    tx,
-    clock,
-    command,
-    options,
-  );
-  projectPointCommitTransactionResult(
-    validatePointCommitDependenciesResult(command, loadedHeads),
-  );
-  const rangeConflict = await findPointCommitIndexRangeConflict(
-    tx,
-    clock,
-    command,
-  );
-  if (rangeConflict !== null) throw rangeConflict;
-  const relationConflict = await findPointCommitRelationConflict(
-    tx,
-    clock,
-    command,
-    options,
-  );
-  if (relationConflict !== null) throw relationConflict;
+  let loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>;
+  options.publicationObservation?.record({ kind: "phase", phase: "occProof", edge: "begin" });
+  try {
+    loadedHeads = await loadPointCommitHeads(
+      tx,
+      clock,
+      command,
+      options,
+    );
+    projectPointCommitTransactionResult(
+      validatePointCommitDependenciesResult(command, loadedHeads),
+    );
+    const rangeConflict = await findPointCommitIndexRangeConflict(
+      tx,
+      clock,
+      command,
+    );
+    if (rangeConflict !== null) throw rangeConflict;
+    const relationConflict = await findPointCommitRelationConflict(
+      tx,
+      clock,
+      command,
+      options,
+    );
+    if (relationConflict !== null) throw relationConflict;
+  } finally {
+    options.publicationObservation?.record({ kind: "phase", phase: "occProof", edge: "end" });
+  }
   await emitTransactionStep(options, command, "dependenciesValidated");
 
   if (mode === "rollbackProof" && command.rowIntents.length === 0) {
@@ -5073,11 +5115,11 @@ async function runPointCommitTransactionKernel(
       relationAdjacencyChanges: Object.freeze([]),
     });
   }
-  const preWriteDatabaseNowMilliseconds = await readPointCommitDatabaseTime(
+  const preWriteDatabaseNowMilliseconds = await observePointCommitPublicationPromise(options.publicationObservation, "lockedAttemptAcceptance", () => readPointCommitDatabaseTime(
     tx,
     command.authorityPins.scopeId,
     options,
-  );
+  ));
   projectPointCommitTransactionResult(
     requireAttemptIsLiveResult(
       session,
@@ -5085,110 +5127,115 @@ async function runPointCommitTransactionKernel(
       preWriteDatabaseNowMilliseconds,
     ),
   );
-  const allocation = projectPointCommitTransactionResult(
-    allocatePointCommitKernelResult(
-      clock,
-      preWriteDatabaseNowMilliseconds,
-    ),
-  );
-  const priorState = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(loadApplicationDocumentPriorState(
-    tx, command, loadedHeads, developerBuilds, uniqueDefinitions, validatedApplicationRelations, options,
-  )));
-  const developerIndexActions = await preparePointCommitDeveloperIndexActions(
-    tx,
-    command,
-    priorState,
-    developerBuilds,
-  );
-  const uniqueKeyActions = await preparePointCommitUniqueKeyActions(
-    tx,
-    command,
-    priorState,
-    uniqueDefinitions,
-  );
-  const relationPlan = await preparePointCommitApplicationRelationPlan(
-    tx,
-    command,
-    priorState,
-    validatedApplicationRelations,
-    clock.record.lastCommitSeq,
-    options,
-  );
-  if (
-    relationPlan !== null &&
-    relationPlan.prepared.distinctFinalTargetCount > 0
-  ) {
-    await emitTransactionStep(options, command, "relationTargetsValidated");
-  }
-  if (candidateSchemaWriteGuard !== null) {
-    const guardResult = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(runCandidateSchemaWriteGuard(
-      tx,
-      candidateSchemaWriteGuard,
-      preliminaryAuthority,
-      clock.record,
-      allocation.commitSeq,
-      command.rowIntents.flatMap((intent) => intent.kind === "live" &&
-        !command.participantMaterialDocumentIds.has(intent.documentId)
-        ? [Object.freeze({
-            tableId: intent.tableId,
-            rowId: intent.rowId,
-            document: intent.document,
-          })]
-        : []),
-    )));
-    if (guardResult.status === "candidateFailed") {
-      await emitTransactionStep(
-        options,
-        command,
-        "candidateSchemaValidationFailed",
-      );
-    }
-  }
-  const applicationTables = new Set(command.attemptedTableIds ?? []);
-  const indexPublicationProfile = command.participantOperations.length === 0 ? "activeApplication" as const :
-    Object.freeze({ kind: "mixedSelectedSources" as const, activeApplicationTables: applicationTables,
-      activeApplicationDeveloperIndexDefinitionIds: new Set(developerDefinitions.filter(definition =>
-        definition.access.kind === "developer" && applicationTables.has(definition.access.tableId))
-        .map(definition => definition.indexDefinitionId)) });
-  await materializeApplicationDocumentRows(tx, command, allocation.commitSeq, clock.record,
-    loadedHeads, intrinsicBuilds, developerIndexActions, developerBuilds, uniqueKeyActions, uniqueDefinitions,
-    indexPublicationProfile, options);
-  if (admittedParticipants.length > 0) {
-    const searchByIdentity = new Map<string, LogicalSearchDefinition>();
-    for (const member of admittedParticipants) for (const definition of member.search) {
-      const key = `${definition.tableId}:${definition.logicalIndexId}`;
-      const prior = searchByIdentity.get(key);
-      if (prior !== undefined && prior.sourceSha256 !== definition.sourceSha256)
-        throw corruption("developerIndexBuildInvalid");
-      searchByIdentity.set(key, definition);
-    }
-    const nativeRows = command.rowIntents.filter(row => command.participantMaterialDocumentIds.has(row.documentId));
-    projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
-      maintainLogicalSearchEntries(tx, command.sealIdentity.scopeUuid, allocation.commitSeq,
-        [...searchByIdentity.values()], nativeRows).pipe(Effect.mapError(error =>
-        error.reason === "statementFailure" ? new PointCommitSqlFailureMarkerV1("writeCommitChange", error.cause ?? error)
-          : corruption("rowWriteInvalid")))));
-  }
-  if (relationPlan !== null) {
-    const relationMaintenance = await runPointCommitInTransactionEffect(
-      maintainPointCommitApplicationRelationsEffect(
-        tx,
-        command,
-        allocation.commitSeq,
-        relationPlan,
-        options,
+  options.publicationObservation?.record({ kind: "phase", phase: "lowering", edge: "begin" });
+  try {
+    const allocation = projectPointCommitTransactionResult(
+      allocatePointCommitKernelResult(
+        clock,
+        preWriteDatabaseNowMilliseconds,
       ),
     );
-    projectPointCommitTransactionResult(relationMaintenance);
+    const priorState = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(observePointCommitPublicationEffect(options.publicationObservation, "priorDocuments", loadApplicationDocumentPriorState(
+      tx, command, loadedHeads, developerBuilds, uniqueDefinitions, validatedApplicationRelations, options,
+    ))));
+    const developerIndexActions = await observePointCommitPublicationPromise(options.publicationObservation, "developerIndexPreparation", () => preparePointCommitDeveloperIndexActions(
+      tx,
+      command,
+      priorState,
+      developerBuilds,
+    ));
+    const uniqueKeyActions = await observePointCommitPublicationPromise(options.publicationObservation, "uniquePreparation", () => preparePointCommitUniqueKeyActions(
+      tx,
+      command,
+      priorState,
+      uniqueDefinitions,
+    ));
+    const relationPlan = await observePointCommitPublicationPromise(options.publicationObservation, "relationPreparation", () => preparePointCommitApplicationRelationPlan(
+      tx,
+      command,
+      priorState,
+      validatedApplicationRelations,
+      clock.record.lastCommitSeq,
+      options,
+    ));
+    if (
+      relationPlan !== null &&
+      relationPlan.prepared.distinctFinalTargetCount > 0
+    ) {
+      await emitTransactionStep(options, command, "relationTargetsValidated");
+    }
+    if (candidateSchemaWriteGuard !== null) {
+      const guardResult = projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(runCandidateSchemaWriteGuard(
+        tx,
+        candidateSchemaWriteGuard,
+        preliminaryAuthority,
+        clock.record,
+        allocation.commitSeq,
+        command.rowIntents.flatMap((intent) => intent.kind === "live" &&
+          !command.participantMaterialDocumentIds.has(intent.documentId)
+          ? [Object.freeze({
+              tableId: intent.tableId,
+              rowId: intent.rowId,
+              document: intent.document,
+            })]
+          : []),
+      )));
+      if (guardResult.status === "candidateFailed") {
+        await emitTransactionStep(
+          options,
+          command,
+          "candidateSchemaValidationFailed",
+        );
+      }
+    }
+    const applicationTables = new Set(command.attemptedTableIds ?? []);
+    const indexPublicationProfile = command.participantOperations.length === 0 ? "activeApplication" as const :
+      Object.freeze({ kind: "mixedSelectedSources" as const, activeApplicationTables: applicationTables,
+        activeApplicationDeveloperIndexDefinitionIds: new Set(developerDefinitions.filter(definition =>
+          definition.access.kind === "developer" && applicationTables.has(definition.access.tableId))
+          .map(definition => definition.indexDefinitionId)) });
+    await materializeApplicationDocumentRows(tx, command, allocation.commitSeq, clock.record,
+      loadedHeads, intrinsicBuilds, developerIndexActions, developerBuilds, uniqueKeyActions, uniqueDefinitions,
+      indexPublicationProfile, options);
+    if (admittedParticipants.length > 0) {
+      const searchByIdentity = new Map<string, LogicalSearchDefinition>();
+      for (const member of admittedParticipants) for (const definition of member.search) {
+        const key = `${definition.tableId}:${definition.logicalIndexId}`;
+        const prior = searchByIdentity.get(key);
+        if (prior !== undefined && prior.sourceSha256 !== definition.sourceSha256)
+          throw corruption("developerIndexBuildInvalid");
+        searchByIdentity.set(key, definition);
+      }
+      const nativeRows = command.rowIntents.filter(row => command.participantMaterialDocumentIds.has(row.documentId));
+      projectPointCommitTransactionResult(await runPointCommitInTransactionEffect(
+        observePointCommitPublicationEffect(options.publicationObservation, "searchWrites", maintainLogicalSearchEntries(tx, command.sealIdentity.scopeUuid, allocation.commitSeq,
+          [...searchByIdentity.values()], nativeRows, options.publicationObservation).pipe(Effect.mapError(error =>
+          error.reason === "statementFailure" ? new PointCommitSqlFailureMarkerV1("writeCommitChange", error.cause ?? error)
+            : corruption("rowWriteInvalid"))))));
+    }
+    if (relationPlan !== null) {
+      const relationMaintenance = await runPointCommitInTransactionEffect(
+        observePointCommitPublicationEffect(options.publicationObservation, "relationWrites", maintainPointCommitApplicationRelationsEffect(
+          tx,
+          command,
+          allocation.commitSeq,
+          relationPlan,
+          options,
+        )),
+      );
+      projectPointCommitTransactionResult(relationMaintenance);
+    }
+    await resetPointCommitDeveloperIndexValidations(tx, developerBuilds.map(developer => developer.build), options.publicationObservation);
+    return Object.freeze({
+      kind: "ready",
+      clock,
+      relationAdjacencyChanges:
+        relationPlan?.prepared.adjacencyChanges ?? Object.freeze([]),
+      ...allocation,
+    });
+  } finally {
+    options.publicationObservation?.record({ kind: "phase", phase: "lowering", edge: "end" });
   }
-  await resetPointCommitDeveloperIndexValidations(tx, developerBuilds.map(developer => developer.build));
-  return Object.freeze({
-    kind: "ready",
-    clock,
-    relationAdjacencyChanges:
-      relationPlan?.prepared.adjacencyChanges ?? Object.freeze([]),
-    ...allocation,
-  });
 }
 
 /** Reconstruct participant authority from trusted publisher composition. This
@@ -5380,7 +5427,7 @@ function* (
     }
     validated.push(Object.freeze({ search: admitted.search.filter(definition => touched.has(definition.tableId)) }));
     const dependencyEffect = validateLogicalParticipantDependencyEvidence(
-      tx, command.authorityPins.scopeId, operation, contribution, admitted).pipe(
+      tx, command.authorityPins.scopeId, operation, contribution, admitted, options.publicationObservation).pipe(
         Effect.mapError(error => error.reason === "writeConflict"
           ? new PointCommitConflictV1Error({ conflict: { kind: "logicalParticipant",
             participant: operation.participant, syscallSequence: operation.syscallSequence },
@@ -6846,6 +6893,7 @@ async function publishPointCommitInTransaction(
     "sessionId",
   ));
   await emitTransactionStep(options, command, "journalDeleted");
+  if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "journalDeletes", counts: { rows: journal.length } });
 
   const lease = await sqlCall("deleteLease", () =>
     tx.delete(fxSystemSnapshotLeases).where(and(
@@ -6865,6 +6913,7 @@ async function publishPointCommitInTransaction(
     "sessionId",
   ));
   await emitTransactionStep(options, command, "leaseDeleted");
+  if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "leaseDeletes", counts: { rows: lease.length } });
 
   const session = await sqlCall("commitSession", () =>
     tx.update(fxSystemTransactionSessions).set({
@@ -6894,6 +6943,7 @@ async function publishPointCommitInTransaction(
     "sessionId",
   ));
   await emitTransactionStep(options, command, "sessionCommitted");
+  if (options.publicationObservation?.detail) options.publicationObservation.record({ kind: "batch", owner: "sessionCommits", counts: { rows: session.length } });
 
   await advanceScopePublicationClock(tx, contribution, kernel, options);
 }

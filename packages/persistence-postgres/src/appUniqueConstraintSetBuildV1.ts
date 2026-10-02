@@ -1,4 +1,5 @@
 import { chargeHostPreparation, PreparedHostRuntimeError } from "./preparedHostRuntime";
+import type { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 import type { Json } from "flarex-protocol/json";
 import {
   readCommitFeedPageInTransactionV1Effect,
@@ -3420,6 +3421,7 @@ export const advanceUnboundUniqueCoverageInTransactionEffect = Effect.fn(
   tx: AppRowTransaction,
   selected: ReadonlyArray<Readonly<{ state: BuildState; schemaVersionId: CatalogSchemaVersionId }>>,
   commitSeq: CommitSeq,
+  publicationObservation?: PointCommitPublicationObservation,
 ) {
   const seen = new Set<CatalogUniqueConstraintDefinitionId>();
   for (const { state, schemaVersionId } of selected) {
@@ -3457,6 +3459,7 @@ export const advanceUnboundUniqueCoverageInTransactionEffect = Effect.fn(
     if (rows.length !== batch.length)
       return yield* Effect.fail(stateError(batch[0]!.state,
         { schemaVersionId: batch[0]!.schemaVersionId }, "storedStateInvalid"));
+    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "uniqueCoverage", counts: { rows: rows.length } });
   }
 });
 

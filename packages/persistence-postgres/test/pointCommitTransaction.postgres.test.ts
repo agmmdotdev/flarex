@@ -1,4 +1,6 @@
 import { readCe0Environment } from "./ce0Environment";
+import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from "../src/pointCommitPublicationObservation";
+import * as publicationObservationOwner from "../src/pointCommitPublicationObservation";
 import { conditionalUniqueSpec } from "./conditionalUniqueTestSupport";
 import { readOrderedMembershipStorage } from "./orderedMembershipStorageScenario";
 import { canonicalizeAppUniqueKeyV1Result } from "../src/appUniqueKeyContract";
@@ -81,7 +83,7 @@ import {
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import { TransactionRequestKeyV1Schema } from "flarex-protocol/transaction-session";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from "../src/appRows";
 import {
@@ -196,6 +198,84 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 const withPostgresPersistence = useFileScopedPostgresPersistence();
 
 describePostgres("real Postgres O06 point-commit transaction kernel", () => {
+  it("keeps OCC, lowering and clock advancement inline when publication observation is absent", async () => {
+    const original = publicationObservationOwner.observePointCommitPublicationPromise;
+    const grouped = new Set(["occProof", "lowering", "clockAdvance"]);
+    const intercepted = vi.spyOn(publicationObservationOwner, "observePointCommitPublicationPromise")
+      .mockImplementation((observation, phase, work) => {
+        if (grouped.has(phase)) throw new Error("Inline publication work entered a diagnostic Promise wrapper");
+        return original(observation, phase, work);
+      });
+    try {
+      await withPostgresPersistence(async persistence => {
+        const randomUuid = uuidFactory("96780000");
+        const scope = await createScope(persistence, randomUuid, "inline_publication");
+        const attempt = await createAttempt(persistence, randomUuid, scope, "inline_publication", 33);
+        const intrinsic = await enableIntrinsicIndexForPostgres(persistence, scope);
+        expect(await runEffect(createPublisher(persistence, intrinsic).publish(attempt.publicationCommand)))
+          .toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+        expect(await durableState(persistence, attempt.command.sealIdentity.scopeUuid)).toEqual({
+          revisions: "33", current_rows: "33", commit_headers: "1", commit_changes: "33",
+          outcomes: "1", wakes: "1", last_commit_seq: "1",
+        });
+        // Other existing passive frontiers exercise the spy; these three real
+        // call sites must finish publication without entering it at all.
+        expect(intercepted).toHaveBeenCalled();
+        expect(intercepted.mock.calls.some(([, phase]) => grouped.has(phase))).toBe(false);
+      });
+    } finally {
+      intercepted.mockRestore();
+    }
+  }, 120_000);
+
+  it("preserves real COMMIT and publication refusal with a failing passive observer", async () => {
+    await withPostgresPersistence(async persistence => {
+      const randomUuid = uuidFactory("96770000");
+      const scope = await createScope(persistence, randomUuid, "passive_publication");
+      const attempt = await createAttempt(persistence, randomUuid, scope, "passive_publication", 33);
+      const intrinsic = await enableIntrinsicIndexForPostgres(persistence, scope);
+      const events: PointCommitPublicationEvent[] = [];
+      const observation = new PointCommitPublicationObservation({ detail: true, record: event => {
+        events.push(event);
+        throw new Error("publication collector unavailable");
+      } });
+      const publisher = createPublisher(persistence, { ...intrinsic, publicationObservation: observation });
+      expect(await runEffect(publisher.publish(attempt.publicationCommand))).toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+      expect(await durableState(persistence, attempt.command.sealIdentity.scopeUuid)).toEqual({
+        revisions: "33", current_rows: "33", commit_headers: "1", commit_changes: "33",
+        outcomes: "1", wakes: "1", last_commit_seq: "1",
+      });
+      const rowBatches = events.filter(event => event.kind === "batch" && event.owner === "rowRevisions");
+      expect(rowBatches).toEqual([
+        { kind: "batch", owner: "rowRevisions", counts: { rows: 32, canonicalBytes: expect.any(Number) } },
+        { kind: "batch", owner: "rowRevisions", counts: { rows: 1, canonicalBytes: expect.any(Number) } },
+      ]);
+      for (const owner of ["commitHeaders", "outcomes", "wakes", "journalDeletes", "leaseDeletes", "sessionCommits"])
+        expect(events).toContainEqual({ kind: "batch", owner, counts: expect.objectContaining({ rows: 1 }) });
+      expect(events).toContainEqual({ kind: "phase", phase: "transaction", edge: "end" });
+      expect(() => observation.assertHealthy()).toThrow("publication observation failed");
+      const beforeReplay = events.length;
+      expect(await runEffect(publisher.publish(attempt.publicationCommand))).toMatchObject({ kind: "replayed" });
+      expect(events.slice(beforeReplay).some(event => event.kind === "phase" && event.phase === "transaction")).toBe(false);
+
+      const failingScope = await createScope(persistence, randomUuid, "passive_refusal");
+      const failingAttempt = await createAttempt(persistence, randomUuid, failingScope, "passive_refusal", true);
+      const failingIntrinsic = await enableIntrinsicIndexForPostgres(persistence, failingScope);
+      const injected = new PointCommitCorruptionV1Error({ reason: "publicationInvariantInvalid" });
+      const refusal = await runFailure(createPublisher(persistence, { ...failingIntrinsic,
+        publicationObservation: observation, afterTransactionStep: event => {
+          if (event.step === "commitChangeWritten") throw injected;
+          return Promise.resolve();
+        },
+      }).publish(failingAttempt.publicationCommand));
+      expect(refusal).toBe(injected);
+      expect(await durableState(persistence, failingAttempt.command.sealIdentity.scopeUuid)).toEqual({
+        revisions: "0", current_rows: "0", commit_headers: "0", commit_changes: "0",
+        outcomes: "0", wakes: "0", last_commit_seq: "0",
+      });
+    });
+  }, 120_000);
+
   it("masks interruption until forced rollback settles and exposes no tentative state", async () => {
     await withPostgresPersistence(async (persistence) => {
       const randomUuid = uuidFactory("96000000");
@@ -4025,6 +4105,11 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
       );
       const committed = deferredSignal();
       const release = deferredSignal();
+      const phaseEvents: PointCommitPublicationEvent[] = [];
+      const observation = new PointCommitPublicationObservation({ detail: false, record: event => {
+        phaseEvents.push(event);
+        throw new Error("COMMIT interruption collector unavailable");
+      } });
       const fiber = Effect.runFork(
         createPublisherWithRunner(persistence, {
           afterAcquire: (client) =>
@@ -4037,7 +4122,7 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
                   })
                 : forward(),
             ),
-        }).publish(attempt.publicationCommand),
+        }, { publicationObservation: observation }).publish(attempt.publicationCommand),
       );
       await committed.promise;
       let interruptionSettled = false;
@@ -4068,6 +4153,11 @@ describePostgres("real Postgres O08-CD0 decision provenance", () => {
         wakes: "1",
         last_commit_seq: "1",
       });
+      for (const phase of ["occProof", "lowering", "clockAdvance"])
+        for (const edge of ["begin", "end"])
+          expect(phaseEvents).toContainEqual({ kind: "phase", phase, edge });
+      expect(observation.status().failureCount).toBeGreaterThan(0);
+      expect(() => observation.assertHealthy()).toThrow("publication observation failed");
     });
   }, 120_000);
 });

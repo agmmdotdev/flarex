@@ -1,10 +1,64 @@
 # Publication: Component Attribution Preflight
 
-Status: **attribution investigation and focused preflight authorized; proposed
-measurement implementation and runtime/profile remedies inactive pending examination.**
+Status: **bounded attribution implemented, with a usable historical observed-source
+paired owner baseline. Final phase-boundary transparency correction is unmeasured.
+The separate server matrix is invalid/partial after bounded artifact refusal.
+Runtime/profile remedies remain inactive.**
 This existing document owns preparation, handoff and locked publisher attribution.
 The [component roadmap](./README.md), [reassessment](./orchestration-simplification-preflight.md)
 and [target proposal](./orchestration-target-design.md) retain their separate gates.
+
+The [publication evidence ledger](../../packages/flarex-backend/benchmarks/core-performance/publication-attribution/ledger.md)
+owns original inputs, actual batches, per-sample owner timing, all attempted
+samples and provenance. Its complete paired baseline distinguishes boundary-only
+timing from detailed SQL/demand observation; neither is fully uninstrumented.
+The final OCC/lowering/clock phase markers preserve original async owners and
+awaits, replacing diagnostic callback grouping. Those final core bytes have no
+new measurement; the historical interval/latency evidence remains attached to
+its measured source. A focused point-publication witness combines a throwing
+phase observer with forwarded COMMIT, held/lost acknowledgement, interruption
+and replay through a fresh publisher while checking one durable outcome and
+phase completion. Its scope remains distinct from arbitrary native lifecycle
+or server-observer failure combinations and performance acceptance.
+All failed server lanes remain invalid as complete matrices. The final lane's
+business outcomes and individual sample files are retained, while missing full
+statistics windows, log admission metadata and final report remain unavailable.
+No rerun, cap increase or reconstruction is selected. A bounded compact refusal
+receipt now preserves future diagnostic metadata after authentic settlement;
+it does not supply the lost evidence. Core correctness and observer transparency
+are distinct from complete server attribution or whole latency acceptance.
+
+## Next Owner Hypothesis: Inactive
+
+The observed participant-proof graph contains one journal read, historical
+participant correlation, one shared full-live source proof and already batched
+range/unique evidence. Full-live proof runs once per transaction, not once per
+contribution. The shared source graph has 21 dispatches: framework head/selection
+2, Application head/activation 2, canonical bundle 6 (including task catalog,
+task definitions and clock), physical 3, cold readiness 3, logical eligibility 4
+and search catalog 1.
+The cold-readiness group includes the repeated parent acquisition. Historical
+participant reads are a participant-proof batching seam, not lowering work.
+
+A possible next focused slice would compose bounded fresh captures through
+existing accepting source/readiness/task owners and hydrate historical
+participant evidence together. A conditional 12-frontier source capture plus
+one historical batch would yield participant graphs of 16/18/24 dispatches in
+these three plans, if exact owner/data contracts support it. This is an inactive
+cost hypothesis, not an approved cut, removable-read promise or latency ceiling.
+No protection epoch, construction-profile reuse, guard or certificate is implied.
+
+Such a composition requires an explicit acquisition-frontier decision: a later
+SQL failure or interruption could precede an earlier canonical domain refusal
+when captures are composed, even if domain verdicts are consumed in original
+order. Preserve framework head locking and the separate post-wait selection
+statement, actual Application activation, fresh mutable physical/logical and
+role/catalog verdicts, original bounds and all first-failure/cleanup obligations.
+Examine that ordering and connected recovery before selecting implementation.
+Lowering remains a separate measured owner with useful history/index/coverage
+writes; phase size does not prove removable overhead. Complete server/lock/CPU
+attribution is still limited, and the original mixed regression cause remains
+open.
 
 ## Outcome And Bounded Scope
 
@@ -154,7 +208,7 @@ profiles imply no publication epoch certificate or prepared-live verdict.
 Protected immutable publication reuse and a tail would be a separate explicit
 proof/lifetime decision requiring examination.
 
-## Proposed Connected Attribution Capability
+## Approved Bounded Attribution Capability
 
 Extend the genuine real-COMMIT paired-observer seam in
 `persistence-postgres/test/pointCommitTransaction.postgres.test.ts:2522` to actual
@@ -164,7 +218,7 @@ creation/sealing and index installation are outside its publication timer.
 That bounded CE0 plan does not establish mixed demand. Reuse its actual publisher
 and authentication lineage; introduce no expected-row authority or direct writer.
 
-The proposed extension must:
+The bounded extension must:
 
 1. Produce genuine Application/Product, Product+Payload and admitted workflow
    work, seal it, verify it and enter finishing under original liveness. Charge
@@ -189,10 +243,105 @@ The proposed extension must:
    temperature, source inventory and retry/contention accounting. Preserve
    protected and ordinary/PGlite profile distinctions.
 
-Measurement implementation is proposed and inactive. First establish exact
-attribution and a quiet baseline; then select an existing preparation/handoff or
+First establish exact attribution and a boundary-only timing baseline; then select an existing preparation/handoff or
 lowering owner and grounded dispatch/transaction/byte/latency budget. No removable
 SELECT count, single-digit target, latency floor or overhead ceiling is selected.
+
+### Finite Initial Run Plan
+
+Use one retained ordinary-role PostgreSQL environment and the existing genuine
+prepared mixed series. Each attempt creates the actual admitted work, seals it,
+enters finishing and runs the existing publisher through real COMMIT. No direct
+writer, replay callback, fake authority or second publisher substitutes for it.
+
+| Existing finishing profile | Warmup pairs | Retained pairs | Attempts |
+| --- | ---: | ---: | ---: |
+| Application + Product | 1 | 5 | 12 |
+| Application + Product + actual Payload Local API | 1 | 5 | 12 |
+| Admitted mixed workflow | 1 | 5 | 12 |
+| Total | 3 | 15 | 36 |
+
+Run sequentially. Alternate pair order between boundary-only and detailed
+observation. Boundary-only timing still installs the minimal owner phase observer;
+it is **not fully uninstrumented quiet**. Detailed observation also captures
+original scalar demands, actual batch/chunk counts and existing pool query
+intervals. Both modes charge their actual callback/timing work. Existing complete
+uninstrumented receipts are contextual controls, not matched publication component
+intervals or proof of zero observer overhead. A separate uninstrumented control
+is justified only by a concrete observer-overhead question and a declared amendment.
+
+Record complete attempt, native/admission, seal, finishing/handoff, command
+preparation, locked acceptance/proofs, lowering and durable settlement intervals
+where the actual owner exposes them. Charge hashing, copies and serialization
+where they occur; report setup separately without subtracting it from complete
+cost. Preserve overlap and nesting per sample. Do not add or subtract medians/P95,
+or label the residual as pure platform overhead. Original demand counters, pool
+dispatches and named owner-query counts must reconcile; unmatched intervals,
+unknown encodings and missing function/trigger/lock work remain unavailable.
+
+The publication-owned diagnostic observation contains no transaction, authority,
+SQL parameters or document data. It retains foreign callback failures without
+changing business result, full Cause, interruption, cleanup or settlement. Assert
+observation health only after the authentic lifecycle settles; a delivery failure
+invalidates the artifact while preserving the genuine business outcome. Retain
+failed attempts and diagnostic failures, with no retry, outlier filtering or
+replacement of an unfavorable run.
+
+The initial matrix is one run, capped at 36 attempts and 30 minutes. Stop starting
+new attempts on deadline or failure, settle/clean the active attempt and retain
+the partial report. Raw artifacts are capped at 250 MB and reports/logs at 50 MB;
+cap refusal must retain completed evidence and cannot truncate an artifact into
+apparent validity. Capture start/end executing-source hashes, exact settings,
+sample order, temperature and ordinary-role identity. No authored source changes
+are allowed during a measured run. Resource startup/stop and execution remain
+with the root owner.
+
+After this baseline, examine at most two independent axis comparisons only when
+an evidenced candidate needs them and genuine currently admitted configuration
+allows them: bytes, dependency/table breadth or bounded rows. Definitions and
+history breadth are not inferred independent axes. Record unavailable variations;
+do not expand framework business or admission capability to manufacture scaling.
+Do not use the full 104-sample E2E milestone as a routine attribution iteration.
+
+After the paired run, run a separate finite server lane: the same three profiles,
+one warmup plus one retained detailed attempt each, six attempts total with a
+15-minute limit, unchanged 250 MB raw / 50 MB report caps, and a separate 512 MB
+combined original plus authenticated-PID log-copy cap. Admit both log copies
+before writing either, with actual free capacity and remaining artifact reservation.
+It is not a quiet distribution or
+evidence of a latency improvement. Root enables diagnostic settings on the
+exclusive retained cluster, with `pg_stat_statements.max=20000` verified on each
+actual new runtime/control pool for one corrected six-attempt diagnostic lane, and
+restores the original disabled settings after this lane.
+
+Server diagnostics form a separately labelled, charged lane. Reuse the existing
+native-retrieval server observer rather than create another statistics owner.
+Boundary-only runs keep server diagnostics disabled. A declared observed server
+lane enables `pg_stat_statements.track=all` and planning plus nested JSON
+`auto_explain` with analyze/buffers/triggers, timing off and parameter logging off
+on every executing pool. Bound log bytes and actual backend PIDs; retain
+reset/deallocation and all-role/database/query identity checks. Function counters
+are optional, can lag and omit inline SQL. Capture full setup and actual publication
+counter windows separately. Asynchronous diagnostic snapshots bracket the real
+publication outside its SQL transaction and retain diagnostic failures until after
+authentic settlement; their delay and measurement cost remain charged and may
+affect genuine liveness. Include authenticated acquired-client PIDs and bounded
+external log offsets; unobserved setup PIDs or incomplete nested log/function
+coverage remain unavailable. Keep original query/log diagnostics private and
+ignored: utility DDL can contain password literals even with parameter logging
+disabled. Packaged derivatives redact only actual credential literals, retain
+unchanged counters and hashes/provenance, and disclose the transformation.
+Retain actual before/after snapshots on strict statistics-comparison refusal;
+older failed windows without snapshots remain unavailable and cannot be
+reconstructed. Statistics reset/deallocation remains a hard diagnostic refusal.
+Record append offsets, combined-copy admission, free capacity, copy/filter cost,
+bounded original buffer size and phase-boundary RSS observations. UTF-8 text,
+split and selected-text copies add memory work; sampled RSS is not a true peak.
+Capture/redaction/gzip costs belong in the artifact receipt. Absent or cap-refused
+log files have unavailable coverage regardless of their intended lane settings.
+Inclusive parent/nested/function work
+must not be summed into a universal internal count. No server evidence is claimed
+until that separately declared lane actually captures it.
 
 ## Challenged Alternatives And Candidate Owners
 

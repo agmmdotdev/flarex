@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import type { PointCommitPublicationObservation } from "../pointCommitPublicationObservation";
 import type { CanonicalSuccessfulResultV1 } from "flarex-protocol/commit-protocol";
 import type { CommitSeq, ReplacementScopeIdV1, ScopeUuidV1, ScopeEpochUuidV1 } from "flarex-protocol/storage-authority";
 import type { TransactionRequestKeyV1, TransactionFunctionPathV1 } from "flarex-protocol/transaction-session";
@@ -33,6 +34,7 @@ export interface ScopePublicationKernel {
 export type ScopePublicationStep = "commitHeaderWritten" | "commitChangeWritten" | "commitRelationAdjacencyChangeWritten" | "outcomeWritten" | "wakeWritten" | "clockAdvanced";
 export type ScopePublicationSqlOperation = "readDatabaseTime" | "readBindingHead" | "readStrongReferenceFacts" | "readStrongReferenceFullFacts" | "readStrongReferenceProjection" | "writeCommitHeader" | "writeCommitChange" | "writeCommitRelationAdjacencyChange" | "writeOutcome" | "writeWake" | "advanceScopeClock";
 export interface ScopePublicationOptions {
+  readonly publicationObservation?: PointCommitPublicationObservation;
   /** Row and adjacency change steps fire once per verified INSERT batch. */
   readonly afterTransactionStep?: (event: { readonly scopeId: ReplacementScopeIdV1; readonly step: ScopePublicationStep }) => Promise<void>;
   readonly observeQuery?: (query: { readonly name: ScopePublicationSqlOperation; readonly sql: string; readonly params: readonly unknown[] }) => void;

@@ -6,6 +6,7 @@ import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
 import type { CommitSeq, ScopeUuidV1 } from "flarex-protocol/storage-authority";
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { runDrizzleStatementEffect } from "../drizzleStatementEffect";
+import type { PointCommitPublicationObservation } from "../pointCommitPublicationObservation";
 import { fxAppJsonEntryCurrent, fxAppSearchEntryCurrent, fxSystemSearchBuildStates } from "../schema";
 
 export interface LogicalSearchDefinition {
@@ -48,6 +49,7 @@ const searchWriteBudget = Object.freeze({ entries: 4096, textBytes: 4_194_304 })
 export const maintainLogicalSearchEntries = Effect.fn("LogicalSearchEntries.maintain")(function* (
   tx: FlarexMetadataTransaction, scopeUuid: ScopeUuidV1, commitSeq: CommitSeq,
   definitions: readonly LogicalSearchDefinition[], changes: readonly LogicalSearchChange[],
+  publicationObservation?: PointCommitPublicationObservation,
 ) {
   let entryCount = 0;
   let textBytes = 0;
@@ -106,6 +108,13 @@ export const maintainLogicalSearchEntries = Effect.fn("LogicalSearchEntries.main
       if (entries.length > 0) yield* runDrizzleStatementEffect(
         tx.insert(fxAppSearchEntryCurrent).values(entries), cause => failure("statementFailure", cause));
     }
+    if (publicationObservation?.detail) {
+      // Deletes report targeted row identities; these statements do not RETURNING
+      // the affected search entries. Inserts report their actual value batch.
+      publicationObservation.record({ kind: "batch", owner: "searchDeletes", counts: { rows: ids.length } });
+      const insertedEntries = entries.length + jsonEntries.length;
+      if (insertedEntries > 0) publicationObservation.record({ kind: "batch", owner: "searchInserts", counts: { entries: insertedEntries } });
+    }
     const build = yield* runDrizzleStatementEffect(tx.select().from(fxSystemSearchBuildStates).where(and(
       eq(fxSystemSearchBuildStates.scopeUuid, scopeUuid),
       eq(fxSystemSearchBuildStates.tableId, definition.tableId),
@@ -127,6 +136,8 @@ export const maintainLogicalSearchEntries = Effect.fn("LogicalSearchEntries.main
           eq(fxSystemSearchBuildStates.coveredThroughCommitSeq, state.coveredThroughCommitSeq),
         )).returning({ scopeUuid: fxSystemSearchBuildStates.scopeUuid }), cause => failure("statementFailure", cause));
       if (advanced.length !== 1) return yield* Effect.fail(failure("invalidAuthority"));
+      if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "searchBuilds", counts: { rows: advanced.length } });
     }
   }
+  if (publicationObservation?.detail) publicationObservation.record({ kind: "counts", owner: "searchInserts", counts: { entries: entryCount, textBytes } });
 });

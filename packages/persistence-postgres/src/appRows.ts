@@ -1,4 +1,5 @@
 import { closeExactAttemptScopeClockObservation, exactScopeWriteClockObservationIdentity, readExactScopeWriteClockObservation } from "./scopeClock";
+import type { PointCommitPublicationObservation } from "./pointCommitPublicationObservation";
 import { and, desc, eq, getTableColumns, inArray, lte, or, sql } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
@@ -1208,6 +1209,7 @@ export const appendPreparedAppRowRevisionsInTransactionEffect = Effect.fn(
 )(function* (
   tx: AppRowTransaction,
   inputs: ReadonlyArray<AppendPreparedAppRowRevisionV1Input>,
+  publicationObservation?: PointCommitPublicationObservation,
 ): Effect.fn.Return<ReadonlyArray<AppRowRevisionV1>, AppRowBatchError> {
   const first = inputs[0];
   if (first === undefined) return [];
@@ -1276,7 +1278,7 @@ export const appendPreparedAppRowRevisionsInTransactionEffect = Effect.fn(
       bytes += rowBytes;
       offset += 1;
     }
-    yield* appendPreparedRowBatchEffect(tx, batch, statements);
+    yield* appendPreparedRowBatchEffect(tx, batch, statements, publicationObservation, bytes);
   }
   return decoded.map(projectAppRowRevision);
 }, (effect, tx) => effect.pipe(Effect.onError(() => Effect.sync(() => closeExactAttemptScopeClockObservation(tx)))));
@@ -1463,6 +1465,8 @@ const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(
     tx: AppRowTransaction,
     batch: ReadonlyArray<DecodedAppendAppRowRevisionV1>,
     statements: RowBatchInsertStatements,
+    publicationObservation?: PointCommitPublicationObservation,
+    canonicalBytes?: number,
   ): Effect.fn.Return<void, AppRowBatchError> {
     const first = batch[0];
     if (first === undefined) return;
@@ -1578,6 +1582,8 @@ const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(
           missingRevision.commitSeq,
         ),
       );
+    if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "rowRevisions",
+      counts: { rows: batch.length, canonicalBytes: canonicalBytes ?? 0 } });
     const creates = batch.filter((row) => row.prevCommitSeq === null);
     if (creates.length > 0) {
       let pointerInsert = statements.pointers.get(creates.length);
@@ -1599,6 +1605,7 @@ const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(
       const missing = (yield* missingAppRowWritesEffect(creates, created))[0];
       if (missing !== undefined)
         return yield* failAppRowBatchChainEffect(tx, missing);
+      if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "rowCreates", counts: { rows: creates.length } });
     }
     if (updates.length > 0) {
       const advanceQuery = tx
@@ -1627,6 +1634,7 @@ const appendPreparedRowBatchEffect = Effect.fn("AppRows.applyPreparedBatch")(
       const missing = (yield* missingAppRowWritesEffect(updates, advanced))[0];
       if (missing !== undefined)
         return yield* failAppRowBatchChainEffect(tx, missing);
+      if (publicationObservation?.detail) publicationObservation.record({ kind: "batch", owner: "rowUpdates", counts: { rows: updates.length } });
     }
   },
 );

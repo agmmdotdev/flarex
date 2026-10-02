@@ -1,4 +1,5 @@
 import type { AppIndexMembershipHeadEvidence } from "../appIndexEntries";
+import type { PointCommitPublicationObservation } from "../pointCommitPublicationObservation";
 import {
   PointCommitCorruptionV1Error,
   PointCommitSqlFailureMarkerV1,
@@ -88,6 +89,7 @@ export type ApplicationDocumentMaterializationStep =
   | "uniquePublicationApplied";
 
 export interface ApplicationDocumentMaterializationOptions {
+  readonly publicationObservation?: PointCommitPublicationObservation;
   /**
    * Issued composition is required for Application material publication and
    * shared CMS/cross-domain participants. Absence is confined to the retained

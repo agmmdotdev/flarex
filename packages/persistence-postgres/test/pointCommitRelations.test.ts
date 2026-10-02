@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import { PointCommitPublicationObservation, type PointCommitPublicationEvent } from "../src/pointCommitPublicationObservation";
 
 import { asc, eq } from "drizzle-orm";
 import {
@@ -180,7 +181,13 @@ describe("C09 point-commit relation maintenance", () => {
     );
     const steps: PointCommitTransactionProofStepV1[] = [];
     const queries: string[] = [];
+    const publicationEvents: PointCommitPublicationEvent[] = [];
+    const publicationObservation = new PointCommitPublicationObservation({ detail: true, record: event => {
+      publicationEvents.push(event);
+      throw new Error("observer cannot roll back a genuine commit");
+    } });
     const publisher = relationPublisher(scope, {
+      publicationObservation,
       afterTransactionStep: (event) => {
         steps.push(event.step);
         return Promise.resolve();
@@ -194,6 +201,10 @@ describe("C09 point-commit relation maintenance", () => {
     expect(steps).toContain("relationTargetsValidated");
     expect(steps).toContain("relationEdgeWritten");
     expect(queries).not.toContain("loadRelationTargets");
+    expect(publicationEvents).toContainEqual({ kind: "counts", owner: "plan", counts: expect.objectContaining({ rows: 2 }) });
+    expect(publicationEvents).toContainEqual({ kind: "batch", owner: "rowRevisions", counts: expect.objectContaining({ rows: 2 }) });
+    expect(publicationEvents).toContainEqual({ kind: "phase", phase: "transaction", edge: "end" });
+    expect(() => publicationObservation.assertHealthy()).toThrow("publication observation failed");
 
     const state = await relationState(scope);
     expect(state.currentRows).toHaveLength(2);
@@ -414,7 +425,11 @@ describe("C09 point-commit relation maintenance", () => {
     const injected = new PointCommitCorruptionV1Error({
       reason: "publicationInvariantInvalid",
     });
+    const publicationObservation = new PointCommitPublicationObservation({ detail: true, record: () => {
+      throw new Error("observer cannot replace the publication refusal");
+    } });
     const failure = await runEffectFailure(relationPublisher(scope, {
+      publicationObservation,
       afterTransactionStep: (event) => {
         if (event.step === "commitRelationAdjacencyChangeWritten") {
           throw injected;
@@ -423,6 +438,7 @@ describe("C09 point-commit relation maintenance", () => {
       },
     }).publish(prepared.command));
     expect(failure).toBe(injected);
+    expect(publicationObservation.status().failureCount).toBeGreaterThan(0);
     expect(await durableRelationState(scope)).toMatchObject({
       revisions: "0",
       currentRows: "0",

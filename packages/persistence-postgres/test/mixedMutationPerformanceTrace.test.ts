@@ -84,6 +84,10 @@ describe.skipIf(postgresUrl === null)("mixed mutation performance trace ordinary
       expect(recon?.poolQueryCalls).toBe(2);
       expect(recon?.delegatedPoolQueryDispatches).toBe(2);
       expect(recon?.dispatches).toHaveLength(5);
+      expect(recon?.startedAtMs).toBeGreaterThan(0);
+      expect(recon?.dispatches.find(dispatch => dispatch.phasePath.includes("bridge"))).toMatchObject({
+        parameterCount: 1, scalarParameterBytes: 2, unknownEncodingParameters: 0,
+      });
       expect(recon?.checkouts.length).toBeGreaterThanOrEqual(3);
       expect(recon?.transactions).toMatchObject([{ pool: "target", outcome: "commit" }]);
       expect(recon?.unobservedDispatches).toBe(0);

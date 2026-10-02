@@ -13,6 +13,7 @@ import type { LocatedAppUniqueConstraintDefinitionV1 } from "../appUniqueConstra
 import { logicalIndexReadFailureReason, readLogicalIndexPage } from "./indexReads";
 import { decodeLogicalParticipantDependencyEvidence, logicalParticipantEvidenceError } from "./journalEvidence";
 import type { LogicalDocumentFailureReason } from "./model";
+import type { PointCommitPublicationObservation } from "../pointCommitPublicationObservation";
 
 const decodeIndexId = Schema.decodeUnknownResult(Schema.toType(CatalogIndexDefinitionIdSchema));
 const decodeUniqueId = Schema.decodeUnknownResult(Schema.toType(CatalogUniqueConstraintDefinitionIdSchema));
@@ -32,8 +33,12 @@ export const validateLogicalParticipantDependencyEvidence = Effect.fn("LogicalDo
     contribution: SourceContribution,
     admitted: Readonly<{ tableIds: ReadonlySet<CatalogTableId>;
       indexes: readonly LocatedAppIndexDefinitionV1[];
-      unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }>) {
+      unique: readonly LocatedAppUniqueConstraintDefinitionV1[] }>,
+    publicationObservation?: PointCommitPublicationObservation) {
     const evidence = yield* Effect.fromResult(decodeLogicalParticipantDependencyEvidence(contribution.dependencyEvidence));
+    if (publicationObservation?.detail) publicationObservation.record({ kind: "counts", owner: "participant",
+      counts: { indexes: admitted.indexes.length, constraints: admitted.unique.length,
+        ranges: evidence.indexRanges.length, pages: evidence.indexPages.length, uniqueReads: evidence.uniqueReads.length } });
     for (const kind of ["range", "page"] as const) {
       const selected = kind === "range" ? evidence.indexRanges : evidence.indexPages;
       const prepared: { input: ScanCurrentAppIndexV1Input; read: (typeof selected)[number] }[] = [];
